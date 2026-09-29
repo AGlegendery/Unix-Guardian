@@ -1,0 +1,21 @@
+[package]
+name = "ug-cli"
+description = "Command-line client for Unix Guardian"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "ug"
+path = "src/main.rs"
+
+[dependencies]
+ug-proto.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+zbus.workspace = true
+futures-lite.workspace = true

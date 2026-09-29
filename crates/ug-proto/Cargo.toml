@@ -1,0 +1,13 @@
+[package]
+name = "ug-proto"
+description = "D-Bus contract and shared wire types for Unix Guardian"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+zbus.workspace = true

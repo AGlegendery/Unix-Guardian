@@ -1,0 +1,2 @@
+# Hardware reads legitimately index fixed-size sysfs arrays.
+too-many-arguments-threshold = 10

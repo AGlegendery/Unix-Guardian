@@ -1,0 +1,15 @@
+[package]
+name = "ug-hw"
+description = "Reads CPU, memory, thermal, power and network state from sysfs and procfs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ug-proto.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+ug-testfs.workspace = true

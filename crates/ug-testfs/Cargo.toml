@@ -1,0 +1,11 @@
+[package]
+name = "ug-testfs"
+description = "Synthetic /sys and /proc trees so hardware code can be tested without hardware"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tempfile.workspace = true

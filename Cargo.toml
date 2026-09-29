@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ug-proto",
+    "crates/ug-testfs",
+    "crates/ug-hw",
+    "crates/ug-gpu",
+    "crates/ug-core",
+    "crates/ug-daemon",
+    "crates/ug-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/unix-guardian/unix-guardian"
+authors = ["Unix Guardian contributors"]
+
+[workspace.dependencies]
+ug-proto = { path = "crates/ug-proto" }
+ug-testfs = { path = "crates/ug-testfs" }
+ug-hw = { path = "crates/ug-hw" }
+ug-gpu = { path = "crates/ug-gpu" }
+ug-core = { path = "crates/ug-core" }
+
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "sync"] }
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+libloading = "0.8"
+tempfile = "3"
+futures-lite = "2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

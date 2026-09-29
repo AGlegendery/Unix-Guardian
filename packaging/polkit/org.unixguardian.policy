@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  Installed to /usr/share/polkit-1/actions/.
+
+  Every action here is checked by at least one daemon method, and every action
+  the daemon checks is here; ug-daemon's tests fail if the two drift apart.
+  New actions arrive with the phase that first enforces them.
+-->
+<policyconfig>
+  <vendor>Unix Guardian</vendor>
+  <vendor_url>https://github.com/unix-guardian/unix-guardian</vendor_url>
+  <icon_name>unix-guardian</icon_name>
+
+  <action id="org.unixguardian.daemon.debug">
+    <description>Change Unix Guardian diagnostic settings</description>
+    <description xml:lang="fa">تغییر تنظیمات عیب‌یابی Unix Guardian</description>
+    <message>Authentication is required to change Unix Guardian's log level.</message>
+    <message xml:lang="fa">برای تغییر سطح لاگ Unix Guardian احراز هویت لازم است.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

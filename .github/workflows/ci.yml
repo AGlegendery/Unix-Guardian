@@ -1,0 +1,68 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  deny:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  # The daemon has to build and behave on every Tier 1 family, and the
+  # interesting differences (paths, dbus flavour, os-release shapes) only show
+  # up in the distribution's own userland.
+  test:
+    name: test (${{ matrix.image }})
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - archlinux:latest
+          - fedora:latest
+          - debian:trixie
+          - ubuntu:24.04
+    steps:
+      - name: Install build and bus tooling
+        shell: sh
+        run: |
+          if command -v pacman >/dev/null; then
+            pacman -Syu --noconfirm --needed gcc curl dbus systemd python git
+          elif command -v dnf >/dev/null; then
+            dnf install -y gcc curl dbus-daemon dbus-tools systemd python3 git
+          else
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              gcc libc6-dev curl ca-certificates dbus dbus-daemon systemd python3 git
+          fi
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        shell: sh
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: cargo test --workspace
+      - name: End-to-end over a private bus
+        run: |
+          cargo build --workspace
+          dbus-run-session -- ./scripts/smoke.sh target/debug

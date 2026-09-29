@@ -1,0 +1,312 @@
+//! Wire types shared by every Unix Guardian process.
+//!
+//! See the crate docs for the sentinel convention: `NaN` / `0` / `""` mean "this
+//! machine does not report that", and the `Option`-returning accessors are the
+//! supported way to read them.
+
+use serde::{Deserialize, Serialize};
+use zbus::zvariant::Type;
+
+/// Returns `None` for the float sentinel, `Some(v)` otherwise.
+#[inline]
+fn opt_f64(v: f64) -> Option<f64> {
+    if v.is_nan() {
+        None
+    } else {
+        Some(v)
+    }
+}
+
+/// Returns `None` for the empty-string sentinel.
+#[inline]
+fn opt_str(s: &str) -> Option<&str> {
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+/// Which driver stack a GPU is on. Determines which tuning paths exist at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[zvariant(signature = "s")]
+#[serde(rename_all = "lowercase")]
+pub enum Vendor {
+    /// `nvidia` or `nvidia-open` kernel module; telemetry and tuning via NVML.
+    Nvidia,
+    /// `amdgpu`; telemetry and tuning via sysfs.
+    Amd,
+    /// `i915` / `xe`; telemetry only.
+    Intel,
+    /// A GPU we recognise as a display device but have no backend for.
+    Unknown,
+}
+
+impl Vendor {
+    /// Maps a PCI vendor ID (`/sys/.../device/vendor`) to a backend.
+    pub fn from_pci_id(id: u16) -> Self {
+        match id {
+            0x10de => Vendor::Nvidia,
+            0x1002 | 0x1022 => Vendor::Amd,
+            0x8086 => Vendor::Intel,
+            _ => Vendor::Unknown,
+        }
+    }
+}
+
+impl std::fmt::Display for Vendor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Vendor::Nvidia => "NVIDIA",
+            Vendor::Amd => "AMD",
+            Vendor::Intel => "Intel",
+            Vendor::Unknown => "Unknown",
+        })
+    }
+}
+
+/// A GPU as the machine presents it, independent of what it can be told to do.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct GpuInfo {
+    /// PCI address in `0000:01:00.0` form. The stable identity of a GPU across
+    /// reboots and driver reloads; every other call takes this as the key.
+    pub pci: String,
+    /// Marketing name, e.g. `"NVIDIA GeForce RTX 3050 Laptop GPU"`.
+    pub name: String,
+    pub vendor: Vendor,
+    /// PCI device ID, useful for matching generation-specific quirks.
+    pub device_id: u32,
+    /// Kernel module currently bound, e.g. `"nvidia"`, `"amdgpu"`, `"i915"`.
+    pub driver: String,
+    /// Driver version as the stack reports it; `""` when unknown.
+    pub driver_version: String,
+    /// Total video memory in MiB; `0` when the driver does not report it.
+    pub vram_total_mb: u64,
+    /// True for the GPU the firmware posted — normally the integrated one on a
+    /// hybrid laptop, which is exactly the case where it must not be tuned.
+    pub boot_vga: bool,
+    /// `/sys/class/drm/cardN` index, or `-1` if the GPU has no DRM node.
+    pub card_index: i32,
+}
+
+/// What a GPU will actually let us change on this machine.
+///
+/// Capability is not a property of the model alone: the same card reports
+/// different capabilities depending on driver version, kernel boot parameters
+/// (`amdgpu.ppfeaturemask`), and whether the daemon is running privileged.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+pub struct GpuCapabilities {
+    /// Power limit is writable, and `power_limit_min_w`/`_max_w` are meaningful.
+    pub power_limit: bool,
+    /// Core and memory clock offsets can be applied.
+    pub clock_offset: bool,
+    /// An absolute voltage or voltage offset can be set. False on NVIDIA — the
+    /// Linux driver exposes no voltage/frequency curve at all.
+    pub voltage: bool,
+    /// Fan speed can be driven manually.
+    pub fan_control: bool,
+    /// A multi-point fan curve can be handed to the hardware directly, rather
+    /// than emulated by the daemon's control loop.
+    pub fan_curve: bool,
+    pub power_limit_min_w: f64,
+    pub power_limit_max_w: f64,
+    /// Inclusive bounds for the core clock offset, in MHz.
+    pub core_offset_min_mhz: i32,
+    pub core_offset_max_mhz: i32,
+    /// Human-readable reasons for whatever is false above, e.g.
+    /// `"amdgpu.ppfeaturemask is not set — add it to your boot parameters"`.
+    /// Shown verbatim next to the disabled control.
+    pub notes: Vec<String>,
+}
+
+/// One read of the CPU package.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct CpuSample {
+    /// Busy fraction across all cores, 0–100.
+    pub load_pct: f64,
+    /// Package temperature in °C, or `NaN`.
+    pub temp_c: f64,
+    /// Package power draw in watts from RAPL, or `NaN` where RAPL is absent.
+    pub power_w: f64,
+    /// Mean current frequency across online cores, MHz; `0` if unreadable.
+    pub freq_avg_mhz: u32,
+    /// Highest current frequency across cores, MHz — the number that shows a
+    /// single-threaded boost the average hides.
+    pub freq_max_mhz: u32,
+    /// Per-core load, 0–100, in kernel CPU order.
+    pub per_core_load: Vec<f64>,
+    /// Active scaling governor, e.g. `"performance"`.
+    pub governor: String,
+    /// Energy/performance preference, e.g. `"balance_power"`; `""` if absent.
+    pub epp: String,
+    /// Scaling driver, e.g. `"intel_pstate"`, `"amd_pstate_epp"`.
+    pub driver: String,
+}
+
+impl CpuSample {
+    pub fn temp(&self) -> Option<f64> {
+        opt_f64(self.temp_c)
+    }
+    pub fn power(&self) -> Option<f64> {
+        opt_f64(self.power_w)
+    }
+    pub fn epp(&self) -> Option<&str> {
+        opt_str(&self.epp)
+    }
+}
+
+/// One read of a single GPU.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct GpuSample {
+    /// PCI address, matching [`GpuInfo::pci`].
+    pub pci: String,
+    /// Core temperature in °C, or `NaN`.
+    pub temp_c: f64,
+    /// Hotspot/junction temperature in °C — the number that actually throttles
+    /// the card. `NaN` on hardware that does not expose it.
+    pub temp_hotspot_c: f64,
+    /// Memory junction temperature in °C, or `NaN`.
+    pub temp_mem_c: f64,
+    /// Utilisation 0–100, or `NaN`.
+    pub load_pct: f64,
+    /// Board power draw in watts, or `NaN`.
+    pub power_w: f64,
+    /// Currently enforced power limit in watts, or `NaN`.
+    pub power_limit_w: f64,
+    pub core_clock_mhz: u32,
+    pub mem_clock_mhz: u32,
+    pub vram_used_mb: u64,
+    /// Fan duty 0–100, or `NaN` on a passively cooled or unreported card.
+    pub fan_pct: f64,
+    /// Fan speed in RPM; `0` when unreported.
+    pub fan_rpm: u32,
+    /// The GPU is runtime-suspended (PCI D3) and was deliberately not read.
+    ///
+    /// On a hybrid laptop the discrete GPU sleeps whenever nothing is rendering
+    /// on it, and any query — NVML or `amdgpu` sysfs alike — wakes it, which
+    /// takes over a second and keeps it powered for as long as polling
+    /// continues. A monitor that woke it every second would quietly cost the
+    /// user several watts of battery. When this is true, `load_pct` is `0`
+    /// (a suspended GPU is idle by definition) and every other reading is a
+    /// sentinel; the UI should say "sleeping", not "no data".
+    pub asleep: bool,
+}
+
+impl GpuSample {
+    pub fn temp(&self) -> Option<f64> {
+        opt_f64(self.temp_c)
+    }
+    pub fn hotspot(&self) -> Option<f64> {
+        opt_f64(self.temp_hotspot_c)
+    }
+    pub fn load(&self) -> Option<f64> {
+        opt_f64(self.load_pct)
+    }
+    pub fn power(&self) -> Option<f64> {
+        opt_f64(self.power_w)
+    }
+    pub fn fan(&self) -> Option<f64> {
+        opt_f64(self.fan_pct)
+    }
+}
+
+/// One read of system memory.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct MemSample {
+    pub total_kb: u64,
+    /// `MemAvailable` — what a new allocation can actually get, which is the
+    /// number worth showing, not `MemFree`.
+    pub available_kb: u64,
+    pub swap_total_kb: u64,
+    pub swap_used_kb: u64,
+    /// Compressed data currently held in zram, KiB; `0` when zram is not in use.
+    pub zram_used_kb: u64,
+}
+
+impl MemSample {
+    /// Used memory in KiB, derived the way a user reads it: total minus available.
+    pub fn used_kb(&self) -> u64 {
+        self.total_kb.saturating_sub(self.available_kb)
+    }
+    /// Used fraction 0–100.
+    pub fn used_pct(&self) -> f64 {
+        if self.total_kb == 0 {
+            return f64::NAN;
+        }
+        self.used_kb() as f64 * 100.0 / self.total_kb as f64
+    }
+}
+
+/// One read of the default-route network interface.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct NetSample {
+    /// Interface carrying the default route, e.g. `"wlan0"`; `""` when offline.
+    pub iface: String,
+    /// Receive rate in bytes per second, averaged over the sampling interval.
+    pub rx_bps: u64,
+    pub tx_bps: u64,
+    pub rx_total_bytes: u64,
+    pub tx_total_bytes: u64,
+}
+
+/// Everything sampled at one instant. The unit the monitoring UI consumes.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct Snapshot {
+    /// Wall-clock time of the read, milliseconds since the Unix epoch.
+    pub ts_unix_ms: u64,
+    pub cpu: CpuSample,
+    /// One entry per GPU, in the same order as [`GpuInfo`] from `Gpu.List`.
+    pub gpus: Vec<GpuSample>,
+    pub mem: MemSample,
+    pub net: NetSample,
+}
+
+/// CPU layout, including the parts that decide whether core pinning is worth
+/// offering at all.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+pub struct CpuTopology {
+    /// Model name from `/proc/cpuinfo`.
+    pub model: String,
+    /// Online logical CPUs.
+    pub logical: u32,
+    /// Physical cores, counting an SMT pair as one.
+    pub physical: u32,
+    pub sockets: u32,
+    /// True when SMT/Hyper-Threading is enabled.
+    pub smt: bool,
+    /// One entry per L3 domain. On AMD these are the CCDs; pinning a game to the
+    /// right one is the whole point of reading this.
+    pub l3_domains: Vec<L3Domain>,
+    /// True when any L3 domain is large enough to be 3D V-Cache (>= 96 MiB),
+    /// which is when "lock the game to the cache CCD" becomes meaningful.
+    pub has_vcache: bool,
+}
+
+/// One L3 cache domain and the logical CPUs that share it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+pub struct L3Domain {
+    /// Kernel's cache ID for this domain.
+    pub id: u32,
+    /// L3 size in KiB.
+    pub size_kb: u64,
+    /// Logical CPUs sharing this L3.
+    pub cpus: Vec<u32>,
+}
+
+/// Static description of the machine. Fetched once and cached by clients.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+pub struct Inventory {
+    pub cpu: CpuTopology,
+    pub gpus: Vec<GpuInfo>,
+    /// `ID` from `/etc/os-release`, e.g. `"arch"`, `"debian"`, `"fedora"`.
+    pub distro_id: String,
+    /// `PRETTY_NAME` from `/etc/os-release`.
+    pub distro_name: String,
+    /// `uname -r`.
+    pub kernel: String,
+    /// Total RAM in KiB.
+    pub mem_total_kb: u64,
+    /// True when the daemon is running with the privileges its write paths need.
+    /// The UI shows read-only mode rather than failing calls when this is false.
+    pub privileged: bool,
+}

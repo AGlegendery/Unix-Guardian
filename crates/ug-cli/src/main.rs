@@ -1,0 +1,382 @@
+//! `ug` — the command-line client.
+//!
+//! Every feature the UI offers is reachable here, and that is a project rule
+//! rather than a convenience. The driver troubleshooter can leave a machine
+//! without working graphics; the person who then has to undo it is sitting at a
+//! TTY with no UI to open. A feature that exists only in the GUI is a feature
+//! that disappears exactly when it is most needed.
+//!
+//! Every command takes `--json` so the output can be piped somewhere useful.
+
+use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
+use ug_proto::daemon::{DaemonProxy, GpuProxy};
+use ug_proto::{GpuCapabilities, Inventory, Snapshot};
+
+#[derive(Parser)]
+#[command(name = "ug", version, about = "Unix Guardian command-line client")]
+struct Cli {
+    /// Talk to a daemon on the session bus, as started by `ug-daemon --session`.
+    #[arg(long, global = true)]
+    session: bool,
+
+    /// Emit JSON instead of formatted text.
+    #[arg(long, global = true)]
+    json: bool,
+
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Machine summary and current readings.
+    Status,
+    /// Static hardware inventory.
+    Inventory,
+    /// Live readings, refreshed until interrupted.
+    Monitor {
+        /// Milliseconds between samples.
+        #[arg(long, default_value_t = 1000)]
+        interval: u32,
+    },
+    /// GPU commands.
+    Gpu {
+        #[command(subcommand)]
+        command: GpuCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum GpuCommand {
+    /// List every GPU in the machine.
+    List,
+    /// Show what a GPU allows, and why anything unavailable is unavailable.
+    Caps {
+        /// PCI address; defaults to the active GPU.
+        pci: Option<String>,
+    },
+    /// Show or change which GPU tuning acts on.
+    Active {
+        /// PCI address to switch to; omit to print the current one.
+        pci: Option<String>,
+    },
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    let conn = if cli.session {
+        zbus::Connection::session().await
+    } else {
+        zbus::Connection::system().await
+    }
+    .context("connecting to D-Bus")?;
+
+    let daemon = DaemonProxy::new(&conn).await.with_context(|| {
+        format!(
+            "reaching the daemon on the {} bus. Is unix-guardiand running? \
+             For a development daemon started with --session, pass --session here too.",
+            if cli.session { "session" } else { "system" }
+        )
+    })?;
+
+    match cli.command {
+        Command::Status => status(&daemon, cli.json).await,
+        Command::Inventory => {
+            let inv = daemon.inventory().await?;
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&inv)?);
+            } else {
+                print_inventory(&inv);
+            }
+            Ok(())
+        }
+        Command::Monitor { interval } => monitor(&daemon, interval, cli.json).await,
+        Command::Gpu { command } => gpu(&conn, &daemon, command, cli.json).await,
+    }
+}
+
+async fn status(daemon: &DaemonProxy<'_>, json: bool) -> Result<()> {
+    let inv = daemon.inventory().await?;
+    // Two reads so the rate-based figures (load, package power, throughput)
+    // have a baseline. One read would always report zero load.
+    daemon.snapshot().await?;
+    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    let snap = daemon.snapshot().await?;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "inventory": inv,
+                "snapshot": snap,
+            }))?
+        );
+        return Ok(());
+    }
+
+    print_inventory(&inv);
+    println!();
+    print_snapshot(&snap, &inv);
+    Ok(())
+}
+
+async fn monitor(daemon: &DaemonProxy<'_>, interval: u32, json: bool) -> Result<()> {
+    use futures_lite::StreamExt;
+    let inv = daemon.inventory().await?;
+
+    // Listen before subscribing. The daemon emits its first sample the moment
+    // the subscription lands, and a match rule added afterwards would miss it.
+    let mut samples = daemon.receive_sample().await?;
+    daemon.subscribe(interval).await?;
+
+    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let result: Result<()> = async {
+        loop {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => return Ok(()),
+                _ = term.recv() => return Ok(()),
+                next = samples.next() => {
+                    let Some(signal) = next else { return Ok(()) };
+                    let snap: Snapshot = signal.args()?.snapshot;
+                    if json {
+                        // `ug monitor --json | head` closes the pipe on purpose.
+                        // That ends the stream cleanly — and still reaches the
+                        // unsubscribe below — rather than panicking in println!.
+                        use std::io::Write;
+                        let line = serde_json::to_string(&snap)?;
+                        let mut out = std::io::stdout().lock();
+                        match writeln!(out, "{line}").and_then(|_| out.flush()) {
+                            Ok(()) => {}
+                            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => return Ok(()),
+                            Err(e) => return Err(e.into()),
+                        }
+                    } else {
+                        print_snapshot(&snap, &inv);
+                        println!();
+                    }
+                }
+            }
+        }
+    }
+    .await;
+
+    // Best effort: the daemon also releases us when we leave the bus, so a
+    // SIGKILL that skips this still cannot leave the sampling loop pinned on.
+    let _ = daemon.unsubscribe().await;
+    result
+}
+
+async fn gpu(
+    conn: &zbus::Connection,
+    daemon: &DaemonProxy<'_>,
+    command: GpuCommand,
+    json: bool,
+) -> Result<()> {
+    let gpu = GpuProxy::new(conn).await?;
+    match command {
+        GpuCommand::List => {
+            let gpus = daemon.inventory().await?.gpus;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&gpus)?);
+                return Ok(());
+            }
+            let active = gpu.active_gpu().await.unwrap_or_default();
+            for g in &gpus {
+                let marker = if g.pci == active { "*" } else { " " };
+                let role = if g.boot_vga { "integrated" } else { "discrete" };
+                println!("{marker} {}  {}", g.pci, g.name);
+                print!("    {} · {role}", g.vendor);
+                if !g.driver.is_empty() {
+                    print!(" · driver {}", g.driver);
+                }
+                if !g.driver_version.is_empty() {
+                    print!(" {}", g.driver_version);
+                }
+                if g.vram_total_mb > 0 {
+                    print!(" · {} MB VRAM", g.vram_total_mb);
+                }
+                println!();
+            }
+            if !gpus.is_empty() {
+                println!("\n* is the GPU tuning acts on. Change it with `ug gpu active <pci>`.");
+            }
+            Ok(())
+        }
+        GpuCommand::Caps { pci } => {
+            let pci = match pci {
+                Some(p) => p,
+                None => gpu.active_gpu().await?,
+            };
+            let caps = gpu.capabilities(&pci).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&caps)?);
+            } else {
+                print_caps(&pci, &caps);
+            }
+            Ok(())
+        }
+        GpuCommand::Active { pci } => {
+            match pci {
+                Some(p) => {
+                    gpu.set_active_gpu(&p).await?;
+                    println!("Tuning now acts on {p}.");
+                }
+                None => println!("{}", gpu.active_gpu().await?),
+            }
+            Ok(())
+        }
+    }
+}
+
+fn print_inventory(inv: &Inventory) {
+    println!("{}", inv.distro_name);
+    println!("  kernel    {}", inv.kernel);
+    println!(
+        "  cpu       {} ({} cores / {} threads{})",
+        inv.cpu.model,
+        inv.cpu.physical,
+        inv.cpu.logical,
+        if inv.cpu.smt { ", SMT on" } else { "" }
+    );
+    if inv.cpu.l3_domains.len() > 1 {
+        println!(
+            "            {} L3 domains{}",
+            inv.cpu.l3_domains.len(),
+            if inv.cpu.has_vcache {
+                " (3D V-Cache present)"
+            } else {
+                ""
+            }
+        );
+    }
+    println!("  memory    {} GB", inv.mem_total_kb / 1024 / 1024);
+    for g in &inv.gpus {
+        println!(
+            "  gpu       {} [{}]{}",
+            g.name,
+            g.pci,
+            if g.boot_vga { " (integrated)" } else { "" }
+        );
+    }
+    if !inv.privileged {
+        println!("\n  read-only: the daemon is not running privileged, so tuning is unavailable.");
+    }
+}
+
+fn print_snapshot(s: &Snapshot, inv: &Inventory) {
+    print!("cpu   {:>5.1}%", s.cpu.load_pct);
+    if let Some(t) = s.cpu.temp() {
+        print!("  {t:>5.1}°C");
+    }
+    if let Some(w) = s.cpu.power() {
+        print!("  {w:>5.1} W");
+    }
+    if s.cpu.freq_avg_mhz > 0 {
+        print!("  {} MHz avg / {} max", s.cpu.freq_avg_mhz, s.cpu.freq_max_mhz);
+    }
+    if !s.cpu.governor.is_empty() {
+        print!("  [{}]", s.cpu.governor);
+    }
+    println!();
+
+    for g in &s.gpus {
+        let name = inv
+            .gpus
+            .iter()
+            .find(|i| i.pci == g.pci)
+            .map(|i| i.name.as_str())
+            .unwrap_or(g.pci.as_str());
+        print!("gpu   ");
+        if g.asleep {
+            println!(" sleep  (powered down to save energy)  {name}");
+            continue;
+        }
+        match g.load() {
+            Some(l) => print!("{l:>5.1}%"),
+            None => print!("    — "),
+        }
+        if let Some(t) = g.temp() {
+            print!("  {t:>5.1}°C");
+        }
+        if let Some(h) = g.hotspot() {
+            print!("  hotspot {h:.0}°C");
+        }
+        if let Some(w) = g.power() {
+            print!("  {w:>5.1} W");
+        }
+        if g.core_clock_mhz > 0 {
+            print!("  {} MHz", g.core_clock_mhz);
+        }
+        if let Some(f) = g.fan() {
+            print!("  fan {f:.0}%");
+        }
+        println!("  {name}");
+    }
+
+    println!(
+        "mem   {:>5.1}%  {:.1} / {:.1} GB",
+        s.mem.used_pct(),
+        s.mem.used_kb() as f64 / 1024.0 / 1024.0,
+        s.mem.total_kb as f64 / 1024.0 / 1024.0
+    );
+
+    if s.net.iface.is_empty() {
+        println!("net   offline");
+    } else {
+        println!(
+            "net   {}  down {}  up {}",
+            s.net.iface,
+            rate(s.net.rx_bps),
+            rate(s.net.tx_bps)
+        );
+    }
+}
+
+fn print_caps(pci: &str, c: &GpuCapabilities) {
+    println!("{pci}");
+    let yes_no = |b: bool| if b { "yes" } else { "no " };
+    println!("  power limit    {}", yes_no(c.power_limit));
+    if c.power_limit {
+        println!(
+            "                 {:.0} – {:.0} W",
+            c.power_limit_min_w, c.power_limit_max_w
+        );
+    }
+    println!("  clock offset   {}", yes_no(c.clock_offset));
+    println!("  voltage        {}", yes_no(c.voltage));
+    println!("  fan control    {}", yes_no(c.fan_control));
+    println!("  fan curve      {}", yes_no(c.fan_curve));
+    if !c.notes.is_empty() {
+        println!();
+        for n in &c.notes {
+            println!("  · {n}");
+        }
+    }
+}
+
+/// Formats a byte rate at a sensible scale.
+fn rate(bps: u64) -> String {
+    const UNITS: [(&str, f64); 3] = [("MB/s", 1_048_576.0), ("kB/s", 1024.0), ("B/s", 1.0)];
+    for (unit, scale) in UNITS {
+        if bps as f64 >= scale {
+            return format!("{:.1} {unit}", bps as f64 / scale);
+        }
+    }
+    "0 B/s".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rate;
+
+    #[test]
+    fn rates_pick_a_readable_scale() {
+        assert_eq!(rate(0), "0 B/s");
+        assert_eq!(rate(512), "512.0 B/s");
+        assert_eq!(rate(2048), "2.0 kB/s");
+        assert_eq!(rate(5_242_880), "5.0 MB/s");
+    }
+}

@@ -1,0 +1,17 @@
+[package]
+name = "ug-gpu"
+description = "GPU discovery, telemetry and capability probing for NVIDIA, AMD and Intel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ug-proto.workspace = true
+ug-hw.workspace = true
+tracing.workspace = true
+nvml-wrapper = "0.13"
+
+[dev-dependencies]
+ug-testfs.workspace = true

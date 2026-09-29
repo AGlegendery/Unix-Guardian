@@ -1,0 +1,8 @@
+# Installed to /usr/share/dbus-1/system-services/.
+# Lets the first call start the daemon through systemd, so a UI or `ug` command
+# works even if the unit was not enabled.
+[D-BUS Service]
+Name=org.unixguardian.Daemon1
+Exec=/bin/false
+User=root
+SystemdService=unix-guardiand.service

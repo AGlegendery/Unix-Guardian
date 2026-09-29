@@ -1,0 +1,31 @@
+# cargo-deny: run in CI. Every dependency must be under a licence compatible
+# with distributing Unix Guardian as GPL-3.0-or-later.
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "ISC",
+    "Unicode-3.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "GPL-3.0-or-later",
+]
+confidence-threshold = 0.9
+
+[licenses.private]
+# Our own crates are not published; their licence is the workspace's.
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[advisories]
+yanked = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

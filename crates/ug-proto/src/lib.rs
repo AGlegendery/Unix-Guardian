@@ -1,0 +1,153 @@
+//! The Unix Guardian D-Bus contract.
+//!
+//! Everything that crosses a process boundary is defined here and nowhere else:
+//! the wire types, the interface traits, and the well-known names. The daemon
+//! implements these interfaces, the agent and the UI consume them, and `ug-cli`
+//! is a thin shell over the same calls.
+//!
+//! # Versioning
+//!
+//! Interfaces only ever gain methods. A breaking change means a new interface
+//! (`Daemon2`), never a changed signature on `Daemon1`. Clients check
+//! [`DaemonProxy::protocol_version`] before relying on anything newer than the
+//! release they were built against.
+//!
+//! # Missing readings
+//!
+//! D-Bus has no option type, and a snapshot is mostly numbers that a given
+//! machine may not expose — an Intel laptop has no `gpu_busy_percent`, a VM has
+//! no RAPL. Rather than a parallel set of "has_x" booleans, unavailable readings
+//! travel as sentinels: `f64::NAN` for floats, `0` for counts, `""` for strings.
+//! Use the accessors ([`CpuSample::temp`] and friends), which hand back `Option`,
+//! instead of testing the raw fields.
+
+pub mod types;
+
+pub use types::*;
+
+/// Well-known bus name of the privileged daemon (system bus).
+pub const DAEMON_BUS_NAME: &str = "org.unixguardian.Daemon1";
+/// Object path the daemon's interfaces hang off.
+pub const DAEMON_OBJECT_PATH: &str = "/org/unixguardian/Daemon1";
+/// Well-known bus name of the per-session agent (session bus).
+pub const AGENT_BUS_NAME: &str = "org.unixguardian.Agent1";
+/// Object path the agent's interfaces hang off.
+pub const AGENT_OBJECT_PATH: &str = "/org/unixguardian/Agent1";
+
+/// Protocol version this build speaks. Bumped when methods are added.
+pub const PROTOCOL_VERSION: u32 = 1;
+
+/// Errors that cross the bus.
+///
+/// Each variant maps to a distinct D-Bus error name so callers can branch on the
+/// cause rather than string-matching a message. [`Unsupported`](UgError::Unsupported)
+/// is the common one and is not a failure: it is how the daemon tells the UI that
+/// this machine cannot do the thing, so the control should be shown disabled with
+/// the reason rather than hidden or shown broken.
+#[derive(Debug, thiserror::Error)]
+pub enum UgError {
+    /// The hardware, kernel, or distribution does not support this operation.
+    /// Carries a human-readable reason meant to be shown to the user verbatim.
+    #[error("{0}")]
+    Unsupported(String),
+    /// polkit denied the caller.
+    #[error("not authorized: {0}")]
+    NotAuthorized(String),
+    /// The referenced GPU, profile, or job does not exist.
+    #[error("not found: {0}")]
+    NotFound(String),
+    /// The request was well-formed but the value is out of the allowed range.
+    #[error("invalid argument: {0}")]
+    InvalidArgument(String),
+    /// Reading or writing a kernel interface failed.
+    #[error("system error: {0}")]
+    System(String),
+}
+
+impl From<UgError> for zbus::fdo::Error {
+    fn from(e: UgError) -> Self {
+        match e {
+            UgError::NotAuthorized(m) => zbus::fdo::Error::AccessDenied(m),
+            UgError::NotFound(m) => zbus::fdo::Error::FileNotFound(m),
+            UgError::InvalidArgument(m) => zbus::fdo::Error::InvalidArgs(m),
+            UgError::Unsupported(m) => zbus::fdo::Error::NotSupported(m),
+            UgError::System(m) => zbus::fdo::Error::Failed(m),
+        }
+    }
+}
+
+/// Convenience alias for fallible daemon operations.
+pub type Result<T> = std::result::Result<T, UgError>;
+
+/// Client proxies for the daemon's interfaces.
+pub mod daemon {
+    use crate::types::*;
+
+    /// Top-level daemon interface: identity, health, and the telemetry snapshot.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Daemon1.System",
+        default_service = "org.unixguardian.Daemon1",
+        default_path = "/org/unixguardian/Daemon1"
+    )]
+    pub trait Daemon {
+        /// One consistent read of every sensor the machine exposes.
+        ///
+        /// This is the only call the monitoring UI makes, once a second. It never
+        /// fails on missing hardware — absent readings come back as sentinels.
+        fn snapshot(&self) -> zbus::Result<Snapshot>;
+
+        /// Static description of the machine: CPU model, topology, GPUs, distro.
+        /// Cheap to call but meant to be fetched once and cached.
+        fn inventory(&self) -> zbus::Result<Inventory>;
+
+        /// Change the daemon's log filter at runtime, e.g. `"debug"` or
+        /// `"ug_gpu=trace,info"`. Survives until the next restart.
+        fn set_log_filter(&self, filter: &str) -> zbus::Result<()>;
+
+        /// Protocol version this daemon speaks. See module docs on versioning.
+        #[zbus(property)]
+        fn protocol_version(&self) -> zbus::Result<u32>;
+
+        /// Package version of the running daemon, e.g. `"0.1.0"`.
+        #[zbus(property)]
+        fn version(&self) -> zbus::Result<String>;
+
+        /// Emitted once per sampling interval, but only while at least one client
+        /// has called [`subscribe`](DaemonProxy::subscribe). With no subscribers
+        /// the daemon does no periodic work at all.
+        #[zbus(signal)]
+        fn sample(&self, snapshot: Snapshot) -> zbus::Result<()>;
+
+        /// Start (or join) the sampling loop. Reference-counted: the loop stops
+        /// when the last subscriber unsubscribes or drops off the bus.
+        fn subscribe(&self, interval_ms: u32) -> zbus::Result<()>;
+
+        /// Release this client's claim on the sampling loop.
+        fn unsubscribe(&self) -> zbus::Result<()>;
+    }
+
+    /// Read and write GPU state: clocks, power limits, fans.
+    ///
+    /// Write methods each require the `org.unixguardian.gpu.tune` polkit action.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Daemon1.Gpu",
+        default_service = "org.unixguardian.Daemon1",
+        default_path = "/org/unixguardian/Daemon1"
+    )]
+    pub trait Gpu {
+        /// Every GPU the machine has, discrete and integrated, in PCI order.
+        fn list(&self) -> zbus::Result<Vec<GpuInfo>>;
+
+        /// What this GPU actually allows, given its generation, driver, and
+        /// kernel parameters. The UI drives control visibility off this — a
+        /// control whose capability is false is shown disabled with
+        /// [`GpuCapabilities::notes`] as the explanation.
+        fn capabilities(&self, pci: &str) -> zbus::Result<GpuCapabilities>;
+
+        /// The GPU that tuning and monitoring act on by default.
+        #[zbus(property)]
+        fn active_gpu(&self) -> zbus::Result<String>;
+        #[zbus(property)]
+        fn set_active_gpu(&self, pci: &str) -> zbus::Result<()>;
+    }
+}

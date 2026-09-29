@@ -1,0 +1,41 @@
+# Installed to /usr/lib/systemd/system/unix-guardiand.service
+[Unit]
+Description=Unix Guardian daemon
+Documentation=https://github.com/unix-guardian/unix-guardian
+After=dbus.service polkit.service
+
+[Service]
+Type=dbus
+BusName=org.unixguardian.Daemon1
+ExecStart=/usr/bin/ug-daemon
+Restart=on-failure
+RestartSec=2
+
+# Later phases restore hardware on stop (fan control back to the driver, traffic
+# shaping removed). A generous timeout lets that finish instead of being killed.
+TimeoutStopSec=15
+
+StateDirectory=unix-guardian
+ConfigurationDirectory=unix-guardian
+
+# Game-mode CPU pinning (P2) creates cgroups beneath this unit.
+Delegate=yes
+
+# The daemon needs root for sysfs writes, NVML and netlink, but not the rest of
+# what root can do. Capabilities are the ones the roadmap's features use;
+# `systemd-analyze security unix-guardiand` should stay below 5.
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_NICE CAP_SYS_RAWIO CAP_DAC_OVERRIDE CAP_KILL
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
+Alias=dbus-org.unixguardian.Daemon1.service

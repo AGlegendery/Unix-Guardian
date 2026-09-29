@@ -1,0 +1,17 @@
+captured: 2026-09-28T09:57:47+03:30
+kernel:   7.0.13+parrot7-amd64
+distro:   Parrot Security 7.3 (echo)
+cpu:      12th Gen Intel(R) Core(TM) i5-12450HX
+gpu:      card0 0x8086:0x468b driver=i915
+gpu:      card1 0x10de:0x25ec driver=nvidia
+
+# nvidia-smi (NVIDIA has no sysfs telemetry; this is the reference)
+name, driver_version, temperature.gpu, power.draw [W], power.limit [W], clocks.current.graphics [MHz], clocks.current.memory [MHz], fan.speed [%]
+NVIDIA GeForce RTX 3050 6GB Laptop GPU, 550.163.01, 47, 8.93 W, [N/A], 1492 MHz, 5500 MHz, [N/A]
+
+# not readable without root (skipped):
+/sys/class/hwmon/hwmon5/temp1_max_alarm
+/sys/class/powercap/intel-rapl:0/energy_uj
+/sys/class/powercap/intel-rapl:0:0/energy_uj
+/sys/class/powercap/intel-rapl:0:1/energy_uj
+/sys/class/powercap/intel-rapl:1/energy_uj

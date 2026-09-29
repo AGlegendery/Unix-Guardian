@@ -1,0 +1,1 @@
+BOOT_IMAGE=/@/boot/vmlinuz-7.0.13+parrot7-amd64 root=UUID=00000000-0000-0000-0000-000000000000 ro rootflags=subvol=@ quiet splash noautomount quiet splash nvidia-drm.modeset=1

@@ -1,0 +1,7 @@
+/target
+**/node_modules
+/app/src-tauri/target
+/app/build
+/app/.svelte-kit
+*.tar.zst
+.DS_Store
