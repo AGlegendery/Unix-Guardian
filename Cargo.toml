@@ -6,6 +6,7 @@ members = [
     "crates/ug-hw",
     "crates/ug-gpu",
     "crates/ug-core",
+    "crates/ug-games",
     "crates/ug-daemon",
     "crates/ug-cli",
 ]
@@ -24,6 +25,7 @@ ug-testfs = { path = "crates/ug-testfs" }
 ug-hw = { path = "crates/ug-hw" }
 ug-gpu = { path = "crates/ug-gpu" }
 ug-core = { path = "crates/ug-core" }
+ug-games = { path = "crates/ug-games" }
 
 anyhow = "1"
 thiserror = "2"
@@ -38,6 +40,9 @@ clap = { version = "4", features = ["derive"] }
 libloading = "0.8"
 tempfile = "3"
 futures-lite = "2"
+rusqlite = { version = "0.40", features = ["bundled"] }
+yaml-rust2 = "0.13"
+libc = "0.2"
 
 [profile.release]
 opt-level = "s"

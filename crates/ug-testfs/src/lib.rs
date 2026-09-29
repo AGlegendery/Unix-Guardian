@@ -160,6 +160,91 @@ impl TestFs {
     }
 }
 
+/// A process to place in a synthetic `/proc`.
+#[derive(Debug, Clone)]
+pub struct FakeProc<'a> {
+    pub pid: i32,
+    pub ppid: i32,
+    pub uid: u32,
+    pub comm: &'a str,
+    pub cmdline: &'a [&'a str],
+    pub environ: &'a [(&'a str, &'a str)],
+    /// Paths to list in `/proc/<pid>/maps`, one mapping each.
+    pub maps: &'a [&'a str],
+    /// utime + stime, in clock ticks.
+    pub cpu_ticks: u64,
+    /// Start time in clock ticks since boot — with the PID, a process identity.
+    pub start_ticks: u64,
+}
+
+impl Default for FakeProc<'_> {
+    fn default() -> Self {
+        FakeProc {
+            pid: 1000,
+            ppid: 1,
+            uid: 1000,
+            comm: "proc",
+            cmdline: &[],
+            environ: &[],
+            maps: &[],
+            cpu_ticks: 0,
+            start_ticks: 100,
+        }
+    }
+}
+
+impl TestFs {
+    /// Writes `/proc/<pid>/{stat,status,comm,cmdline,environ,maps}` for a
+    /// process. Calling it again for the same PID rewrites it, which is how a
+    /// test advances a process's CPU time.
+    pub fn process(&self, p: &FakeProc<'_>) -> &Self {
+        let dir = self.dir.path().join(format!("proc/{}", p.pid));
+        fs::create_dir_all(&dir).expect("create /proc/<pid>");
+        // Field layout matches proc(5): utime is field 14 and stime 15 (both
+        // carried in utime here), starttime is field 22.
+        let stat = format!(
+            "{pid} ({comm}) S {ppid} {pid} {pid} 0 -1 4194304 0 0 0 0 {cpu} 0 0 0 20 0 1 0 {start} 0 0\n",
+            pid = p.pid,
+            comm = p.comm,
+            ppid = p.ppid,
+            cpu = p.cpu_ticks,
+            start = p.start_ticks
+        );
+        fs::write(dir.join("stat"), stat).unwrap();
+        fs::write(
+            dir.join("status"),
+            format!("Name:\t{}\nUid:\t{u}\t{u}\t{u}\t{u}\n", p.comm, u = p.uid),
+        )
+        .unwrap();
+        fs::write(dir.join("comm"), format!("{}\n", p.comm)).unwrap();
+        let mut cmd = Vec::new();
+        for a in p.cmdline {
+            cmd.extend_from_slice(a.as_bytes());
+            cmd.push(0);
+        }
+        fs::write(dir.join("cmdline"), cmd).unwrap();
+        let mut env = Vec::new();
+        for (k, v) in p.environ {
+            env.extend_from_slice(format!("{k}={v}").as_bytes());
+            env.push(0);
+        }
+        fs::write(dir.join("environ"), env).unwrap();
+        let maps: String = p
+            .maps
+            .iter()
+            .map(|m| format!("7f0000000000-7f0000001000 r-xp 00000000 00:00 1 {m}\n"))
+            .collect();
+        fs::write(dir.join("maps"), maps).unwrap();
+        self
+    }
+
+    /// Removes a process, as if it exited.
+    pub fn kill(&self, pid: i32) -> &Self {
+        let _ = fs::remove_dir_all(self.dir.path().join(format!("proc/{pid}")));
+        self
+    }
+}
+
 /// Builder for one hwmon chip's sensor files.
 pub struct Hwmon<'a> {
     fs: &'a TestFs,
