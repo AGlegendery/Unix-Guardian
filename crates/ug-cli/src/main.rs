@@ -10,6 +10,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use ug_proto::agent::{GamesProxy, PlaytimeProxy};
 use ug_proto::daemon::{DaemonProxy, GpuProxy};
 use ug_proto::{GpuCapabilities, Inventory, Snapshot};
 
@@ -45,6 +46,35 @@ enum Command {
         #[command(subcommand)]
         command: GpuCommand,
     },
+    /// Installed and running games.
+    Game {
+        #[command(subcommand)]
+        command: GameCommand,
+    },
+    /// Time spent in each game.
+    Playtime {
+        /// Only today (since local midnight).
+        #[arg(long, conflicts_with_all = ["week"])]
+        today: bool,
+        /// Only the last seven days.
+        #[arg(long)]
+        week: bool,
+        /// Delete all recorded sessions of one game, by key (e.g. `steam:730`).
+        #[arg(long, value_name = "KEY")]
+        forget: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum GameCommand {
+    /// Games installed through Steam, Lutris, Heroic or Bottles.
+    List,
+    /// Games running now, and the profile each runs with.
+    Running,
+    /// Re-read every launcher's library.
+    Rescan,
+    /// Stop treating an executable as a game, e.g. `ug game ignore Render.exe`.
+    Ignore { executable: String },
 }
 
 #[derive(Subcommand)]
@@ -66,6 +96,14 @@ enum GpuCommand {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // The agent always lives on the session bus, so game and playtime commands
+    // work whether or not the daemon is reachable.
+    match cli.command {
+        Command::Game { command } => return game(command, cli.json).await,
+        Command::Playtime { today, week, forget } => return playtime(today, week, forget, cli.json).await,
+        _ => {}
+    }
 
     let conn = if cli.session {
         zbus::Connection::session().await
@@ -95,6 +133,127 @@ async fn main() -> Result<()> {
         }
         Command::Monitor { interval } => monitor(&daemon, interval, cli.json).await,
         Command::Gpu { command } => gpu(&conn, &daemon, command, cli.json).await,
+        Command::Game { .. } | Command::Playtime { .. } => unreachable!("handled above"),
+    }
+}
+
+async fn agent_conn() -> Result<zbus::Connection> {
+    zbus::Connection::session().await.context("connecting to the session bus")
+}
+
+fn agent_hint(e: zbus::Error) -> anyhow::Error {
+    anyhow::anyhow!("{e}\nIs ug-agent running in this session? It starts with your desktop login.")
+}
+
+async fn game(command: GameCommand, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let games = GamesProxy::new(&conn).await?;
+    match command {
+        GameCommand::List => {
+            let mut list = games.installed().await.map_err(agent_hint)?;
+            list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            if json {
+                println!("{}", serde_json::to_string_pretty(&list)?);
+            } else if list.is_empty() {
+                println!("No installed games found in Steam, Lutris, Heroic or Bottles.");
+            } else {
+                for g in &list {
+                    println!("{:<8} {}", g.launcher, g.name);
+                }
+                println!("\n{} games", list.len());
+            }
+        }
+        GameCommand::Running => {
+            let list = games.running().await.map_err(agent_hint)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&list)?);
+            } else if list.is_empty() {
+                println!("No game is running.");
+            } else {
+                let now = now_ms();
+                for g in &list {
+                    let mins = now.saturating_sub(g.started_unix_ms) / 60_000;
+                    println!("{}  [{} profile]  {} min  ({})", g.name, g.profile, mins, g.key);
+                    println!("    recognised by: {}   processes: {:?}", g.evidence.replace('_', " "), g.pids);
+                    if !g.blocked_note.is_empty() {
+                        println!("    note: {}", g.blocked_note);
+                    }
+                }
+            }
+        }
+        GameCommand::Rescan => {
+            let n = games.rescan().await.map_err(agent_hint)?;
+            println!("{n} installed games found.");
+        }
+        GameCommand::Ignore { executable } => {
+            games.ignore_executable(&executable).await.map_err(agent_hint)?;
+            println!("{executable} will no longer be treated as a game.");
+        }
+    }
+    Ok(())
+}
+
+async fn playtime(today: bool, week: bool, forget: Option<String>, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let pt = PlaytimeProxy::new(&conn).await?;
+    if let Some(key) = forget {
+        let n = pt.forget(&key).await.map_err(agent_hint)?;
+        println!("Deleted {n} sessions of {key}.");
+        return Ok(());
+    }
+    let since = if today {
+        local_midnight_ms()
+    } else if week {
+        now_ms().saturating_sub(7 * 24 * 3_600_000)
+    } else {
+        0
+    };
+    let entries = pt.summary(since).await.map_err(agent_hint)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&entries)?);
+        return Ok(());
+    }
+    if entries.is_empty() {
+        println!("No playtime recorded{}.", if today { " today" } else if week { " this week" } else { "" });
+        return Ok(());
+    }
+    let total: u64 = entries.iter().map(|e| e.seconds).sum();
+    for e in &entries {
+        let pct = if total > 0 { e.seconds * 100 / total } else { 0 };
+        println!("{:>8}  {:>3}%  {}", hms(e.seconds), pct, e.name);
+    }
+    println!("{:>8}        total, {} games", hms(total), entries.len());
+    Ok(())
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Start of today in local time, as Unix milliseconds.
+fn local_midnight_ms() -> u64 {
+    // SAFETY: localtime_r writes only into the struct we pass.
+    unsafe {
+        let now = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&now, &mut tm);
+        tm.tm_hour = 0;
+        tm.tm_min = 0;
+        tm.tm_sec = 0;
+        (libc::mktime(&mut tm).max(0) as u64) * 1000
+    }
+}
+
+/// `3:07` for minutes, `12:05:00` once it reaches hours.
+fn hms(s: u64) -> String {
+    let (h, m) = (s / 3600, (s % 3600) / 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{:02}", s % 60)
+    } else {
+        format!("{m}:{:02}", s % 60)
     }
 }
 
@@ -371,6 +530,12 @@ fn rate(bps: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::rate;
+
+    #[test]
+    fn durations_read_naturally() {
+        assert_eq!(super::hms(65), "1:05");
+        assert_eq!(super::hms(3600 * 12 + 300), "12:05:00");
+    }
 
     #[test]
     fn rates_pick_a_readable_scale() {

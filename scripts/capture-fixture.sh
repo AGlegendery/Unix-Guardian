@@ -71,6 +71,8 @@ done
 
 # --- CPU: frequency policy, topology and caches.
 copy_file /sys/devices/system/cpu/online
+copy_file /sys/devices/cpu_core/cpus   # Intel hybrid: P-cores
+copy_file /sys/devices/cpu_atom/cpus   # Intel hybrid: E-cores
 copy_file /sys/devices/system/cpu/smt/active
 for cpu in /sys/devices/system/cpu/cpu[0-9]*; do
   copy_matching "$cpu/cpufreq" '^(scaling_(governor|driver|cur_freq|min_freq|max_freq|available_governors)|energy_performance_(preference|available_preferences)|cpuinfo_(min|max)_freq)$'

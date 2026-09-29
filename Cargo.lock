@@ -1104,12 +1104,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "ug-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "futures-lite",
+ "libc",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "ug-core",
+ "ug-games",
+ "ug-hw",
+ "ug-proto",
+ "ug-testfs",
+ "zbus",
+]
+
+[[package]]
 name = "ug-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
  "futures-lite",
+ "libc",
  "serde_json",
  "tokio",
  "ug-proto",
@@ -1121,6 +1144,7 @@ name = "ug-core"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "tempfile",
  "toml",
  "tracing",
  "tracing-subscriber",

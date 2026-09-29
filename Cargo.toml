@@ -8,6 +8,7 @@ members = [
     "crates/ug-core",
     "crates/ug-games",
     "crates/ug-daemon",
+    "crates/ug-agent",
     "crates/ug-cli",
 ]
 

@@ -151,3 +151,51 @@ pub mod daemon {
         fn set_active_gpu(&self, pci: &str) -> zbus::Result<()>;
     }
 }
+
+/// Client proxies for the per-user agent's interfaces (session bus).
+pub mod agent {
+    use crate::types::*;
+
+    /// Games: what is installed, what is running, and correcting the detector.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Games",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Games {
+        /// Installed games from every launcher found, as of the last scan.
+        fn installed(&self) -> zbus::Result<Vec<InstalledGameInfo>>;
+
+        /// Games running now.
+        fn running(&self) -> zbus::Result<Vec<RunningGameInfo>>;
+
+        /// Re-reads every launcher's library. Returns how many games it found.
+        fn rescan(&self) -> zbus::Result<u32>;
+
+        /// "This is not a game": stops treating an executable as one, now and
+        /// in future. Takes the executable name, e.g. `"Render.exe"`.
+        fn ignore_executable(&self, name: &str) -> zbus::Result<()>;
+
+        #[zbus(signal)]
+        fn game_started(&self, game: RunningGameInfo) -> zbus::Result<()>;
+
+        /// `played_s` counts until the game's last process exited.
+        #[zbus(signal)]
+        fn game_stopped(&self, game: RunningGameInfo, played_s: u64) -> zbus::Result<()>;
+    }
+
+    /// Playtime history.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Playtime",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Playtime {
+        /// Time per game since `since_unix_ms` (0 for all time), most played
+        /// first. Sessions spanning the boundary count only their later part.
+        fn summary(&self, since_unix_ms: u64) -> zbus::Result<Vec<PlaytimeEntry>>;
+
+        /// Deletes every recorded session of one game.
+        fn forget(&self, key: &str) -> zbus::Result<u32>;
+    }
+}

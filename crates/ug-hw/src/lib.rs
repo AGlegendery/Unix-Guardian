@@ -163,6 +163,9 @@ mod replay {
         assert_eq!(t.l3_domains.len(), 1);
         assert!(!t.has_vcache);
         assert!(topology::preferred_domain(&t).is_none());
+        let (cpus, why) = topology::preferred_cpus(&t).expect("Alder Lake-HX is hybrid");
+        assert_eq!(why, topology::PreferredReason::PerformanceCores);
+        assert_eq!(cpus, (0..8).collect::<Vec<_>>(), "4 P-cores with SMT = CPUs 0-7");
     }
 
     #[test]
