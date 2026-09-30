@@ -44,8 +44,107 @@ struct Args {
     #[arg(long)]
     quiet: bool,
 
+    /// Reach the daemon on the session bus (for a daemon started with
+    /// `ug-daemon --session` during development).
+    #[arg(long)]
+    daemon_session: bool,
+
     #[arg(long, default_value = "info")]
     log: String,
+}
+
+/// Keeps the daemon's game mode matching what the running games want.
+///
+/// Reconciled every tick rather than driven by start/stop events: an event
+/// that fails — daemon restarting, polkit refusing, a timeout — is otherwise
+/// lost, and the machine stays tuned after the game or untuned during it.
+/// Comparing "wanted" with "confirmed" each tick recovers from all of those.
+struct DaemonLink {
+    session: bool,
+    conn: Option<zbus::Connection>,
+    /// What the daemon last confirmed; `Some` while game mode is on.
+    applied: Option<ug_proto::GameModeRequest>,
+    /// Ticks to wait before retrying after a failure, so a refusal is not
+    /// re-sent every two seconds.
+    backoff: u32,
+    ticks: u64,
+    last_error: Option<String>,
+}
+
+impl DaemonLink {
+    fn new(session: bool) -> Self {
+        DaemonLink { session, conn: None, applied: None, backoff: 0, ticks: 0, last_error: None }
+    }
+
+    async fn proxy(&mut self) -> Option<ug_proto::daemon::GameModeProxy<'static>> {
+        if self.conn.is_none() {
+            let c = if self.session { zbus::Connection::session().await } else { zbus::Connection::system().await };
+            self.conn = c.ok();
+        }
+        let conn = self.conn.clone()?;
+        ug_proto::daemon::GameModeProxy::new(&conn).await.ok()
+    }
+
+    async fn sync(&mut self, want: Option<ug_proto::GameModeRequest>) {
+        self.ticks += 1;
+        if self.backoff > 0 {
+            self.backoff -= 1;
+            return;
+        }
+        // About once a minute while on, confirm the daemon still agrees: if it
+        // restarted it reverted everything, and the game is running untuned.
+        if self.applied.is_some() && self.ticks % 30 == 0 {
+            if let Some(p) = self.proxy().await {
+                if let Ok(false) = p.active().await {
+                    tracing::info!("the service restarted during the game; re-applying game mode");
+                    self.applied = None;
+                }
+            }
+        }
+        if want == self.applied {
+            return;
+        }
+        let Some(p) = self.proxy().await else {
+            self.failed("the Unix Guardian service is not reachable".into(), true);
+            return;
+        };
+        let result = match &want {
+            Some(w) => p.enter(w).await,
+            None => p.leave().await,
+        };
+        match result {
+            Ok(report) => {
+                for l in &report.applied {
+                    tracing::info!(change = %l, "game mode");
+                }
+                for l in &report.skipped {
+                    tracing::info!(skipped = %l, "game mode");
+                }
+                if want.is_none() {
+                    tracing::info!("game mode off");
+                }
+                self.applied = want;
+                self.last_error = None;
+            }
+            Err(e) => {
+                // An error reply means the daemon is there and said no: keep the
+                // connection. Anything else means it is gone: reconnect later.
+                let reachable = matches!(e, zbus::Error::MethodError(..) | zbus::Error::FDO(..));
+                self.failed(e.to_string(), !reachable);
+            }
+        }
+    }
+
+    fn failed(&mut self, msg: String, drop_connection: bool) {
+        if drop_connection {
+            self.conn = None;
+        }
+        self.backoff = 15; // ~30 s at the default scan interval
+        if self.last_error.as_deref() != Some(&msg) {
+            tracing::warn!(error = %msg, "game mode could not be applied; detection and playtime still work");
+            self.last_error = Some(msg);
+        }
+    }
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -95,6 +194,7 @@ async fn main() -> Result<()> {
     let mut rescan = tokio::time::interval(Duration::from_secs(600));
     rescan.tick().await; // first tick is immediate; the library was just scanned
 
+    let mut daemon = DaemonLink::new(args.daemon_session);
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     loop {
         tokio::select! {
@@ -104,6 +204,8 @@ async fn main() -> Result<()> {
                 for o in outcomes {
                     announce(&conn, o, !args.quiet, &pending_dismissals).await;
                 }
+                let want = lock(&core).gamemode_desired();
+                daemon.sync(want).await;
             }
             Some(o) = announce_rx.recv() => announce(&conn, o, !args.quiet, &pending_dismissals).await,
             _ = heartbeat.tick() => lock(&core).heartbeat(now_ms()),
@@ -116,8 +218,13 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Resume anything we paused and close open sessions before going.
+    // Resume anything we paused and close open sessions before going. The
+    // daemon also reverts game mode by itself once we drop off the bus.
     lock(&core).shutdown(now_ms());
+    if daemon.applied.is_some() {
+        daemon.backoff = 0;
+        daemon.sync(None).await;
+    }
     tracing::info!("agent stopped");
     Ok(())
 }

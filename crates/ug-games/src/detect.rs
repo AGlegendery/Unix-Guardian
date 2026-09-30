@@ -109,7 +109,9 @@ const NEVER_WINDOWS: &[&str] = &[
 /// Electron app, but all of them mark their helpers with `--type=`. This
 /// covers store clients' embedded browsers under Wine too.
 fn is_chromium_child(p: &proc::Proc) -> bool {
-    p.cmdline.iter().skip(1).any(|a| a.starts_with("--type="))
+    // `args()` also splits a rewritten process title, which is the form these
+    // processes actually take: one string, no NUL separators.
+    p.args().skip(1).any(|a| a.starts_with("--type="))
 }
 
 fn is_installer(basename: &str) -> bool {

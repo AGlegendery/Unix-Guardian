@@ -17,6 +17,7 @@
 //! $ cargo run -p ug-cli -- --session status
 //! ```
 
+mod gamemode;
 mod iface;
 mod polkit;
 mod sampler;
@@ -40,6 +41,10 @@ struct Args {
     /// Treat this directory as `/`. For replaying a captured machine.
     #[arg(long, value_name = "DIR")]
     sysroot: Option<std::path::PathBuf>,
+
+    /// Where game-mode undo state is kept. Defaults to /var/lib/unix-guardian.
+    #[arg(long, value_name = "DIR")]
+    state_dir: Option<std::path::PathBuf>,
 
     /// Log filter; `UG_LOG` overrides it.
     #[arg(long, default_value = "info")]
@@ -66,7 +71,7 @@ async fn main() -> Result<()> {
         );
     }
 
-    let sampler = Arc::new(Sampler::new(root, privileged));
+    let sampler = Arc::new(Sampler::new(root.clone(), privileged));
     let subscribers = Arc::new(Subscribers::default());
 
     // Default to the first discrete GPU. On a hybrid laptop the firmware posts
@@ -104,6 +109,25 @@ async fn main() -> Result<()> {
         active: std::sync::Mutex::new(active_gpu),
     };
 
+    // Constructing the tuner undoes anything a crashed previous run left on.
+    let state_dir = args.state_dir.clone().unwrap_or_else(ug_core::paths::system_state);
+    let development = args.session || args.sysroot.is_some();
+    let services = if development {
+        tracing::warn!("development run: game mode will never stop or start the real system's services");
+        gamemode::ServiceManager::Disabled
+    } else {
+        gamemode::ServiceManager::Systemctl
+    };
+    let tuner = gamemode::tuner(root.clone(), state_dir.join("gamemode.json"), services);
+    let gamemode_owner: Arc<std::sync::Mutex<Option<gamemode::Owner>>> = Arc::default();
+    let gamemode_active = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let gamemode = gamemode::GameModeIface {
+        tuner: Arc::clone(&tuner),
+        gate: gate.clone(),
+        owner: Arc::clone(&gamemode_owner),
+        active: Arc::clone(&gamemode_active),
+    };
+
     let builder = if args.session {
         zbus::connection::Builder::session()?
     } else {
@@ -115,6 +139,7 @@ async fn main() -> Result<()> {
         .context("claiming the bus name")?
         .serve_at(DAEMON_OBJECT_PATH, system)?
         .serve_at(DAEMON_OBJECT_PATH, gpu)?
+        .serve_at(DAEMON_OBJECT_PATH, gamemode)?
         .build()
         .await
         .context(
@@ -131,8 +156,11 @@ async fn main() -> Result<()> {
 
     let watch_conn = conn.clone();
     let watch_subs = Arc::clone(&subscribers);
+    let watch_tuner = Arc::clone(&tuner);
+    let watch_owner = Arc::clone(&gamemode_owner);
+    let watch_active = Arc::clone(&gamemode_active);
     tokio::spawn(async move {
-        if let Err(e) = release_departed_clients(watch_conn, watch_subs).await {
+        if let Err(e) = release_departed_clients(watch_conn, watch_subs, watch_tuner, watch_owner, watch_active).await {
             tracing::error!(error = %e, "cannot watch for disconnecting clients");
         }
     });
@@ -151,6 +179,12 @@ async fn main() -> Result<()> {
 
     shutdown_signal().await;
     tracing::info!("shutting down");
+    // Stopping the service ends game mode; the next start would undo it from
+    // the state file anyway, but a stopped daemon should leave a clean system.
+    let report = tokio::task::spawn_blocking(move || tuner.lock().unwrap_or_else(|e| e.into_inner()).leave()).await?;
+    for l in report.skipped {
+        tracing::warn!(%l, "could not restore on shutdown; will retry on next start");
+    }
     Ok(())
 }
 
@@ -212,7 +246,13 @@ async fn release_gpu_libs_when_idle(sampler: Arc<Sampler>) {
 ///
 /// `NameOwnerChanged` with an empty new owner is the bus announcing that a
 /// unique name is gone for good — unique names are never reused.
-async fn release_departed_clients(conn: zbus::Connection, subscribers: Arc<Subscribers>) -> Result<()> {
+async fn release_departed_clients(
+    conn: zbus::Connection,
+    subscribers: Arc<Subscribers>,
+    tuner: gamemode::SharedTuner,
+    gamemode_owner: Arc<std::sync::Mutex<Option<gamemode::Owner>>>,
+    gamemode_active: Arc<std::sync::atomic::AtomicBool>,
+) -> Result<()> {
     use futures_lite::StreamExt;
     let dbus = zbus::fdo::DBusProxy::new(&conn).await?;
     let mut changes = dbus.receive_name_owner_changed().await?;
@@ -220,6 +260,11 @@ async fn release_departed_clients(conn: zbus::Connection, subscribers: Arc<Subsc
         let Ok(args) = change.args() else { continue };
         if args.new_owner().is_none() && args.name().starts_with(':') {
             subscribers.client_gone(args.name());
+            // An agent that crashed or was killed mid-game must not leave the
+            // machine in game mode.
+            let (t, o, a, n) =
+                (Arc::clone(&tuner), Arc::clone(&gamemode_owner), Arc::clone(&gamemode_active), args.name().to_string());
+            tokio::task::spawn_blocking(move || gamemode::GameModeIface::owner_gone(&t, &o, &a, &n));
         }
     }
     Ok(())

@@ -7,6 +7,7 @@ members = [
     "crates/ug-gpu",
     "crates/ug-core",
     "crates/ug-games",
+    "crates/ug-tune",
     "crates/ug-daemon",
     "crates/ug-agent",
     "crates/ug-cli",
@@ -27,6 +28,7 @@ ug-hw = { path = "crates/ug-hw" }
 ug-gpu = { path = "crates/ug-gpu" }
 ug-core = { path = "crates/ug-core" }
 ug-games = { path = "crates/ug-games" }
+ug-tune = { path = "crates/ug-tune" }
 
 anyhow = "1"
 thiserror = "2"

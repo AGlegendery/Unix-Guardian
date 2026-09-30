@@ -21,6 +21,9 @@ pub struct Proc {
     pub start_ticks: u64,
     /// User + system CPU time in clock ticks.
     pub cpu_ticks: u64,
+    /// Basename of `/proc/<pid>/exe`: the binary actually running. Unlike the
+    /// command line, a process cannot rewrite it.
+    pub exe_name: Option<String>,
 }
 
 impl Proc {
@@ -29,14 +32,31 @@ impl Proc {
     /// Under Wine, `argv[0]` is the Windows path of the game (`C:\...\Game.exe`)
     /// while `comm` is truncated and the real `exe` link points at the Wine
     /// preloader, so `argv[0]` is the only place the game's own name survives.
+    ///
+    /// Everything else is named by its `exe` link. Its command line is not
+    /// trustworthy for this: Chromium and Electron overwrite theirs with one
+    /// long space-separated string, whose last `/`-separated piece is some
+    /// argument's path, not the program.
     pub fn exe_basename(&self) -> String {
         let first = self.cmdline.first().map(String::as_str).unwrap_or("");
-        let base = first.rsplit(['/', '\\']).next().unwrap_or(first);
-        if base.is_empty() {
-            self.comm.clone()
-        } else {
-            base.to_string()
+        if self.is_windows_exe() {
+            return first.rsplit(['/', '\\']).next().unwrap_or(first).to_string();
         }
+        if let Some(e) = self.exe_name.as_deref().filter(|e| !e.is_empty()) {
+            return e.to_string();
+        }
+        let base = first.rsplit('/').next().unwrap_or(first);
+        if !base.is_empty() && !base.contains(char::is_whitespace) {
+            base.to_string()
+        } else {
+            self.comm.clone()
+        }
+    }
+
+    /// Command-line arguments, including those packed into a rewritten
+    /// process title (see [`Proc::exe_basename`]).
+    pub fn args(&self) -> impl Iterator<Item = &str> {
+        self.cmdline.iter().flat_map(|a| a.split_whitespace())
     }
 
     /// True when this looks like a Windows program running under Wine/Proton.
@@ -98,7 +118,13 @@ pub fn read(root: &SysRoot, pid: i32) -> Option<Proc> {
                 .collect()
         })
         .unwrap_or_default();
-    Some(Proc { pid, ppid, uid, comm, cmdline, start_ticks, cpu_ticks })
+    // Readable for the user's own processes, which are the only ones
+    // detection considers; a deleted binary reads as "name (deleted)".
+    let exe_name = std::fs::read_link(d.join("exe")).ok().and_then(|p| {
+        let name = p.file_name()?.to_string_lossy().into_owned();
+        Some(name.strip_suffix(" (deleted)").map(str::to_string).unwrap_or(name))
+    });
+    Some(Proc { pid, ppid, uid, comm, cmdline, start_ticks, cpu_ticks, exe_name })
 }
 
 /// The Steam App ID a process was launched with, if any.

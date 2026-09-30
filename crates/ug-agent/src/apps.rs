@@ -91,15 +91,18 @@ mod tests {
     }
 
     fn spawn_named(name: &str) -> Child {
-        // exec -a sets argv[0]; comm follows the executable, so copy `sleep`
-        // under the wanted name into a temp dir and run that.
+        // The kernel names a process (`comm`) after the path it was executed
+        // through, so a symlink called `name` pointing at `sleep` gives a
+        // process called `name`.
+        //
+        // Not a copy: writing an executable while other test threads fork
+        // lets a forked child inherit the open write handle for a moment, and
+        // executing the file in that window fails with "text file busy".
         let dir = std::env::temp_dir().join(format!("ug-apps-{}-{name}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let exe = dir.join(name);
-        // Copy once: overwriting a copy that is already running fails with
-        // "text file busy".
         if !exe.exists() {
-            std::fs::copy("/bin/sleep", &exe).unwrap();
+            std::os::unix::fs::symlink("/bin/sleep", &exe).unwrap();
         }
         Command::new(exe).arg("30").spawn().unwrap()
     }

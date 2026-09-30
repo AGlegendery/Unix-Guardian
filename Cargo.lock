@@ -1167,6 +1167,7 @@ dependencies = [
  "ug-gpu",
  "ug-hw",
  "ug-proto",
+ "ug-tune",
  "zbus",
 ]
 
@@ -1218,6 +1219,20 @@ name = "ug-testfs"
 version = "0.1.0"
 dependencies = [
  "tempfile",
+]
+
+[[package]]
+name = "ug-tune"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "ug-core",
+ "ug-hw",
+ "ug-testfs",
 ]
 
 [[package]]

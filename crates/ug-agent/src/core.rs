@@ -199,6 +199,28 @@ impl AgentCore {
         self.apply(events, wall_ms)
     }
 
+    /// What game mode should be right now: `None` with no game running,
+    /// otherwise every running game's profile combined — a setting is on if
+    /// any running game wants it — covering every game process.
+    pub fn gamemode_desired(&self) -> Option<ug_proto::GameModeRequest> {
+        let mut want: Option<ug_proto::GameModeRequest> = None;
+        for r in self.running.values() {
+            let Some(p) = self.profiles.get(&r.info.profile) else { continue };
+            let w = want.get_or_insert_with(Default::default);
+            w.cpu_performance |= p.cpu_performance;
+            w.cpu_no_idle_states |= p.cpu_no_idle_states;
+            w.cpu_priority |= p.cpu_priority;
+            w.memory_tuning |= p.memory_tuning;
+            w.pause_services |= p.pause_services;
+            w.pids.extend(&r.info.pids);
+        }
+        if let Some(w) = want.as_mut() {
+            w.pids.sort_unstable();
+            w.pids.dedup();
+        }
+        want
+    }
+
     pub fn is_running_pid(&self, pid: i32) -> bool {
         self.running.values().any(|r| r.info.pids.contains(&pid))
     }
@@ -265,6 +287,26 @@ mod tests {
         fs.process(&FakeProc { pid: 10, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
         let out = c.tick(Instant::now(), 0);
         assert!(matches!(&out[..], [Outcome::Started(g)] if g.profile == "quiet"));
+    }
+
+    #[test]
+    fn game_mode_wants_the_union_of_every_running_games_profile() {
+        let fs = TestFs::new();
+        let cfg = tempfile::tempdir().unwrap();
+        std::fs::write(cfg.path().join("games.toml"), "[games]\n\"steam:413150\" = \"quiet\"\n").unwrap();
+        let mut c = core(&fs, cfg.path());
+        assert_eq!(c.gamemode_desired(), None, "no game, no game mode");
+
+        fs.process(&FakeProc { pid: 10, comm: "sv", cmdline: &["sv"], environ: &[("SteamAppId", "413150")], ..Default::default() });
+        c.tick(Instant::now(), 0);
+        let quiet_only = c.gamemode_desired().unwrap();
+        assert!(!quiet_only.cpu_no_idle_states && !quiet_only.cpu_performance);
+
+        fs.process(&FakeProc { pid: 11, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+        c.tick(Instant::now(), 0);
+        let both = c.gamemode_desired().unwrap();
+        assert!(both.cpu_no_idle_states && both.cpu_performance, "competitive CS2 raises the bar for both");
+        assert_eq!(both.pids, vec![10, 11]);
     }
 
     #[test]

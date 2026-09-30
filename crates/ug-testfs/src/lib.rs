@@ -175,6 +175,8 @@ pub struct FakeProc<'a> {
     pub cpu_ticks: u64,
     /// Start time in clock ticks since boot — with the PID, a process identity.
     pub start_ticks: u64,
+    /// Target of `/proc/<pid>/exe`, if the test needs one.
+    pub exe: Option<&'a str>,
 }
 
 impl Default for FakeProc<'_> {
@@ -189,6 +191,7 @@ impl Default for FakeProc<'_> {
             maps: &[],
             cpu_ticks: 0,
             start_ticks: 100,
+            exe: None,
         }
     }
 }
@@ -235,6 +238,11 @@ impl TestFs {
             .map(|m| format!("7f0000000000-7f0000001000 r-xp 00000000 00:00 1 {m}\n"))
             .collect();
         fs::write(dir.join("maps"), maps).unwrap();
+        let link = dir.join("exe");
+        let _ = fs::remove_file(&link);
+        if let Some(target) = p.exe {
+            std::os::unix::fs::symlink(target, &link).unwrap();
+        }
         self
     }
 

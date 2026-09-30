@@ -351,3 +351,23 @@ pub struct PlaytimeEntry {
     pub sessions: u32,
     pub last_played_unix_ms: u64,
 }
+
+/// What the agent asks the daemon to do while games run. Built from the
+/// game's profile; each flag maps to one reversible change.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct GameModeRequest {
+    pub cpu_performance: bool,
+    pub cpu_no_idle_states: bool,
+    pub cpu_priority: bool,
+    pub memory_tuning: bool,
+    pub pause_services: bool,
+    /// Game processes. The daemon refuses any that do not belong to the caller.
+    pub pids: Vec<i32>,
+}
+
+/// What game mode changed, and what it could not, as sentences for the UI.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+pub struct GameModeReport {
+    pub applied: Vec<String>,
+    pub skipped: Vec<String>,
+}

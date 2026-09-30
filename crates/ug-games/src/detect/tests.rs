@@ -303,3 +303,43 @@ fn electron_and_cef_helpers_are_never_games_whatever_they_are_called() {
         assert!(d.scan(&root, at).is_empty());
     }
 }
+
+#[test]
+fn chromium_helpers_with_a_rewritten_process_title_are_not_games() {
+    // Chromium overwrites its argv, so /proc/<pid>/cmdline is ONE string with
+    // spaces rather than NUL-separated arguments. Shape copied from the Claude
+    // desktop app's GPU process on the dev machine, which the heuristic took
+    // for a game while it was busy rendering.
+    const TITLE: &str = "/usr/lib/claude-desktop/claude-desktop --type=gpu-process --ozone-platform=wayland \
+        --user-data-dir=/home/u/.config/Claude --gpu-preferences=YAAAAAAAAAAgAQAEAAAAAAAAAAAAAGAA";
+    let fs = TestFs::new();
+    let root = SysRoot::at(fs.root());
+    let t0 = Instant::now();
+    let mut d = detector(vec![]);
+    for (cpu, at) in [(0, t0), (5000, secs(t0, 6))] {
+        fs.process(&FakeProc {
+            pid: 90,
+            comm: "claude-desktop",
+            cmdline: &[TITLE],
+            exe: Some("/usr/lib/claude-desktop/claude-desktop"),
+            maps: &["/usr/lib/libvulkan.so.1"],
+            cpu_ticks: cpu,
+            ..Default::default()
+        });
+        assert!(d.scan(&root, at).is_empty());
+    }
+}
+
+#[test]
+fn a_native_program_is_named_after_its_executable_not_its_title() {
+    let fs = TestFs::new();
+    fs.process(&FakeProc {
+        pid: 91,
+        comm: "MainThread",
+        cmdline: &["some rewritten title --with=/odd/paths inside"],
+        exe: Some("/opt/game/bin/realgame"),
+        ..Default::default()
+    });
+    let p = crate::proc::read(&SysRoot::at(fs.root()), 91).unwrap();
+    assert_eq!(p.exe_basename(), "realgame");
+}

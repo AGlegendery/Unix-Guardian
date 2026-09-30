@@ -126,6 +126,29 @@ pub mod daemon {
         fn unsubscribe(&self) -> zbus::Result<()>;
     }
 
+    /// The privileged half of game mode.
+    ///
+    /// Requires the `org.unixguardian.gamemode` polkit action, which active
+    /// local sessions have without a password: it runs automatically when a
+    /// game starts, and everything it does is reverted when the game ends —
+    /// or when the calling agent disappears, or on the daemon's next start
+    /// after a crash.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Daemon1.GameMode",
+        default_service = "org.unixguardian.Daemon1",
+        default_path = "/org/unixguardian/Daemon1"
+    )]
+    pub trait GameMode {
+        /// Turns game mode on, or adds processes to it if it is already on.
+        fn enter(&self, request: &GameModeRequest) -> zbus::Result<GameModeReport>;
+
+        /// Turns game mode off and restores everything it changed.
+        fn leave(&self) -> zbus::Result<GameModeReport>;
+
+        #[zbus(property)]
+        fn active(&self) -> zbus::Result<bool>;
+    }
+
     /// Read and write GPU state: clocks, power limits, fans.
     ///
     /// Write methods each require the `org.unixguardian.gpu.tune` polkit action.
