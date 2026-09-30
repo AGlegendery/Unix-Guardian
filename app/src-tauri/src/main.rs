@@ -107,6 +107,7 @@ fn main() {
             bus::overlay_set_up,
             bus::fps_sessions,
             bus::forget_fps_sessions,
+            bus::gpu_offload,
             open_terminal_interface,
             report_bug,
         ])

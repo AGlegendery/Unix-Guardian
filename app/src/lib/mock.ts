@@ -244,6 +244,10 @@ export const mockApi = {
     fpsLog = [];
     return n;
   },
+  gpuOffload: async () => [
+    { pci: "0000:00:02.0", vendor: "intel", boot_vga: true, launch_options: "DRI_PRIME=pci-0000_00_02_0 MESA_VK_DEVICE_SELECT=8086:468b! __GLX_VENDOR_LIBRARY_NAME=mesa %command%" },
+    { pci: "0000:01:00.0", vendor: "nvidia", boot_vga: false, launch_options: "__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only %command%" },
+  ],
   openTerminal: async () => {
     throw "The preview cannot open a terminal. In the app this opens ug tui.";
   },

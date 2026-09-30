@@ -331,6 +331,9 @@ pub struct RunningGameInfo {
     /// Non-empty when this game's anti-cheat is known to refuse Linux.
     pub blocked_note: String,
     pub started_unix_ms: u64,
+    /// PCI address of the GPU the game renders on (from the device files it
+    /// uses, never by asking the GPU); empty until it draws.
+    pub gpu: String,
 }
 
 /// A game some launcher reports as installed.

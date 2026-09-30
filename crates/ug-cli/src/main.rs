@@ -33,6 +33,18 @@ struct Cli {
 enum Command {
     /// Unix Guardian in the terminal: every page, by mouse or keyboard.
     Tui,
+    /// Run a program on a chosen GPU, e.g. `ug run --gpu nvidia -- steam`.
+    /// No restart or log-out: the program alone renders there (PRIME offload).
+    Run {
+        /// discrete, integrated, nvidia, amd, intel, or a PCI address.
+        #[arg(long, default_value = "discrete")]
+        gpu: String,
+        /// Print the Steam launch options for this GPU instead of running.
+        #[arg(long)]
+        steam: bool,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        command: Vec<String>,
+    },
     /// Machine summary and current readings.
     Status,
     /// Static hardware inventory.
@@ -352,6 +364,9 @@ async fn run() -> Result<()> {
     if let Command::Tui = cli.command {
         return tui(cli.session);
     }
+    if let Command::Run { gpu, steam, command } = &cli.command {
+        return run_on_gpu(gpu, *steam, command);
+    }
 
     // The agent always lives on the session bus, so game and playtime commands
     // work whether or not the daemon is reachable.
@@ -398,7 +413,7 @@ async fn run() -> Result<()> {
         Command::Power { command } => power(&conn, command, cli.json).await,
         Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
         Command::Net { command, all } => net(&conn, command, all, cli.json).await,
-        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Fps { .. } | Command::Tui => {
+        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Fps { .. } | Command::Run { .. } | Command::Tui => {
             unreachable!("handled above")
         }
     }
@@ -623,6 +638,26 @@ async fn ping(seconds: u32, json: bool) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Execs `command` with the environment that puts it on `want`.
+fn run_on_gpu(want: &str, steam: bool, command: &[String]) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    let root = ug_hw::SysRoot::real();
+    let gpus = ug_hw::gpu_use::gpus(&root);
+    let Some(gpu) = ug_hw::gpu_use::pick(&gpus, want) else {
+        let have: Vec<String> = gpus.iter().map(|g| format!("{} ({}{})", g.pci, g.vendor_name(), if g.boot_vga { ", integrated" } else { "" })).collect();
+        anyhow::bail!("no GPU matches {want:?}; this machine has: {}", have.join(", "));
+    };
+    if steam {
+        println!("{}", ug_hw::gpu_use::launch_options(&root, gpu));
+        return Ok(());
+    }
+    let Some((prog, args)) = command.split_first() else {
+        anyhow::bail!("give a program to run, e.g. ug run --gpu {want} -- vkcube");
+    };
+    let err = std::process::Command::new(prog).args(args).envs(ug_hw::gpu_use::offload_env(&root, gpu)).exec();
+    anyhow::bail!("could not run {prog}: {err}")
 }
 
 async fn overlay(command: Option<OverlayCommand>, json: bool) -> Result<()> {

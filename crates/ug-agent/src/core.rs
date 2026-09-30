@@ -16,6 +16,19 @@ use ug_games::{db::GameDb, InstalledGame};
 use ug_hw::{topology, SysRoot};
 use ug_proto::{InstalledGameInfo, RunningGameInfo};
 
+/// The PCI address of the GPU the firmware booted the display on.
+fn boot_vga(root: &SysRoot) -> String {
+    std::fs::read_dir(root.join("sys/class/drm"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("card") && !e.file_name().to_string_lossy().contains('-'))
+        .find(|e| std::fs::read_to_string(e.path().join("device/boot_vga")).is_ok_and(|v| v.trim() == "1"))
+        .and_then(|e| std::fs::read_link(e.path().join("device")).ok())
+        .and_then(|l| l.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .unwrap_or_default()
+}
+
 /// What changed on a tick, for the async layer to announce and act on.
 #[derive(Debug, Clone)]
 pub enum Outcome {
@@ -104,6 +117,7 @@ impl AgentCore {
             pids: g.pids.clone(),
             blocked_note: g.blocked_note.clone().unwrap_or_default(),
             started_unix_ms: wall_ms,
+            gpu: String::new(),
         };
         tracing::info!(game = %info.name, key = %info.key, evidence = %info.evidence, profile = %info.profile, "game started");
 
@@ -137,6 +151,7 @@ impl AgentCore {
                 pids: Vec::new(),
                 blocked_note: String::new(),
                 started_unix_ms: wall_ms.saturating_sub(played_s * 1000),
+                gpu: String::new(),
             },
         };
         tracing::info!(game = %info.name, played_s, "game stopped");
@@ -155,6 +170,12 @@ impl AgentCore {
         for (key, r) in self.running.iter_mut() {
             if let Some(pids) = live.get(key) {
                 r.info.pids = pids.clone();
+            }
+            if let Some(g) = ug_hw::gpu_use::gpu_of_game(&self.root, &r.info.pids, &boot_vga(&self.root)) {
+                if g != r.info.gpu {
+                    tracing::info!(game = %r.info.name, gpu = %g, "renders on");
+                    r.info.gpu = g;
+                }
             }
             if let Some(cpus) = &r.pin_to {
                 let new: Vec<i32> = r.info.pids.iter().copied().filter(|p| !r.pinned.contains(p)).collect();

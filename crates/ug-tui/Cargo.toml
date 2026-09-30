@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 ug-proto.workspace = true
 ug-core.workspace = true
+ug-hw.workspace = true
 anyhow.workspace = true
 tokio.workspace = true
 zbus.workspace = true

@@ -1636,6 +1636,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "ug-core",
+ "ug-hw",
  "ug-proto",
  "ug-tui",
  "zbus",
@@ -1752,6 +1753,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "ug-core",
+ "ug-hw",
  "ug-proto",
  "zbus",
 ]

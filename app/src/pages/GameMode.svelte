@@ -1,7 +1,7 @@
 <script lang="ts">
   import Problem from "../lib/ui/Problem.svelte";
   import { Cpu, Gamepad2, MonitorSmartphone, Settings2 } from "@lucide/svelte";
-  import { api, errorText, type InstalledGame, type Overview, type Profile, type RunningGame } from "../lib/api";
+  import { api, errorText, type GpuOffload, type InstalledGame, type Overview, type Profile, type RunningGame } from "../lib/api";
   import { duration } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
@@ -77,6 +77,23 @@
   }
 
   const label = (id: string) => t().gm.profiles[id] ?? id;
+
+  // Which GPU a game runs on: shown for the running game, and how to choose.
+  let offload = $state<GpuOffload[]>([]);
+  let copied = $state<string | null>(null);
+  $effect(() => {
+    api.gpuOffload().then((o) => (offload = o)).catch(() => {});
+  });
+  const gpuName = (pci: string) => overview?.inventory?.gpus.find((g) => g.pci === pci)?.name ?? pci;
+  async function copy(text: string, pci: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = pci;
+      setTimeout(() => (copied = null), 2000);
+    } catch (e) {
+      error = errorText(e);
+    }
+  }
 </script>
 
 <header class="head">
@@ -105,6 +122,10 @@
         {t().gmp.since} {duration(Math.max(0, (now - game.started_unix_ms) / 1000))}
         <span class="sep" aria-hidden="true"></span>
         {t().gmp.detectedBy} {t().gmp.evidence[game.evidence] ?? game.evidence}
+        {#if game.gpu}
+          <span class="sep" aria-hidden="true"></span>
+          {t().gmp.rendersOn} <b>{gpuName(game.gpu)}</b>
+        {/if}
       </p>
       {#if game.blocked_note}<p class="warn">{game.blocked_note}</p>{/if}
     </div>
@@ -170,7 +191,22 @@
             </div>
           </div>
         {:else}
-          <p class="unbuilt">{t().gmp.graphicsUnbuilt}</p>
+          <div class="gpu-choice">
+            <p class="row-title">{t().gmp.gpuTitle}</p>
+            <p class="row-hint">{t().gmp.gpuExplain}</p>
+            {#each offload as g (g.pci)}
+              <div class="gpu-row">
+                <div class="gpu-name">
+                  <b>{gpuName(g.pci)}</b>
+                  <span class="chip">{g.boot_vga ? t().gmp.gpuDefault : t().gmp.gpuDiscrete}</span>
+                </div>
+                <code class="launch" dir="ltr">{g.launch_options}</code>
+                <button class="copy" onclick={() => copy(g.launch_options, g.pci)}>{copied === g.pci ? t().gmp.copied : t().gmp.copyLaunch}</button>
+              </div>
+            {/each}
+            <p class="row-hint">{t().gmp.gpuCli} <code dir="ltr">ug run --gpu nvidia -- program</code></p>
+            <p class="unbuilt">{t().gmp.graphicsUnbuilt}</p>
+          </div>
         {/if}
       </div>
     {/if}
@@ -308,4 +344,10 @@
     padding: 5px 10px;
   }
   select:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+  .gpu-choice { display: grid; gap: 10px; }
+  .gpu-row { display: grid; gap: 6px; padding: 12px; border-radius: var(--radius-sm); background: color-mix(in oklab, var(--card-2) 60%, var(--card)); }
+  .gpu-name { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .launch { font-size: 0.78rem; padding: 6px 8px; border-radius: 6px; background: var(--card-2); overflow-wrap: anywhere; user-select: all; }
+  .copy { all: unset; justify-self: start; font-size: 0.82rem; color: var(--accent-text); cursor: pointer; }
+  .copy:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 4px; }
 </style>

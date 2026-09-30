@@ -133,6 +133,8 @@ export interface NetControlStatus {
   vpn_tun: boolean;
 }
 
+export interface GpuOffload { pci: string; vendor: string; boot_vga: boolean; launch_options: string }
+
 export interface OverlaySettings {
   show: "gaming" | "always" | "off";
   layout: "card" | "compact";
@@ -213,6 +215,7 @@ export interface RunningGame {
   pids: number[];
   blocked_note: string;
   started_unix_ms: number;
+  gpu: string;
 }
 
 export interface InstalledGame {
@@ -352,6 +355,7 @@ const tauriApi = {
   overlaySetUp: (on: boolean) => invoke<void>("overlay_set_up", { on }),
   fpsSessions: (sinceUnixMs: number) => invoke<FpsSession[]>("fps_sessions", { sinceUnixMs }),
   forgetFpsSessions: () => invoke<number>("forget_fps_sessions"),
+  gpuOffload: () => invoke<GpuOffload[]>("gpu_offload"),
   openTerminal: () => invoke<void>("open_terminal_interface"),
   reportBug: (context: string) => invoke<void>("report_bug", { context }),
   battery: () => invoke<BatteryCare>("battery"),

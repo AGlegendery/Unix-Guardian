@@ -4000,6 +4000,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tokio",
  "ug-core",
+ "ug-hw",
  "ug-proto",
  "zbus",
 ]

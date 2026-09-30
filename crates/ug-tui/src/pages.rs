@@ -296,7 +296,16 @@ fn game_mode(app: &mut App, f: &mut Frame, r: Rect) {
         Span::styled(if on { "On" } else { "Off" }, if on { t.accent() } else { t.muted() }),
         Span::styled(
             match &game {
-                Some(g) => format!("   {} is running ({} profile)", g.name, g.profile),
+                Some(g) => {
+                    let gpu = app
+                        .inventory
+                        .value
+                        .as_ref()
+                        .and_then(|i| i.gpus.iter().find(|x| x.pci == g.gpu).map(|x| x.name.clone()))
+                        .unwrap_or_else(|| g.gpu.clone());
+                    let on = if gpu.is_empty() { String::new() } else { format!(", on {gpu}") };
+                    format!("   {} is running ({} profile{on})", g.name, g.profile)
+                }
                 None => "   Starts by itself when a game starts".into(),
             },
             t.muted(),
@@ -344,6 +353,20 @@ fn game_mode(app: &mut App, f: &mut Frame, r: Rect) {
         y += 1;
     }
     app.rows = OPTIONS.len() + games.len();
+    // How to put a game on the other GPU (hybrid laptops).
+    let root = ug_hw::SysRoot::real();
+    let gpus = ug_hw::gpu_use::gpus(&root);
+    if let Some(d) = gpus.iter().find(|g| !g.boot_vga) {
+        if y + 3 < r.bottom() {
+            let t = app.theme;
+            let lines = vec![
+                Line::from(Span::styled(format!("Run a game on the {} card (no restart)", d.vendor_name()), t.title())),
+                Line::from(Span::styled(format!("  Steam launch options: {}", ug_hw::gpu_use::launch_options(&root, d)), t.muted())),
+                Line::from(Span::styled(format!("  Any program: ug run --gpu {} -- program", d.vendor_name()), t.muted())),
+            ];
+            f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), Rect { x: r.x, y: y + 1, width: r.width, height: r.bottom() - y - 1 });
+        }
+    }
 }
 
 fn capital(s: &str) -> String {

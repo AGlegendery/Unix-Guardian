@@ -417,6 +417,30 @@ pub async fn forget_fps_sessions(bus: State<'_, Bus>) -> Res<u32> {
     m.forget_fps_sessions().await.map_err(agent_err)
 }
 
+/// How to run a program on each GPU: the Steam launch options and the
+/// `ug run` form. Read from sysfs here; nothing asks the GPUs anything.
+#[derive(Serialize)]
+pub struct GpuOffload {
+    pci: String,
+    vendor: String,
+    boot_vga: bool,
+    launch_options: String,
+}
+
+#[tauri::command]
+pub fn gpu_offload() -> Vec<GpuOffload> {
+    let root = ug_hw::SysRoot::real();
+    ug_hw::gpu_use::gpus(&root)
+        .iter()
+        .map(|g| GpuOffload {
+            pci: g.pci.clone(),
+            vendor: g.vendor_name().into(),
+            boot_vga: g.boot_vga,
+            launch_options: ug_hw::gpu_use::launch_options(&root, g),
+        })
+        .collect()
+}
+
 #[tauri::command]
 pub async fn traffic(bus: State<'_, Bus>, since_unix_ms: u64) -> Res<Vec<DayTraffic>> {
     let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;
