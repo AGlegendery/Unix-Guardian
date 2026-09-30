@@ -91,6 +91,30 @@ P3 done (see git log); P4 in progress (above). ⬜ Not started: P5 GPU tuning & 
 overlay & FPS, P7 recording & Telegram, P8 driver troubleshooter, P9 Linux
 extras, P10 packaging & 1.0.
 
+## P6 overlay (branch `p6-overlay`) — built, not merged, 2026-10-01
+
+P4 is merged into `main` (`dc1fdfa`). On `p6-overlay`:
+- ✅ 6.2/6.4 agent: `overlay.rs` (settings in `overlay.json` → Unix
+  Guardian's marked block in MangoHud.conf; only-while-gaming rewrites it
+  on game start/stop; every-game = `~/.config/environment.d/90-unix-guardian-mangohud.conf`),
+  `Agent1.Overlay` (State/Set/SetUp). MangoHud logs every frame
+  (`log_interval=0`); `fps::session_stats` turns a log idle 15 s into a
+  stored session (avg, 1 %/0.1 % lows from p99/p99.9 frame time, capped at
+  the average; stutters > 2× median) and deletes it. `ug overlay`, `ug fps`.
+- ✅ 6.5 window Overlay page (preview with live readings) and FPS-tab
+  session cards; TUI page 6 and FPS-tab sessions.
+- ✅ Bug-report address unixguardian@atomicmail.io (window page, error
+  boxes, TUI help/notices, CLI errors, README).
+- ✅ VPN handling (on main): category `vpn`, loopback skipped for VPN
+  groups, caps follow `ip route get` (TUN), proxy-mode note, ping
+  direct/through-VPN and fake-reply detection. net-e2e 35 checks.
+- ⬜ Not done: 6.1 writing Steam launch options / Lutris wrappers (no
+  launcher on the dev laptop; the UI shows `mangohud %command%`), 6.3
+  global shortcuts through the portal (MangoHud's in-game key is used),
+  6.6 beta packaging.
+- **Not verified on the laptop:** MangoHud is not installed there; nothing
+  of P6 has run against a real game. v2rayN in TUN mode not checked yet.
+
 ## P4 (branch `p4-network`) — all tasks built, not yet merged (2026-09-30)
 
 `pt-tui` is merged into `main`; P4 is on `p4-network`. Everything below is
