@@ -44,7 +44,7 @@
   const hasPreferred = $derived(!!cpu && (cpu.has_vcache || cpu.p_cores.length > 0));
 
   const cpuOptions = ["cpu_performance", "cpu_no_idle_states", "cpu_preferred_cores", "cpu_priority", "memory_tuning"] as const;
-  type Opt = (typeof cpuOptions)[number] | "pause_services";
+  type Opt = (typeof cpuOptions)[number] | "pause_services" | "network_tuning";
 
   async function setOption(opt: Opt, value: boolean) {
     if (!profile) return;
@@ -157,6 +157,7 @@
           {/each}
         {:else if tab === "system"}
           {@render row("pause_services", profile.pause_services, null)}
+          {@render row("network_tuning", profile.network_tuning, null)}
           <div class="row static">
             <div>
               <p class="row-title">{t().gmp.pauseApps}</p>

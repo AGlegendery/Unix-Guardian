@@ -28,6 +28,7 @@ pub struct Request {
     pub cpu_priority: bool,
     pub memory_tuning: bool,
     pub pause_services: bool,
+    pub network_tuning: bool,
     /// Game processes, already checked to belong to the caller.
     pub pids: Vec<i32>,
 }
@@ -53,6 +54,8 @@ enum Undo {
     StartUnit { unit: String },
     /// Restore an autogroup's nice value, via any process still in it.
     Autogroup { id: String, previous: i32 },
+    /// Turn Wi-Fi power saving back on.
+    WifiPowerSave { iface: String },
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -139,6 +142,9 @@ impl<U: Units> Tuner<U> {
             }
             if req.pause_services {
                 self.pause_services(&mut r);
+            }
+            if req.network_tuning {
+                self.network(&mut r);
             }
         }
         if req.cpu_priority {
@@ -292,6 +298,60 @@ impl<U: Units> Tuner<U> {
         }
     }
 
+    /// Low-latency networking: Wi-Fi power saving off (the radio otherwise
+    /// dozes between beacons and holds packets for up to ~100 ms), TCP Fast
+    /// Open, a smaller unsent-data queue so game packets are not stuck behind
+    /// bulk data in the socket, and BBR congestion control where the kernel
+    /// has it. Each change records the value it replaced.
+    fn network(&mut self, r: &mut Report) {
+        let mut done = Vec::new();
+        let mut failure: Option<std::io::Error> = None;
+        let settings: [(&str, &str, &str); 3] = [
+            ("net/ipv4/tcp_fastopen", "3", "TCP Fast Open"),
+            ("net/ipv4/tcp_notsent_lowat", "16384", "smaller send queue"),
+            ("net/ipv4/tcp_congestion_control", "bbr", "BBR congestion control"),
+        ];
+        for (key, value, what) in settings {
+            let path = self.root.join(format!("proc/sys/{key}"));
+            let Some(prev) = read(&path) else { continue };
+            if prev == value {
+                continue;
+            }
+            // Writing "bbr" loads tcp_bbr on demand; a kernel without it
+            // refuses, which only means that part is skipped.
+            match self.change(Undo::File { path: path.clone(), previous: prev }, || write(&path, value)) {
+                Ok(()) => done.push(what.to_string()),
+                Err(e) if key.ends_with("congestion_control") => {
+                    r.skipped.push(format!("BBR congestion control: not available in this kernel ({e})."));
+                }
+                Err(e) => {
+                    failure.get_or_insert(e);
+                }
+            }
+        }
+        for iface in wireless(&self.root) {
+            if self.units.wifi_power_save(&iface) != Some(true) {
+                continue;
+            }
+            self.record(Undo::WifiPowerSave { iface: iface.clone() });
+            match self.units.set_wifi_power_save(&iface, false) {
+                Ok(()) => done.push(format!("Wi-Fi power saving off on {iface}")),
+                Err(e) => {
+                    self.undo.pop();
+                    self.persist();
+                    r.skipped.push(format!("Wi-Fi power saving on {iface}: {e}"));
+                }
+            }
+        }
+        if !done.is_empty() {
+            r.applied.push(format!("Network: {}", done.join(", ")));
+        } else if let Some(e) = failure {
+            r.skipped.push(format!("Network tuning: {}", denied(&e)));
+        } else {
+            r.skipped.push("Network tuning: already set.".into());
+        }
+    }
+
     fn pause_services(&mut self, r: &mut Report) {
         let mut paused = Vec::new();
         for unit in BACKGROUND_UNITS {
@@ -367,6 +427,11 @@ impl<U: Units> Tuner<U> {
                     g
                 }
                 Undo::StartUnit { unit } => self.units.start(unit).is_ok(),
+                // An adapter unplugged since has nothing left to restore.
+                Undo::WifiPowerSave { iface } => {
+                    !self.root.join(format!("sys/class/net/{iface}")).exists()
+                        || self.units.set_wifi_power_save(iface, true).is_ok()
+                }
                 Undo::Autogroup { id, previous } => {
                     // The game has usually exited; any surviving member of the
                     // group (the launcher, say) can carry the write. None left
@@ -413,6 +478,19 @@ fn read(p: &Path) -> Option<String> {
 
 fn write(p: &Path, v: &str) -> std::io::Result<()> {
     std::fs::write(p, v)
+}
+
+/// Wireless interfaces: the ones with a `wireless` directory in sysfs.
+fn wireless(root: &SysRoot) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(root.join("sys/class/net"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().join("wireless").exists())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+    v.sort();
+    v
 }
 
 fn policies(root: &SysRoot) -> Vec<PathBuf> {

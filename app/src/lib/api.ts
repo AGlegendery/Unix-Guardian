@@ -149,6 +149,7 @@ export interface Profile {
   cpu_priority: boolean;
   memory_tuning: boolean;
   pause_services: boolean;
+  network_tuning: boolean;
   pause_apps: string[];
   games: string[];
 }
