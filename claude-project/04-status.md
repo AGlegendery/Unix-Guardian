@@ -3,19 +3,21 @@
 ## Where the code is
 
 - Repository: `/home/aglegend/SSDBkup/IMPORTANT/ProgramingTable/unix-guardian`
-  (on the user's laptop). **No git remote yet — nothing has been pushed**, so
-  CI has never run.
-- Branches: `master` = P0/P1 foundation. `p2-game-mode` = phase 2 work,
-  **not merged yet** (checked out).
+  (on the user's laptop). Remote `origin` = the user's **private** repo
+  https://github.com/AGlegendery/Unix-Guardian. **Nothing pushed yet**: the
+  laptop has no GitHub credentials (no `gh`, no SSH key, no token), so the user
+  pushes, or explicitly asks for a deploy key. CI has never run.
+- Branches: `main` (renamed from `master` to match the CI trigger) now has P2
+  merged. `p2-game-mode` is kept until pushed.
 
 | Commit | Branch | What |
 |---|---|---|
-| `d0ac949` | master | Foundation: daemon, sensors, GPU read path, CLI (P0 + P1) |
+| `d0ac949` | main | Foundation: daemon, sensors, GPU read path, CLI (P0 + P1) |
 | `e4aa5e9` | p2-game-mode | Game library scanning and running-game detection (P2.1–2.3) |
 | `278cb62` | p2-game-mode | Per-user agent: detection loop, profiles, playtime, pinning, pausing |
 | `2fbfa46` | p2-game-mode | Game mode end to end: reversible tuning in the daemon, reconciled by the agent |
 | `9eccd01` | p2-game-mode | This knowledge pack (`claude-project/`, `CLAUDE.md`), `scripts/agent-e2e.sh`, `scripts/gamemode-e2e.sh` (also run by CI) |
-| uncommitted | p2-game-mode | Single-instance fix for daemon and agent; agent user unit + D-Bus activation + autostart, installed by `dev-install.sh`; `ug profile list/set/reset`; `ug playtime --csv`; keys in `ug game list` |
+| `2fb83ee` | p2-game-mode | Single-instance fix for daemon and agent; agent user unit + D-Bus activation + autostart, installed by `dev-install.sh`; `ug profile list/set/reset`; `ug playtime --csv`; keys in `ug game list` |
 
 - **182 tests pass** (`cargo test --workspace`): ug-hw 41, ug-games 39, ug-gpu
   35, ug-agent 19, ug-core 20, ug-daemon 12, ug-tune 12, ug-cli 3, doc-test 1.
@@ -30,11 +32,12 @@
 
 | Verified on the real laptop | Verified only against fixtures/scratch | Never exercised |
 |---|---|---|
-| sensors, CPU topology, RAPL absence, network (live) | AMD GPU read path (synthetic RDNA1–3 layouts) | anything **as root on the real `/sys`** |
-| NVML telemetry, GPU names, capabilities | Steam / Lutris / Heroic library parsing (format samples) | the **system bus**, real **polkit prompts** |
+| **Real install (2026-09-30):** daemon as root on the system bus (6.2 MB, RAPL CPU watts visible, sleeping dGPU not woken); agent under `systemd --user` (5.4 MB); fake CS2 → game mode in ~1 s with **no polkit prompt** (the agent in `user@.service` counts as the active session): 12 policies performance/performance, swappiness 10, max_map_count raised, compaction 0, 7 timers held, game nice −10 + autogroup −10; game exit → every value and timer **identical to the pre-install snapshot**; agent SIGKILL mid-game → daemon reverted at once, systemd restarted the agent, game mode back in ~2 s, then exact restore | | |
+| sensors, CPU topology, RAPL absence, network (live) | AMD GPU read path (synthetic RDNA1–3 layouts) | **daemon SIGKILL mid-game** as root (recovery from `/var/lib/unix-guardian/gamemode.json`; needs sudo) |
+| NVML telemetry, GPU names, capabilities | Steam / Lutris / Heroic library parsing (format samples) | a polkit **prompt** for an `auth_admin` action (`SetLogFilter`) |
 | dGPU runtime-PM skip (0 ms added active time) | game-mode tuning writes (scratch copy of the laptop's `/sys`) | a **real game** (no Steam/Lutris/Heroic installed; a fake `SteamAppId` process was used) |
 | NVML lazy load / 30 s release (6.2 → 21.7 → 6.4 MB) | crash recovery of the tuner (unit tests) | desktop **notifications** (tests used `--quiet`/private bus) |
-| subscription release on SIGTERM/SIGKILL | | agent under `systemd --user` / autostart |
+| subscription release on SIGTERM/SIGKILL | | XDG autostart fallback (session without a systemd user manager) |
 | detection on the live process table (518 procs, no false positives, 1.1 ms/scan) | | CI on GitHub, fmt/clippy/deny |
 | Bottles library (live), agent end-to-end on a private bus: detection → P-core pinning → app pause/resume → GameMode registration → playtime | | the Tauri UI (not started) |
 | game mode agent→daemon end-to-end on a private bus: enter → exact restore on exit; agent SIGKILL → daemon reverts; 0 polkit prompts / 0 real units touched | | |
@@ -90,21 +93,20 @@ extras, P10 packaging & 1.0.
 
 ## Next steps, in order
 
-1. **First real install (needs the user, needs sudo).** `dev-install.sh`
-   now installs the agent too. On the laptop: `cargo build --release && sudo ./scripts/dev-install.sh`,
-   then `systemctl --user daemon-reload && systemctl --user start ug-agent`.
-   Check: `ug status` without `--session` (system bus), RAPL watts now visible,
-   `busctl call … SetLogFilter s debug` raises a polkit prompt, a fake game
-   (`SteamAppId=730 bash -c 'exec -a cs2 sleep 120'`) turns game mode on for
-   real (`cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor`,
-   `cat /proc/sys/vm/swappiness`, `systemctl list-timers`) and exiting restores
-   it; then `sudo kill -9 $(pgrep -x ug-daemon)` mid-game → daemon restarts →
-   everything restored from `/var/lib/unix-guardian/gamemode.json`.
-   ⚠️ This really changes the CPU governor, sysctls and timers (temporarily).
-   Tell the user before asking them to run it.
-2. Review and **merge `p2-game-mode` into `master`**.
-3. Create the GitHub repository (the `repository` URL in `Cargo.toml` is a
-   placeholder), push, fix whatever fmt/clippy/deny report.
+1. **Finish the real install (needs sudo).** Done and verified (see the table
+   above), except: the first install left the daemon *disabled* at boot —
+   `dev-install.sh` now enables it and installs the system-bus activation
+   file; rerun `sudo ./scripts/dev-install.sh` once. Still to run: `sudo kill -9
+   $(pgrep -x ug-daemon)` mid-game → daemon restarts → restored from
+   `/var/lib/unix-guardian/gamemode.json`.
+2. **Push** `main` and `p2-game-mode` to `origin` (user's credentials), then
+   fix whatever CI's fmt/clippy/deny report.
+3. **Fix the laptop's apt lists** (found 2026-09-30): every Parrot `Packages`
+   file under `/var/lib/apt/lists` was 0 bytes while `InRelease` was intact, so
+   `apt update` said "Hit" and apt saw no Parrot packages at all — no
+   WebKitGTK dev packages, and no Parrot updates for weeks. Fix given to the
+   user: `sudo rm /var/lib/apt/lists/mirrors.ocf.berkeley.edu_parrot_*`, then
+   `sudo apt update`.
 4. Install WebKitGTK dev packages → **Tauri shell (0.6)** → monitoring page
    (1.7) → game-mode page (2.10). Keep the "closed window = no WebView process"
    rule and measure RSS.

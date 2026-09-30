@@ -18,7 +18,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
 license = "GPL-3.0-or-later"
-repository = "https://github.com/unix-guardian/unix-guardian"
+repository = "https://github.com/AGlegendery/Unix-Guardian"
 authors = ["Unix Guardian contributors"]
 
 [workspace.dependencies]

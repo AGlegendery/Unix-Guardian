@@ -8,7 +8,7 @@
 # graphical-session.target; elsewhere the XDG autostart entry starts the agent.
 [Unit]
 Description=Unix Guardian agent (game detection, playtime)
-Documentation=https://github.com/unix-guardian/unix-guardian
+Documentation=https://github.com/AGlegendery/Unix-Guardian
 PartOf=graphical-session.target
 After=graphical-session.target
 

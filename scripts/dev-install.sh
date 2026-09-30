@@ -24,6 +24,7 @@ files=(
   /usr/local/share/dbus-1/services/org.unixguardian.Agent1.service
   /etc/xdg/autostart/ug-agent.desktop
   /etc/systemd/system/unix-guardiand.service
+  /usr/local/share/dbus-1/system-services/org.unixguardian.Daemon1.service
   /etc/dbus-1/system.d/org.unixguardian.Daemon1.conf
   /usr/share/polkit-1/actions/org.unixguardian.policy
 )
@@ -48,6 +49,8 @@ sed 's|/usr/bin/ug-daemon|/usr/local/bin/ug-daemon|' "$pkg/systemd/unix-guardian
   > /etc/systemd/system/unix-guardiand.service
 install -Dm644 "$pkg/dbus/org.unixguardian.Daemon1.conf" /etc/dbus-1/system.d/org.unixguardian.Daemon1.conf
 install -Dm644 "$pkg/polkit/org.unixguardian.policy"     /usr/share/polkit-1/actions/org.unixguardian.policy
+install -Dm644 "$pkg/dbus/org.unixguardian.Daemon1.service" \
+  /usr/local/share/dbus-1/system-services/org.unixguardian.Daemon1.service
 
 # The agent: a user unit enabled globally (a symlink under /etc/systemd/user,
 # not a change to anyone's home), activation on the session bus, and the
@@ -63,6 +66,10 @@ systemctl --global enable ug-agent.service
 systemctl daemon-reload
 # dbus-broker and dbus-daemon both pick up new policy on reload.
 systemctl reload dbus.service 2>/dev/null || busctl call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig
+# Enabled, not only started: without it the daemon is gone after a reboot and
+# the agent logs "service not reachable" at every game. The activation file
+# covers the gap until it is up.
+systemctl enable unix-guardiand.service
 systemctl restart unix-guardiand.service
 
 echo "installed. Start the agent now (it starts by itself from the next login):"

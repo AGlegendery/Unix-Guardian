@@ -70,7 +70,7 @@ concrete reason not to, and say so when deviating.
 
 ## Git
 
-- Work on a feature branch per phase (`p2-game-mode`); `master` stays stable.
+- Work on a feature branch per phase (`p2-game-mode`, next `p3-…`); `main` stays stable.
   Commit only with the user's go-ahead (given for this work stream so far).
 - Commit messages: a short imperative subject naming the roadmap tasks
   (`… (P2.5, 2.6, 2.8)`), then a body explaining what and *why*, what was

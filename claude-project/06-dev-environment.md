@@ -32,7 +32,7 @@
 ## Repository
 
 `/home/aglegend/SSDBkup/IMPORTANT/ProgramingTable/unix-guardian` — git, branches
-`master` and `p2-game-mode`, no remote. A git identity is set for this
+`main` and `p2-game-mode`, remote `origin` = github.com/AGlegendery/Unix-Guardian (private; no credentials on the laptop yet). A git identity is set for this
 repository only (`git config user.name` / `user.email`).
 
 ```text

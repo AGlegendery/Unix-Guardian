@@ -81,6 +81,14 @@ one is encoded in code and tests now; keep them in mind when extending nearby.
     → "NVIDIA GeForce RTX 3050 6GB Laptop GPU", identical to NVML). A hand-written
     table said "RTX 2050" for this card — wrong, and removed.
 
+18. **polkit treats the agent under `systemd --user` as the active session.**
+    Processes in `user@1000.service` belong to no login session, but polkit
+    resolves them to the user's display session, so `allow_active=yes`
+    (`org.unixguardian.gamemode`) applies: game mode turned on in ~1 s with no
+    prompt on the real install.
+19. **Measured on the real install:** agent 5.4 MB RSS under systemd, daemon
+    6.2 MB; the `nice -10` game also got its autogroup to `nice -10`.
+
 ## Bugs that only running the code revealed (all fixed, all with tests)
 
 | Bug | Cause | Fix |
@@ -97,5 +105,6 @@ one is encoded in code and tests now; keep them in mind when extending nearby.
 | Agent tests flaky with "Text file busy" | writing an executable while other test threads fork | symlink to `/bin/sleep` instead of copying |
 | `capture-fixture.sh` exited silently | `set -e` + `cond && cmd` as a function's last command | explicit `if`, `return 0` |
 | **A second daemon or agent silently took over the running one** — and a second daemon ran crash recovery on the live undo list, reverting a game's settings mid-game | zbus's `Builder::name` requests names with `AllowReplacement \| ReplaceExisting` by default | names claimed with `DoNotQueue` only; the daemon claims its name *before* crash recovery and exits non-zero if taken; a second agent exits 0 (so systemd does not restart it). e2e checks in both scripts |
+| After the first real install the daemon would be gone after a reboot | `dev-install.sh` started the unit but never enabled it, and did not install the system-bus activation file | both added (checked in a container) |
 | `ug playtime --csv \| head` would panic | `println!` on a closed pipe (same as the monitor bug) | explicit writer, `BrokenPipe` = clean end |
 | Fixture leaked the root filesystem UUID | `/proc/cmdline` copied verbatim | UUIDs zeroed; gateway zeroed; no serials/MACs/UUIDs collected |

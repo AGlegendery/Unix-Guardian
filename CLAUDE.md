@@ -30,4 +30,5 @@ Development daemon (no root, never touches real services):
 - Never wake a runtime-suspended GPU for telemetry; keep the daemon at ~6 MB idle.
 - Bugs get a failing test first; confirm it fails without the fix.
 - `rustfmt`/`clippy` are not installed on the dev machine; CI runs them.
-- Commit only with the user's go-ahead, on the phase branch (`p2-game-mode`).
+- Commit on the current phase branch (next: `p3-…`), merged into `main` when a
+  phase lands. The user has given a standing go-ahead for commits and merges.
