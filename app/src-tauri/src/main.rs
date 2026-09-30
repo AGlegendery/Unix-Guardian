@@ -78,6 +78,8 @@ fn main() {
             bus::power_usage,
             bus::battery,
             bus::set_battery_care,
+            bus::history,
+            bus::traffic,
         ])
         .run(tauri::generate_context!())
         .expect("running the Unix Guardian window");

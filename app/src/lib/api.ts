@@ -177,6 +177,23 @@ export interface BatteryCare {
   reason: string;
 }
 
+export interface HistoryPoint {
+  ts_unix_ms: number;
+  cpu_temp_c: number | null;
+  cpu_load_pct: number | null;
+  cpu_w: number | null;
+  gpu_temp_c: number | null;
+  gpu_load_pct: number | null;
+  gpu_w: number | null;
+  mem_used_kb: number;
+}
+
+export interface DayTraffic {
+  date: string;
+  rx_bytes: number;
+  tx_bytes: number;
+}
+
 export interface PlaytimeEntry {
   key: string;
   name: string;
@@ -209,6 +226,9 @@ const tauriApi = {
   powerWatches: () => invoke<PowerWatch[]>("power_watches"),
   powerUnwatch: (id: number) => invoke<boolean>("power_unwatch", { id }),
   powerUsage: () => invoke<PowerUsage>("power_usage"),
+  history: (sinceUnixMs: number, untilUnixMs: number, points: number) =>
+    invoke<HistoryPoint[]>("history", { sinceUnixMs, untilUnixMs, points }),
+  traffic: (sinceUnixMs: number) => invoke<DayTraffic[]>("traffic", { sinceUnixMs }),
   battery: () => invoke<BatteryCare>("battery"),
   setBatteryCare: (mode: string, limit: number) => invoke<void>("set_battery_care", { mode, limit }),
   wakeAlarm: () => invoke<[number, boolean]>("wake_alarm"),
