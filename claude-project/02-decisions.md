@@ -109,6 +109,16 @@ changes came from building and measuring; keep them unless there is a reason.
 15. **The UI follows Phoenix Guardian's visual design** (dark, purple,
     rounded cards, right sidebar) at the user's request on 2026-09-30, after an
     independent "circuit board" preview; see PRODUCT.md.
+17. **nftables through the `nft` program, not `rustables`.** `nft -f -` is
+    atomic and handles `cgroupsv2` sets, maps and per-element counters,
+    which the netlink crates did not cover when this was built. Everything
+    lives in one table, `inet unix_guardian`.
+18. **Apps are told apart by the cgroup systemd already gives them**, not by
+    moving processes into `ug.slice/ug-net-<class>.scope` (roadmap 4.1).
+    Counting, blocking and marking match `socket cgroupv2 level L`; rules
+    are saved by app name so a restarted app is caught again.
+19. **Upload and download caps are HTB classes with fq_codel leaves**
+    (download through `ug-ifb0`); CAKE and bandwidth detection are later.
 16. Smaller: default network interface is read from `/proc/net/route` (not
     rtnetlink); logs go to stderr in a journald-friendly format (no
     `tracing-journald`); notifications call `org.freedesktop.Notifications`

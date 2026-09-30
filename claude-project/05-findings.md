@@ -110,6 +110,19 @@ one is encoded in code and tests now; keep them in mind when extending nearby.
     agent did not answer. Fixed with the `UG_TEST_RUN` token (processes of one
     run are invisible to every other detector) and `scripts/test-bus.sh`.
 
+22. **nftables and cgroups (nft 1.1.3, kernel 7.0).** `cgroupsv2` sets with
+    `counter` count per element and work for unprivileged root in
+    `unshare -rn`. A removed cgroup's element prints as its numeric id and
+    cannot be deleted by path or id, so sets are flushed and refilled.
+    Paths with systemd's `\x2d` escapes are taken literally.
+23. **A Steam game runs in Steam's own cgroup** (`app-steam@….service`),
+    so per-app rules cannot tell them apart without moving the game.
+24. **Test namespaces:** a peer netns is made by running the peer itself
+    under `unshare -n` and moving the veth end in with `ip link set … netns
+    PID`; `nsenter -t PID -n` from a nested user namespace fails (EINVAL).
+    The browser pane throttles timers while hidden, so a page can look
+    empty in a screenshot while it works.
+
 ## Bugs that only running the code revealed (all fixed, all with tests)
 
 | Bug | Cause | Fix |
