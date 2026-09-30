@@ -129,6 +129,22 @@ export interface Profile {
   games: string[];
 }
 
+export interface PowerCapability {
+  action: PowerAction;
+  available: boolean;
+  reason: string;
+}
+
+export type PowerAction = "power-off" | "reboot" | "suspend" | "hibernate" | "hybrid-sleep" | "suspend-then-hibernate";
+
+export interface PowerJob {
+  id: number;
+  action: PowerAction;
+  at_unix_ms: number;
+  repeat: "once" | "daily" | "weekly";
+  note: string;
+}
+
 export interface PlaytimeEntry {
   key: string;
   name: string;
@@ -150,6 +166,12 @@ const tauriApi = {
   setGameProfile: (key: string, profile: string) => invoke<void>("set_game_profile", { key, profile }),
   setProfileOption: (profile: string, option: string, value: boolean) =>
     invoke<void>("set_profile_option", { profile, option, value }),
+  powerCaps: () => invoke<PowerCapability[]>("power_caps"),
+  powerNow: (action: PowerAction) => invoke<void>("power_now", { action }),
+  powerSchedule: (action: PowerAction, atUnixMs: number, repeat: string) =>
+    invoke<PowerJob>("power_schedule", { action, atUnixMs, repeat }),
+  powerJobs: () => invoke<PowerJob[]>("power_jobs"),
+  powerCancel: (id: number) => invoke<boolean>("power_cancel", { id }),
   playtime: (sinceUnixMs: number) => invoke<PlaytimeEntry[]>("playtime", { sinceUnixMs }),
   onSample: (f: (s: Snapshot) => void): Promise<UnlistenFn> => listen<Snapshot>("sample", (e) => f(e.payload)),
 };

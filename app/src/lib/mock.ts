@@ -4,10 +4,11 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { InstalledGame, Overview, PlaytimeEntry, Profile, RunningGame, Snapshot } from "./api";
+import type { InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
+const jobs: PowerJob[] = [];
 let t = 0;
 
 function jitter(v: number | null, spread: number, lo = 0, hi = 100): number | null {
@@ -67,6 +68,25 @@ export const mockApi = {
     if (p) p[option] = value;
   },
   playtime: async (): Promise<PlaytimeEntry[]> => [],
+  // Power in the preview: nothing is ever done; the queue lives in memory.
+  powerCaps: async () =>
+    (["power-off", "reboot", "suspend", "hibernate", "hybrid-sleep", "suspend-then-hibernate"] as PowerAction[]).map((action) => ({
+      action,
+      available: !action.includes("hibernate") && action !== "hybrid-sleep",
+      reason: action.includes("hibernate") || action === "hybrid-sleep" ? "Hibernation is not set up on this system." : "",
+    })),
+  powerNow: async () => {},
+  powerSchedule: async (action: PowerAction, at_unix_ms: number, repeat: string) => {
+    const job: PowerJob = { id: jobs.length + 1, action, at_unix_ms, repeat: repeat as PowerJob["repeat"], note: "" };
+    jobs.push(job);
+    return job;
+  },
+  powerJobs: async () => [...jobs],
+  powerCancel: async (id: number) => {
+    const i = jobs.findIndex((j) => j.id === id);
+    if (i >= 0) jobs.splice(i, 1);
+    return i >= 0;
+  },
   onSample: async (f: (s: Snapshot) => void) => {
     listeners.add(f);
     return () => listeners.delete(f);

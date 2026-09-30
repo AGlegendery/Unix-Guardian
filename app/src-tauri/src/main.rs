@@ -64,6 +64,11 @@ fn main() {
             bus::set_game_profile,
             bus::set_profile_option,
             bus::playtime,
+            bus::power_caps,
+            bus::power_now,
+            bus::power_schedule,
+            bus::power_jobs,
+            bus::power_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("running the Unix Guardian window");
