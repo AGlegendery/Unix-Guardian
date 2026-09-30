@@ -101,4 +101,8 @@ impl ProfilesIface {
         let profile = Some(profile.trim()).filter(|p| !p.is_empty());
         lock(&self.core).set_game_profile(key, profile).map_err(zbus::fdo::Error::InvalidArgs)
     }
+
+    async fn set_option(&self, profile: &str, option: &str, value: bool) -> zbus::fdo::Result<()> {
+        lock(&self.core).set_profile_option(profile, option, value).map_err(zbus::fdo::Error::InvalidArgs)
+    }
 }

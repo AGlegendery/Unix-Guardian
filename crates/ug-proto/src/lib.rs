@@ -240,5 +240,10 @@ pub mod agent {
         /// `profile` returns it to the one the game database suggests. Takes
         /// effect for a running game on the next detection tick.
         fn set_game_profile(&self, key: &str, profile: &str) -> zbus::Result<()>;
+
+        /// Turns one on/off setting of a profile on or off, e.g.
+        /// `("quiet", "cpu_priority", false)`. Written to the user's profile
+        /// file; running games pick it up on the next tick.
+        fn set_option(&self, profile: &str, option: &str, value: bool) -> zbus::Result<()>;
     }
 }

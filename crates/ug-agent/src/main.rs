@@ -159,9 +159,12 @@ async fn main() -> Result<()> {
         playtime::Playtime::open(&ug_core::paths::user_data().join("agent.db")).context("opening the playtime database")?,
     );
 
+    let test_run = std::env::var("UG_TEST_RUN").ok().filter(|t| !t.is_empty());
     let core: Shared = Arc::new(Mutex::new(
         tokio::task::spawn_blocking(move || {
-            AgentCore::new(SysRoot::real(), &home, &ug_core::paths::user_config(), playtime, uid)
+            let mut core = AgentCore::new(SysRoot::real(), &home, &ug_core::paths::user_config(), playtime, uid);
+            core.set_test_run(test_run);
+            core
         })
         .await?,
     ));

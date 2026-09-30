@@ -192,6 +192,11 @@ impl AgentCore {
         self.installed.len()
     }
 
+    /// See [`ug_games::Detector::set_test_run`].
+    pub fn set_test_run(&mut self, token: Option<String>) {
+        self.detector.set_test_run(token);
+    }
+
     /// Every profile, with the games the user assigned to it.
     pub fn profiles_info(&self) -> Vec<ug_proto::ProfileInfo> {
         self.profiles
@@ -239,6 +244,19 @@ impl AgentCore {
             r.info.profile = p.id.clone();
             r.pin_to = p.cpu_preferred_cores.then(|| self.preferred_cpus.clone()).flatten();
         }
+        Ok(())
+    }
+
+    /// Changes one setting of an existing profile. Game mode follows on the
+    /// next reconcile for any game running with it.
+    pub fn set_profile_option(&mut self, id: &str, option: &str, value: bool) -> Result<(), String> {
+        let (fresh, _) = Profiles::load(&self.config_dir);
+        if fresh.get(id).is_none() {
+            let known: Vec<&str> = fresh.all().iter().map(|p| p.id.as_str()).collect();
+            return Err(format!("no profile named {id:?}; available: {}", known.join(", ")));
+        }
+        ug_core::profile::set_profile_option(&self.config_dir, id, option, value)?;
+        self.profiles = Profiles::load(&self.config_dir).0;
         Ok(())
     }
 
@@ -404,6 +422,20 @@ mod tests {
         c.set_game_profile("steam:730", Some("mine")).unwrap();
         let mine = c.profiles_info().into_iter().find(|p| p.id == "mine").unwrap();
         assert!(!mine.builtin && mine.cpu_preferred_cores);
+    }
+
+    #[test]
+    fn changing_a_profile_setting_reaches_a_running_games_game_mode() {
+        let fs = TestFs::new();
+        let cfg = tempfile::tempdir().unwrap();
+        let mut c = core(&fs, cfg.path());
+        fs.process(&FakeProc { pid: 10, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+        c.tick(Instant::now(), 0);
+        assert!(c.gamemode_desired().unwrap().cpu_no_idle_states);
+        c.set_profile_option("competitive", "cpu_no_idle_states", false).unwrap();
+        assert!(!c.gamemode_desired().unwrap().cpu_no_idle_states);
+        assert!(!c.profiles_info().into_iter().find(|p| p.id == "competitive").unwrap().cpu_no_idle_states);
+        assert!(c.set_profile_option("turbo", "cpu_priority", true).unwrap_err().contains("available"));
     }
 
     #[test]

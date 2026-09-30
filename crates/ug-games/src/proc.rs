@@ -149,6 +149,16 @@ pub fn steam_app_id(root: &SysRoot, pid: i32) -> Option<u32> {
     game_id.filter(|&g| g != 0).map(|g| (g >> 32) as u32).filter(|&id| id != 0)
 }
 
+/// The `UG_TEST_RUN` token a process was started with, if any. Set by the
+/// end-to-end scripts on everything they start, so fake games stay invisible
+/// to any agent outside that test run.
+pub fn test_run(root: &SysRoot, pid: i32) -> Option<String> {
+    let env = std::fs::read(dir(root, pid).join("environ")).ok()?;
+    env.split(|&c| c == 0)
+        .find_map(|var| var.strip_prefix(b"UG_TEST_RUN="))
+        .map(|v| String::from_utf8_lossy(v).into_owned())
+}
+
 /// Which graphics APIs a process has loaded, from its memory map.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Graphics {

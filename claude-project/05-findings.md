@@ -89,6 +89,27 @@ one is encoded in code and tests now; keep them in mind when extending nearby.
 19. **Measured on the real install:** agent 5.4 MB RSS under systemd, daemon
     6.2 MB; the `nice -10` game also got its autogroup to `nice -10`.
 
+20. **The UI window's cost (WebKitGTK 2.52, release build, dashboard at 1 Hz):**
+    open, all processes together about **244 MB PSS** (ug-app ~90, WebKit web
+    process ~140, network process ~25) and **2–5 % of one core** (2 % with the
+    DMA-BUF renderer, 5 % without). One endlessly pulsing CSS dot made it
+    **~100–130 %**: WebKitGTK repaints the whole window at 60 fps. Keeping a
+    tray icon in the window process after closing the window still held
+    **124 MB** and left WebKit's network process running, so the window process
+    now exits on close (tray belongs in the agent).
+    **Memory floor, measured later:** 307 MB by default → 281 MB with only
+    Mesa's EGL vendor (GLVND maps NVIDIA's EGL libraries into both processes
+    even when the Intel GPU renders) → **~248 MB** with WebKit compositing and
+    GTK GL also off, CPU unchanged at 3 %. Mesa's LLVM (24 MB per process)
+    stays: WebKitGTK aborts with no EGL display. The roadmap's 150 MB open
+    budget is not reachable with WebKitGTK; closed is 0 (the process exits).
+21. **An installed agent sees the e2e scripts' fake games.** It scans all the
+    user's processes, so `SteamAppId=730 … sleep` started by a test turned on
+    real game mode and wrote real playtime; and a plain `dbus-run-session`
+    bus D-Bus-activated the installed agent (real XDG dirs) when the test
+    agent did not answer. Fixed with the `UG_TEST_RUN` token (processes of one
+    run are invisible to every other detector) and `scripts/test-bus.sh`.
+
 ## Bugs that only running the code revealed (all fixed, all with tests)
 
 | Bug | Cause | Fix |

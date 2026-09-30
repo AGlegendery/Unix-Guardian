@@ -82,6 +82,16 @@ enum ProfileCommand {
     Set { game: String, profile: String },
     /// Return a game to the profile the game database suggests.
     Reset { game: String },
+    /// Turn one setting of a profile on or off, e.g.
+    /// `ug profile option quiet cpu_priority off`.
+    Option {
+        profile: String,
+        /// cpu_performance, cpu_no_idle_states, cpu_preferred_cores,
+        /// cpu_priority, memory_tuning or pause_services.
+        setting: String,
+        #[arg(value_parser = ["on", "off"])]
+        value: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -303,6 +313,10 @@ async fn profile(command: ProfileCommand, json: bool) -> Result<()> {
         ProfileCommand::Set { game, profile } => {
             profiles.set_game_profile(&game, &profile).await.map_err(agent_error)?;
             println!("{game} now runs with the {profile} profile.");
+        }
+        ProfileCommand::Option { profile, setting, value } => {
+            profiles.set_option(&profile, &setting, value == "on").await.map_err(agent_error)?;
+            println!("{profile}: {setting} is now {value}.");
         }
         ProfileCommand::Reset { game } => {
             profiles.set_game_profile(&game, "").await.map_err(agent_error)?;

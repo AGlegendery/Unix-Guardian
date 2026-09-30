@@ -8,6 +8,16 @@
 # is the protocol and lifecycle, not the readings.
 set -euo pipefail
 
+# Nothing here may be D-Bus-activated from an installed copy: with Unix Guardian
+# installed, a test bus that uses the standard service directories starts
+# /usr/local/bin/ug-agent (with the user's real XDG directories) the moment the
+# test's own agent is not answering, and the test then writes into the real
+# playtime database. Found the hard way; see 05-findings.md.
+if busctl --user list --activatable 2>/dev/null | grep -q org.unixguardian; then
+  echo "FAIL  the test bus can activate an installed Unix Guardian service; run with scripts/test-bus.sh" >&2
+  exit 1
+fi
+
 bin="${1:-target/debug}"
 ug() { "$bin/ug" --session "$@"; }
 

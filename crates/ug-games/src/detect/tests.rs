@@ -343,3 +343,35 @@ fn a_native_program_is_named_after_its_executable_not_its_title() {
     let p = crate::proc::read(&SysRoot::at(fs.root()), 91).unwrap();
     assert_eq!(p.exe_basename(), "realgame");
 }
+
+#[test]
+fn a_process_from_a_test_run_is_invisible_to_every_other_detector() {
+    // The end-to-end scripts start fake games (SteamAppId=730). An installed
+    // agent watching the same user's processes must not take them for real
+    // ones: it would record playtime and tune the real machine.
+    let fs = TestFs::new();
+    let root = SysRoot::at(fs.root());
+    let t0 = Instant::now();
+    fs.process(&FakeProc { pid: 10, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730"), ("UG_TEST_RUN", "e2e-1")], ..Default::default() });
+
+    let mut real = detector(vec![]);
+    assert!(real.scan(&root, t0).is_empty(), "an agent outside the test run ignores it");
+
+    let mut other_run = detector(vec![]);
+    other_run.set_test_run(Some("e2e-2".into()));
+    assert!(other_run.scan(&root, t0).is_empty(), "another test run ignores it too");
+
+    let mut same_run = detector(vec![]);
+    same_run.set_test_run(Some("e2e-1".into()));
+    assert_eq!(started(&same_run.scan(&root, t0)).len(), 1, "the test's own agent sees it");
+}
+
+#[test]
+fn a_test_agent_ignores_the_users_real_games() {
+    let fs = TestFs::new();
+    let root = SysRoot::at(fs.root());
+    fs.process(&FakeProc { pid: 10, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+    let mut d = detector(vec![]);
+    d.set_test_run(Some("e2e-1".into()));
+    assert!(d.scan(&root, Instant::now()).is_empty());
+}

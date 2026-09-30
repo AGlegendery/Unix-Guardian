@@ -65,6 +65,6 @@ jobs:
       - name: End-to-end over a private bus
         run: |
           cargo build --workspace
-          dbus-run-session -- ./scripts/smoke.sh target/debug
-          dbus-run-session -- ./scripts/agent-e2e.sh target/debug
-          dbus-run-session -- ./scripts/gamemode-e2e.sh target/debug
+          ./scripts/test-bus.sh ./scripts/smoke.sh target/debug
+          ./scripts/test-bus.sh ./scripts/agent-e2e.sh target/debug
+          ./scripts/test-bus.sh ./scripts/gamemode-e2e.sh target/debug
