@@ -220,5 +220,25 @@ pub mod agent {
 
         /// Deletes every recorded session of one game.
         fn forget(&self, key: &str) -> zbus::Result<u32>;
+
+        /// Every session that ended after `since_unix_ms` (0 for all), oldest
+        /// first, for export.
+        fn sessions(&self, since_unix_ms: u64) -> zbus::Result<Vec<PlaytimeSession>>;
+    }
+
+    /// Game profiles and which game uses which.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Profiles",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Profiles {
+        /// Every profile, as loaded from the built-ins and the user's files.
+        fn list(&self) -> zbus::Result<Vec<ProfileInfo>>;
+
+        /// Makes a game (by key, e.g. `steam:730`) run with a profile; an empty
+        /// `profile` returns it to the one the game database suggests. Takes
+        /// effect for a running game on the next detection tick.
+        fn set_game_profile(&self, key: &str, profile: &str) -> zbus::Result<()>;
     }
 }

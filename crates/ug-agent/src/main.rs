@@ -24,7 +24,7 @@ use ug_hw::SysRoot;
 use ug_proto::{AGENT_BUS_NAME, AGENT_OBJECT_PATH};
 
 use crate::core::{AgentCore, Outcome};
-use iface::{lock, now_ms, GamesIface, PlaytimeIface, Shared};
+use iface::{lock, now_ms, GamesIface, PlaytimeIface, ProfilesIface, Shared};
 
 const GAMEMODE_NAME: &str = "com.feralinteractive.GameMode";
 const GAMEMODE_PATH: &str = "/com/feralinteractive/GameMode";
@@ -169,13 +169,25 @@ async fn main() -> Result<()> {
     let (announce_tx, mut announce_rx) = tokio::sync::mpsc::unbounded_channel::<Outcome>();
 
     let conn = zbus::connection::Builder::session()?
-        .name(AGENT_BUS_NAME)
-        .context("claiming org.unixguardian.Agent1 — is another agent already running?")?
         .serve_at(AGENT_OBJECT_PATH, GamesIface { core: Arc::clone(&core), announce: announce_tx.clone() })?
         .serve_at(AGENT_OBJECT_PATH, PlaytimeIface { core: Arc::clone(&core) })?
+        .serve_at(AGENT_OBJECT_PATH, ProfilesIface { core: Arc::clone(&core) })?
         .build()
         .await
         .context("connecting to the session bus")?;
+
+    // The user unit and the XDG autostart entry can both start an agent. The
+    // second one steps aside and exits successfully, so systemd does not keep
+    // restarting it; zbus's default flags would instead let it take the name
+    // from the agent that is already tracking the running game.
+    match conn.request_name_with_flags(AGENT_BUS_NAME, zbus::fdo::RequestNameFlags::DoNotQueue.into()).await {
+        Ok(zbus::fdo::RequestNameReply::PrimaryOwner) => {}
+        Ok(_) | Err(zbus::Error::NameTaken) => {
+            tracing::info!("another agent is already running in this session; leaving it in charge");
+            return Ok(());
+        }
+        Err(e) => return Err(e).context("claiming org.unixguardian.Agent1"),
+    }
 
     if !args.no_gamemode {
         claim_gamemode(&conn, &core).await;

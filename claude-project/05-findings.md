@@ -96,4 +96,6 @@ one is encoded in code and tests now; keep them in mind when extending nearby.
 | **The Claude desktop app was detected as a game** | Chromium process-title rewriting (finding 12) | `--type=` check on split args; native names from `/proc/<pid>/exe` |
 | Agent tests flaky with "Text file busy" | writing an executable while other test threads fork | symlink to `/bin/sleep` instead of copying |
 | `capture-fixture.sh` exited silently | `set -e` + `cond && cmd` as a function's last command | explicit `if`, `return 0` |
+| **A second daemon or agent silently took over the running one** — and a second daemon ran crash recovery on the live undo list, reverting a game's settings mid-game | zbus's `Builder::name` requests names with `AllowReplacement \| ReplaceExisting` by default | names claimed with `DoNotQueue` only; the daemon claims its name *before* crash recovery and exits non-zero if taken; a second agent exits 0 (so systemd does not restart it). e2e checks in both scripts |
+| `ug playtime --csv \| head` would panic | `println!` on a closed pipe (same as the monitor bug) | explicit writer, `BrokenPipe` = clean end |
 | Fixture leaked the root filesystem UUID | `/proc/cmdline` copied verbatim | UUIDs zeroed; gateway zeroed; no serials/MACs/UUIDs collected |

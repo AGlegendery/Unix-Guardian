@@ -25,6 +25,8 @@ pub enum Outcome {
 
 struct Running {
     info: RunningGameInfo,
+    /// The game database's profile for it, which a cleared choice returns to.
+    suggested: String,
     session: i64,
     /// Present when this game's profile keeps it on preferred cores.
     pin_to: Option<Vec<u32>>,
@@ -113,7 +115,10 @@ impl AgentCore {
             self.paused.pause_matching(&self.root, self.uid, &profile.pause_apps, &protect);
         }
 
-        self.running.insert(g.key.clone(), Running { info: info.clone(), session, pin_to, pinned: BTreeSet::new() });
+        self.running.insert(
+            g.key.clone(),
+            Running { info: info.clone(), suggested: g.profile.clone(), session, pin_to, pinned: BTreeSet::new() },
+        );
         Outcome::Started(info)
     }
 
@@ -185,6 +190,56 @@ impl AgentCore {
         }
         self.profiles = profiles;
         self.installed.len()
+    }
+
+    /// Every profile, with the games the user assigned to it.
+    pub fn profiles_info(&self) -> Vec<ug_proto::ProfileInfo> {
+        self.profiles
+            .all()
+            .iter()
+            .map(|p| ug_proto::ProfileInfo {
+                id: p.id.clone(),
+                builtin: ug_core::profile::is_builtin(&p.id),
+                cpu_performance: p.cpu_performance,
+                cpu_no_idle_states: p.cpu_no_idle_states,
+                cpu_preferred_cores: p.cpu_preferred_cores,
+                cpu_priority: p.cpu_priority,
+                memory_tuning: p.memory_tuning,
+                pause_services: p.pause_services,
+                pause_apps: p.pause_apps.clone(),
+                games: self.profiles.per_game().iter().filter(|(_, id)| **id == p.id).map(|(k, _)| k.clone()).collect(),
+            })
+            .collect()
+    }
+
+    /// Saves the user's profile choice for a game (`None` clears it) and
+    /// applies it to the game if it is running: game mode follows on the next
+    /// reconcile, and pinning starts for processes not yet pinned. Threads
+    /// already pinned stay where they are until the game restarts; apps are
+    /// paused or not according to the profile the first game started with.
+    pub fn set_game_profile(&mut self, key: &str, profile: Option<&str>) -> Result<(), String> {
+        let key = key.trim();
+        if key.is_empty() {
+            return Err("a game key is required, e.g. steam:730 (see `ug game list`)".into());
+        }
+        // Re-read first, so a profile file added since start-up can be chosen.
+        let (fresh, _) = Profiles::load(&self.config_dir);
+        if let Some(id) = profile {
+            if fresh.get(id).is_none() {
+                let known: Vec<&str> = fresh.all().iter().map(|p| p.id.as_str()).collect();
+                return Err(format!("no profile named {id:?}; available: {}", known.join(", ")));
+            }
+        }
+        ug_core::profile::set_game_profile(&self.config_dir, key, profile)?;
+        self.profiles = Profiles::load(&self.config_dir).0;
+
+        if let Some(r) = self.running.get_mut(key) {
+            let p = self.profiles.for_game(key, &r.suggested);
+            tracing::info!(game = %r.info.name, from = %r.info.profile, to = %p.id, "profile changed while running");
+            r.info.profile = p.id.clone();
+            r.pin_to = p.cpu_preferred_cores.then(|| self.preferred_cpus.clone()).flatten();
+        }
+        Ok(())
     }
 
     /// A GameMode `RegisterGame` call.
@@ -307,6 +362,48 @@ mod tests {
         let both = c.gamemode_desired().unwrap();
         assert!(both.cpu_no_idle_states && both.cpu_performance, "competitive CS2 raises the bar for both");
         assert_eq!(both.pids, vec![10, 11]);
+    }
+
+    #[test]
+    fn choosing_a_profile_for_a_running_game_changes_what_game_mode_wants() {
+        let fs = TestFs::new();
+        let cfg = tempfile::tempdir().unwrap();
+        let mut c = core(&fs, cfg.path());
+        fs.process(&FakeProc { pid: 10, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+        c.tick(Instant::now(), 0);
+        assert!(c.gamemode_desired().unwrap().cpu_no_idle_states, "competitive by default");
+
+        c.set_game_profile("steam:730", Some("quiet")).unwrap();
+        assert_eq!(c.running()[0].profile, "quiet");
+        let want = c.gamemode_desired().unwrap();
+        assert!(!want.cpu_no_idle_states && !want.cpu_performance);
+        let quiet = c.profiles_info().into_iter().find(|p| p.id == "quiet").unwrap();
+        assert_eq!(quiet.games, vec!["steam:730"]);
+
+        c.set_game_profile("steam:730", None).unwrap();
+        assert_eq!(c.running()[0].profile, "competitive", "back to the database's suggestion");
+    }
+
+    #[test]
+    fn an_unknown_profile_is_refused_and_nothing_is_written() {
+        let fs = TestFs::new();
+        let cfg = tempfile::tempdir().unwrap();
+        let mut c = core(&fs, cfg.path());
+        let err = c.set_game_profile("steam:730", Some("turbo")).unwrap_err();
+        assert!(err.contains("competitive"), "the error lists what exists: {err}");
+        assert!(!cfg.path().join("games.toml").exists());
+    }
+
+    #[test]
+    fn a_profile_file_added_after_start_up_can_be_chosen() {
+        let fs = TestFs::new();
+        let cfg = tempfile::tempdir().unwrap();
+        let mut c = core(&fs, cfg.path());
+        std::fs::create_dir_all(cfg.path().join("profiles")).unwrap();
+        std::fs::write(cfg.path().join("profiles/mine.toml"), "cpu_preferred_cores = true\n").unwrap();
+        c.set_game_profile("steam:730", Some("mine")).unwrap();
+        let mine = c.profiles_info().into_iter().find(|p| p.id == "mine").unwrap();
+        assert!(!mine.builtin && mine.cpu_preferred_cores);
     }
 
     #[test]

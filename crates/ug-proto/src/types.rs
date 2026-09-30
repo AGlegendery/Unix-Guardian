@@ -352,6 +352,35 @@ pub struct PlaytimeEntry {
     pub last_played_unix_ms: u64,
 }
 
+/// One recorded play session, for exporting history.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct PlaytimeSession {
+    pub key: String,
+    pub name: String,
+    pub started_unix_ms: u64,
+    /// For a game still running, the last heartbeat (at most a minute ago).
+    pub ended_unix_ms: u64,
+}
+
+/// A game profile, with the games the user has assigned to it.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct ProfileInfo {
+    pub id: String,
+    /// One of the shipped profiles (`competitive`, `balanced`, `quiet`). They
+    /// can be changed through a user file but not removed.
+    pub builtin: bool,
+    pub cpu_performance: bool,
+    pub cpu_no_idle_states: bool,
+    pub cpu_preferred_cores: bool,
+    pub cpu_priority: bool,
+    pub memory_tuning: bool,
+    pub pause_services: bool,
+    pub pause_apps: Vec<String>,
+    /// Game keys the user chose this profile for. Games that use it because
+    /// the database suggests it are not listed.
+    pub games: Vec<String>,
+}
+
 /// What the agent asks the daemon to do while games run. Built from the
 /// game's profile; each flag maps to one reversible change.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]

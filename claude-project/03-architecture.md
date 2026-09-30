@@ -91,7 +91,7 @@ in `ug-proto` (`CpuSample::temp()`, `GpuSample::load()`…), never raw fields.
 Also: if the owning connection leaves the bus, the daemon reverts by itself; on
 SIGTERM it reverts; on start it reverts anything a crashed run left.
 
-### `org.unixguardian.Agent1.Games` / `.Playtime`
+### `org.unixguardian.Agent1.Games` / `.Playtime` / `.Profiles`
 | Member | Signature | Notes |
 |---|---|---|
 | `Installed()` | → `a(InstalledGameInfo)` | From all launchers, last scan (every 10 min or `Rescan`). |
@@ -101,6 +101,9 @@ SIGTERM it reverts; on start it reverts anything a crashed run left.
 | `GameStarted` / `GameStopped` (signals) | `RunningGameInfo` / `(RunningGameInfo, played_s u64)` | |
 | `Playtime.Summary(since_unix_ms)` | `t` → `a(PlaytimeEntry)` | 0 = all time; sessions straddling the start count only their later part. |
 | `Playtime.Forget(key)` | `s` → `u` | Deletes a game's sessions. |
+| `Playtime.Sessions(since_unix_ms)` | `t` → `a(PlaytimeSession)` | Every session ending after the bound, oldest first (for `ug playtime --csv`). |
+| `Profiles.List()` | → `a(ProfileInfo)` | Built-ins + user files, each with the game keys the user assigned to it. |
+| `Profiles.SetGameProfile(key, profile)` | `ss` → | Writes `games.toml` atomically; `""` clears the choice. Unknown profile → `InvalidArgs` listing the available ones. A running game switches on the next tick. |
 
 ### `com.feralinteractive.GameMode` (drop-in)
 `RegisterGame(i)→i`, `UnregisterGame(i)→i`, `QueryStatus(i)→i`,
@@ -147,8 +150,14 @@ skipped.
 | `packaging/systemd/unix-guardiand.service` | package | `Type=dbus`, hardened, `Delegate=yes`, capability bounding set. |
 | `packaging/dbus/org.unixguardian.Daemon1.{conf,service}` | package | System-bus policy (root owns, all may call) + activation. |
 
-Not packaged yet: a `systemd --user` unit / XDG autostart for `ug-agent`, and
-`scripts/dev-install.sh` does not install the agent.
+| `packaging/systemd/ug-agent.service` | package | User unit, `Type=exec`, `PartOf=graphical-session.target`, enabled with `systemctl --global enable`. |
+| `packaging/dbus/org.unixguardian.Agent1.service` | package | Session-bus activation through the user unit. |
+| `packaging/autostart/ug-agent.desktop` | package | XDG autostart fallback, `X-systemd-skip=true`. |
+
+Only one daemon and one agent ever serve: both claim their bus name with
+`DoNotQueue` and no replacement (zbus's defaults would allow a takeover), the
+daemon before crash recovery. A second daemon exits with an error; a second
+agent exits 0.
 
 ## How the key pieces work
 

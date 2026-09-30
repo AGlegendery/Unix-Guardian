@@ -8,7 +8,7 @@
 use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Mutex;
-use ug_proto::PlaytimeEntry;
+use ug_proto::{PlaytimeEntry, PlaytimeSession};
 
 pub struct Playtime {
     conn: Mutex<Connection>,
@@ -110,6 +110,30 @@ impl Playtime {
         .unwrap_or_default()
     }
 
+    /// Every session that ended after `since_ms`, oldest first.
+    pub fn sessions(&self, since_ms: u64) -> Vec<PlaytimeSession> {
+        let c = self.conn();
+        let mut stmt = match c.prepare(
+            "SELECT key, name, started_ms, ended_ms FROM sessions WHERE ended_ms > ?1 ORDER BY started_ms, id",
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(error = %e, "playtime query failed");
+                return Vec::new();
+            }
+        };
+        stmt.query_map(params![since_ms as i64], |r| {
+            Ok(PlaytimeSession {
+                key: r.get(0)?,
+                name: r.get(1)?,
+                started_unix_ms: r.get::<_, i64>(2)?.max(0) as u64,
+                ended_unix_ms: r.get::<_, i64>(3)?.max(0) as u64,
+            })
+        })
+        .map(|rows| rows.flatten().collect())
+        .unwrap_or_default()
+    }
+
     /// Deletes every session of one game; returns how many.
     pub fn forget(&self, key: &str) -> u32 {
         self.conn()
@@ -169,6 +193,19 @@ mod tests {
         let b = p.start("steam:1172620", "Sea of Thieves: 2026 Edition", 2 * H);
         p.touch(b, 3 * H);
         assert_eq!(p.summary(0)[0].name, "Sea of Thieves: 2026 Edition");
+    }
+
+    #[test]
+    fn sessions_are_listed_oldest_first_and_filtered_by_their_end() {
+        let p = Playtime::in_memory();
+        let late = p.start("b", "B", 5 * H);
+        p.touch(late, 6 * H);
+        let early = p.start("a", "A", 0);
+        p.touch(early, H);
+        let all = p.sessions(0);
+        assert_eq!(all.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+        assert_eq!((all[1].started_unix_ms, all[1].ended_unix_ms), (5 * H, 6 * H));
+        assert_eq!(p.sessions(2 * H).len(), 1, "a session over before the window is left out");
     }
 
     #[test]

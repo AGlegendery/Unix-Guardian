@@ -3,7 +3,7 @@
 use crate::core::AgentCore;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use ug_proto::{InstalledGameInfo, PlaytimeEntry, RunningGameInfo};
+use ug_proto::{InstalledGameInfo, PlaytimeEntry, PlaytimeSession, ProfileInfo, RunningGameInfo};
 use zbus::object_server::SignalEmitter;
 
 pub type Shared = Arc<Mutex<AgentCore>>;
@@ -77,5 +77,28 @@ impl PlaytimeIface {
 
     async fn forget(&self, key: &str) -> u32 {
         lock(&self.core).playtime().forget(key)
+    }
+
+    async fn sessions(&self, since_unix_ms: u64) -> Vec<PlaytimeSession> {
+        let core = lock(&self.core);
+        core.heartbeat(now_ms());
+        core.playtime().sessions(since_unix_ms)
+    }
+}
+
+/// `org.unixguardian.Agent1.Profiles`
+pub struct ProfilesIface {
+    pub core: Shared,
+}
+
+#[zbus::interface(name = "org.unixguardian.Agent1.Profiles")]
+impl ProfilesIface {
+    async fn list(&self) -> Vec<ProfileInfo> {
+        lock(&self.core).profiles_info()
+    }
+
+    async fn set_game_profile(&self, key: &str, profile: &str) -> zbus::fdo::Result<()> {
+        let profile = Some(profile.trim()).filter(|p| !p.is_empty());
+        lock(&self.core).set_game_profile(key, profile).map_err(zbus::fdo::Error::InvalidArgs)
     }
 }

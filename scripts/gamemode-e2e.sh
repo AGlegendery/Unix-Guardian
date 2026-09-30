@@ -48,6 +48,11 @@ check "CPU governor and EPP set to performance" "until_ 3 \"[ \\\"\$(gov)/\$(epp
 check "swappiness lowered to 10" "[ \"\$(swp)\" = 10 ]"
 check "the undo list is on disk before anything else" "[ -s '$W/state/gamemode.json' ]"
 
+# A second daemon (a stray manual start, a unit started twice) must neither take
+# the bus name nor run crash recovery on the undo list the first one is using.
+check "a second daemon refuses to start while one is running" "timeout 10 '$B/ug-daemon' --session --sysroot '$W/root' --state-dir '$W/state' --log error; r=\$?; [ \$r -ne 0 ] && [ \$r -ne 124 ]"
+check "and the running game keeps its settings" "active | grep -q true && [ \"\$(gov)\" = performance ] && [ \"\$(swp)\" = 10 ]"
+
 kill "$game"; wait "$game" 2>/dev/null
 check "the game ending turns game mode off" "until_ 10 \"active | grep -q false\""
 check "every setting is exactly as before" original

@@ -109,6 +109,38 @@ async fn main() -> Result<()> {
         active: std::sync::Mutex::new(active_gpu),
     };
 
+    let builder = if args.session {
+        zbus::connection::Builder::session()?
+    } else {
+        zbus::connection::Builder::system()?
+    };
+    let conn = builder
+        .serve_at(DAEMON_OBJECT_PATH, system)?
+        .serve_at(DAEMON_OBJECT_PATH, gpu)?
+        .build()
+        .await
+        .context("connecting to D-Bus")?;
+
+    // The name is claimed before crash recovery, and without letting anyone
+    // take it over: a second daemon (started by hand, or a unit started twice)
+    // would otherwise "recover" the undo list of the one still running and
+    // revert a game's settings mid-game. zbus's default flags allow exactly
+    // that replacement, so they are not used.
+    let flags = zbus::fdo::RequestNameFlags::DoNotQueue.into();
+    match conn.request_name_with_flags(DAEMON_BUS_NAME, flags).await {
+        Ok(zbus::fdo::RequestNameReply::PrimaryOwner) => {}
+        Ok(_) | Err(zbus::Error::NameTaken) => {
+            anyhow::bail!("another ug-daemon already owns {DAEMON_BUS_NAME}; not starting a second one")
+        }
+        Err(e) => {
+            return Err(e).context(
+                "claiming the bus name. On the system bus this needs the daemon's \
+                 config file in /usr/share/dbus-1/system.d and root; try --session \
+                 for a development run.",
+            )
+        }
+    }
+
     // Constructing the tuner undoes anything a crashed previous run left on.
     let state_dir = args.state_dir.clone().unwrap_or_else(ug_core::paths::system_state);
     let development = args.session || args.sysroot.is_some();
@@ -127,26 +159,12 @@ async fn main() -> Result<()> {
         owner: Arc::clone(&gamemode_owner),
         active: Arc::clone(&gamemode_active),
     };
-
-    let builder = if args.session {
-        zbus::connection::Builder::session()?
-    } else {
-        zbus::connection::Builder::system()?
-    };
-
-    let conn = builder
-        .name(DAEMON_BUS_NAME)
-        .context("claiming the bus name")?
-        .serve_at(DAEMON_OBJECT_PATH, system)?
-        .serve_at(DAEMON_OBJECT_PATH, gpu)?
-        .serve_at(DAEMON_OBJECT_PATH, gamemode)?
-        .build()
+    // Served only once recovery is done, so no caller sees a half-restored
+    // machine as "game mode off". The agent retries if it asks in between.
+    conn.object_server()
+        .at(DAEMON_OBJECT_PATH, gamemode)
         .await
-        .context(
-            "connecting to D-Bus. On the system bus this needs the daemon's \
-             config file in /usr/share/dbus-1/system.d and root; try --session \
-             for a development run.",
-        )?;
+        .context("serving the game-mode interface")?;
 
     tracing::info!(
         bus = if args.session { "session" } else { "system" },

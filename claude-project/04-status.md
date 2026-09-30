@@ -14,12 +14,13 @@
 | `e4aa5e9` | p2-game-mode | Game library scanning and running-game detection (P2.1–2.3) |
 | `278cb62` | p2-game-mode | Per-user agent: detection loop, profiles, playtime, pinning, pausing |
 | `2fbfa46` | p2-game-mode | Game mode end to end: reversible tuning in the daemon, reconciled by the agent |
-| latest | p2-game-mode | This knowledge pack (`claude-project/`, `CLAUDE.md`), `scripts/agent-e2e.sh`, `scripts/gamemode-e2e.sh` (also run by CI) |
+| `9eccd01` | p2-game-mode | This knowledge pack (`claude-project/`, `CLAUDE.md`), `scripts/agent-e2e.sh`, `scripts/gamemode-e2e.sh` (also run by CI) |
+| uncommitted | p2-game-mode | Single-instance fix for daemon and agent; agent user unit + D-Bus activation + autostart, installed by `dev-install.sh`; `ug profile list/set/reset`; `ug playtime --csv`; keys in `ug game list` |
 
-- **172 tests pass** (`cargo test --workspace`): ug-hw 41, ug-games 39, ug-gpu
-  35, ug-agent 15, ug-core 15, ug-daemon 12, ug-tune 12, ug-cli 2, doc-test 1.
+- **182 tests pass** (`cargo test --workspace`): ug-hw 41, ug-games 39, ug-gpu
+  35, ug-agent 19, ug-core 20, ug-daemon 12, ug-tune 12, ug-cli 3, doc-test 1.
   `scripts/smoke.sh` (daemon + CLI over a private D-Bus bus) passes.
-- `dbus-run-session -- ./scripts/agent-e2e.sh` (10 checks) and `./scripts/gamemode-e2e.sh` (11 checks, incl. "no polkit prompt / no real unit touched") pass on the laptop.
+- `dbus-run-session -- ./scripts/agent-e2e.sh` (18 checks) and `./scripts/gamemode-e2e.sh` (13 checks, incl. "no polkit prompt / no real unit touched" and "a second daemon refuses to start mid-game") pass on the laptop.
 - ~10,600 lines of Rust in 10 crates.
 - **Not run locally:** `cargo fmt --check`, `cargo clippy -D warnings` (not
   installed on the dev machine — Debian's Rust 1.94 has no rustup), `cargo deny`.
@@ -58,13 +59,13 @@ Legend: ✅ done · 🟨 partial · ⛔ blocked · ⬜ not started. Task texts a
 | Task | Status | Notes |
 |---|---|---|
 | 1.1 ug-daemon | ✅* | *Verified on the session bus only. Unit/D-Bus/polkit files validated (`xmllint`, `systemd-analyze verify`). Real install path: `scripts/dev-install.sh` (untested). |
-| 1.2 ug-agent | 🟨 | Binary done. No `systemd --user` unit or XDG autostart yet; `dev-install.sh` does not install it. |
+| 1.2 ug-agent | ✅* | `packaging/systemd/ug-agent.service` (user unit, `graphical-session.target`), D-Bus activation file, XDG autostart fallback (`X-systemd-skip=true`); a second agent exits 0 and leaves the first in charge. `dev-install.sh` installs and globally enables it (install/uninstall checked in a Debian container with a stubbed `systemctl`). *Not yet run under a real `systemd --user`. |
 | 1.3 ug-hw | ✅ | Plus Intel hybrid P/E cores. |
 | 1.4 ug-gpu (read) | ✅ NVIDIA/Intel · 🟨 AMD | Plus runtime-PM skip and lazy NVML. AMD not run on hardware. |
 | 1.5 monitor service | 🟨 | Daemon side done (subscribe/park/`Sample`). Agent-side ring buffer and per-minute SQLite history not done. |
 | 1.6 network counter | ✅ | Via `/proc/net/route`. |
 | 1.7 UI shell/monitoring/settings | ⛔ | Tauri. |
-| 1.8 ug-cli | 🟨 | `status/inventory/monitor/gpu/game/playtime`. Missing `ug profile …`; `ug hw dump` ≈ `ug inventory --json`. |
+| 1.8 ug-cli | ✅ | `status/inventory/monitor/gpu/game/playtime/profile`. `ug profile list/set/reset` go through the new `Agent1.Profiles` interface; `ug game list` shows game keys. `ug hw dump` ≈ `ug inventory --json`. `ug profile apply` (manual game mode without a game) not done. |
 | 1.9 resource-budget gate | 🟨 | Measured by hand (05-findings.md); no `scripts/perf-budget.sh` or CI gate. |
 
 ### P2 — game mode, detection, profiles, playtime
@@ -78,7 +79,7 @@ Legend: ✅ done · 🟨 partial · ⛔ blocked · ⬜ not started. Task texts a
 | 2.6 memory | ✅ | 3 sysctls. THP deliberately untouched; `drop_caches`/zram hints not done. |
 | 2.7 app management | 🟨 | Pause/resume by name verified live. Close, CPU-limit, app list with icons: not done. |
 | 2.8 services | 🟨 | System timers/interruptible services with revert. Not done: user-session indexers (tracker, baloo), snap/flatpak auto-update holds, per-item "what is this?" texts. Never run as root on real systemd. |
-| 2.9 playtime | ✅ | CSV export not done; not compared with Steam's counter. |
+| 2.9 playtime | ✅ | `ug playtime --csv` (one row per session, via `Agent1.Playtime.Sessions`). Not compared with Steam's counter. |
 | 2.10 game-mode UI page | ⛔ | Tauri. |
 | 2.11 notifications | 🟨 | Written with a "Not a game" button for heuristic detections; not seen on a real desktop yet. |
 
@@ -89,9 +90,9 @@ extras, P10 packaging & 1.0.
 
 ## Next steps, in order
 
-1. **First real install (needs the user, needs sudo).** Extend
-   `scripts/dev-install.sh` to also install `ug-agent` plus a `systemd --user`
-   unit, then on the laptop: `cargo build --release && sudo ./scripts/dev-install.sh`.
+1. **First real install (needs the user, needs sudo).** `dev-install.sh`
+   now installs the agent too. On the laptop: `cargo build --release && sudo ./scripts/dev-install.sh`,
+   then `systemctl --user daemon-reload && systemctl --user start ug-agent`.
    Check: `ug status` without `--session` (system bus), RAPL watts now visible,
    `busctl call … SetLogFilter s debug` raises a polkit prompt, a fake game
    (`SteamAppId=730 bash -c 'exec -a cs2 sleep 120'`) turns game mode on for
@@ -107,7 +108,6 @@ extras, P10 packaging & 1.0.
 4. Install WebKitGTK dev packages → **Tauri shell (0.6)** → monitoring page
    (1.7) → game-mode page (2.10). Keep the "closed window = no WebView process"
    rule and measure RSS.
-5. P2 leftovers: agent user unit, `ug profile …`, manual "mark as game",
-   close/limit apps, session indexers, playtime CSV, a real notification check,
-   a test with an actual Steam game.
+5. P2 leftovers: manual "mark as game", close/limit apps, session indexers,
+   a real notification check, a test with an actual Steam game.
 6. Then **P3 (system control)**.

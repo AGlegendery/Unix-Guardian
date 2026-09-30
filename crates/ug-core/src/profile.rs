@@ -156,6 +156,45 @@ impl Profiles {
     pub fn all(&self) -> &[Profile] {
         &self.profiles
     }
+
+    /// The user's per-game choices: game key → profile id.
+    pub fn per_game(&self) -> &BTreeMap<String, String> {
+        &self.per_game
+    }
+}
+
+/// Whether `id` names one of the built-in profiles (possibly overridden by a
+/// user file). Built-ins cannot be deleted, only changed.
+pub fn is_builtin(id: &str) -> bool {
+    builtin().iter().any(|p| p.id == id)
+}
+
+/// Records which profile a game runs with in `config_dir/games.toml`, or with
+/// `None` removes the choice so the game falls back to the database's
+/// suggestion. Every other entry is kept.
+///
+/// An existing file that does not parse is left alone and reported: rewriting
+/// it would silently throw away the user's hand-made choices. The new file is
+/// written beside the old one and renamed over it, so a crash mid-write cannot
+/// leave a truncated file that resets every game to its default.
+pub fn set_game_profile(config_dir: &Path, key: &str, profile: Option<&str>) -> Result<(), String> {
+    let path = config_dir.join("games.toml");
+    let mut file = match std::fs::read_to_string(&path) {
+        Ok(s) => toml::from_str::<GamesFile>(&s)
+            .map_err(|e| format!("{} does not parse, so it was not changed: {e}", path.display()))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => GamesFile::default(),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    match profile {
+        Some(id) => file.games.insert(key.to_string(), id.to_string()),
+        None => file.games.remove(key),
+    };
+    let text = toml::to_string(&file).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(config_dir).map_err(|e| format!("{}: {e}", config_dir.display()))?;
+    let tmp = config_dir.join(".games.toml.tmp");
+    std::fs::write(&tmp, text)
+        .and_then(|()| std::fs::rename(&tmp, &path))
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 #[cfg(test)]
@@ -204,6 +243,51 @@ mod tests {
         assert_eq!(p.for_game("steam:730", "competitive").id, "quiet");
         assert_eq!(p.for_game("steam:570", "competitive").id, "competitive");
         assert_eq!(p.for_game("exe:unknown", "nonsense").id, "balanced");
+    }
+
+    #[test]
+    fn choosing_a_profile_for_a_game_keeps_the_other_choices() {
+        let d = dir();
+        std::fs::write(d.path().join("games.toml"), "[games]\n\"steam:570\" = \"quiet\"\n").unwrap();
+        set_game_profile(d.path(), "steam:730", Some("competitive")).unwrap();
+        let (p, problems) = Profiles::load(d.path());
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(p.for_game("steam:730", "balanced").id, "competitive");
+        assert_eq!(p.for_game("steam:570", "balanced").id, "quiet");
+    }
+
+    #[test]
+    fn clearing_a_choice_returns_the_game_to_its_suggested_profile() {
+        let d = dir();
+        set_game_profile(d.path(), "steam:730", Some("quiet")).unwrap();
+        set_game_profile(d.path(), "steam:730", None).unwrap();
+        let (p, _) = Profiles::load(d.path());
+        assert_eq!(p.for_game("steam:730", "competitive").id, "competitive");
+        assert!(p.per_game().is_empty());
+    }
+
+    #[test]
+    fn the_first_choice_creates_the_config_directory() {
+        let d = dir();
+        let cfg = d.path().join("not/there/yet");
+        set_game_profile(&cfg, "lutris:3", Some("quiet")).unwrap();
+        assert_eq!(Profiles::load(&cfg).0.for_game("lutris:3", "balanced").id, "quiet");
+    }
+
+    #[test]
+    fn a_hand_edited_file_that_does_not_parse_is_not_overwritten() {
+        let d = dir();
+        let broken = "[games]\n\"steam:730\" = quiet  # forgot the quotes\n";
+        std::fs::write(d.path().join("games.toml"), broken).unwrap();
+        let err = set_game_profile(d.path(), "steam:570", Some("quiet")).unwrap_err();
+        assert!(err.contains("not changed"), "{err}");
+        assert_eq!(std::fs::read_to_string(d.path().join("games.toml")).unwrap(), broken);
+    }
+
+    #[test]
+    fn only_the_three_shipped_profiles_are_builtin() {
+        assert!(is_builtin("competitive") && is_builtin("balanced") && is_builtin("quiet"));
+        assert!(!is_builtin("mine"));
     }
 
     #[test]
