@@ -51,6 +51,18 @@ fn main() {
                 let _ = w.set_focus();
             }
         }))
+        // `ug-app --open monitoring/thermal/live` opens straight at a page,
+        // tab and range (the same path the browser preview takes after `#`).
+        .setup(|app| {
+            use tauri::Manager;
+            let args: Vec<String> = std::env::args().collect();
+            let open = args.iter().position(|a| a == "--open").and_then(|i| args.get(i + 1)).cloned();
+            if let (Some(path), Some(w)) = (open, app.get_webview_window("main")) {
+                let path: String = path.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '/' || *c == '-').collect();
+                let _ = w.eval(&format!("if (location.hash !== '#{path}') {{ location.hash = '{path}'; location.reload(); }}"));
+            }
+            Ok(())
+        })
         .manage(bus::Bus::new(daemon_on_session))
         .invoke_handler(tauri::generate_handler![
             bus::overview,

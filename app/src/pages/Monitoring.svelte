@@ -10,7 +10,8 @@
   type Range = "live" | "hour" | "day" | "week";
   const hashTab = location.hash.split("/")[1] as Tab;
   let tab = $state<Tab>(["fps", "thermal", "traffic"].includes(hashTab) ? hashTab : "thermal");
-  let range = $state<Range>("day");
+  const hashRange = location.hash.split("/")[2] as Range;
+  let range = $state<Range>(["live", "hour", "day", "week"].includes(hashRange) ? hashRange : "day");
   let points = $state<HistoryPoint[]>([]);
   let days = $state<DayTraffic[]>([]);
   let live = $state<Snapshot | null>(null);
