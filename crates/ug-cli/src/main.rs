@@ -11,7 +11,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use ug_proto::agent::{GamesProxy, PlaytimeProxy, ProfilesProxy};
-use ug_proto::daemon::{DaemonProxy, GpuProxy};
+use ug_proto::daemon::{DaemonProxy, GpuProxy, PowerProxy};
 use ug_proto::{GpuCapabilities, Inventory, Snapshot};
 
 #[derive(Parser)]
@@ -40,6 +40,11 @@ enum Command {
         /// Milliseconds between samples.
         #[arg(long, default_value_t = 1000)]
         interval: u32,
+    },
+    /// Shut down, restart or sleep, now or on a schedule.
+    Power {
+        #[command(subcommand)]
+        command: PowerCommand,
     },
     /// GPU commands.
     Gpu {
@@ -107,6 +112,39 @@ enum GameCommand {
 }
 
 #[derive(Subcommand)]
+enum PowerCommand {
+    /// Which actions this machine supports, and why the others are not.
+    Caps,
+    /// Do it now: power-off, reboot, suspend, hibernate, hybrid-sleep or
+    /// suspend-then-hibernate. Asks for --yes first.
+    Now {
+        action: String,
+        /// Confirm: without it nothing happens.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Schedule it, e.g. `ug power at reboot --in 2h` or
+    /// `ug power at power-off --at 01:00 --repeat daily`.
+    At {
+        action: String,
+        /// After this long: 90s, 30m, 2h, 1h30m.
+        #[arg(long, conflicts_with = "at", required_unless_present = "at")]
+        r#in: Option<String>,
+        /// At this local time (HH:MM), today or else tomorrow.
+        #[arg(long)]
+        at: Option<String>,
+        #[arg(long, default_value = "once", value_parser = ["once", "daily", "weekly"])]
+        repeat: String,
+        #[arg(long, default_value = "")]
+        note: String,
+    },
+    /// The scheduled actions.
+    List,
+    /// Remove a scheduled action by its number.
+    Cancel { id: u32 },
+}
+
+#[derive(Subcommand)]
 enum GpuCommand {
     /// List every GPU in the machine.
     List,
@@ -163,6 +201,7 @@ async fn main() -> Result<()> {
         }
         Command::Monitor { interval } => monitor(&daemon, interval, cli.json).await,
         Command::Gpu { command } => gpu(&conn, &daemon, command, cli.json).await,
+        Command::Power { command } => power(&conn, command, cli.json).await,
         Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } => unreachable!("handled above"),
     }
 }
@@ -469,6 +508,126 @@ async fn monitor(daemon: &DaemonProxy<'_>, interval: u32, json: bool) -> Result<
     result
 }
 
+async fn power(conn: &zbus::Connection, command: PowerCommand, json: bool) -> Result<()> {
+    let p = PowerProxy::new(conn).await?;
+    match command {
+        PowerCommand::Caps => {
+            let caps = p.capabilities().await.map_err(daemon_error)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&caps)?);
+            } else {
+                for c in caps {
+                    if c.available {
+                        println!("{:<24} available", c.action);
+                    } else {
+                        println!("{:<24} not available: {}", c.action, c.reason);
+                    }
+                }
+            }
+        }
+        PowerCommand::Now { action, yes } => {
+            if !yes {
+                anyhow::bail!("this will {action} the computer now; run again with --yes to confirm");
+            }
+            p.now(&action).await.map_err(daemon_error)?;
+            println!("{action}: requested.");
+        }
+        PowerCommand::At { action, r#in, at, repeat, note } => {
+            let when = match (r#in, at) {
+                (Some(d), _) => now_ms() + parse_duration(&d)?,
+                (None, Some(t)) => next_local_time_ms(&t)?,
+                (None, None) => unreachable!("clap requires one"),
+            };
+            let job = p.schedule(&action, when, &repeat, &note).await.map_err(daemon_error)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&job)?);
+            } else {
+                println!("Scheduled #{}: {} at {} ({}).", job.id, job.action, local_time(job.at_unix_ms), job.repeat);
+            }
+        }
+        PowerCommand::List => {
+            let jobs = p.jobs().await.map_err(daemon_error)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&jobs)?);
+            } else if jobs.is_empty() {
+                println!("Nothing scheduled.");
+            } else {
+                for j in jobs {
+                    let note = if j.note.is_empty() { String::new() } else { format!("  {}", j.note) };
+                    println!("#{:<3} {:<24} {}  {}{note}", j.id, j.action, local_time(j.at_unix_ms), j.repeat);
+                }
+            }
+        }
+        PowerCommand::Cancel { id } => {
+            if p.cancel(id).await.map_err(daemon_error)? {
+                println!("Cancelled #{id}.");
+            } else {
+                anyhow::bail!("nothing scheduled with number {id} (see `ug power list`)");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A refusal from the daemon is already a sentence for people.
+fn daemon_error(e: zbus::Error) -> anyhow::Error {
+    match e {
+        zbus::Error::MethodError(_, Some(msg), _) => anyhow::anyhow!(msg),
+        other => anyhow::anyhow!(other),
+    }
+}
+
+/// `90s`, `30m`, `2h`, `1h30m`, `1d` → milliseconds.
+fn parse_duration(s: &str) -> Result<u64> {
+    let mut total = 0u64;
+    let mut num = String::new();
+    for c in s.trim().chars() {
+        if c.is_ascii_digit() {
+            num.push(c);
+            continue;
+        }
+        let n: u64 = num.parse().map_err(|_| anyhow::anyhow!("cannot read {s:?} as a duration; try 90s, 30m, 2h or 1h30m"))?;
+        num.clear();
+        total += n * match c {
+            's' => 1_000,
+            'm' => 60_000,
+            'h' => 3_600_000,
+            'd' => 86_400_000,
+            _ => anyhow::bail!("cannot read {s:?} as a duration; try 90s, 30m, 2h or 1h30m"),
+        };
+    }
+    if !num.is_empty() || total == 0 {
+        anyhow::bail!("cannot read {s:?} as a duration; try 90s, 30m, 2h or 1h30m");
+    }
+    Ok(total)
+}
+
+/// The next local wall-clock `HH:MM`: today if still ahead, else tomorrow.
+fn next_local_time_ms(hhmm: &str) -> Result<u64> {
+    let bad = || anyhow::anyhow!("cannot read {hhmm:?} as a time; use HH:MM, e.g. 01:30");
+    let (h, m) = hhmm.split_once(':').ok_or_else(bad)?;
+    let (h, m): (i32, i32) = (h.parse().map_err(|_| bad())?, m.parse().map_err(|_| bad())?);
+    if !(0..24).contains(&h) || !(0..60).contains(&m) {
+        return Err(bad());
+    }
+    // SAFETY: localtime_r/mktime only touch the struct we pass.
+    let at = unsafe {
+        let now = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&now, &mut tm);
+        tm.tm_hour = h;
+        tm.tm_min = m;
+        tm.tm_sec = 0;
+        let mut t = libc::mktime(&mut tm);
+        if t <= now {
+            tm.tm_mday += 1;
+            t = libc::mktime(&mut tm);
+        }
+        t.max(0) as u64
+    };
+    Ok(at * 1000)
+}
+
 async fn gpu(
     conn: &zbus::Connection,
     daemon: &DaemonProxy<'_>,
@@ -676,6 +835,25 @@ mod tests {
     fn durations_read_naturally() {
         assert_eq!(super::hms(65), "1:05");
         assert_eq!(super::hms(3600 * 12 + 300), "12:05:00");
+    }
+
+    #[test]
+    fn durations_read_the_way_people_write_them() {
+        assert_eq!(super::parse_duration("90s").unwrap(), 90_000);
+        assert_eq!(super::parse_duration("2h").unwrap(), 7_200_000);
+        assert_eq!(super::parse_duration("1h30m").unwrap(), 5_400_000);
+        for bad in ["", "2", "h", "2x", "0m"] {
+            assert!(super::parse_duration(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_clock_time_is_always_in_the_future_and_bad_ones_are_refused() {
+        let now = super::now_ms();
+        let t = super::next_local_time_ms("00:00").unwrap();
+        assert!(t > now && t - now <= 24 * 3_600_000);
+        assert!(super::next_local_time_ms("25:00").is_err());
+        assert!(super::next_local_time_ms("noon").is_err());
     }
 
     #[test]

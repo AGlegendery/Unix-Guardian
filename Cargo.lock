@@ -1160,6 +1160,8 @@ dependencies = [
  "anyhow",
  "clap",
  "futures-lite",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",

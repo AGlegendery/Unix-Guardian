@@ -400,3 +400,26 @@ pub struct GameModeReport {
     pub applied: Vec<String>,
     pub skipped: Vec<String>,
 }
+
+/// Whether this machine can do one power action, and if not, why not.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct PowerCapability {
+    /// `power-off`, `reboot`, `suspend`, `hibernate`, `hybrid-sleep` or
+    /// `suspend-then-hibernate`.
+    pub action: String,
+    pub available: bool,
+    /// Empty when available; otherwise a sentence to show beside the
+    /// disabled control.
+    pub reason: String,
+}
+
+/// A scheduled power action.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct PowerJob {
+    pub id: u32,
+    pub action: String,
+    pub at_unix_ms: u64,
+    /// `once`, `daily` or `weekly`.
+    pub repeat: String,
+    pub note: String,
+}

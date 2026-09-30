@@ -149,6 +149,45 @@ pub mod daemon {
         fn active(&self) -> zbus::Result<bool>;
     }
 
+    /// Shutting down, restarting and sleeping, now or on a schedule.
+    ///
+    /// Carried out through logind. `Now`, `Schedule` and `Cancel` need the
+    /// `org.unixguardian.power.control` polkit action, which active local
+    /// sessions have without a password (as with logind itself). A development
+    /// daemon never acts: it records what it would have done in `Simulated`.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Daemon1.Power",
+        default_service = "org.unixguardian.Daemon1",
+        default_path = "/org/unixguardian/Daemon1"
+    )]
+    pub trait Power {
+        /// Every action with whether it is possible here and, if not, why.
+        fn capabilities(&self) -> zbus::Result<Vec<PowerCapability>>;
+
+        /// Does it now.
+        fn now(&self, action: &str) -> zbus::Result<()>;
+
+        /// Queues it for `at_unix_ms`, repeating `once`, `daily` or `weekly`.
+        /// Survives daemon restarts; a one-off time missed while the daemon
+        /// was down is dropped, never run late.
+        fn schedule(&self, action: &str, at_unix_ms: u64, repeat: &str, note: &str) -> zbus::Result<PowerJob>;
+
+        /// The queue, soonest first.
+        fn jobs(&self) -> zbus::Result<Vec<PowerJob>>;
+
+        /// Removes a job; false if there was none with that id.
+        fn cancel(&self, id: u32) -> zbus::Result<bool>;
+
+        /// Sent 60 seconds before a job runs (or at once if scheduled closer),
+        /// so a desktop can offer to cancel it.
+        #[zbus(signal)]
+        fn upcoming(&self, job: PowerJob, seconds: u32) -> zbus::Result<()>;
+
+        /// Development runs only: what would have been done, in order.
+        #[zbus(property)]
+        fn simulated(&self) -> zbus::Result<Vec<String>>;
+    }
+
     /// Read and write GPU state: clocks, power limits, fans.
     ///
     /// Write methods each require the `org.unixguardian.gpu.tune` polkit action.

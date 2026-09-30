@@ -33,6 +33,23 @@
     </defaults>
   </action>
 
+  <!--
+    The same trust logind gives: an active local user may shut down, restart
+    or suspend their own machine without a password. Others need an
+    administrator.
+  -->
+  <action id="org.unixguardian.power.control">
+    <description>Shut down, restart or suspend the computer, now or on a schedule</description>
+    <description xml:lang="fa">خاموش، ری‌استارت یا خواب‌کردن کامپیوتر، همین حالا یا زمان‌بندی‌شده</description>
+    <message>Authentication is required to control the computer's power.</message>
+    <message xml:lang="fa">برای کنترل خاموش و روشن شدن کامپیوتر احراز هویت لازم است.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
   <action id="org.unixguardian.daemon.debug">
     <description>Change Unix Guardian diagnostic settings</description>
     <description xml:lang="fa">تغییر تنظیمات عیب‌یابی Unix Guardian</description>

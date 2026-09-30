@@ -20,7 +20,9 @@
 mod gamemode;
 mod iface;
 mod polkit;
+mod power;
 mod sampler;
+mod schedule;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -166,6 +168,33 @@ async fn main() -> Result<()> {
         .await
         .context("serving the game-mode interface")?;
 
+    // Power: a development run records instead of acting, whatever bus it is on.
+    let backend = Arc::new(if development {
+        tracing::warn!("development run: power actions are simulated, never performed");
+        power::Backend::Simulated(std::sync::Mutex::new(Vec::new()))
+    } else {
+        power::Backend::Logind(zbus::Connection::system().await.context("connecting to the system bus for logind")?)
+    });
+    let (schedule, notes) = schedule::Schedule::load(&state_dir.join("schedule.json"), now_unix_ms());
+    for n in notes {
+        tracing::warn!(%n, "power schedule");
+    }
+    let schedule = Arc::new(std::sync::Mutex::new(schedule));
+    let schedule_changed = Arc::new(tokio::sync::Notify::new());
+    conn.object_server()
+        .at(
+            DAEMON_OBJECT_PATH,
+            power::PowerIface {
+                schedule: Arc::clone(&schedule),
+                backend: Arc::clone(&backend),
+                gate: gate.clone(),
+                changed: Arc::clone(&schedule_changed),
+            },
+        )
+        .await
+        .context("serving the power interface")?;
+    tokio::spawn(power::run(conn.clone(), schedule, backend, schedule_changed));
+
     tracing::info!(
         bus = if args.session { "session" } else { "system" },
         name = DAEMON_BUS_NAME,
@@ -286,6 +315,13 @@ async fn release_departed_clients(
         }
     }
     Ok(())
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// True when the process can perform privileged writes.
