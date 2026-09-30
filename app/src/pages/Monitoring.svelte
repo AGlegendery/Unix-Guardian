@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Problem from "../lib/ui/Problem.svelte";
   import { ArrowDown, ArrowUp } from "@lucide/svelte";
   import { api, errorText, type DayTraffic, type ExtraSample, type FpsReading, type HistoryPoint, type Snapshot } from "../lib/api";
   import { num, rate } from "../lib/format";
@@ -150,7 +151,7 @@
   {/each}
 </div>
 
-{#if error}<p class="problem" role="alert">{error}</p>{/if}
+{#if error}<Problem text={error} />{/if}
 
 {#if tab === "fps"}
   <section class="card">
@@ -345,7 +346,6 @@
   .tabs button:hover { color: var(--text); }
   .tabs button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
   .tabs button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; border-radius: 6px; }
-  .problem { margin: 0 0 14px; padding: 12px 16px; border-radius: var(--radius-sm); background: color-mix(in oklab, var(--danger) 12%, var(--card)); color: var(--danger); font-size: 0.9rem; }
   .filters { margin-bottom: 14px; }
   .card { background: var(--card); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 16px; min-width: 0; }
   .charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }

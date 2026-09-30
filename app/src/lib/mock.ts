@@ -221,6 +221,9 @@ export const mockApi = {
     if (i >= 0) netRules.splice(i, 1);
     return i >= 0;
   },
+  reportBug: async () => {
+    throw "The preview cannot open a mail program. Write to unixguardian@atomicmail.io.";
+  },
   openTerminal: async () => {
     throw "The preview cannot open a terminal. In the app this opens ug tui.";
   },

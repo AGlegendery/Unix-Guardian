@@ -516,7 +516,12 @@ impl App {
                 r,
             );
         } else if let Some((text, ok, _)) = &self.notice {
-            f.render_widget(Paragraph::new(Span::styled(format!(" {text}"), Style::default().fg(if *ok { t.ok } else { t.danger }))), r);
+            let mut spans = vec![Span::styled(format!(" {text}"), Style::default().fg(if *ok { t.ok } else { t.danger }))];
+            let hint = format!("   A bug? {}", ug_core::BUG_REPORT_EMAIL);
+            if !ok && (text.chars().count() + hint.chars().count() + 1) < r.width as usize {
+                spans.push(Span::styled(hint, t.faint()));
+            }
+            f.render_widget(Paragraph::new(Line::from(spans)), r);
         }
     }
 
@@ -543,7 +548,7 @@ impl App {
     fn draw_help(&self, f: &mut Frame, area: Rect) {
         let t = &self.theme;
         let w = 64.min(area.width - 4);
-        let h = 18.min(area.height - 2);
+        let h = 20.min(area.height - 2);
         let r = Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h };
         f.render_widget(ratatui::widgets::Clear, r);
         let lines = vec![
@@ -553,7 +558,8 @@ impl App {
             Line::from("  Enter  → Tab    open the page / next section"),
             Line::from("  ← →  h l        change the choice on the page"),
             Line::from("  Enter  Space    press, toggle, run"),
-            Line::from("  x  Delete       remove a scheduled item"),
+            Line::from("  x  Delete       remove a scheduled item or a rule"),
+            Line::from("  b               block the selected app (Ping page)"),
             Line::from("  1 … 9           jump to a page"),
             Line::from("  Esc             back to the menu, then quit"),
             Line::from("  g               open the graphical window"),
@@ -561,6 +567,7 @@ impl App {
             Line::from(""),
             Line::from(Span::styled("Mouse: click anything; the wheel scrolls.", t.muted())),
             Line::from(Span::styled("Shut down and restart ask twice.", t.muted())),
+            Line::from(Span::styled(format!("Found a bug? {}", ug_core::BUG_REPORT_EMAIL), t.accent())),
         ];
         f.render_widget(
             Paragraph::new(lines).block(Block::default().borders(Borders::ALL).border_style(t.accent()).title(" Help ")),

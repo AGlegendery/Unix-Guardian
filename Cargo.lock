@@ -1635,6 +1635,7 @@ dependencies = [
  "libc",
  "serde_json",
  "tokio",
+ "ug-core",
  "ug-proto",
  "ug-tui",
  "zbus",
@@ -1750,6 +1751,7 @@ dependencies = [
  "ratatui",
  "serde_json",
  "tokio",
+ "ug-core",
  "ug-proto",
  "zbus",
 ]

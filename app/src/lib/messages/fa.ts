@@ -3,6 +3,17 @@ import type { en } from "./en";
 export const fa: typeof en = {
   app: "Unix Guardian",
   preview: "پیش‌نمایش: عددهای ضبط‌شده، نه زنده",
+  bug: {
+    email: "unixguardian@atomicmail.io",
+    link: "گزارش باگ",
+    title: "گزارش باگ",
+    body: "چیزی خراب، ناقص یا گیج‌کننده است؟ به نشانی زیر بنویسید. دکمه برنامه‌ی ایمیل شما را باز می‌کند و نسخه‌ی یونیکس گاردین، توزیع و کرنل را از قبل می‌نویسد؛ تا خودتان نفرستید چیزی ارسال نمی‌شود.",
+    include: "بهتر است بنویسید چه کردید، چه شد، چه انتظار داشتید، و خروجی ug status و journalctl -u unix-guardiand -b را هم بگذارید.",
+    open: "نوشتن گزارش باگ",
+    copy: "کپی نشانی",
+    copied: "کپی شد",
+    inError: "به نظر باگ است؟",
+  },
   terminal: "رابط ترمینالی",
   live: "زنده",
   nav: {

@@ -2,6 +2,17 @@ export const en = {
   app: "Unix Guardian",
   preview: "Preview: recorded readings, not live",
   terminal: "Terminal interface",
+  bug: {
+    email: "unixguardian@atomicmail.io",
+    link: "Report a bug",
+    title: "Report a bug",
+    body: "Something wrong, missing or confusing? Write to the address below. The button opens your mail program with the versions of Unix Guardian, your distribution and kernel already filled in; nothing is sent until you send it.",
+    include: "Helpful to include: what you did, what happened, what you expected, and the output of ug status and journalctl -u unix-guardiand -b.",
+    open: "Write a bug report",
+    copy: "Copy the address",
+    copied: "Copied",
+    inError: "Looks like a bug?",
+  },
   live: "Live",
   nav: {
     dashboard: "Dashboard",

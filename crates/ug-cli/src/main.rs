@@ -289,7 +289,18 @@ enum GpuCommand {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> std::process::ExitCode {
+    match run().await {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("Error: {e:#}");
+            eprintln!("If this looks like a bug in Unix Guardian, please report it to {}.", ug_core::BUG_REPORT_EMAIL);
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     if let Command::Tui = cli.command {

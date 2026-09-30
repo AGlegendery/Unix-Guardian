@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Problem from "../lib/ui/Problem.svelte";
   import { Ban, Gauge, ShieldCheck } from "@lucide/svelte";
   import {
     api, errorText,
@@ -143,7 +144,7 @@
   {/each}
 </div>
 
-{#if error}<p class="problem" role="alert">{error}</p>{/if}
+{#if error}<Problem text={error} />{/if}
 {#if status?.simulated}<p class="note">{t().ping.simulated}</p>{/if}
 {#if status && !status.available}<p class="problem">{t().ping.unavailable} {status.problem}</p>{/if}
 {#each status?.shaping_problems ?? [] as p}<p class="problem">{p}</p>{/each}

@@ -313,6 +313,7 @@ const tauriApi = {
     invoke<void>("net_set_rule", { app, block, upKbps, downKbps, when }),
   netRemoveRule: (app: string) => invoke<boolean>("net_remove_rule", { app }),
   openTerminal: () => invoke<void>("open_terminal_interface"),
+  reportBug: (context: string) => invoke<void>("report_bug", { context }),
   battery: () => invoke<BatteryCare>("battery"),
   setBatteryCare: (mode: string, limit: number) => invoke<void>("set_battery_care", { mode, limit }),
   wakeAlarm: () => invoke<[number, boolean]>("wake_alarm"),
