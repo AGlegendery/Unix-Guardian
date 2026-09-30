@@ -131,6 +131,35 @@ export interface NetControlStatus {
   vpn_tun: boolean;
 }
 
+export interface OverlaySettings {
+  show: "gaming" | "always" | "off";
+  layout: "card" | "compact";
+  position: "top-left" | "top-right" | "bottom-left" | "bottom-right" | "top-center";
+  size: "small" | "medium" | "large";
+  opacity_pct: number;
+  toggle_key: string;
+  every_game: boolean;
+}
+export interface OverlayState {
+  settings: OverlaySettings;
+  installed: boolean;
+  set_up: boolean;
+  install_hint: string;
+  every_game_active: boolean;
+  game_running: boolean;
+}
+export interface FpsSession {
+  game: string;
+  started_unix_ms: number;
+  duration_s: number;
+  frames: number;
+  avg_fps: number;
+  low_1pct_fps: number;
+  low_01pct_fps: number;
+  p99_frametime_ms: number;
+  stutters: number;
+}
+
 export interface GpuInfo {
   pci: string;
   name: string;
@@ -316,6 +345,11 @@ const tauriApi = {
   netSetRule: (app: string, block: boolean, upKbps: number, downKbps: number, when: "always" | "gaming") =>
     invoke<void>("net_set_rule", { app, block, upKbps, downKbps, when }),
   netRemoveRule: (app: string) => invoke<boolean>("net_remove_rule", { app }),
+  overlayState: () => invoke<OverlayState>("overlay_state"),
+  overlaySet: (settings: OverlaySettings) => invoke<void>("overlay_set", { settings }),
+  overlaySetUp: (on: boolean) => invoke<void>("overlay_set_up", { on }),
+  fpsSessions: (sinceUnixMs: number) => invoke<FpsSession[]>("fps_sessions", { sinceUnixMs }),
+  forgetFpsSessions: () => invoke<number>("forget_fps_sessions"),
   openTerminal: () => invoke<void>("open_terminal_interface"),
   reportBug: (context: string) => invoke<void>("report_bug", { context }),
   battery: () => invoke<BatteryCare>("battery"),

@@ -1,7 +1,7 @@
 <script lang="ts">
   import Problem from "../lib/ui/Problem.svelte";
   import { ArrowDown, ArrowUp } from "@lucide/svelte";
-  import { api, errorText, type DayTraffic, type ExtraSample, type FpsReading, type HistoryPoint, type Snapshot } from "../lib/api";
+  import { api, errorText, type DayTraffic, type ExtraSample, type FpsReading, type FpsSession, type HistoryPoint, type Snapshot } from "../lib/api";
   import { num, rate } from "../lib/format";
   import { locale, t } from "../lib/i18n.svelte";
   import LineChart from "../lib/LineChart.svelte";
@@ -23,6 +23,8 @@
   let snaps = $state.raw<Snapshot[]>([]);
   let extras = $state.raw<ExtraSample[]>([]);
   let fps = $state<FpsReading | null>(null);
+  let sessions = $state<FpsSession[]>([]);
+  let sessionRange = $state<"week" | "all">("week");
   let fpsBusy = $state(false);
 
   // Colours checked with the dataviz validator (see LineChart).
@@ -89,6 +91,23 @@
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   });
+
+  $effect(() => {
+    if (tab !== "fps") return;
+    const since = sessionRange === "week" ? Date.now() - 7 * 86_400_000 : 0;
+    api.fpsSessions(since).then((s) => (sessions = s)).catch((e) => (error = errorText(e)));
+  });
+  async function forgetSessions() {
+    try {
+      await api.forgetFpsSessions();
+      sessions = [];
+    } catch (e) {
+      error = errorText(e);
+    }
+  }
+  const maxSessionFps = $derived(Math.max(60, ...sessions.map((s) => s.avg_fps)));
+  const when = (ms: number) =>
+    new Intl.DateTimeFormat(locale.current === "fa" ? "fa-IR" : "en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(ms));
 
   async function setUpFps(on: boolean) {
     fpsBusy = true;
@@ -182,6 +201,37 @@
     </section>
     <button class="btn" disabled={fpsBusy} onclick={() => setUpFps(false)}>{t().mon.fpsTab.undo}</button>
   {/if}
+  <section class="card">
+    <div class="sess-head">
+      <h2>{t().mon.fpsTab.sessions}</h2>
+      <Segmented label={t().mon.fpsTab.sessions} value={sessionRange} options={(["week", "all"] as const).map((v) => ({ value: v, label: t().mon.fpsTab.ranges[v] }))} onchange={(v) => (sessionRange = v)} />
+    </div>
+    {#if sessions.length === 0}
+      <p class="muted">{t().mon.fpsTab.sessionsEmpty}</p>
+    {:else}
+      <ul class="sessions">
+        {#each sessions as s (s.started_unix_ms + s.game)}
+          {@const smooth = s.stutters <= Math.max(1, s.duration_s / 600)}
+          <li>
+            <div class="sess-top">
+              <b dir="ltr">{s.game}</b>
+              <span class="muted">{when(s.started_unix_ms)} · {num(s.duration_s / 60)} {t().mon.fpsTab.minutes}</span>
+              <span class="tag" class:ok={smooth}>{smooth ? t().mon.fpsTab.smooth : `${num(s.stutters)} ${t().mon.fpsTab.stutters}`}</span>
+            </div>
+            {#each [[t().mon.fpsTab.avg, s.avg_fps], [t().mon.fpsTab.low, s.low_1pct_fps], [t().mon.fpsTab.low01, s.low_01pct_fps]] as const as [label, v]}
+              <div class="meter">
+                <span>{label}</span>
+                <span class="track"><span style:--w={v / maxSessionFps}></span></span>
+                <b dir="ltr">{num(v)}</b>
+              </div>
+            {/each}
+          </li>
+        {/each}
+      </ul>
+      <p class="small">{t().mon.fpsTab.howSmooth}</p>
+      <button class="btn" onclick={forgetSessions}>{t().mon.fpsTab.forget}</button>
+    {/if}
+  </section>
 {:else if tab === "thermal"}
   <div class="filters">
     <Segmented
@@ -353,6 +403,18 @@
   @media (max-width: 1150px) { .charts { grid-template-columns: 1fr; } }
   .muted { color: var(--text-2); margin: 0; font-size: 0.9rem; }
   .small { color: var(--text-3); font-size: 0.8rem; margin: 10px 0 0; }
+  .sess-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .sess-head h2 { margin: 0; }
+  .sessions { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+  .sessions li { padding-bottom: 14px; border-bottom: 1px solid var(--line); display: grid; gap: 6px; }
+  .sessions li:last-child { border-bottom: 0; padding-bottom: 0; }
+  .sess-top { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  .tag { margin-inline-start: auto; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; background: var(--card-2); color: var(--warn, #fbbf24); }
+  .tag.ok { color: var(--ok, #34d399); }
+  .meter { display: grid; grid-template-columns: 7em 1fr 3em; gap: 10px; align-items: center; font-size: 0.82rem; color: var(--text-2); }
+  .meter b { color: var(--text); text-align: end; }
+  .track { height: 8px; border-radius: 4px; background: var(--card-2); overflow: hidden; }
+  .track span { display: block; height: 100%; width: calc(var(--w) * 100%); background: #8f6af2; }
   .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
   .stats .card { margin: 0; }
   @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

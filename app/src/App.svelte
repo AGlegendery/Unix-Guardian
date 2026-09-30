@@ -13,6 +13,7 @@
   import Monitoring from "./pages/Monitoring.svelte";
   import Ping from "./pages/Ping.svelte";
   import BugReport from "./pages/BugReport.svelte";
+  import Overlay from "./pages/Overlay.svelte";
 
   type Page = keyof ReturnType<typeof t>["nav"];
   // Phoenix Guardian's order, with the Linux-only driver troubleshooter added.
@@ -31,7 +32,7 @@
     ["settings", Settings],
   ];
   // Built so far; every other page says plainly that it is not.
-  const built = new Set<Page>(["dashboard", "gamemode", "system", "monitoring", "ping", "bugreport"]);
+  const built = new Set<Page>(["dashboard", "gamemode", "system", "monitoring", "ping", "overlay", "bugreport"]);
 
   // `#gamemode` in the URL opens that page (handy in the browser preview).
   const fromHash = location.hash.slice(1).split("/")[0] as Page;
@@ -92,6 +93,8 @@
       <Monitoring />
     {:else if page === "ping"}
       <Ping />
+    {:else if page === "overlay"}
+      <Overlay />
     {:else if page === "bugreport"}
       <BugReport />
     {:else}

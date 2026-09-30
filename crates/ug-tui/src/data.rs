@@ -4,10 +4,10 @@
 //! work.
 
 use std::time::{Duration, Instant};
-use ug_proto::agent::{GamesProxy, MonitorProxy, PingProxy, ProfilesProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, ProfilesProxy};
 use ug_proto::daemon::{DaemonProxy, GameModeProxy, NetProxy, PowerProxy};
 use ug_proto::{
-    AppTraffic, BatteryCare, DayTraffic, ExtraSample, NetControlStatus, NetRule, PingComparison, PingReport, FpsReading, HistoryPoint, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
+    AppTraffic, BatteryCare, FpsSession, OverlaySettings, OverlayState, DayTraffic, ExtraSample, NetControlStatus, NetRule, PingComparison, PingReport, FpsReading, HistoryPoint, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
     ProfileInfo, RunningGameInfo, Snapshot,
 };
 
@@ -109,6 +109,26 @@ impl Bus {
     pub fn net_remove_rule(&self, app: &str) -> Result<bool, String> {
         let c = self.daemon()?;
         self.rt.block_on(async { NetProxy::new(c).await?.remove_rule(app).await }).map_err(|e| msg(e, "service"))
+    }
+
+    pub fn overlay(&self) -> Result<OverlayState, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { OverlayProxy::new(c).await?.state().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn overlay_set(&self, s: &OverlaySettings) -> Result<(), String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { OverlayProxy::new(c).await?.set(s).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn overlay_set_up(&self, on: bool) -> Result<(), String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { OverlayProxy::new(c).await?.set_up(on).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn fps_sessions(&self, since_ms: u64) -> Result<Vec<FpsSession>, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { MonitorProxy::new(c).await?.fps_sessions(since_ms).await }).map_err(|e| msg(e, "agent"))
     }
 
     pub fn gamemode_active(&self) -> Result<bool, String> {

@@ -4,7 +4,7 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -14,6 +14,12 @@ const bat: BatteryCare = { supported: true, method: "vendor-long-life", adjustab
 const watches: PowerWatch[] = [];
 let t = 0;
 let fpsSetUp = false;
+let overlay: OverlaySettings = { show: "gaming", layout: "card", position: "top-left", size: "medium", opacity_pct: 50, toggle_key: "Alt_L+o", every_game: false };
+let fpsLog: FpsSession[] = [
+  { game: "cs2", started_unix_ms: Date.now() - 3 * 3600e3, duration_s: 3120, frames: 440000, avg_fps: 141, low_1pct_fps: 96, low_01pct_fps: 71, p99_frametime_ms: 10.4, stutters: 4 },
+  { game: "eldenring", started_unix_ms: Date.now() - 26 * 3600e3, duration_s: 5400, frames: 320000, avg_fps: 59.6, low_1pct_fps: 44, low_01pct_fps: 22, p99_frametime_ms: 22.7, stutters: 57 },
+  { game: "hades", started_unix_ms: Date.now() - 4 * 86400e3, duration_s: 1800, frames: 250000, avg_fps: 138, low_1pct_fps: 131, low_01pct_fps: 120, p99_frametime_ms: 7.6, stutters: 0 },
+];
 const netRules: NetRule[] = [];
 const pingStart = Date.now();
 function pingSeries(base: number, spread: number, spikes: number, from: number): { ts_unix_ms: number; rtt_ms: number | null }[] {
@@ -224,6 +230,19 @@ export const mockApi = {
   },
   reportBug: async () => {
     throw "The preview cannot open a mail program. Write to unixguardian@atomicmail.io.";
+  },
+  overlayState: async (): Promise<OverlayState> => ({ settings: { ...overlay }, installed: true, set_up: fpsSetUp, install_hint: "", every_game_active: false, game_running: false }),
+  overlaySet: async (s: OverlaySettings) => {
+    overlay = { ...s };
+  },
+  overlaySetUp: async (on: boolean) => {
+    fpsSetUp = on;
+  },
+  fpsSessions: async (since: number) => fpsLog.filter((s) => s.started_unix_ms >= since),
+  forgetFpsSessions: async () => {
+    const n = fpsLog.length;
+    fpsLog = [];
+    return n;
   },
   openTerminal: async () => {
     throw "The preview cannot open a terminal. In the app this opens ug tui.";

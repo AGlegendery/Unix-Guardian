@@ -68,6 +68,7 @@ pub fn draw(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         2 => system(app, f, inner),
         3 => monitoring(app, f, inner),
         4 => ping_page(app, f, inner),
+        5 => overlay_page(app, f, inner),
         p => {
             let text = vec![
                 Line::from(Span::styled(PAGES[p].0, app.theme.title())),
@@ -669,6 +670,100 @@ fn live(app: &mut App, f: &mut Frame, r: Rect) {
     }
 }
 
+/// The overlay's settings, one row each; ←→ changes the selected one.
+const OVERLAY_ROWS: [&str; 7] = ["Show", "Layout", "Position", "Size", "Background", "Every Vulkan game", "Remove Unix Guardian's setup"];
+
+fn overlay_page(app: &mut App, f: &mut Frame, r: Rect) {
+    let t = app.theme;
+    let mut lines = vec![
+        Line::from(Span::styled("Overlay", t.title())),
+        Line::from(Span::styled(
+            "MangoHud, drawn inside the game; Unix Guardian sets it up and styles it. Changes show in a running game within a second.",
+            t.faint(),
+        )),
+        Line::from(""),
+    ];
+    let Some(st) = app.overlay.value.clone() else {
+        let msg = app.overlay.error.clone().unwrap_or_else(|| "Reading…".into());
+        f.render_widget(Paragraph::new(Span::styled(msg, t.muted())), r);
+        return;
+    };
+    if !st.installed {
+        lines.push(Line::from(Span::styled("MangoHud is not installed. Install it with:", t.text())));
+        lines.push(Line::from(Span::styled(format!("  {}", st.install_hint), t.accent())));
+        f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), r);
+        return;
+    }
+    if !st.set_up {
+        lines.push(Line::from(Span::styled(
+            "Set up adds Unix Guardian's block to ~/.config/MangoHud/MangoHud.conf (your file is backed up first).",
+            t.text(),
+        )));
+        lines.push(Line::from(""));
+        let h = lines.len() as u16;
+        f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), Rect { height: h + 1, ..r });
+        app.rows = 1;
+        row(app, f, Rect { y: r.y + h + 1, height: 1, ..r }, 0, Line::from(Span::styled(" Enter  Set up ", t.accent())));
+        return;
+    }
+    let h = lines.len() as u16;
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), Rect { height: h, ..r });
+    let s = &st.settings;
+    let values = [
+        match s.show.as_str() { "gaming" => "only while gaming", "always" => "always", _ => "hidden (FPS still recorded)" }.to_string(),
+        s.layout.clone(),
+        s.position.clone(),
+        s.size.clone(),
+        format!("{} %", s.opacity_pct),
+        if s.every_game {
+            if st.every_game_active { "on".into() } else { "on (from your next login)".into() }
+        } else {
+            "off (or add `mangohud %command%` to a Steam game)".into()
+        },
+        "Enter".into(),
+    ];
+    app.rows = OVERLAY_ROWS.len();
+    for (i, (name, v)) in OVERLAY_ROWS.iter().zip(values).enumerate() {
+        let line = Line::from(vec![Span::styled(format!(" {name:<30}"), t.text()), Span::styled(format!("‹ {v} ›"), t.muted())]);
+        row(app, f, Rect { y: r.y + h + i as u16, height: 1, ..r }, i, line);
+    }
+    let y = r.y + h + OVERLAY_ROWS.len() as u16 + 1;
+    if y < r.y + r.height {
+        f.render_widget(
+            Paragraph::new(Span::styled(
+                format!("In game, {} shows and hides it (change it with: ug overlay set --key Alt_L+o).", s.toggle_key),
+                t.faint(),
+            )),
+            Rect { y, height: 1, ..r },
+        );
+    }
+}
+
+/// ←→ on an overlay row.
+fn step_overlay(app: &mut App, d: i32) {
+    let Some(st) = app.overlay.value.clone() else { return };
+    if !st.set_up {
+        return;
+    }
+    let mut s = st.settings.clone();
+    let cycle = |cur: &str, all: &[&str]| -> String {
+        let i = all.iter().position(|x| *x == cur).unwrap_or(0) as i32;
+        all[((i + d).rem_euclid(all.len() as i32)) as usize].to_string()
+    };
+    match app.row {
+        0 => s.show = cycle(&s.show, &["gaming", "always", "off"]),
+        1 => s.layout = cycle(&s.layout, &["card", "compact"]),
+        2 => s.position = cycle(&s.position, &["top-left", "top-center", "top-right", "bottom-right", "bottom-left"]),
+        3 => s.size = cycle(&s.size, &["small", "medium", "large"]),
+        4 => s.opacity_pct = (s.opacity_pct as i32 + 10 * d).clamp(0, 100) as u8,
+        5 => s.every_game = !s.every_game,
+        _ => return,
+    }
+    let r = app.bus.overlay_set(&s);
+    report(app, r.map(|_| "Saved.".to_string()));
+    app.overlay.invalidate();
+}
+
 /// FPS from MangoHud, or what to do to get it.
 fn fps(app: &mut App, f: &mut Frame, r: Rect) {
     let t = app.theme;
@@ -732,6 +827,28 @@ fn fps(app: &mut App, f: &mut Frame, r: Rect) {
             .y_axis(Axis::default().style(t.faint()).bounds([0.0, hi]).labels([Span::raw("0"), Span::raw(format!("{hi:.0}"))]));
         f.render_widget(chart, Rect { y: r.y + h + 1, height: r.height.saturating_sub(h + 1).min(16), ..r });
     }
+    // Finished sessions of the last week, under whatever is above.
+    let used = if fr.state == "live" && fr.recent.len() >= 2 { h + 1 + r.height.saturating_sub(h + 1).min(16) } else { h };
+    let y = r.y + used + 1;
+    if y + 2 >= r.y + r.height {
+        return;
+    }
+    let sessions = app.sessions.value.clone().unwrap_or_default();
+    let mut lines = vec![Line::from(Span::styled("Game sessions this week", t.title()))];
+    if sessions.is_empty() {
+        lines.push(Line::from(Span::styled("None yet: recorded when a game runs with MangoHud and the overlay set up.", t.faint())));
+    } else {
+        lines.push(Line::from(Span::styled(format!(" {:<22} {:<10} {:>5} {:>7} {:>7} {:>9}  ", "game", "started", "min", "avg", "1% low", "0.1% low"), t.faint())));
+    }
+    for s in sessions.iter().take((r.y + r.height - y).saturating_sub(3) as usize) {
+        let smooth = s.stutters as f64 <= (s.duration_s as f64 / 600.0).max(1.0);
+        lines.push(Line::from(vec![
+            Span::styled(format!(" {:<22} {:<10} {:>5} ", s.game.chars().take(22).collect::<String>(), data::local_time(s.started_unix_ms), s.duration_s / 60), t.text()),
+            Span::styled(format!("{:>7.0} {:>7.0} {:>9.0}  ", s.avg_fps, s.low_1pct_fps, s.low_01pct_fps), t.title()),
+            if smooth { Span::styled("smooth", Style::default().fg(t.ok)) } else { Span::styled(format!("{} stutters", s.stutters), t.warn_style()) },
+        ]));
+    }
+    f.render_widget(Paragraph::new(lines), Rect { y, height: r.y + r.height - y, ..r });
 }
 
 /// Apps worth listing as background tasks: a known kind that is moving
@@ -950,6 +1067,7 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (3, 1) => vec![("Tab", "FPS")],
         (3, _) => vec![("Tab", "temperature"), ("Enter", "set up / undo")],
         (4, _) => vec![("Tab", "next tab"), ("Enter", "limit while gaming"), ("b", "block"), ("x", "allow")],
+        (5, _) => vec![("↑↓", "setting"), ("←→", "change"), ("Enter", "next / run")],
         _ => vec![],
     }
 }
@@ -976,6 +1094,10 @@ pub fn set_choice(app: &mut App, i: usize) {
 }
 
 pub fn step_choice(app: &mut App, d: i32) {
+    if app.page == 5 {
+        step_overlay(app, d);
+        return;
+    }
     let max = match (app.page, app.tab) {
         (1, _) => app.profiles.value.as_ref().map(|p| p.len()).unwrap_or(1),
         (2, 0) => WHEN.len(),
@@ -996,6 +1118,26 @@ fn report(app: &mut App, r: Result<String, String>) {
 
 pub fn activate(app: &mut App, i: usize) {
     match (app.page, app.tab) {
+        (5, _) => {
+            let Some(st) = app.overlay.value.clone() else { return };
+            if !st.installed {
+                return;
+            }
+            if !st.set_up {
+                let r = app.bus.overlay_set_up(true);
+                report(app, r.map(|_| "Overlay set up.".to_string()));
+            } else if i == 5 {
+                step_overlay(app, 1);
+                return;
+            } else if i == OVERLAY_ROWS.len() - 1 {
+                let r = app.bus.overlay_set_up(false);
+                report(app, r.map(|_| "MangoHud's configuration is back as it was.".to_string()));
+            } else {
+                step_overlay(app, 1);
+                return;
+            }
+            app.overlay.invalidate();
+        }
         (4, _) => {
             let Some(a) = listed_apps(app).get(i).cloned() else { return };
             if !a.state.is_empty() {

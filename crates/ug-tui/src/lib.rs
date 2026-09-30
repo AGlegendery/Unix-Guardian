@@ -22,7 +22,7 @@ use ratatui::Frame;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use ug_proto::{
-    AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, HistoryPoint, NetControlStatus, NetRule,
+    AppTraffic, BatteryCare, FpsSession, OverlayState, DayTraffic, ExtraSample, FpsReading, HistoryPoint, NetControlStatus, NetRule,
     PingComparison, PingReport, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
     ProfileInfo, RunningGameInfo, Snapshot,
 };
@@ -36,7 +36,7 @@ pub const PAGES: [(&str, &str, bool); 12] = [
     ("System control", "System", true),
     ("Monitoring", "Monitor", true),
     ("Ping stability", "Ping", true),
-    ("Overlay", "Overlay", false),
+    ("Overlay", "Overlay", true),
     ("Playtime", "Play", false),
     ("Recorder", "Rec", false),
     ("Drivers", "Drivers", false),
@@ -93,6 +93,8 @@ pub struct App {
     pub ping: Cached<PingReport>,
     pub ping_compare: Option<(u64, PingComparison)>,
     pub net: Cached<(Vec<AppTraffic>, Vec<NetRule>, NetControlStatus)>,
+    pub overlay: Cached<OverlayState>,
+    pub sessions: Cached<Vec<FpsSession>>,
     /// A dangerous action armed by the first press; confirmed by a second
     /// within five seconds.
     pub armed: Option<(String, Instant)>,
@@ -138,6 +140,8 @@ impl App {
             ping: Cached::new(LIVE),
             ping_compare: None,
             net: Cached::new(Duration::from_secs(2)),
+            overlay: Cached::new(SLOW),
+            sessions: Cached::new(Duration::from_secs(30)),
             armed: None,
             notice: None,
             hits: Vec::new(),
@@ -234,6 +238,10 @@ impl App {
                     let r = self.bus.fps();
                     self.fps.store(r);
                 }
+                if self.tab == 2 && self.sessions.due() {
+                    let r = self.bus.fps_sessions(data::now_ms().saturating_sub(7 * 86_400_000));
+                    self.sessions.store(r);
+                }
                 if self.tab == 1 && self.snapshot.due() {
                     let r = self.bus.snapshot();
                     self.snapshot.store(r);
@@ -241,6 +249,12 @@ impl App {
                 if self.tab == 1 && self.traffic.due() {
                     let r = self.bus.traffic(data::now_ms().saturating_sub(7 * 86_400_000));
                     self.traffic.store(r);
+                }
+            }
+            5 => {
+                if self.overlay.due() {
+                    let r = self.bus.overlay();
+                    self.overlay.store(r);
                 }
             }
             4 => {
@@ -761,6 +775,31 @@ mod tests {
         app.tab = 1;
         let screen = render(&mut app, 130, 40);
         for want in ["firefox-esr", "Rules", "qbittorrent", "up 1.0 Mbit/s", "waits for a game"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+    }
+
+    #[test]
+    fn the_overlay_page_and_fps_sessions_draw() {
+        let mut app = App::new(Bus::offline());
+        app.go(5);
+        app.overlay.store(Ok(OverlayState { installed: true, set_up: true, settings: Default::default(), ..Default::default() }));
+        let screen = render(&mut app, 120, 34);
+        for want in ["Overlay", "only while gaming", "top-left", "50 %", "Alt_L+o", "Remove Unix Guardian's setup"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        app.overlay.store(Ok(OverlayState { installed: false, install_hint: "sudo apt install mangohud".into(), ..Default::default() }));
+        assert!(render(&mut app, 120, 34).contains("sudo apt install mangohud"));
+
+        app.go(3);
+        app.tab = 2;
+        app.fps.store(Ok(FpsReading { state: "idle".into(), ..Default::default() }));
+        app.sessions.store(Ok(vec![FpsSession {
+            game: "cs2".into(), started_unix_ms: data::now_ms(), duration_s: 3120, frames: 1, avg_fps: 141.0,
+            low_1pct_fps: 96.0, low_01pct_fps: 71.0, p99_frametime_ms: 10.4, stutters: 2,
+        }]));
+        let screen = render(&mut app, 120, 34);
+        for want in ["Game sessions this week", "cs2", "141", "96", "71", "smooth"] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
     }
