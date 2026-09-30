@@ -2,8 +2,11 @@
 //!
 //! Linux has no system-wide frame counter: frames are counted inside the game
 //! by a Vulkan/OpenGL layer. MangoHud is that layer on most distributions,
-//! and with `log_interval=0` it appends one CSV row per frame while it logs,
-//! flushing each row. Setting up adds a marked block to the user's
+//! and with `log_interval=0` it logs one CSV row per frame. From 0.8 it
+//! flushes each row, so the running game can be read live; 0.7 (Debian and
+//! Parrot today, checked on the dev laptop) writes the whole file only when
+//! the game closes cleanly, so there the live reading is honestly
+//! unavailable and only the session statistics appear. Setting up adds a marked block to the user's
 //! MangoHud.conf (see `overlay`) that starts logging into our folder whenever
 //! a game runs with MangoHud; undo removes exactly that block.
 //!
@@ -119,8 +122,27 @@ impl Fps {
         std::fs::write(&self.config, new).map_err(|e| e.to_string())
     }
 
+    /// `mangohud --version` → `0.7.1`, cached after the first ask.
+    pub fn version(&self) -> String {
+        static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        if self.root != Path::new("/") {
+            return String::new();
+        }
+        CACHE
+            .get_or_init(|| {
+                std::process::Command::new("mangohud")
+                    .arg("--version")
+                    .output()
+                    .map(|o| parse_version(&String::from_utf8_lossy(&o.stdout)))
+                    .unwrap_or_default()
+            })
+            .clone()
+    }
+
     pub fn read(&self, now: SystemTime) -> FpsReading {
         let mut r = FpsReading { fps: f64::NAN, frametime_ms: f64::NAN, low_1pct_fps: f64::NAN, ..Default::default() };
+        r.mangohud_version = self.version();
+        r.live_unsupported = live_unsupported(&r.mangohud_version);
         if !self.installed() {
             r.state = "not-installed".into();
             r.install_hint = self.install_hint();
@@ -308,6 +330,21 @@ pub fn session_stats(path: &Path, written: SystemTime) -> Option<ug_proto::FpsSe
     })
 }
 
+/// `v0.7.1` → `0.7.1`.
+fn parse_version(s: &str) -> String {
+    s.split_whitespace().find_map(|w| {
+        let v = w.trim_start_matches('v');
+        (v.chars().next().is_some_and(|c| c.is_ascii_digit()) && v.contains('.')).then(|| v.to_string())
+    })
+    .unwrap_or_default()
+}
+
+/// Versions before 0.8 write the frame log only at the end.
+fn live_unsupported(version: &str) -> bool {
+    let mut p = version.split('.').map(|x| x.parse::<u32>().unwrap_or(0));
+    matches!((p.next(), p.next()), (Some(0), Some(m)) if m < 8)
+}
+
 /// MangoHud names logs `<program>_<YYYY-MM-DD_HH-MM-SS>.csv`.
 fn game_name(path: &Path) -> String {
     let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
@@ -345,6 +382,14 @@ mod tests {
         let r = fps.read(SystemTime::now());
         assert_eq!(r.state, "not-installed");
         assert_eq!(r.install_hint, "sudo apt install mangohud");
+    }
+
+    #[test]
+    fn old_mangohud_has_no_live_reading() {
+        assert_eq!(parse_version("v0.7.1\n"), "0.7.1");
+        assert!(live_unsupported("0.7.1"));
+        assert!(!live_unsupported("0.8.0"));
+        assert!(!live_unsupported(""), "unknown: assume it works and let the log tell");
     }
 
     #[test]

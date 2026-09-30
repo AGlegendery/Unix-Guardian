@@ -798,6 +798,12 @@ fn fps(app: &mut App, f: &mut Frame, r: Rect) {
             lines.push(Line::from(Span::styled("Waiting for a game running with MangoHud. In Steam, set a game's launch options to:", t.text())));
             lines.push(Line::from(Span::styled("  mangohud %command%", t.accent())));
             lines.push(Line::from(Span::styled("Other launchers: start the game with MANGOHUD=1 or through the mangohud command.", t.faint())));
+            if fr.live_unsupported {
+                lines.push(Line::from(Span::styled(
+                    format!("MangoHud {} writes its frame log only when the game closes: no live FPS, but each session is recorded below.", fr.mangohud_version),
+                    t.warn_style(),
+                )));
+            }
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(" Enter  Undo the setup ", t.muted())));
             app.rows = 1;

@@ -680,6 +680,11 @@ pub struct FpsReading {
     pub recent: Vec<(u64, f64)>,
     /// The command that installs MangoHud here, for `not-installed`.
     pub install_hint: String,
+    /// The installed MangoHud's version, e.g. `0.7.1`; empty if unknown.
+    pub mangohud_version: String,
+    /// This MangoHud writes its frame log only when the game closes (before
+    /// 0.8), so there is no live FPS; sessions are still recorded.
+    pub live_unsupported: bool,
 }
 
 /// How the in-game overlay looks and when it shows. Unix Guardian writes

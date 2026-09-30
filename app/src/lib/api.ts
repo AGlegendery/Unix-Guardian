@@ -79,6 +79,8 @@ export interface FpsReading {
   low_1pct_fps: number | null;
   recent: [number, number][];
   install_hint: string;
+  mangohud_version: string;
+  live_unsupported: boolean;
 }
 
 export interface PingStats {

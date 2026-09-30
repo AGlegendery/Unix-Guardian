@@ -191,7 +191,7 @@ export const mockApi = {
   fps: async (): Promise<FpsReading> => {
     const now = Date.now();
     const recent: [number, number][] = Array.from({ length: 50 }, (_, i) => [now - (49 - i) * 200, 138 + Math.sin((now / 200 + i) / 4) * 8 - (i % 23 === 0 ? 50 : 0)]);
-    return { state: fpsSetUp ? "live" : "not-set-up", game: "cs2", fps: 141, frametime_ms: 7.1, low_1pct_fps: 88, recent, install_hint: "" };
+    return { state: fpsSetUp ? "live" : "not-set-up", game: "cs2", fps: 141, frametime_ms: 7.1, low_1pct_fps: 88, recent, install_hint: "", mangohud_version: "0.8.1", live_unsupported: false };
   },
   setUpFps: async (on: boolean) => {
     fpsSetUp = on;

@@ -249,6 +249,7 @@ export const en = {
       gpuAsleep: "The graphics card is asleep, so it is not read (reading it would wake it).",
     },
     fpsTab: {
+    oldMangohud: "MangoHud {v} writes its frame log only when the game closes, so there is no live FPS here; each session's statistics still appear below. MangoHud 0.8 or newer shows it live.",
     sessions: "Game sessions",
     sessionsEmpty: "No sessions yet. They are recorded when a game runs with MangoHud and the overlay set up.",
     ranges: { week: "This week", all: "All" } as Record<string, string>,

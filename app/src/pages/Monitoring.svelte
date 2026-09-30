@@ -185,6 +185,7 @@
       <p class="step">{t().mon.fpsTab.idle}</p>
       <code class="cmd" dir="ltr">mangohud %command%</code>
       <p class="small">{t().mon.fpsTab.other}</p>
+      {#if fps.live_unsupported}<p class="small">{t().mon.fpsTab.oldMangohud.replace("{v}", fps.mangohud_version)}</p>{/if}
       <button class="btn" disabled={fpsBusy} onclick={() => setUpFps(false)}>{t().mon.fpsTab.undo}</button>
     {/if}
   </section>
