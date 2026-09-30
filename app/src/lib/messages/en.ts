@@ -1,6 +1,7 @@
 export const en = {
   app: "Unix Guardian",
   preview: "Preview: recorded readings, not live",
+  terminal: "Terminal interface",
   live: "Live",
   nav: {
     dashboard: "Dashboard",

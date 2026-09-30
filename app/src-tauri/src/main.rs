@@ -80,9 +80,48 @@ fn main() {
             bus::set_battery_care,
             bus::history,
             bus::traffic,
+            open_terminal_interface,
         ])
         .run(tauri::generate_context!())
         .expect("running the Unix Guardian window");
+}
+
+/// Opens `ug tui` in the user's terminal and closes this window completely.
+/// Tries the desktop's own terminal first, then common ones.
+#[tauri::command]
+fn open_terminal_interface(app: tauri::AppHandle) -> Result<(), String> {
+    let ug = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("ug")))
+        .filter(|p| p.exists())
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "ug".into());
+    let mut candidates: Vec<(String, Vec<String>)> = Vec::new();
+    if let Ok(t) = std::env::var("TERMINAL") {
+        candidates.push((t, vec!["-e".into()]));
+    }
+    for (t, flag) in [
+        ("konsole", "-e"),
+        ("gnome-terminal", "--"),
+        ("kgx", "--"),
+        ("xfce4-terminal", "-x"),
+        ("kitty", "--"),
+        ("alacritty", "-e"),
+        ("wezterm", "start"),
+        ("foot", "--"),
+        ("x-terminal-emulator", "-e"),
+        ("xterm", "-e"),
+    ] {
+        candidates.push((t.into(), vec![flag.into()]));
+    }
+    for (term, mut args) in candidates {
+        args.extend([ug.clone(), "tui".into()]);
+        if std::process::Command::new(&term).args(&args).spawn().is_ok() {
+            app.exit(0);
+            return Ok(());
+        }
+    }
+    Err("No terminal emulator was found. Open a terminal and run: ug tui".into())
 }
 
 /// True when the GPU the firmware booted on (`boot_vga`) is an NVIDIA card,

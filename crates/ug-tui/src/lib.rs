@@ -1,0 +1,653 @@
+//! `ug tui`: Unix Guardian in the terminal.
+//!
+//! The approved design (docs/tui-design.md): the same pages as the window, in
+//! the same order; three fixed zones (menu, page, and a key bar that always
+//! says what can be pressed now); every action by mouse and by keyboard;
+//! dangerous actions confirmed twice; no animation, and nothing refreshed
+//! that is not on screen. English by default (terminals render Persian
+//! unevenly); Persian is a later option for terminals known to handle it.
+
+mod data;
+mod pages;
+mod theme;
+
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
+use crossterm::{execute, terminal};
+use data::{Bus, Cached};
+use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
+use ratatui::style::Style;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::Frame;
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
+use ug_proto::{
+    BatteryCare, DayTraffic, HistoryPoint, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
+    ProfileInfo, RunningGameInfo, Snapshot,
+};
+
+use theme::Theme;
+
+/// Menu entries, in the window's order: (name, short name for narrow screens, built).
+pub const PAGES: [(&str, &str, bool); 12] = [
+    ("Dashboard", "Dash", true),
+    ("Game mode", "Game", true),
+    ("System control", "System", true),
+    ("Monitoring", "Monitor", true),
+    ("Ping stability", "Ping", false),
+    ("Overlay", "Overlay", false),
+    ("Playtime", "Play", false),
+    ("Recorder", "Rec", false),
+    ("Drivers", "Drivers", false),
+    ("Bug report", "Bugs", false),
+    ("Updates", "Updates", false),
+    ("Settings", "Settings", false),
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Focus {
+    Menu,
+    Page,
+}
+
+/// Something the mouse can hit, recorded while drawing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Hit {
+    Menu(usize),
+    Tab(usize),
+    Row(usize),
+    /// A secondary choice on the page (profile, range, "when"): its index.
+    Choice(usize),
+}
+
+pub struct App {
+    pub bus: Bus,
+    pub theme: Theme,
+    pub page: usize,
+    pub focus: Focus,
+    /// Tab within the page.
+    pub tab: usize,
+    /// Selected row within the page.
+    pub row: usize,
+    /// A page-specific choice (profile index, history range, "when").
+    pub choice: usize,
+    pub inventory: Cached<Inventory>,
+    pub snapshot: Cached<Snapshot>,
+    pub gamemode: Cached<bool>,
+    /// (seconds, CPU °C, working GPU °C) for the live temperature chart.
+    pub temps: VecDeque<(f64, f64, f64)>,
+    pub running: Cached<Vec<RunningGameInfo>>,
+    pub profiles: Cached<Vec<ProfileInfo>>,
+    pub installed: Cached<Vec<InstalledGameInfo>>,
+    pub caps: Cached<Vec<PowerCapability>>,
+    pub jobs: Cached<(Vec<PowerJob>, Vec<PowerWatch>)>,
+    pub battery: Cached<BatteryCare>,
+    pub history: Cached<Vec<HistoryPoint>>,
+    pub traffic: Cached<Vec<DayTraffic>>,
+    /// A dangerous action armed by the first press; confirmed by a second
+    /// within five seconds.
+    pub armed: Option<(String, Instant)>,
+    /// A one-line result or error shown above the key bar.
+    pub notice: Option<(String, bool, Instant)>,
+    pub hits: Vec<(Rect, Hit)>,
+    /// Row count of the current page's list, set while drawing.
+    pub rows: usize,
+    pub help: bool,
+    quit: bool,
+    open_window: bool,
+}
+
+const LIVE: Duration = Duration::from_secs(1);
+const SLOW: Duration = Duration::from_secs(5);
+const RARE: Duration = Duration::from_secs(60);
+
+impl App {
+    fn new(bus: Bus) -> App {
+        App {
+            bus,
+            theme: Theme::detect(),
+            page: 0,
+            focus: Focus::Menu,
+            tab: 0,
+            row: 0,
+            choice: 0,
+            inventory: Cached::new(Duration::from_secs(600)),
+            snapshot: Cached::new(LIVE),
+            gamemode: Cached::new(SLOW),
+            temps: VecDeque::new(),
+            running: Cached::new(SLOW),
+            profiles: Cached::new(SLOW),
+            installed: Cached::new(RARE),
+            caps: Cached::new(RARE),
+            jobs: Cached::new(SLOW),
+            battery: Cached::new(Duration::from_secs(15)),
+            history: Cached::new(RARE),
+            traffic: Cached::new(RARE),
+            armed: None,
+            notice: None,
+            hits: Vec::new(),
+            rows: 0,
+            help: false,
+            quit: false,
+            open_window: false,
+        }
+    }
+
+    pub fn say(&mut self, text: impl Into<String>, ok: bool) {
+        self.notice = Some((text.into(), ok, Instant::now()));
+    }
+
+    /// Refreshes what the current page shows, each piece at its own rate.
+    fn refresh(&mut self) {
+        if self.inventory.due() {
+            let r = self.bus.inventory();
+            self.inventory.store(r);
+        }
+        match self.page {
+            0 => {
+                if self.snapshot.due() {
+                    let r = self.bus.snapshot();
+                    if let Ok(s) = &r {
+                        let t = s.ts_unix_ms as f64 / 1000.0;
+                        let gpu = s.gpus.iter().find(|g| !g.asleep && !g.temp_c.is_nan()).map(|g| g.temp_c).unwrap_or(f64::NAN);
+                        self.temps.push_back((t, s.cpu.temp_c, gpu));
+                        while self.temps.len() > 120 {
+                            self.temps.pop_front();
+                        }
+                    }
+                    self.snapshot.store(r);
+                }
+                self.refresh_games();
+            }
+            1 => {
+                self.refresh_games();
+                if self.installed.due() {
+                    let r = self.bus.installed();
+                    self.installed.store(r);
+                }
+            }
+            2 => {
+                if self.caps.due() {
+                    let r = self.bus.power_caps();
+                    self.caps.store(r);
+                }
+                if self.jobs.due() {
+                    let r = self.bus.power_jobs();
+                    self.jobs.store(r);
+                }
+                if self.battery.due() {
+                    let r = self.bus.battery();
+                    self.battery.store(r);
+                }
+            }
+            3 => {
+                if self.history.due() {
+                    let now = data::now_ms();
+                    let since = match self.choice {
+                        0 => now.saturating_sub(3_600_000),
+                        2 => now.saturating_sub(7 * 86_400_000),
+                        _ => {
+                            // Today: since local midnight, like the window.
+                            let secs_today = unsafe {
+                                let t = (now / 1000) as libc::time_t;
+                                let mut tm: libc::tm = std::mem::zeroed();
+                                libc::localtime_r(&t, &mut tm);
+                                (tm.tm_hour * 3600 + tm.tm_min * 60 + tm.tm_sec) as u64
+                            };
+                            now.saturating_sub(secs_today * 1000)
+                        }
+                    };
+                    // About one point per 5 minutes for a day, per 30 for a week.
+                    let points = [60, 288, 336][self.choice.min(2)];
+                    let r = self.bus.history(since, now, points);
+                    self.history.store(r);
+                }
+                if self.tab == 1 && self.snapshot.due() {
+                    let r = self.bus.snapshot();
+                    self.snapshot.store(r);
+                }
+                if self.traffic.due() {
+                    let r = self.bus.traffic(data::now_ms().saturating_sub(7 * 86_400_000));
+                    self.traffic.store(r);
+                }
+            }
+            _ => {}
+        }
+        if self.armed.as_ref().is_some_and(|(_, t)| t.elapsed() > Duration::from_secs(5)) {
+            self.armed = None;
+        }
+        if self.notice.as_ref().is_some_and(|(_, _, t)| t.elapsed() > Duration::from_secs(6)) {
+            self.notice = None;
+        }
+    }
+
+    fn refresh_games(&mut self) {
+        if self.running.due() {
+            let r = self.bus.running();
+            self.running.store(r);
+        }
+        if self.profiles.due() {
+            let r = self.bus.profiles();
+            self.profiles.store(r);
+        }
+        if self.gamemode.due() {
+            let r = self.bus.gamemode_active();
+            self.gamemode.store(r);
+        }
+    }
+
+    fn go(&mut self, page: usize) {
+        if page < PAGES.len() && page != self.page {
+            self.page = page;
+            self.tab = 0;
+            self.row = 0;
+            self.choice = if page == 3 { 1 } else { 0 };
+            self.armed = None;
+            self.history.invalidate();
+        }
+    }
+
+    fn tabs(&self) -> usize {
+        match self.page {
+            2 => 3,
+            3 => 2,
+            _ => 1,
+        }
+    }
+
+    fn key(&mut self, code: KeyCode, mods: KeyModifiers) {
+        if self.help {
+            self.help = false;
+            return;
+        }
+        match code {
+            KeyCode::Char('c') if mods.contains(KeyModifiers::CONTROL) => self.quit = true,
+            KeyCode::Char('q') => self.quit = true,
+            KeyCode::Char('?') => self.help = true,
+            KeyCode::Char('g') => {
+                self.open_window = true;
+                self.quit = true;
+            }
+            KeyCode::Char(c @ '1'..='9') => {
+                self.go(c as usize - '1' as usize);
+                self.focus = Focus::Page;
+            }
+            KeyCode::Esc => {
+                if self.armed.take().is_none() {
+                    if self.focus == Focus::Page {
+                        self.focus = Focus::Menu;
+                    } else {
+                        self.quit = true;
+                    }
+                }
+            }
+            _ if self.focus == Focus::Menu => match code {
+                KeyCode::Up | KeyCode::Char('k') => self.go(self.page.saturating_sub(1)),
+                KeyCode::Down | KeyCode::Char('j') => self.go((self.page + 1).min(PAGES.len() - 1)),
+                KeyCode::Enter | KeyCode::Right | KeyCode::Tab => self.focus = Focus::Page,
+                _ => {}
+            },
+            _ => match code {
+                KeyCode::Up | KeyCode::Char('k') => self.row = self.row.saturating_sub(1),
+                KeyCode::Down | KeyCode::Char('j') => self.row = (self.row + 1).min(self.rows.saturating_sub(1)),
+                KeyCode::Tab => self.switch_tab((self.tab + 1) % self.tabs()),
+                KeyCode::BackTab => self.switch_tab((self.tab + self.tabs() - 1) % self.tabs()),
+                KeyCode::Left | KeyCode::Char('h') => pages::step_choice(self, -1),
+                KeyCode::Right | KeyCode::Char('l') => pages::step_choice(self, 1),
+                KeyCode::Enter | KeyCode::Char(' ') => pages::activate(self, self.row),
+                KeyCode::Char('x') | KeyCode::Delete => pages::remove(self, self.row),
+                _ => {}
+            },
+        }
+    }
+
+    fn switch_tab(&mut self, tab: usize) {
+        self.tab = tab;
+        self.row = 0;
+        self.armed = None;
+    }
+
+    fn click(&mut self, x: u16, y: u16) {
+        if self.help {
+            self.help = false;
+            return;
+        }
+        let pos = Position { x, y };
+        let Some(&(_, hit)) = self.hits.iter().rev().find(|(r, _)| r.contains(pos)) else { return };
+        match hit {
+            Hit::Menu(i) => {
+                self.go(i);
+                self.focus = Focus::Page;
+            }
+            Hit::Tab(i) => {
+                self.focus = Focus::Page;
+                self.switch_tab(i);
+            }
+            Hit::Row(i) => {
+                self.focus = Focus::Page;
+                // First click selects, a click on the selected row acts.
+                if self.row == i {
+                    pages::activate(self, i);
+                } else {
+                    self.row = i;
+                }
+            }
+            Hit::Choice(i) => {
+                self.focus = Focus::Page;
+                pages::set_choice(self, i);
+            }
+        }
+    }
+
+    fn scroll(&mut self, down: bool) {
+        if self.focus == Focus::Menu {
+            self.go(if down { (self.page + 1).min(PAGES.len() - 1) } else { self.page.saturating_sub(1) });
+        } else if down {
+            self.row = (self.row + 1).min(self.rows.saturating_sub(1));
+        } else {
+            self.row = self.row.saturating_sub(1);
+        }
+    }
+
+    fn draw(&mut self, f: &mut Frame) {
+        self.hits.clear();
+        let area = f.area();
+        let t = &self.theme;
+        f.render_widget(Block::default().style(Style::default().fg(t.text)), area);
+        if area.width < 60 || area.height < 20 {
+            f.render_widget(
+                Paragraph::new("Unix Guardian needs a terminal of at least 60×20. Make the window bigger, or press q.")
+                    .wrap(ratatui::widgets::Wrap { trim: true }),
+                area,
+            );
+            return;
+        }
+        let wide = area.width >= 100 && area.height >= 26;
+        let outer = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(5), Constraint::Length(1), Constraint::Length(1)])
+            .split(area);
+        self.draw_header(f, outer[0]);
+        let body = outer[1];
+        let content = if wide {
+            let cols = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Length(20), Constraint::Min(40)])
+                .split(body);
+            self.draw_menu(f, cols[0]);
+            cols[1]
+        } else {
+            let rows = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(1), Constraint::Min(3)])
+                .split(body);
+            self.draw_menu_row(f, rows[0]);
+            rows[1]
+        };
+        pages::draw(self, f, content, wide);
+        self.draw_notice(f, outer[2]);
+        self.draw_keys(f, outer[3]);
+        if self.help {
+            self.draw_help(f, area);
+        }
+    }
+
+    fn draw_header(&self, f: &mut Frame, r: Rect) {
+        let t = &self.theme;
+        let dot = |ok: bool| Span::styled("● ", Style::default().fg(if ok { t.ok } else { t.danger }));
+        let service = self.inventory.value.is_some() && self.inventory.error.is_none();
+        let agent = self.profiles.error.is_none();
+        let left = Line::from(vec![Span::styled(" Unix Guardian", t.accent())]);
+        let right = Line::from(vec![dot(service), Span::styled("service  ", t.muted()), dot(agent), Span::styled("agent ", t.muted())])
+            .right_aligned();
+        f.render_widget(Paragraph::new(left), r);
+        f.render_widget(Paragraph::new(right), r);
+    }
+
+    fn draw_menu(&mut self, f: &mut Frame, r: Rect) {
+        let t = &self.theme;
+        let block = Block::default().borders(Borders::RIGHT).border_style(t.border());
+        let inner = block.inner(r);
+        f.render_widget(block, r);
+        for (i, (name, _, built)) in PAGES.iter().enumerate() {
+            let y = inner.y + 1 + i as u16;
+            if y >= inner.bottom() {
+                break;
+            }
+            let row = Rect { x: inner.x, y, width: inner.width, height: 1 };
+            let active = i == self.page;
+            let style = if active {
+                if self.focus == Focus::Menu { t.selected() } else { t.accent() }
+            } else if *built {
+                t.muted()
+            } else {
+                t.faint()
+            };
+            let marker = if active { "▌" } else { " " };
+            f.render_widget(Paragraph::new(Line::from(vec![
+                Span::styled(marker, t.accent()),
+                Span::styled(format!("{name:<18}"), style),
+            ])), row);
+            self.hits.push((row, Hit::Menu(i)));
+        }
+    }
+
+    fn draw_menu_row(&mut self, f: &mut Frame, r: Rect) {
+        let t = &self.theme;
+        let mut x = r.x + 1;
+        for (i, (_, short, built)) in PAGES.iter().enumerate() {
+            let w = short.len() as u16 + 2;
+            if x + w > r.right() {
+                f.render_widget(Paragraph::new(Span::styled("…", t.faint())), Rect { x, y: r.y, width: 1, height: 1 });
+                break;
+            }
+            let rect = Rect { x, y: r.y, width: w, height: 1 };
+            let style = if i == self.page { t.selected() } else if *built { t.muted() } else { t.faint() };
+            f.render_widget(Paragraph::new(Span::styled(format!(" {short} "), style)), rect);
+            self.hits.push((rect, Hit::Menu(i)));
+            x += w + 1;
+        }
+    }
+
+    fn draw_notice(&self, f: &mut Frame, r: Rect) {
+        let t = &self.theme;
+        if let Some((action, _)) = &self.armed {
+            f.render_widget(
+                Paragraph::new(Span::styled(
+                    format!(" Press Enter again within 5 seconds to {action}. Esc cancels."),
+                    Style::default().fg(t.danger),
+                )),
+                r,
+            );
+        } else if let Some((text, ok, _)) = &self.notice {
+            f.render_widget(Paragraph::new(Span::styled(format!(" {text}"), Style::default().fg(if *ok { t.ok } else { t.danger }))), r);
+        }
+    }
+
+    fn draw_keys(&self, f: &mut Frame, r: Rect) {
+        let t = &self.theme;
+        let keys: Vec<(&str, &str)> = if self.help {
+            vec![("any key", "close help")]
+        } else if self.focus == Focus::Menu {
+            vec![("↑↓", "menu"), ("Enter", "open"), ("1-9", "jump"), ("?", "help"), ("g", "window"), ("q", "quit")]
+        } else {
+            let mut k = vec![("↑↓", "move")];
+            k.extend(pages::keys(self));
+            k.extend([("Esc", "menu"), ("?", "help"), ("q", "quit")]);
+            k
+        };
+        let mut spans = vec![Span::raw(" ")];
+        for (key, what) in keys {
+            spans.push(Span::styled(key, t.accent()));
+            spans.push(Span::styled(format!(" {what}  "), t.muted()));
+        }
+        f.render_widget(Paragraph::new(Line::from(spans)).style(Style::default().bg(t.selected_bg)), r);
+    }
+
+    fn draw_help(&self, f: &mut Frame, area: Rect) {
+        let t = &self.theme;
+        let w = 64.min(area.width - 4);
+        let h = 18.min(area.height - 2);
+        let r = Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h };
+        f.render_widget(ratatui::widgets::Clear, r);
+        let lines = vec![
+            Line::from(Span::styled("Keys", t.title())),
+            Line::from(""),
+            Line::from("  ↑ ↓  j k        move in the menu or the page"),
+            Line::from("  Enter  → Tab    open the page / next section"),
+            Line::from("  ← →  h l        change the choice on the page"),
+            Line::from("  Enter  Space    press, toggle, run"),
+            Line::from("  x  Delete       remove a scheduled item"),
+            Line::from("  1 … 9           jump to a page"),
+            Line::from("  Esc             back to the menu, then quit"),
+            Line::from("  g               open the graphical window"),
+            Line::from("  q  Ctrl-C       quit"),
+            Line::from(""),
+            Line::from(Span::styled("Mouse: click anything; the wheel scrolls.", t.muted())),
+            Line::from(Span::styled("Shut down and restart ask twice.", t.muted())),
+        ];
+        f.render_widget(
+            Paragraph::new(lines).block(Block::default().borders(Borders::ALL).border_style(t.accent()).title(" Help ")),
+            r,
+        );
+    }
+}
+
+/// What the TUI asks the caller to do when it ends.
+pub enum Exit {
+    Quit,
+    /// `g`: open the graphical window instead.
+    OpenWindow,
+}
+
+/// Runs the terminal interface until the user quits.
+pub fn run(daemon_session: bool) -> anyhow::Result<Exit> {
+    let bus = Bus::connect(daemon_session)?;
+    let mut app = App::new(bus);
+
+    terminal::enable_raw_mode()?;
+    let mut out = std::io::stdout();
+    execute!(out, terminal::EnterAlternateScreen, event::EnableMouseCapture)?;
+    // Restore the terminal even if something panics mid-draw.
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = restore();
+        hook(info);
+    }));
+    let backend = ratatui::backend::CrosstermBackend::new(out);
+    let mut term = ratatui::Terminal::new(backend)?;
+
+    let result = (|| -> anyhow::Result<()> {
+        let mut dirty = true;
+        let mut last_tick = Instant::now() - LIVE;
+        while !app.quit {
+            if last_tick.elapsed() >= Duration::from_millis(500) {
+                app.refresh();
+                last_tick = Instant::now();
+                dirty = true;
+            }
+            if dirty {
+                term.draw(|f| app.draw(f))?;
+                dirty = false;
+            }
+            // Wait for input, at most until the next refresh is due.
+            if event::poll(Duration::from_millis(500))? {
+                match event::read()? {
+                    Event::Key(k) if k.kind == KeyEventKind::Press => app.key(k.code, k.modifiers),
+                    Event::Mouse(m) => match m.kind {
+                        MouseEventKind::Down(MouseButton::Left) => app.click(m.column, m.row),
+                        MouseEventKind::ScrollDown => app.scroll(true),
+                        MouseEventKind::ScrollUp => app.scroll(false),
+                        _ => continue,
+                    },
+                    Event::Resize(..) => {}
+                    _ => continue,
+                }
+                dirty = true;
+            }
+        }
+        Ok(())
+    })();
+
+    restore()?;
+    result?;
+    Ok(if app.open_window { Exit::OpenWindow } else { Exit::Quit })
+}
+
+fn restore() -> std::io::Result<()> {
+    terminal::disable_raw_mode()?;
+    execute!(std::io::stdout(), event::DisableMouseCapture, terminal::LeaveAlternateScreen)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::backend::TestBackend;
+
+    fn render(app: &mut App, w: u16, h: u16) -> String {
+        let mut term = ratatui::Terminal::new(TestBackend::new(w, h)).unwrap();
+        term.draw(|f| app.draw(f)).unwrap();
+        let buf = term.backend().buffer().clone();
+        (0..h).map(|y| (0..w).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>() + "\n").collect()
+    }
+
+    #[test]
+    fn every_page_draws_without_services_at_both_sizes_and_says_what_is_wrong() {
+        let mut app = App::new(Bus::offline());
+        app.refresh();
+        for page in 0..PAGES.len() {
+            app.go(page);
+            app.refresh();
+            for (w, h) in [(120, 34), (80, 24)] {
+                let screen = render(&mut app, w, h);
+                assert!(screen.contains("Unix Guardian"), "page {page} at {w}x{h}");
+                assert!(screen.contains("quit"), "the key bar is always there");
+            }
+        }
+        app.go(0);
+        app.refresh();
+        assert!(render(&mut app, 120, 34).contains("Cannot reach"), "an unreachable service is said, not hidden");
+    }
+
+    #[test]
+    fn a_tiny_terminal_gets_a_request_instead_of_a_broken_layout() {
+        let mut app = App::new(Bus::offline());
+        assert!(render(&mut app, 50, 15).contains("at least 60"));
+    }
+
+    #[test]
+    fn clicking_a_menu_entry_opens_that_page_in_both_layouts() {
+        for (w, h) in [(120, 34), (80, 24)] {
+            let mut app = App::new(Bus::offline());
+            render(&mut app, w, h);
+            let (rect, _) = *app.hits.iter().find(|(_, hit)| *hit == Hit::Menu(2)).expect("menu entry 3 is clickable");
+            app.click(rect.x, rect.y);
+            assert_eq!(app.page, 2);
+            assert_eq!(app.focus, Focus::Page);
+        }
+    }
+
+    #[test]
+    fn keys_move_through_the_menu_and_q_quits() {
+        let mut app = App::new(Bus::offline());
+        app.key(KeyCode::Down, KeyModifiers::NONE);
+        app.key(KeyCode::Down, KeyModifiers::NONE);
+        assert_eq!(app.page, 2);
+        app.key(KeyCode::Char('4'), KeyModifiers::NONE);
+        assert_eq!(app.page, 3);
+        app.key(KeyCode::Char('q'), KeyModifiers::NONE);
+        assert!(app.quit);
+    }
+
+    #[test]
+    fn a_power_action_needs_a_second_press_and_esc_cancels_it() {
+        let mut app = App::new(Bus::offline());
+        app.go(2);
+        app.focus = Focus::Page;
+        app.key(KeyCode::Enter, KeyModifiers::NONE); // "Shut down", now
+        assert!(app.armed.is_some(), "first press only arms");
+        app.key(KeyCode::Esc, KeyModifiers::NONE);
+        assert!(app.armed.is_none());
+        assert_eq!(app.focus, Focus::Page, "Esc cancelled the action, it did not leave the page");
+    }
+}

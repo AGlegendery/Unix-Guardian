@@ -229,6 +229,7 @@ const tauriApi = {
   history: (sinceUnixMs: number, untilUnixMs: number, points: number) =>
     invoke<HistoryPoint[]>("history", { sinceUnixMs, untilUnixMs, points }),
   traffic: (sinceUnixMs: number) => invoke<DayTraffic[]>("traffic", { sinceUnixMs }),
+  openTerminal: () => invoke<void>("open_terminal_interface"),
   battery: () => invoke<BatteryCare>("battery"),
   setBatteryCare: (mode: string, limit: number) => invoke<void>("set_battery_care", { mode, limit }),
   wakeAlarm: () => invoke<[number, boolean]>("wake_alarm"),

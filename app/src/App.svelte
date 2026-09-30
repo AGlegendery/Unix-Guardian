@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
     Activity, Bug, Clock, Gamepad2, Layers, LayoutDashboard, Power,
-    RefreshCw, Settings, Video, Wifi, Wrench,
+    RefreshCw, Settings, SquareTerminal, Video, Wifi, Wrench,
   } from "@lucide/svelte";
   import type { Component } from "svelte";
   import { api, errorText, type Overview } from "./lib/api";
@@ -66,6 +66,9 @@
     <div class="foot">
       {@render dot(t().status.service, overview ? !overview.daemon_error : null)}
       {@render dot(t().status.agent, overview ? !overview.agent_error : null)}
+      <button class="lang" onclick={() => api.openTerminal().catch((e) => (loadError = errorText(e)))}>
+        <SquareTerminal size={14} aria-hidden="true" /> {t().terminal}
+      </button>
       <button class="lang" onclick={() => setLocale(locale.current === "fa" ? "en" : "fa")}>
         {locale.current === "fa" ? "English" : "فارسی"}
       </button>
@@ -188,6 +191,9 @@
   .lamp.bad { background: var(--danger); }
   .lang {
     all: unset;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     cursor: pointer;
     margin-top: 8px;
     color: var(--text-2);

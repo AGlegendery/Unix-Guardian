@@ -31,6 +31,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Unix Guardian in the terminal: every page, by mouse or keyboard.
+    Tui,
     /// Machine summary and current readings.
     Status,
     /// Static hardware inventory.
@@ -234,6 +236,10 @@ enum GpuCommand {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    if let Command::Tui = cli.command {
+        return tui(cli.session);
+    }
+
     // The agent always lives on the session bus, so game and playtime commands
     // work whether or not the daemon is reachable.
     match cli.command {
@@ -275,7 +281,7 @@ async fn main() -> Result<()> {
         Command::Gpu { command } => gpu(&conn, &daemon, command, cli.json).await,
         Command::Power { command } => power(&conn, command, cli.json).await,
         Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
-        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } => {
+        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Tui => {
             unreachable!("handled above")
         }
     }
@@ -394,6 +400,29 @@ async fn playtime(today: bool, week: bool, forget: Option<String>, csv: bool, js
     }
     println!("{:>8}        total, {} games", hms(total), entries.len());
     Ok(())
+}
+
+/// Runs the terminal interface; `g` inside it asks for the window instead.
+fn tui(session: bool) -> Result<()> {
+    // The TUI drives its own small runtime; it cannot run inside this one.
+    let exit = std::thread::spawn(move || ug_tui::run(session))
+        .join()
+        .map_err(|_| anyhow::anyhow!("the terminal interface stopped unexpectedly"))??;
+    match exit {
+        ug_tui::Exit::Quit => Ok(()),
+        ug_tui::Exit::OpenWindow => {
+            // The window lives beside ug when installed, or in the dev build.
+            let here = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("ug-app")));
+            let candidates = [here, Some("ug-app".into()), Some("app/src-tauri/target/release/ug-app".into())];
+            for c in candidates.into_iter().flatten() {
+                if std::process::Command::new(&c).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().is_ok() {
+                    println!("Opened the Unix Guardian window.");
+                    return Ok(());
+                }
+            }
+            anyhow::bail!("the Unix Guardian window (ug-app) is not installed")
+        }
+    }
 }
 
 async fn history(hours: u32, json: bool) -> Result<()> {
