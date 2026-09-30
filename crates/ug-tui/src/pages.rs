@@ -67,6 +67,7 @@ pub fn draw(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         1 => game_mode(app, f, inner),
         2 => system(app, f, inner),
         3 => monitoring(app, f, inner),
+        4 => ping_page(app, f, inner),
         p => {
             let text = vec![
                 Line::from(Span::styled(PAGES[p].0, app.theme.title())),
@@ -567,7 +568,7 @@ fn monitoring(app: &mut App, f: &mut Frame, r: Rect) {
 
 /// One Braille line chart of up to two series against seconds ago.
 #[allow(clippy::too_many_arguments)]
-fn live_chart(app: &App, f: &mut Frame, r: Rect, title: &str, unit: &str, min: (f64, f64), a: (&str, Vec<(f64, f64)>), b: Option<(&str, Vec<(f64, f64)>)>) {
+fn live_chart(app: &App, f: &mut Frame, r: Rect, title: &str, unit: &str, span: f64, min: (f64, f64), a: (&str, Vec<(f64, f64)>), b: Option<(&str, Vec<(f64, f64)>)>) {
     let all = a.1.iter().chain(b.iter().flat_map(|x| x.1.iter()));
     let lo = all.clone().map(|p| p.1).fold(min.0, f64::min).floor();
     let hi = all.map(|p| p.1).fold(min.1, f64::max).ceil();
@@ -587,7 +588,7 @@ fn live_chart(app: &App, f: &mut Frame, r: Rect, title: &str, unit: &str, min: (
     let chart = Chart::new(sets)
         .legend_position(two.then_some(ratatui::widgets::LegendPosition::TopLeft))
         .block(card(app, &head))
-        .x_axis(Axis::default().bounds([-120.0, 0.0]))
+        .x_axis(Axis::default().bounds([-span, 0.0]))
         .y_axis(Axis::default().style(app.theme.faint()).bounds([lo, hi.max(lo + 1.0)]).labels([Span::raw(format!("{lo:.0}")), Span::raw(format!("{hi:.0}"))]));
     f.render_widget(chart, r);
 }
@@ -653,18 +654,18 @@ fn live(app: &mut App, f: &mut Frame, r: Rect) {
     let g = |get: fn(&ug_proto::GpuSample) -> f64| -> Option<(&'static str, Vec<(f64, f64)>)> {
         has_gpu.then(|| ("Graphics card", pts(&|s, _| gpu(s).map(|x| get(&x)).unwrap_or(f64::NAN))))
     };
-    live_chart(app, f, cell(0), "Temperature", "°", (30.0, 70.0), ("Processor", pts(&|s, _| s.cpu.temp_c)), g(|x| x.temp_c));
-    live_chart(app, f, cell(1), "Load", " %", (0.0, 100.0), ("Processor", pts(&|s, _| s.cpu.load_pct)), g(|x| x.load_pct));
-    live_chart(app, f, cell(2), "Power", " W", (0.0, 30.0), ("Processor", pts(&|s, _| s.cpu.power_w)), g(|x| x.power_w));
-    live_chart(app, f, cell(3), "Clock", " MHz", (0.0, 3000.0), ("Fastest core", pts(&|s, _| s.cpu.freq_max_mhz as f64)), g(|x| if x.core_clock_mhz == 0 { f64::NAN } else { x.core_clock_mhz as f64 }));
+    live_chart(app, f, cell(0), "Temperature", "°", 120.0, (30.0, 70.0), ("Processor", pts(&|s, _| s.cpu.temp_c)), g(|x| x.temp_c));
+    live_chart(app, f, cell(1), "Load", " %", 120.0, (0.0, 100.0), ("Processor", pts(&|s, _| s.cpu.load_pct)), g(|x| x.load_pct));
+    live_chart(app, f, cell(2), "Power", " W", 120.0, (0.0, 30.0), ("Processor", pts(&|s, _| s.cpu.power_w)), g(|x| x.power_w));
+    live_chart(app, f, cell(3), "Clock", " MHz", 120.0, (0.0, 3000.0), ("Fastest core", pts(&|s, _| s.cpu.freq_max_mhz as f64)), g(|x| if x.core_clock_mhz == 0 { f64::NAN } else { x.core_clock_mhz as f64 }));
     let gib = 1_048_576.0;
-    live_chart(app, f, cell(4), "Memory", " GB", (0.0, (s.mem.total_kb as f64 / gib).ceil()), ("Used", pts(&|s, _| s.mem.used_kb() as f64 / gib)), Some(("Swap", pts(&|s, _| s.mem.swap_used_kb as f64 / gib))));
-    live_chart(app, f, cell(5), "Disk", " MB/s", (0.0, 5.0), ("Read", pts(&|_, e| e.disk_read_bps as f64 / 1e6)), Some(("Write", pts(&|_, e| e.disk_write_bps as f64 / 1e6))));
-    live_chart(app, f, cell(6), "Internet", " MB/s", (0.0, 1.0), ("Down", pts(&|s, _| s.net.rx_bps as f64 / 1e6)), Some(("Up", pts(&|s, _| s.net.tx_bps as f64 / 1e6))));
+    live_chart(app, f, cell(4), "Memory", " GB", 120.0, (0.0, (s.mem.total_kb as f64 / gib).ceil()), ("Used", pts(&|s, _| s.mem.used_kb() as f64 / gib)), Some(("Swap", pts(&|s, _| s.mem.swap_used_kb as f64 / gib))));
+    live_chart(app, f, cell(5), "Disk", " MB/s", 120.0, (0.0, 5.0), ("Read", pts(&|_, e| e.disk_read_bps as f64 / 1e6)), Some(("Write", pts(&|_, e| e.disk_write_bps as f64 / 1e6))));
+    live_chart(app, f, cell(6), "Internet", " MB/s", 120.0, (0.0, 1.0), ("Down", pts(&|s, _| s.net.rx_bps as f64 / 1e6)), Some(("Up", pts(&|s, _| s.net.tx_bps as f64 / 1e6))));
     if e.battery_pct.is_nan() {
-        live_chart(app, f, cell(7), "Load average", "", (0.0, 4.0), ("1 minute", pts(&|_, e| e.load_avg_1)), None);
+        live_chart(app, f, cell(7), "Load average", "", 120.0, (0.0, 4.0), ("1 minute", pts(&|_, e| e.load_avg_1)), None);
     } else {
-        live_chart(app, f, cell(7), "Battery power", " W", (0.0, 20.0), ("Battery", pts(&|_, e| e.battery_w)), None);
+        live_chart(app, f, cell(7), "Battery power", " W", 120.0, (0.0, 20.0), ("Battery", pts(&|_, e| e.battery_w)), None);
     }
 }
 
@@ -733,6 +734,187 @@ fn fps(app: &mut App, f: &mut Frame, r: Rect) {
     }
 }
 
+/// Apps worth listing as background tasks: a known kind that is moving
+/// data, anything uploading 125 kB/s, or anything with a rule.
+fn is_background(a: &ug_proto::AppTraffic) -> bool {
+    !a.has_game
+        && a.kind != "session"
+        && (!a.state.is_empty() || (!a.category.is_empty() && a.rx_bps + a.tx_bps >= 50_000) || a.tx_bps >= 125_000)
+}
+
+/// The apps the ping page lists on its current tab, in order.
+fn listed_apps(app: &App) -> Vec<ug_proto::AppTraffic> {
+    let apps = app.net.value.as_ref().map(|n| n.0.clone()).unwrap_or_default();
+    if app.tab == 0 {
+        apps.into_iter().filter(is_background).collect()
+    } else {
+        apps.into_iter().filter(|a| a.rx_bytes + a.tx_bytes > 0 || !a.state.is_empty()).collect()
+    }
+}
+
+fn app_line(app: &App, a: &ug_proto::AppTraffic, width: u16) -> Line<'static> {
+    let t = app.theme;
+    let name: String = a.name.chars().take(24).collect();
+    let tag = match a.state.as_str() {
+        "blocked" => Span::styled(" blocked ", Style::default().fg(t.danger)),
+        "limited" => Span::styled(" limited ", t.accent()),
+        _ if !a.category.is_empty() => Span::styled(format!(" {} ", a.category), t.faint()),
+        _ => Span::raw(""),
+    };
+    let mut spans = vec![Span::styled(format!(" {name:<24}"), t.text()), tag];
+    let rates = format!("↓ {:>11}  ↑ {:>11}", rate(a.rx_bps), rate(a.tx_bps));
+    let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+    let pad = (width as usize).saturating_sub(used + rates.chars().count() + 12);
+    spans.push(Span::raw(" ".repeat(pad.min(40))));
+    spans.push(Span::styled(rates, t.muted()));
+    spans.push(Span::styled(format!("  {:>7.1} MB", (a.rx_bytes + a.tx_bytes) as f64 / 1e6), t.faint()));
+    if a.has_game {
+        spans.push(Span::styled(" game inside", Style::default().fg(t.warn)));
+    }
+    Line::from(spans)
+}
+
+fn ping_page(app: &mut App, f: &mut Frame, r: Rect) {
+    tabs(app, f, Rect { height: 1, ..r }, &["Ping stability", "Internet control"]);
+    let body = Rect { y: r.y + 2, height: r.height.saturating_sub(2), ..r };
+    let t = app.theme;
+    let mut y = body.y;
+    // Problems first: they explain everything below.
+    if let Some((_, _, st)) = &app.net.value {
+        let mut notes: Vec<(String, Style)> = Vec::new();
+        if st.simulated {
+            notes.push(("Development service: the numbers are invented and nothing is changed.".into(), t.faint()));
+        }
+        if !st.available {
+            notes.push((format!("Internet control is not available here. {}", st.problem), Style::default().fg(t.danger)));
+        }
+        for p in &st.shaping_problems {
+            notes.push((p.clone(), t.warn_style()));
+        }
+        for (n, s) in notes {
+            f.render_widget(Paragraph::new(Span::styled(n, s)), Rect { x: body.x, y, width: body.width, height: 1 });
+            y += 1;
+        }
+    }
+    if let Some(e) = &app.net.error {
+        f.render_widget(Paragraph::new(Span::styled(e.clone(), Style::default().fg(t.danger))), Rect { x: body.x, y, width: body.width, height: 1 });
+        y += 1;
+    }
+    let bottom = body.y + body.height;
+    if app.tab == 0 {
+        let rep = app.ping.value.clone().unwrap_or_default();
+        if rep.targets.is_empty() {
+            let msg = app.ping.error.clone().unwrap_or_else(|| "Measuring… one echo a second while this page is open or a game runs.".into());
+            f.render_widget(Paragraph::new(Span::styled(msg, t.muted())), Rect { x: body.x, y, width: body.width, height: 1 });
+            y += 2;
+        } else {
+            let fmt = |v: f64| if v.is_nan() { "—".to_string() } else if v < 10.0 { format!("{v:.1}") } else { format!("{v:.0}") };
+            for tg in &rep.targets {
+                let name = match tg.id.as_str() {
+                    "gateway" => "Router".to_string(),
+                    "internet" => "Internet (DNS)".to_string(),
+                    _ => format!("Game: {}", tg.label),
+                };
+                let line = if tg.problem.is_empty() {
+                    Line::from(vec![
+                        Span::styled(format!("{name:<22}"), t.muted()),
+                        Span::styled(format!("{:>6} ms", fmt(tg.stats.median_ms)), t.title()),
+                        Span::styled(format!("   jitter {:>5}   95% {:>5}   loss {:>3.0} %", fmt(tg.stats.jitter_ms), fmt(tg.stats.p95_ms), tg.stats.loss_pct), t.muted()),
+                        Span::styled(format!("   {}", tg.addr), t.faint()),
+                    ])
+                } else {
+                    Line::from(vec![Span::styled(format!("{name:<22}"), t.muted()), Span::styled(tg.problem.clone(), t.faint())])
+                };
+                f.render_widget(Paragraph::new(line), Rect { x: body.x, y, width: body.width, height: 1 });
+                y += 1;
+            }
+            y += 1;
+            // Five minutes, router against the far end.
+            let near = rep.targets.iter().find(|x| x.id == "gateway");
+            let far = rep.targets.iter().find(|x| x.id == "game" && !x.addr.is_empty()).or_else(|| rep.targets.iter().find(|x| x.id == "internet"));
+            let now = data::now_ms() as f64 / 1000.0;
+            let pts = |tg: Option<&ug_proto::PingTarget>| -> Vec<(f64, f64)> {
+                tg.map(|tg| tg.samples.iter().filter(|s| !s.rtt_ms.is_nan()).map(|s| (s.ts_unix_ms as f64 / 1000.0 - now, s.rtt_ms)).collect()).unwrap_or_default()
+            };
+            let (a, b) = (pts(near), pts(far));
+            let h = 10.min(bottom.saturating_sub(y + 6));
+            if h >= 5 {
+                let far_name = far.map(|x| if x.id == "game" { x.label.clone() } else { "Internet".into() }).unwrap_or_default();
+                live_chart(app, f, Rect { x: body.x, y, width: body.width, height: h }, "Ping, last five minutes", " ms", 300.0, (0.0, 50.0), ("Router", a), Some((far_name.as_str(), b)));
+                y += h;
+            }
+            let verdict = match &app.ping_compare {
+                Some((_, c)) => {
+                    let text = match c.verdict.as_str() {
+                        "flatter" => "Flatter since game mode went on: less jitter and fewer spikes.",
+                        "worse" => "Worse since game mode went on; something else on the network may be busy.",
+                        "same" => "No noticeable difference since game mode went on.",
+                        _ => "Not enough readings on both sides of game mode yet.",
+                    };
+                    Line::from(vec![
+                        Span::styled("Before/after game mode  ", t.muted()),
+                        Span::styled(
+                            format!("jitter {} → {} ms   ", fmt(c.before.jitter_ms), fmt(c.after.jitter_ms)),
+                            t.title(),
+                        ),
+                        Span::styled(text, if c.verdict == "flatter" { Style::default().fg(t.ok) } else { t.muted() }),
+                    ])
+                }
+                None => Line::from(Span::styled("When game mode turns on, ping before and after is compared from real readings.", t.faint())),
+            };
+            if y < bottom {
+                f.render_widget(Paragraph::new(verdict), Rect { x: body.x, y, width: body.width, height: 1 });
+                y += 2;
+            }
+        }
+        if y < bottom {
+            f.render_widget(Paragraph::new(Span::styled("Background tasks using the network", t.title())), Rect { x: body.x, y, width: body.width, height: 1 });
+            y += 1;
+        }
+    }
+    let list = listed_apps(app);
+    if app.tab == 1 && y < bottom {
+        f.render_widget(
+            Paragraph::new(Span::styled(format!(" {:<24}   {:>11}     {:>11}", "App or service", "down", "up"), t.faint())),
+            Rect { x: body.x, y, width: body.width, height: 1 },
+        );
+        y += 1;
+    }
+    if list.is_empty() && y < bottom {
+        let msg = if app.tab == 0 { "Nothing in the background is using the network much right now." } else { "No app has used the internet since the service started." };
+        f.render_widget(Paragraph::new(Span::styled(msg, t.muted())), Rect { x: body.x, y, width: body.width, height: 1 });
+        y += 1;
+    }
+    app.rows = list.len();
+    // Keep the selection on screen.
+    let room = bottom.saturating_sub(y + if app.tab == 1 { 4 } else { 1 }) as usize;
+    let first = app.row.saturating_sub(room.saturating_sub(1));
+    for (i, a) in list.iter().enumerate().skip(first).take(room) {
+        let line = app_line(app, a, body.width);
+        row(app, f, Rect { x: body.x, y, width: body.width, height: 1 }, i, line);
+        y += 1;
+    }
+    if app.tab == 1 && y + 2 < bottom {
+        y += 1;
+        let rules = app.net.value.as_ref().map(|n| n.1.clone()).unwrap_or_default();
+        let kb = |k: u32| if k == 0 { "—".to_string() } else if k >= 1000 { format!("{:.1} Mbit/s", k as f64 / 1000.0) } else { format!("{k} kbit/s") };
+        let mut lines = vec![Line::from(Span::styled("Rules", t.title()))];
+        if rules.is_empty() {
+            lines.push(Line::from(Span::styled("No rules. Enter limits the selected app while you play; b blocks it.", t.faint())));
+        }
+        for r in rules {
+            let what = if r.block { "blocked".to_string() } else { format!("up {}  down {}", kb(r.up_kbps), kb(r.down_kbps)) };
+            lines.push(Line::from(vec![
+                Span::styled(format!(" {:<24} ", r.app), t.text()),
+                Span::styled(format!("{what:<30}"), t.muted()),
+                Span::styled(if r.when == "gaming" { "while gaming  " } else { "always        " }, t.faint()),
+                Span::styled(if r.active { "in effect" } else { "waits for a game" }, if r.active { t.accent() } else { t.faint() }),
+            ]));
+        }
+        f.render_widget(Paragraph::new(lines), Rect { x: body.x, y, width: body.width, height: bottom - y });
+    }
+}
+
 /// The page's own keys, for the key bar.
 pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
     match (app.page, app.tab) {
@@ -743,6 +925,7 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (3, 0) => vec![("Tab", "traffic"), ("←→", "range")],
         (3, 1) => vec![("Tab", "FPS")],
         (3, _) => vec![("Tab", "temperature"), ("Enter", "set up / undo")],
+        (4, _) => vec![("Tab", "next tab"), ("Enter", "limit while gaming"), ("b", "block"), ("x", "allow")],
         _ => vec![],
     }
 }
@@ -789,6 +972,16 @@ fn report(app: &mut App, r: Result<String, String>) {
 
 pub fn activate(app: &mut App, i: usize) {
     match (app.page, app.tab) {
+        (4, _) => {
+            let Some(a) = listed_apps(app).get(i).cloned() else { return };
+            if !a.state.is_empty() {
+                app.say(format!("{} already has a rule; x removes it.", a.name), false);
+                return;
+            }
+            let r = app.bus.net_set_rule(&a.name, false, 1000, 8000, "gaming");
+            report(app, r.map(|_| format!("{} is capped while you play: 1 Mbit/s up, 8 Mbit/s down.", a.name)));
+            app.net.invalidate();
+        }
         (3, 2) => {
             let on = app.fps.value.as_ref().is_some_and(|f| f.state == "not-set-up");
             if !matches!(app.fps.value.as_ref().map(|f| f.state.as_str()), Some("not-set-up" | "idle" | "live")) {
@@ -859,7 +1052,25 @@ pub fn activate(app: &mut App, i: usize) {
     }
 }
 
+/// `b` on the ping page: block the selected app.
+pub fn block(app: &mut App, i: usize) {
+    if app.page != 4 {
+        return;
+    }
+    let Some(a) = listed_apps(app).get(i).cloned() else { return };
+    let r = app.bus.net_set_rule(&a.name, true, 0, 0, "always");
+    report(app, r.map(|_| format!("{} is blocked. x allows it again.", a.name)));
+    app.net.invalidate();
+}
+
 pub fn remove(app: &mut App, i: usize) {
+    if app.page == 4 {
+        let Some(a) = listed_apps(app).get(i).cloned() else { return };
+        let r = app.bus.net_remove_rule(&a.name);
+        report(app, r.map(|had| if had { format!("{} has no limits any more.", a.name) } else { format!("{} had no rule.", a.name) }));
+        app.net.invalidate();
+        return;
+    }
     if (app.page, app.tab) != (2, 1) {
         return;
     }

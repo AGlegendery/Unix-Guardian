@@ -22,7 +22,8 @@ use ratatui::Frame;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use ug_proto::{
-    BatteryCare, DayTraffic, ExtraSample, FpsReading, HistoryPoint, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
+    AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, HistoryPoint, NetControlStatus, NetRule,
+    PingComparison, PingReport, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
     ProfileInfo, RunningGameInfo, Snapshot,
 };
 
@@ -34,7 +35,7 @@ pub const PAGES: [(&str, &str, bool); 12] = [
     ("Game mode", "Game", true),
     ("System control", "System", true),
     ("Monitoring", "Monitor", true),
-    ("Ping stability", "Ping", false),
+    ("Ping stability", "Ping", true),
     ("Overlay", "Overlay", false),
     ("Playtime", "Play", false),
     ("Recorder", "Rec", false),
@@ -89,6 +90,9 @@ pub struct App {
     pub live: VecDeque<(Snapshot, ExtraSample)>,
     pub live_due: Cached<()>,
     pub fps: Cached<FpsReading>,
+    pub ping: Cached<PingReport>,
+    pub ping_compare: Option<(u64, PingComparison)>,
+    pub net: Cached<(Vec<AppTraffic>, Vec<NetRule>, NetControlStatus)>,
     /// A dangerous action armed by the first press; confirmed by a second
     /// within five seconds.
     pub armed: Option<(String, Instant)>,
@@ -131,6 +135,9 @@ impl App {
             live: VecDeque::new(),
             live_due: Cached::new(LIVE),
             fps: Cached::new(LIVE),
+            ping: Cached::new(LIVE),
+            ping_compare: None,
+            net: Cached::new(Duration::from_secs(2)),
             armed: None,
             notice: None,
             hits: Vec::new(),
@@ -236,6 +243,28 @@ impl App {
                     self.traffic.store(r);
                 }
             }
+            4 => {
+                if self.tab == 0 && self.ping.due() {
+                    let r = self.bus.ping(data::now_ms().saturating_sub(5 * 60_000));
+                    if let Ok(rep) = &r {
+                        // Compare around the last time game mode went on, once per mark.
+                        let mark = rep.marks.iter().rev().find(|m| m.kind == "gamemode-on").map(|m| m.ts_unix_ms);
+                        let far = rep.targets.iter().find(|t| t.id == "game" && !t.addr.is_empty()).or_else(|| rep.targets.iter().find(|t| t.id == "internet"));
+                        if let (Some(m), Some(t)) = (mark, far) {
+                            if data::now_ms() > m + 10_000 {
+                                if let Ok(c) = self.bus.ping_compare(&t.id, m) {
+                                    self.ping_compare = Some((m, c));
+                                }
+                            }
+                        }
+                    }
+                    self.ping.store(r);
+                }
+                if self.net.due() {
+                    let r = self.bus.net();
+                    self.net.store(r);
+                }
+            }
             _ => {}
         }
         if self.armed.as_ref().is_some_and(|(_, t)| t.elapsed() > Duration::from_secs(5)) {
@@ -276,6 +305,7 @@ impl App {
         match self.page {
             2 => 3,
             3 => 3,
+            4 => 2,
             _ => 1,
         }
     }
@@ -321,6 +351,7 @@ impl App {
                 KeyCode::Right | KeyCode::Char('l') => pages::step_choice(self, 1),
                 KeyCode::Enter | KeyCode::Char(' ') => pages::activate(self, self.row),
                 KeyCode::Char('x') | KeyCode::Delete => pages::remove(self, self.row),
+                KeyCode::Char('b') => pages::block(self, self.row),
                 _ => {}
             },
         }
@@ -691,6 +722,39 @@ mod tests {
         let screen = render(&mut app, 120, 34);
         for want in ["cs2", "141", "88", "7.1 ms", "last ten seconds"] {
             assert!(screen.contains(want), "missing {want:?}");
+        }
+    }
+
+    #[test]
+    fn the_ping_page_shows_targets_background_tasks_and_rules() {
+        use ug_proto::{AppTraffic, NetRule, PingSample, PingStats, PingTarget};
+        let mut app = App::new(Bus::offline());
+        app.go(4);
+        let samples: Vec<PingSample> = (0..30).map(|i| PingSample { ts_unix_ms: data::now_ms() - 30_000 + i * 1000, rtt_ms: 20.0 + (i % 3) as f64 }).collect();
+        let stats = PingStats { sent: 30, received: 30, median_ms: 21.0, jitter_ms: 1.5, p95_ms: 22.0, loss_pct: 0.0 };
+        app.ping.store(Ok(PingReport {
+            targets: vec![
+                PingTarget { id: "gateway".into(), label: "Router".into(), addr: "192.168.1.1".into(), samples: samples.clone(), stats: stats.clone(), problem: String::new() },
+                PingTarget { id: "internet".into(), label: "DNS server".into(), addr: "1.1.1.1".into(), samples, stats, problem: String::new() },
+            ],
+            marks: vec![],
+        }));
+        let steam = AppTraffic {
+            id: "a/steam".into(), name: "steam".into(), kind: "app".into(), uid: 1000, exe: "steam".into(), pids: vec![1],
+            rx_bps: 4_200_000, tx_bps: 20_000, rx_bytes: 9e8 as u64, tx_bytes: 1, state: String::new(), category: "launcher".into(), has_game: false,
+        };
+        let firefox = AppTraffic { id: "a/ff".into(), name: "firefox-esr".into(), category: String::new(), rx_bps: 300_000, ..steam.clone() };
+        let rule = NetRule { app: "qbittorrent".into(), block: false, up_kbps: 1000, down_kbps: 8000, when: "gaming".into(), active: false };
+        app.net.store(Ok((vec![steam, firefox], vec![rule], NetControlStatus { available: true, ..Default::default() })));
+        let screen = render(&mut app, 130, 40);
+        for want in ["Router", "21 ms", "1.1.1.1", "Ping, last five minutes", "Background tasks", "steam", "launcher", "4.2 MB/s"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        assert!(!screen.contains("firefox-esr"), "a browser download is not a background task");
+        app.tab = 1;
+        let screen = render(&mut app, 130, 40);
+        for want in ["firefox-esr", "Rules", "qbittorrent", "up 1.0 Mbit/s", "waits for a game"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
     }
 
