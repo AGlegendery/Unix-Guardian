@@ -74,6 +74,11 @@
 
   const memUsed = $derived(snap ? snap.mem.total_kb - snap.mem.available_kb : 0);
   const memPct = $derived(snap && snap.mem.total_kb ? (memUsed * 100) / snap.mem.total_kb : null);
+  // Which GPU is working now: the discrete one only while it is awake.
+  const sampleFor = (pci: string) => snap?.gpus.find((g) => g.pci === pci) ?? null;
+  const dAwake = $derived(!!dGpu && !!snap && !(sampleFor(dGpu.pci)?.asleep ?? true));
+  const activeGpu = $derived(dAwake || !iGpu ? dGpu : iGpu);
+  const otherGpu = $derived(activeGpu === dGpu ? iGpu : dGpu);
   const dSample = $derived(dGpu && snap ? snap.gpus.find((g) => g.pci === dGpu.pci) ?? null : null);
   const iSample = $derived(iGpu && snap ? snap.gpus.find((g) => g.pci === iGpu.pci) ?? null : null);
   const pSet = $derived(new Set(inv?.cpu.p_cores ?? []));
@@ -106,22 +111,38 @@
 
 <!-- The four live tiles, as on Phoenix Guardian's monitoring page. -->
 <section class="tiles">
+  <!-- The GPU doing the work now: on a hybrid laptop the integrated one
+       unless the discrete one is awake. The other sits underneath with its
+       state; a sleeping GPU is never woken to fill this in. -->
   <article class="tile">
     <div class="tile-head">
       <span class="ico"><MonitorSmartphone size={18} aria-hidden="true" /></span>
       <h2>{t().parts.gpu}</h2>
+      {#if otherGpu}<span class="in-use">{t().gpu.inUse}</span>{/if}
     </div>
-    {#if dSample?.asleep}
-      <p class="value quiet">{t().gpu.asleep}</p>
-      <p class="hw ltr">{dGpu?.name}</p>
-      <p class="hint">{t().gpu.asleepWhy}</p>
-    {:else}
-      <p class="value">
-        <span class="temp {heat(dSample?.temp_c)}">{num(dSample?.temp_c)}{t().unit.c}</span>
-        <span class="pct">{num(dSample?.load_pct)}{t().unit.pct}</span>
+    {#if activeGpu}
+      {@const s = sampleFor(activeGpu.pci)}
+      {#if s && s.temp_c != null}
+        <p class="value">
+          <span class="temp {heat(s.temp_c)}">{num(s.temp_c)}{t().unit.c}</span>
+          <span class="pct">{s.load_pct != null ? `${num(s.load_pct)}${t().unit.pct}` : `${num(s.core_clock_mhz)} ${t().unit.mhz}`}</span>
+        </p>
+      {:else}
+        <p class="value">
+          <span>{num(s?.core_clock_mhz ?? null)}<small> {t().unit.mhz}</small></span>
+        </p>
+      {/if}
+      <p class="hw ltr">{activeGpu.name}</p>
+      {#if s && s.temp_c == null}<p class="hint">{t().gpu.sharedTemp}</p>{/if}
+      {#if s?.load_pct != null}{@render bar(s.load_pct)}{/if}
+    {/if}
+    {#if otherGpu}
+      {@const o = sampleFor(otherGpu.pci)}
+      <p class="other">
+        <span class="lamp-s" class:on={!!o && !o.asleep} aria-hidden="true"></span>
+        <span class="ltr-inline">{otherGpu.name}</span>
+        <span>{o?.asleep ? t().gpu.asleep : o?.temp_c != null ? `${num(o.temp_c)}${t().unit.c}` : t().gpu.idle}</span>
       </p>
-      <p class="hw ltr">{dGpu?.name ?? "—"}</p>
-      {@render bar(dSample?.load_pct ?? 0)}
     {/if}
   </article>
 
@@ -318,6 +339,11 @@
   .temp.warm { color: var(--warn); }
   .temp.hot { color: var(--danger); }
   .hw { margin: 0; color: var(--text-3); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .in-use { margin-inline-start: auto; font-size: 0.72rem; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); }
+  .other { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; font-size: 0.78rem; color: var(--text-3); }
+  .other .ltr-inline { direction: ltr; unicode-bidi: isolate; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lamp-s { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex: none; }
+  .lamp-s.on { background: var(--ok); }
   .hint { margin: 8px 0 0; color: var(--text-2); font-size: 0.8rem; line-height: 1.55; }
   .ltr { direction: ltr; text-align: end; }
 

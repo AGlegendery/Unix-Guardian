@@ -42,6 +42,9 @@ export const fa: typeof en = {
   },
   gpu: {
     asleep: "خواب",
+    inUse: "در حال استفاده",
+    idle: "بیکار",
+    sharedTemp: "داخل پردازنده است: دمایش همان دمای پردازنده است.",
     asleepWhy: "برای صرفه‌جویی در باتری خاموش شده. Unix Guardian فقط برای خواندن عدد بیدارش نمی‌کند.",
     load: "بار",
     power: "مصرف",

@@ -40,6 +40,9 @@ export const en = {
   },
   gpu: {
     asleep: "Asleep",
+    inUse: "in use",
+    idle: "idle",
+    sharedTemp: "Built into the processor: its temperature is the processor's.",
     asleepWhy: "Powered down to save battery. Unix Guardian never wakes it just to read it.",
     load: "load",
     power: "power",
