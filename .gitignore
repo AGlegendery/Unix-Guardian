@@ -5,3 +5,6 @@
 /app/.svelte-kit
 *.tar.zst
 .DS_Store
+
+# Generated code snapshot for Claude Projects (scripts/make-knowledge-pack.sh)
+/claude-project/source/
