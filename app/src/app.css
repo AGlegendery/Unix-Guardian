@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+/* Phoenix Guardian's design language (PRODUCT.md, Brand Commitments): a dark
+   ground, one purple accent, rounded cards, the navigation on the right. */
+:root {
+  color-scheme: dark;
+  --bg: #0f0e17;
+  --side: #14131f;
+  --card: #1b1a29;
+  --card-2: #242338;     /* wells inside a card: bars, segmented controls */
+  --line: #2d2b45;
+  --text: #eceaf6;
+  --text-2: #b1aecb;
+  --text-3: #817e9e;
+  --accent: #8b5cf6;
+  --accent-text: #b49cff; /* accent used as text on dark: brighter for contrast */
+  --accent-soft: color-mix(in oklab, var(--accent) 18%, transparent);
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --danger: #f87171;
+  --radius: 16px;
+  --radius-sm: 10px;
+  font-family: "Vazirmatn Variable", "Vazirmatn", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+html, body, #app { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--accent); color: #fff; }
+:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 6px; }
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0ms !important; animation: none !important; }
+}

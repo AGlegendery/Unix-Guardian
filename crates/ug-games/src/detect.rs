@@ -176,6 +176,9 @@ pub struct Detector {
     games: HashMap<String, Tracked>,
     ignored: HashSet<String>,
     registered: HashMap<i32, Evidence>,
+    /// Only processes started with this `UG_TEST_RUN` token count; `None` (a
+    /// real agent) means only processes without one. See [`proc::test_run`].
+    test_run: Option<String>,
 }
 
 impl Detector {
@@ -191,7 +194,14 @@ impl Detector {
             games: HashMap::new(),
             ignored: HashSet::new(),
             registered: HashMap::new(),
+            test_run: None,
         }
+    }
+
+    /// Makes this detector part of one end-to-end test run: it sees only that
+    /// run's processes, and every other detector ignores them.
+    pub fn set_test_run(&mut self, token: Option<String>) {
+        self.test_run = token;
     }
 
     /// Replaces the installed-games list after a rescan. Already-classified
@@ -275,6 +285,9 @@ impl Detector {
 
     fn judge(&mut self, root: &SysRoot, p: &proc::Proc, now: Instant) -> Class {
         if p.uid != self.uid || p.cmdline.is_empty() {
+            return Class::Ignored;
+        }
+        if proc::test_run(root, p.pid) != self.test_run {
             return Class::Ignored;
         }
         let basename = p.exe_basename();

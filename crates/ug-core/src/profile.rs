@@ -169,6 +169,50 @@ pub fn is_builtin(id: &str) -> bool {
     builtin().iter().any(|p| p.id == id)
 }
 
+/// The on/off settings a profile has, by their file and wire names.
+pub const OPTIONS: [&str; 6] = [
+    "cpu_performance",
+    "cpu_no_idle_states",
+    "cpu_preferred_cores",
+    "cpu_priority",
+    "memory_tuning",
+    "pause_services",
+];
+
+/// Turns one setting of a profile on or off by writing it into the user's
+/// `profiles/<id>.toml`; everything else already in that file (`pause_apps`,
+/// other settings) is kept. For a built-in profile the file becomes an
+/// override of just what the user changed.
+///
+/// Same safety rules as [`set_game_profile`]: a user file that does not parse
+/// is reported and left alone, and the write is atomic.
+pub fn set_profile_option(config_dir: &Path, id: &str, option: &str, value: bool) -> Result<(), String> {
+    if !OPTIONS.contains(&option) {
+        return Err(format!("unknown setting {option:?}; settings are: {}", OPTIONS.join(", ")));
+    }
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err(format!("{id:?} is not a valid profile name (letters, digits, - and _ only)"));
+    }
+    let dir = config_dir.join("profiles");
+    let path = dir.join(format!("{id}.toml"));
+    let mut table = match std::fs::read_to_string(&path) {
+        Ok(s) => s
+            .parse::<toml::Table>()
+            .map_err(|e| format!("{} does not parse, so it was not changed: {e}", path.display()))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => toml::Table::new(),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    table.insert(option.to_string(), toml::Value::Boolean(value));
+    let text = toml::to_string(&table).map_err(|e| e.to_string())?;
+    // Never write a file the loader would then skip as broken.
+    toml::from_str::<Profile>(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let tmp = dir.join(format!(".{id}.toml.tmp"));
+    std::fs::write(&tmp, text)
+        .and_then(|()| std::fs::rename(&tmp, &path))
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
 /// Records which profile a game runs with in `config_dir/games.toml`, or with
 /// `None` removes the choice so the game falls back to the database's
 /// suggestion. Every other entry is kept.
@@ -282,6 +326,47 @@ mod tests {
         let err = set_game_profile(d.path(), "steam:570", Some("quiet")).unwrap_err();
         assert!(err.contains("not changed"), "{err}");
         assert_eq!(std::fs::read_to_string(d.path().join("games.toml")).unwrap(), broken);
+    }
+
+    #[test]
+    fn changing_a_builtin_setting_overrides_only_that_setting() {
+        let d = dir();
+        set_profile_option(d.path(), "quiet", "cpu_priority", false).unwrap();
+        let (p, problems) = Profiles::load(d.path());
+        assert!(problems.is_empty(), "{problems:?}");
+        let q = p.get("quiet").unwrap();
+        assert!(!q.cpu_priority);
+        assert!(q.pause_services, "untouched settings keep the default");
+    }
+
+    #[test]
+    fn changing_a_setting_keeps_the_rest_of_the_users_file() {
+        let d = dir();
+        std::fs::create_dir_all(d.path().join("profiles")).unwrap();
+        std::fs::write(d.path().join("profiles/mine.toml"), "pause_apps = [\"discord\"]\ncpu_performance = false\n").unwrap();
+        set_profile_option(d.path(), "mine", "cpu_preferred_cores", true).unwrap();
+        let (p, _) = Profiles::load(d.path());
+        let m = p.get("mine").unwrap();
+        assert_eq!(m.pause_apps, vec!["discord"]);
+        assert!(!m.cpu_performance && m.cpu_preferred_cores);
+    }
+
+    #[test]
+    fn an_unknown_setting_or_a_path_like_name_is_refused() {
+        let d = dir();
+        assert!(set_profile_option(d.path(), "quiet", "overclock", true).unwrap_err().contains("cpu_performance"));
+        assert!(set_profile_option(d.path(), "../../etc/x", "cpu_priority", true).is_err());
+        assert!(!d.path().join("profiles").exists());
+    }
+
+    #[test]
+    fn a_profile_file_that_does_not_parse_is_not_overwritten() {
+        let d = dir();
+        std::fs::create_dir_all(d.path().join("profiles")).unwrap();
+        let broken = "cpu_performance = maybe\n";
+        std::fs::write(d.path().join("profiles/mine.toml"), broken).unwrap();
+        assert!(set_profile_option(d.path(), "mine", "cpu_priority", true).unwrap_err().contains("not changed"));
+        assert_eq!(std::fs::read_to_string(d.path().join("profiles/mine.toml")).unwrap(), broken);
     }
 
     #[test]

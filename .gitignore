@@ -8,3 +8,7 @@
 
 # Generated code snapshot for Claude Projects (scripts/make-knowledge-pack.sh)
 /claude-project/source/
+
+# Local tool state (design-skill sessions, editor launch configs)
+/.impeccable/
+/.claude/

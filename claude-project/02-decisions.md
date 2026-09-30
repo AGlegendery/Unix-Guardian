@@ -99,7 +99,17 @@ changes came from building and measuring; keep them unless there is a reason.
     lost calls, daemon restarts and reconnects heal themselves.
 12. **Development runs (`--session` or `--sysroot`) never touch the real
     system's services and skip polkit** — found the hard way (05-findings.md).
-13. Smaller: default network interface is read from `/proc/net/route` (not
+13. **UI i18n is a typed dictionary, not Paraglide** (`app/src/lib/messages/`):
+    Paraglide's compiler fetches its message-format plugin from a CDN at build
+    time, and distribution builds run without network. English is the type,
+    so a missing Persian string fails the type check.
+14. **No tray icon in the window process**: closing the window ends `ug-app`.
+    Measured, the tray-only state still used 124 MB. A tray (StatusNotifierItem)
+    belongs in the agent, which can start the window on demand (not done yet).
+15. **The UI follows Phoenix Guardian's visual design** (dark, purple,
+    rounded cards, right sidebar) at the user's request on 2026-09-30, after an
+    independent "circuit board" preview; see PRODUCT.md.
+16. Smaller: default network interface is read from `/proc/net/route` (not
     rtnetlink); logs go to stderr in a journald-friendly format (no
     `tracing-journald`); notifications call `org.freedesktop.Notifications`
     directly (no `notify-rust`); GPU names prefer NVML's once it has loaded.

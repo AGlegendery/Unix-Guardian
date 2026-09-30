@@ -9,6 +9,16 @@
 # failed check. Pinning is only checked on CPUs that have preferred cores
 # (Intel hybrid or AMD X3D).
 set -uo pipefail
+
+# Nothing here may be D-Bus-activated from an installed copy: with Unix Guardian
+# installed, a test bus that uses the standard service directories starts
+# /usr/local/bin/ug-agent (with the user's real XDG directories) the moment the
+# test's own agent is not answering, and the test then writes into the real
+# playtime database. Found the hard way; see 05-findings.md.
+if busctl --user list --activatable 2>/dev/null | grep -q org.unixguardian; then
+  echo "FAIL  the test bus can activate an installed Unix Guardian service; run with scripts/test-bus.sh" >&2
+  exit 1
+fi
 B="${1:-$PWD/target/debug}"
 W="$(mktemp -d)"
 export XDG_DATA_HOME="$W/data" XDG_CONFIG_HOME="$W/cfg"
@@ -16,6 +26,10 @@ mkdir -p "$XDG_CONFIG_HOME/unix-guardian/profiles" "$W/bin"
 printf 'cpu_preferred_cores = true\npause_apps = ["ugfakechat"]\n' > "$XDG_CONFIG_HOME/unix-guardian/profiles/competitive.toml"
 ln -s "$(command -v sleep)" "$W/bin/ugfakechat"
 
+# Everything this script starts carries the token, so an installed agent
+# watching the same user's processes ignores the fake games (and this run's
+# agent ignores the user's real ones).
+export UG_TEST_RUN="e2e-$$-$RANDOM"
 fails=0
 check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fails+1)); fi; }
 state() { awk '{print $3}' "/proc/$1/stat" 2>/dev/null; }
@@ -37,6 +51,7 @@ check "it runs with its database profile (competitive)" "'$B/ug' game running | 
 check "ug profile set switches the running game's profile" "'$B/ug' profile set steam:730 quiet >/dev/null && '$B/ug' game running | grep -q 'quiet profile'"
 check "the choice is listed under that profile" "'$B/ug' profile list --json | python3 -c 'import json,sys; assert [p for p in json.load(sys.stdin) if p[\"id\"]==\"quiet\" and p[\"games\"]==[\"steam:730\"]]'"
 check "an unknown profile is refused with the choices" "out=\$('$B/ug' profile set steam:730 turbo 2>&1); [ \$? -ne 0 ] && grep -q 'available:.*competitive' <<<\"\$out\""
+check "ug profile option changes one setting and keeps the rest of the file" "'$B/ug' profile option competitive cpu_priority off >/dev/null && '$B/ug' profile list --json | python3 -c 'import json,sys; c=[p for p in json.load(sys.stdin) if p[\"id\"]==\"competitive\"][0]; assert not c[\"cpu_priority\"] and c[\"pause_apps\"]==[\"ugfakechat\"] and c[\"cpu_preferred_cores\"]'"
 check "ug profile reset returns to the database profile" "'$B/ug' profile reset steam:730 >/dev/null && '$B/ug' game running | grep -q 'competitive profile'"
 p_cores=$(cat /sys/devices/cpu_core/cpus 2>/dev/null || true)
 if [ -n "$p_cores" ]; then

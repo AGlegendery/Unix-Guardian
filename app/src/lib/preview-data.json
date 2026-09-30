@@ -1,0 +1,196 @@
+{
+ "note": "Captured from the development laptop on 2026-09-30 for the browser preview; not live.",
+ "inventory": {
+  "cpu": {
+   "e_cores": [
+    8,
+    9,
+    10,
+    11
+   ],
+   "has_vcache": false,
+   "l3_domains": [
+    {
+     "cpus": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+     ],
+     "id": 0,
+     "size_kb": 12288
+    }
+   ],
+   "logical": 12,
+   "model": "12th Gen Intel(R) Core(TM) i5-12450HX",
+   "p_cores": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ],
+   "physical": 8,
+   "smt": true,
+   "sockets": 1
+  },
+  "distro_id": "parrot",
+  "distro_name": "Parrot Security 7.3 (echo)",
+  "gpus": [
+   {
+    "boot_vga": true,
+    "card_index": 0,
+    "device_id": 18059,
+    "driver": "i915",
+    "driver_version": "",
+    "name": "Intel UHD Graphics",
+    "pci": "0000:00:02.0",
+    "vendor": "intel",
+    "vram_total_mb": 0
+   },
+   {
+    "boot_vga": false,
+    "card_index": 1,
+    "device_id": 9708,
+    "driver": "nvidia",
+    "driver_version": "550.163.01",
+    "name": "NVIDIA GeForce RTX 3050 6GB Laptop GPU",
+    "pci": "0000:01:00.0",
+    "vendor": "nvidia",
+    "vram_total_mb": 0
+   }
+  ],
+  "kernel": "7.0.13+parrot7-amd64",
+  "mem_total_kb": 28440104,
+  "privileged": true
+ },
+ "snapshot": {
+  "cpu": {
+   "driver": "intel_pstate",
+   "epp": "balance_performance",
+   "freq_avg_mhz": 2724,
+   "freq_max_mhz": 3487,
+   "governor": "powersave",
+   "load_pct": 37.74928774928775,
+   "per_core_load": [
+    30.357142857142858,
+    42.3728813559322,
+    27.586206896551722,
+    37.28813559322034,
+    31.03448275862069,
+    25.423728813559322,
+    43.10344827586207,
+    27.586206896551722,
+    53.333333333333336,
+    45.76271186440678,
+    44.827586206896555,
+    42.3728813559322
+   ],
+   "power_w": 55.92399901508367,
+   "temp_c": 49.0
+  },
+  "gpus": [
+   {
+    "asleep": false,
+    "core_clock_mhz": 850,
+    "fan_pct": null,
+    "fan_rpm": 0,
+    "load_pct": null,
+    "mem_clock_mhz": 0,
+    "pci": "0000:00:02.0",
+    "power_limit_w": null,
+    "power_w": null,
+    "temp_c": null,
+    "temp_hotspot_c": null,
+    "temp_mem_c": null,
+    "vram_used_mb": 0
+   },
+   {
+    "asleep": true,
+    "core_clock_mhz": 0,
+    "fan_pct": null,
+    "fan_rpm": 0,
+    "load_pct": 0.0,
+    "mem_clock_mhz": 0,
+    "pci": "0000:01:00.0",
+    "power_limit_w": null,
+    "power_w": null,
+    "temp_c": null,
+    "temp_hotspot_c": null,
+    "temp_mem_c": null,
+    "vram_used_mb": 0
+   }
+  ],
+  "mem": {
+   "available_kb": 5051800,
+   "swap_total_kb": 524284,
+   "swap_used_kb": 524108,
+   "total_kb": 28440104,
+   "zram_used_kb": 0
+  },
+  "net": {
+   "iface": "wlp8s0",
+   "rx_bps": 3390,
+   "rx_total_bytes": 8009930965,
+   "tx_bps": 87227,
+   "tx_total_bytes": 2573955231
+  },
+  "ts_unix_ms": 1790765720500
+ },
+ "profiles": [
+  {
+   "id": "competitive",
+   "builtin": true,
+   "cpu_performance": true,
+   "cpu_no_idle_states": true,
+   "cpu_preferred_cores": false,
+   "cpu_priority": true,
+   "memory_tuning": true,
+   "pause_services": true,
+   "pause_apps": [],
+   "games": []
+  },
+  {
+   "id": "balanced",
+   "builtin": true,
+   "cpu_performance": true,
+   "cpu_no_idle_states": false,
+   "cpu_preferred_cores": false,
+   "cpu_priority": true,
+   "memory_tuning": true,
+   "pause_services": true,
+   "pause_apps": [],
+   "games": []
+  },
+  {
+   "id": "quiet",
+   "builtin": true,
+   "cpu_performance": false,
+   "cpu_no_idle_states": false,
+   "cpu_preferred_cores": false,
+   "cpu_priority": true,
+   "memory_tuning": false,
+   "pause_services": true,
+   "pause_apps": [],
+   "games": []
+  }
+ ],
+ "installed": [
+  {
+   "id": "bottles:RedDead__149:7151074f-0340-480f-a6f9-641c779faeb0",
+   "name": "Fears to Fathom - Ironbark Lookout",
+   "launcher": "bottles"
+  }
+ ]
+}

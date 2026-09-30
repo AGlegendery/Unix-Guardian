@@ -9,6 +9,16 @@
 # services; this script also checks the journal to prove no polkit prompt or
 # unit change happened on the real machine. Exits non-zero on any failure.
 set -uo pipefail
+
+# Nothing here may be D-Bus-activated from an installed copy: with Unix Guardian
+# installed, a test bus that uses the standard service directories starts
+# /usr/local/bin/ug-agent (with the user's real XDG directories) the moment the
+# test's own agent is not answering, and the test then writes into the real
+# playtime database. Found the hard way; see 05-findings.md.
+if busctl --user list --activatable 2>/dev/null | grep -q org.unixguardian; then
+  echo "FAIL  the test bus can activate an installed Unix Guardian service; run with scripts/test-bus.sh" >&2
+  exit 1
+fi
 B="${1:-$PWD/target/debug}"
 FIXTURE="${FIXTURE:-crates/ug-testfs/fixtures/dev-laptop-rtx3050}"
 W="$(mktemp -d)"
@@ -26,6 +36,10 @@ echo 65530 > "$W/root/proc/sys/vm/max_map_count"
 echo 20 > "$W/root/proc/sys/vm/compaction_proactiveness"
 export XDG_DATA_HOME="$W/data" XDG_CONFIG_HOME="$W/cfg"
 
+# Everything this script starts carries the token, so an installed agent
+# watching the same user's processes ignores the fake games (and this run's
+# agent ignores the user's real ones).
+export UG_TEST_RUN="e2e-$$-$RANDOM"
 fails=0
 check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fails+1)); fi; }
 until_() { local d=$((SECONDS+$1)); shift; until eval "$@"; do (( SECONDS < d )) || return 1; sleep 0.2; done; }
