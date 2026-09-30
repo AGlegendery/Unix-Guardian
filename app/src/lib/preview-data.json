@@ -159,7 +159,8 @@
    "memory_tuning": true,
    "pause_services": true,
    "pause_apps": [],
-   "games": []
+   "games": [],
+   "network_tuning": true
   },
   {
    "id": "balanced",
@@ -171,7 +172,8 @@
    "memory_tuning": true,
    "pause_services": true,
    "pause_apps": [],
-   "games": []
+   "games": [],
+   "network_tuning": true
   },
   {
    "id": "quiet",
@@ -183,7 +185,8 @@
    "memory_tuning": false,
    "pause_services": true,
    "pause_apps": [],
-   "games": []
+   "games": [],
+   "network_tuning": false
   }
  ],
  "installed": [

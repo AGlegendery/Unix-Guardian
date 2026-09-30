@@ -211,6 +211,7 @@ impl AgentCore {
                 cpu_priority: p.cpu_priority,
                 memory_tuning: p.memory_tuning,
                 pause_services: p.pause_services,
+                network_tuning: p.network_tuning,
                 pause_apps: p.pause_apps.clone(),
                 games: self.profiles.per_game().iter().filter(|(_, id)| **id == p.id).map(|(k, _)| k.clone()).collect(),
             })
@@ -285,6 +286,7 @@ impl AgentCore {
             w.cpu_priority |= p.cpu_priority;
             w.memory_tuning |= p.memory_tuning;
             w.pause_services |= p.pause_services;
+            w.network_tuning |= p.network_tuning;
             w.pids.extend(&r.info.pids);
         }
         if let Some(w) = want.as_mut() {

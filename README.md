@@ -44,6 +44,12 @@ dbus-run-session -- ./scripts/agent-e2e.sh
 dbus-run-session -- ./scripts/gamemode-e2e.sh
 ```
 
+## Reporting bugs
+
+Email **unixguardian@atomicmail.io** with what you did, what happened, and the
+output of `ug status` and `journalctl -u unix-guardiand -b`. The app's Bug
+report page, the TUI's help (`?`) and every CLI error show this address too.
+
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).

@@ -45,6 +45,35 @@ impl Units for ServiceManager {
             ServiceManager::Systemctl => run(&["start", "--no-block", "--no-ask-password", unit]),
         }
     }
+    fn wifi_power_save(&self, iface: &str) -> Option<bool> {
+        if let ServiceManager::Disabled = self {
+            return None;
+        }
+        let out = std::process::Command::new(iw()?).args(["dev", iface, "get", "power_save"]).output().ok()?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let v = text.trim().strip_prefix("Power save:")?.trim();
+        Some(v == "on")
+    }
+    fn set_wifi_power_save(&self, iface: &str, on: bool) -> Result<(), String> {
+        if let ServiceManager::Disabled = self {
+            return Err("Wi-Fi changes are disabled in development mode".into());
+        }
+        let iw = iw().ok_or("the iw program is not installed")?;
+        let out = std::process::Command::new(iw)
+            .args(["dev", iface, "set", "power_save", if on { "on" } else { "off" }])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        }
+    }
+}
+
+/// The `iw` program, which sets Wi-Fi power saving through nl80211.
+fn iw() -> Option<&'static str> {
+    ["/usr/sbin/iw", "/sbin/iw", "/usr/bin/iw"].into_iter().find(|p| std::path::Path::new(p).exists())
 }
 
 fn run(args: &[&str]) -> Result<(), String> {
@@ -81,6 +110,9 @@ pub struct Owner {
 }
 
 pub struct GameModeIface {
+    /// The game's processes, for the net interface (which warns before a
+    /// rule would also cap the game).
+    pub game_pids: Arc<Mutex<Vec<i32>>>,
     pub tuner: SharedTuner,
     pub gate: Gate,
     pub owner: Arc<Mutex<Option<Owner>>>,
@@ -132,8 +164,10 @@ impl GameModeIface {
             cpu_priority: request.cpu_priority,
             memory_tuning: request.memory_tuning,
             pause_services: request.pause_services,
+            network_tuning: request.network_tuning,
             pids: request.pids,
         };
+        *self.game_pids.lock().unwrap_or_else(|e| e.into_inner()) = req.pids.clone();
         let tuner = Arc::clone(&self.tuner);
         let active = Arc::clone(&self.active);
         let report = tokio::task::spawn_blocking(move || {

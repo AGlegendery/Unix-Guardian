@@ -8,6 +8,7 @@ members = [
     "crates/ug-core",
     "crates/ug-games",
     "crates/ug-tune",
+    "crates/ug-net",
     "crates/ug-daemon",
     "crates/ug-agent",
     "crates/ug-cli",
@@ -30,6 +31,7 @@ ug-gpu = { path = "crates/ug-gpu" }
 ug-core = { path = "crates/ug-core" }
 ug-games = { path = "crates/ug-games" }
 ug-tune = { path = "crates/ug-tune" }
+ug-net = { path = "crates/ug-net" }
 ug-tui = { path = "crates/ug-tui" }
 
 anyhow = "1"

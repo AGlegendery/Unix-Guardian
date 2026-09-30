@@ -4,10 +4,10 @@
 //! work.
 
 use std::time::{Duration, Instant};
-use ug_proto::agent::{GamesProxy, MonitorProxy, ProfilesProxy};
-use ug_proto::daemon::{DaemonProxy, GameModeProxy, PowerProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, PingProxy, ProfilesProxy};
+use ug_proto::daemon::{DaemonProxy, GameModeProxy, NetProxy, PowerProxy};
 use ug_proto::{
-    BatteryCare, DayTraffic, HistoryPoint, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
+    AppTraffic, BatteryCare, DayTraffic, ExtraSample, NetControlStatus, NetRule, PingComparison, PingReport, FpsReading, HistoryPoint, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
     ProfileInfo, RunningGameInfo, Snapshot,
 };
 
@@ -61,6 +61,54 @@ impl Bus {
     pub fn snapshot(&self) -> Result<Snapshot, String> {
         let c = self.daemon()?;
         self.rt.block_on(async { DaemonProxy::new(c).await?.snapshot().await }).map_err(|e| msg(e, "service"))
+    }
+
+    pub fn extra(&self) -> Result<ExtraSample, String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { DaemonProxy::new(c).await?.extra().await }).map_err(|e| msg(e, "service"))
+    }
+
+    pub fn fps(&self) -> Result<FpsReading, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { MonitorProxy::new(c).await?.fps().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn set_up_fps(&self, on: bool) -> Result<(), String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { MonitorProxy::new(c).await?.set_up_fps(on).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn ping(&self, since_ms: u64) -> Result<PingReport, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { PingProxy::new(c).await?.recent(since_ms).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn ping_compare(&self, target: &str, mark_ms: u64) -> Result<PingComparison, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { PingProxy::new(c).await?.compare(target, mark_ms, 60).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    /// Apps with their traffic, the rules, and whether control works here.
+    pub fn net(&self) -> Result<(Vec<AppTraffic>, Vec<NetRule>, NetControlStatus), String> {
+        let c = self.daemon()?;
+        self.rt
+            .block_on(async {
+                let n = NetProxy::new(c).await?;
+                Ok::<_, zbus::Error>((n.apps().await?, n.rules().await?, n.status().await?))
+            })
+            .map_err(|e| msg(e, "service"))
+    }
+
+    pub fn net_set_rule(&self, app: &str, block: bool, up: u32, down: u32, when: &str) -> Result<(), String> {
+        let c = self.daemon()?;
+        self.rt
+            .block_on(async { NetProxy::new(c).await?.set_rule(app, block, up, down, when).await })
+            .map_err(|e| msg(e, "service"))
+    }
+
+    pub fn net_remove_rule(&self, app: &str) -> Result<bool, String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { NetProxy::new(c).await?.remove_rule(app).await }).map_err(|e| msg(e, "service"))
     }
 
     pub fn gamemode_active(&self) -> Result<bool, String> {

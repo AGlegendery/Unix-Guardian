@@ -29,7 +29,7 @@ fn get(fs: &TestFs, rel: &str) -> String {
 }
 
 fn everything() -> Request {
-    Request { cpu_performance: true, cpu_no_idle_states: false, cpu_priority: true, memory_tuning: true, pause_services: true, pids: vec![] }
+    Request { cpu_performance: true, cpu_no_idle_states: false, cpu_priority: true, memory_tuning: true, pause_services: true, network_tuning: false, pids: vec![] }
 }
 
 #[test]
@@ -192,4 +192,55 @@ fn a_change_that_cannot_be_made_is_reported_not_claimed() {
     assert!(r.applied.is_empty(), "nothing was changed, so nothing may be reported as done: {r:?}");
     assert!(r.skipped.iter().all(|l| l.contains("must run as root")), "{r:?}");
     assert!(t.undo.is_empty(), "no phantom undo entries left to 'restore' later");
+}
+
+#[test]
+fn network_tuning_is_applied_and_every_value_comes_back() {
+    let fs = machine();
+    fs.write("proc/sys/net/ipv4/tcp_fastopen", "1");
+    fs.write("proc/sys/net/ipv4/tcp_notsent_lowat", "4294967295");
+    fs.write("proc/sys/net/ipv4/tcp_congestion_control", "cubic");
+    fs.dir("sys/class/net/wlan0/wireless").dir("sys/class/net/eth0");
+    let units = FakeUnits::default();
+    units.wifi_saving.borrow_mut().insert("wlan0".into());
+    let mut t = tuner(&fs, units);
+    let req = Request { network_tuning: true, ..Default::default() };
+    let r = t.enter(&req, UID);
+    assert_eq!(get(&fs, "proc/sys/net/ipv4/tcp_fastopen"), "3");
+    assert_eq!(get(&fs, "proc/sys/net/ipv4/tcp_notsent_lowat"), "16384");
+    assert_eq!(get(&fs, "proc/sys/net/ipv4/tcp_congestion_control"), "bbr");
+    assert!(t.units.wifi_saving.borrow().is_empty(), "power saving off on wlan0");
+    assert!(r.applied.iter().any(|l| l.contains("Wi-Fi power saving off on wlan0")), "{r:?}");
+
+    t.leave();
+    assert_eq!(get(&fs, "proc/sys/net/ipv4/tcp_fastopen"), "1");
+    assert_eq!(get(&fs, "proc/sys/net/ipv4/tcp_notsent_lowat"), "4294967295");
+    assert_eq!(get(&fs, "proc/sys/net/ipv4/tcp_congestion_control"), "cubic");
+    assert!(t.units.wifi_saving.borrow().contains("wlan0"), "power saving back on");
+}
+
+#[test]
+fn wifi_power_saving_already_off_is_left_as_it_is() {
+    let fs = machine();
+    fs.dir("sys/class/net/wlan0/wireless");
+    let mut t = tuner(&fs, FakeUnits::default());
+    t.enter(&Request { network_tuning: true, ..Default::default() }, UID);
+    t.leave();
+    assert!(t.units.wifi_saving.borrow().is_empty(), "not turned on by the restore");
+}
+
+#[test]
+fn a_crash_during_the_game_restores_network_settings_on_the_next_start() {
+    let fs = machine();
+    fs.write("proc/sys/net/ipv4/tcp_fastopen", "1");
+    fs.dir("sys/class/net/wlan0/wireless");
+    let units = FakeUnits::default();
+    units.wifi_saving.borrow_mut().insert("wlan0".into());
+    let mut t = tuner(&fs, units);
+    t.enter(&Request { network_tuning: true, ..Default::default() }, UID);
+    std::mem::forget(t); // the daemon dies without leaving
+    let units = FakeUnits::default();
+    let (t2, _) = Tuner::new(SysRoot::at(fs.root()), fs.root().join("var/lib/ug/gamemode.json"), units);
+    assert_eq!(get(&fs, "proc/sys/net/ipv4/tcp_fastopen"), "1");
+    assert!(t2.units.wifi_saving.borrow().contains("wlan0"));
 }

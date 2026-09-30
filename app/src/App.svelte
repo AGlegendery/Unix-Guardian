@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Problem from "./lib/ui/Problem.svelte";
   import {
     Activity, Bug, Clock, Gamepad2, Layers, LayoutDashboard, Power,
     RefreshCw, Settings, SquareTerminal, Video, Wifi, Wrench,
@@ -10,6 +11,8 @@
   import GameMode from "./pages/GameMode.svelte";
   import SystemControl from "./pages/SystemControl.svelte";
   import Monitoring from "./pages/Monitoring.svelte";
+  import Ping from "./pages/Ping.svelte";
+  import BugReport from "./pages/BugReport.svelte";
 
   type Page = keyof ReturnType<typeof t>["nav"];
   // Phoenix Guardian's order, with the Linux-only driver troubleshooter added.
@@ -28,7 +31,7 @@
     ["settings", Settings],
   ];
   // Built so far; every other page says plainly that it is not.
-  const built = new Set<Page>(["dashboard", "gamemode", "system", "monitoring"]);
+  const built = new Set<Page>(["dashboard", "gamemode", "system", "monitoring", "ping", "bugreport"]);
 
   // `#gamemode` in the URL opens that page (handy in the browser preview).
   const fromHash = location.hash.slice(1).split("/")[0] as Page;
@@ -77,7 +80,7 @@
 
   <main class="content">
     {#if loadError}
-      <p class="problem" role="alert">{loadError}</p>
+      <Problem text={loadError} />
     {/if}
     {#if page === "dashboard"}
       <Dashboard {overview} />
@@ -87,6 +90,10 @@
       <SystemControl />
     {:else if page === "monitoring"}
       <Monitoring />
+    {:else if page === "ping"}
+      <Ping />
+    {:else if page === "bugreport"}
+      <BugReport />
     {:else}
       <section class="unbuilt-page">
         <h1>{t().nav[page]}</h1>
@@ -206,14 +213,6 @@
     overflow: auto;
     padding: 26px 30px 32px;
     min-width: 0;
-  }
-  .problem {
-    margin: 0 0 18px;
-    padding: 12px 16px;
-    border-radius: var(--radius-sm);
-    background: color-mix(in oklab, var(--warn) 12%, var(--card));
-    color: var(--warn);
-    font-size: 0.9rem;
   }
 
   .unbuilt-page h1 { font-size: 1.5rem; font-weight: 800; margin: 0 0 18px; }

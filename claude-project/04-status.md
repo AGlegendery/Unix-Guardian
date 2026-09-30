@@ -87,9 +87,52 @@ Legend: ✅ done · 🟨 partial · ⛔ blocked · ⬜ not started. Task texts a
 | 2.11 notifications | 🟨 | Written with a "Not a game" button for heuristic detections; not seen on a real desktop yet. |
 
 ### P3–P10
-⬜ Not started: P3 system control, P4 network & ping, P5 GPU tuning & fans, P6
+P3 done (see git log); P4 in progress (above). ⬜ Not started: P5 GPU tuning & fans, P6
 overlay & FPS, P7 recording & Telegram, P8 driver troubleshooter, P9 Linux
 extras, P10 packaging & 1.0.
+
+## P4 (branch `p4-network`) — all tasks built, not yet merged (2026-09-30)
+
+`pt-tui` is merged into `main`; P4 is on `p4-network`. Everything below is
+committed; `cargo test` 280 pass; smoke/agent/gamemode/power e2e pass;
+`scripts/net-e2e.sh` 27/27 via
+`PATH=$PATH:/usr/sbin systemd-run --user --scope -q -p Delegate=yes unshare -rn ./scripts/test-bus.sh ./scripts/net-e2e.sh`.
+
+- ✅ **4.6 ping**: `ug-agent/src/ping.rs` (unprivileged ICMP; router, DNS
+  server, the game's server; 1/s only while asked or gaming; `Compare`
+  verdict around game-mode marks). `ug ping`.
+- ✅ **4.4 per-app traffic**: crate `ug-net` (`cgroups`, `nft`, `account`),
+  `Daemon1.Net.Apps/Status`, `ug net`. Table `inet unix_guardian`.
+- ✅ **4.1–4.3 block and caps**: `ug-net/rules.rs` (net.json, by app *name*,
+  always / only while gaming), `nft` block sets + mark maps (only our
+  `0x5547xxxx` marks go to ct mark), `ug-net/shaper.rs` (HTB on the
+  default-route iface for upload; `ug-ifb0` + connmark + mirred for
+  download; never replaces another tool's qdisc). polkit action
+  `org.unixguardian.net.control`. `ug net block/limit/allow/rules`.
+  Measured in the namespace: 4 Mbit/s cap → 2 MB in 4.2 s each way.
+- ✅ **4.5 background tasks**: category catalog in `cgroups::category`,
+  `has_game` flag; the agent offers "Limit while I play" by notification
+  (once per app per game session).
+- ✅ **4.7 network tuning**: profile setting `network_tuning` (Wi-Fi power
+  save off via `iw`, TCP Fast Open, notsent_lowat 16384, BBR), reversible
+  with crash recovery. Not done: ethernet coalescing, NIC IRQ affinity.
+- ✅ **4.8 page** in the window (`app/src/pages/Ping.svelte`) and the TUI
+  (page 5).
+- Also this session: monitoring **Live** range + **FPS** tab (MangoHud log)
+  + `System.Extra` readings; `ug-app --open page/tab/range`.
+
+**Not verified on the real laptop yet** (needs `sudo ./scripts/dev-install.sh`):
+blocking and caps on the real Wi-Fi, network tuning during a real game,
+the ping page against the real agent. Known limits:
+- A game started by Steam runs **inside Steam's cgroup**, so a rule on
+  `steam` also hits the game (the UI shows "game inside"). Fix idea: move
+  the game's pids into a child cgroup of the Steam unit.
+- New app groups are picked up by a 5-second scan; an app's first seconds
+  are not blocked or capped yet (inotify on cgroupfs would fix it).
+- Apps behind a proxy/VPN app (the user runs v2rayN) are counted and capped
+  as that app.
+- CAKE and automatic bandwidth detection (roadmap 4.3 "ضد bufferbloat") are
+  not built: only per-app HTB caps with fq_codel leaves.
 
 ## Next steps, in order
 

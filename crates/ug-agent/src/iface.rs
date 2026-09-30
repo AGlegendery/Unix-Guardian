@@ -3,7 +3,10 @@
 use crate::core::AgentCore;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use ug_proto::{DayTraffic, HistoryPoint, InstalledGameInfo, PlaytimeEntry, PlaytimeSession, ProfileInfo, RunningGameInfo};
+use ug_proto::{
+    DayTraffic, HistoryPoint, InstalledGameInfo, PingComparison, PingReport, PlaytimeEntry, PlaytimeSession, ProfileInfo,
+    RunningGameInfo,
+};
 use zbus::object_server::SignalEmitter;
 
 pub type Shared = Arc<Mutex<AgentCore>>;
@@ -110,6 +113,7 @@ impl ProfilesIface {
 /// `org.unixguardian.Agent1.Monitor`
 pub struct MonitorIface {
     pub history: Arc<crate::history::History>,
+    pub fps: Arc<crate::fps::Fps>,
 }
 
 #[zbus::interface(name = "org.unixguardian.Agent1.Monitor")]
@@ -122,6 +126,39 @@ impl MonitorIface {
     async fn traffic(&self, since_unix_ms: u64) -> Vec<DayTraffic> {
         let h = Arc::clone(&self.history);
         tokio::task::spawn_blocking(move || h.traffic(since_unix_ms, local_date)).await.unwrap_or_default()
+    }
+
+    /// The running game's FPS from MangoHud's log.
+    async fn fps(&self) -> ug_proto::FpsReading {
+        let f = Arc::clone(&self.fps);
+        tokio::task::spawn_blocking(move || f.read(std::time::SystemTime::now())).await.unwrap_or_default()
+    }
+
+    /// Adds (true) or removes (false) Unix Guardian's block in MangoHud.conf.
+    async fn set_up_fps(&self, on: bool) -> zbus::fdo::Result<()> {
+        let f = Arc::clone(&self.fps);
+        tokio::task::spawn_blocking(move || f.configure(on))
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+            .map_err(zbus::fdo::Error::Failed)
+    }
+}
+
+/// `org.unixguardian.Agent1.Ping`
+pub struct PingIface {
+    pub pinger: crate::ping::Pinger,
+}
+
+#[zbus::interface(name = "org.unixguardian.Agent1.Ping")]
+impl PingIface {
+    /// Asking keeps the measurement running for another minute.
+    async fn recent(&self, since_unix_ms: u64) -> PingReport {
+        self.pinger.touch();
+        self.pinger.report(since_unix_ms)
+    }
+
+    async fn compare(&self, target: &str, mark_unix_ms: u64, window_s: u32) -> PingComparison {
+        self.pinger.compare(target, mark_unix_ms, window_s)
     }
 }
 

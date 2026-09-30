@@ -69,3 +69,19 @@ jobs:
           ./scripts/test-bus.sh ./scripts/agent-e2e.sh target/debug
           ./scripts/test-bus.sh ./scripts/gamemode-e2e.sh target/debug
           ./scripts/test-bus.sh ./scripts/power-e2e.sh target/debug
+
+  # Real nftables inside a private user + network namespace; the runner's own
+  # firewall is never touched. The per-app part needs a delegated cgroup,
+  # which the runner lacks, so it is skipped there (it runs on the dev laptop).
+  net-e2e:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tooling
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nftables dbus python3 iproute2
+          # Ubuntu 24.04 blocks unprivileged user namespaces by default.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - run: cargo build --workspace
+      - run: unshare -rn ./scripts/test-bus.sh ./scripts/net-e2e.sh target/debug

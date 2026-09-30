@@ -375,6 +375,7 @@ pub struct ProfileInfo {
     pub cpu_priority: bool,
     pub memory_tuning: bool,
     pub pause_services: bool,
+    pub network_tuning: bool,
     pub pause_apps: Vec<String>,
     /// Game keys the user chose this profile for. Games that use it because
     /// the database suggests it are not listed.
@@ -390,6 +391,7 @@ pub struct GameModeRequest {
     pub cpu_priority: bool,
     pub memory_tuning: bool,
     pub pause_services: bool,
+    pub network_tuning: bool,
     /// Game processes. The daemon refuses any that do not belong to the caller.
     pub pids: Vec<i32>,
 }
@@ -503,4 +505,179 @@ pub struct DayTraffic {
     pub date: String,
     pub rx_bytes: u64,
     pub tx_bytes: u64,
+}
+
+/// Ping statistics over a window of samples.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct PingStats {
+    pub sent: u32,
+    pub received: u32,
+    /// NaN when no reply arrived.
+    pub median_ms: f64,
+    /// Mean difference between consecutive replies (RFC 3550 style).
+    pub jitter_ms: f64,
+    pub p95_ms: f64,
+    pub loss_pct: f64,
+}
+
+/// One echo: when it was sent and its round trip, NaN if it was lost.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Type)]
+pub struct PingSample {
+    pub ts_unix_ms: u64,
+    pub rtt_ms: f64,
+}
+
+/// A host the agent pings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct PingTarget {
+    /// `gateway`, `internet` or `game`.
+    pub id: String,
+    /// `Router`, `DNS server`, or the game's name.
+    pub label: String,
+    pub addr: String,
+    pub samples: Vec<PingSample>,
+    /// Over the last 60 seconds.
+    pub stats: PingStats,
+    /// Why this host cannot be measured; empty when it can.
+    pub problem: String,
+    /// The interface the echoes leave by, e.g. `wlp8s0` or a VPN's `tun0`.
+    pub via: String,
+    /// They go through a VPN's TUN device, so this is the ping through the
+    /// VPN, not the direct one.
+    pub through_vpn: bool,
+}
+
+/// A moment the chart splits at, e.g. when game mode or shaping went on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct PingMark {
+    pub ts_unix_ms: u64,
+    /// `gamemode-on`, `gamemode-off`, `shaping-on`, `shaping-off`.
+    pub kind: String,
+}
+
+/// What the ping chart shows.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct PingReport {
+    pub targets: Vec<PingTarget>,
+    pub marks: Vec<PingMark>,
+}
+
+/// Before and after a mark, computed from real samples.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct PingComparison {
+    pub before: PingStats,
+    pub after: PingStats,
+    /// `flatter`, `same`, `worse`, or `not-enough-data`.
+    pub verdict: String,
+}
+
+/// Internet use of one app or service, counted by its cgroup.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct AppTraffic {
+    /// The cgroup path, relative to the cgroup root; stable while it runs.
+    pub id: String,
+    /// `Firefox`, `Steam`, `packagekit`.
+    pub name: String,
+    /// `app`, `service` (system or user service) or `session` (a login
+    /// session: programs started from a terminal outside an app's own group).
+    pub kind: String,
+    /// Owner: the user whose slice it runs in, 0 for system services.
+    pub uid: u32,
+    /// The first process's command name, e.g. `firefox-esr`.
+    pub exe: String,
+    pub pids: Vec<i32>,
+    pub rx_bps: u64,
+    pub tx_bps: u64,
+    /// Since the service started counting it.
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+    /// `blocked`, `limited`, or empty.
+    pub state: String,
+    /// What kind of background task it is known to be: `torrent`, `sync`,
+    /// `updates`, `launcher`, `backup`, `streaming`; empty when unknown.
+    pub category: String,
+    /// The running game is inside this group (e.g. a game Steam started runs
+    /// in Steam's group), so limiting it would limit the game too.
+    pub has_game: bool,
+}
+
+/// A user's rule for one app's internet.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct NetRule {
+    /// The app's name as `Apps` reports it.
+    pub app: String,
+    pub block: bool,
+    /// Kilobits per second; 0 = no cap.
+    pub up_kbps: u32,
+    pub down_kbps: u32,
+    /// `always` or `gaming` (only while game mode is on).
+    pub when: String,
+    /// Whether it applies right now.
+    pub active: bool,
+}
+
+/// Whether internet control works here, and why not.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct NetControlStatus {
+    pub available: bool,
+    /// Why it is unavailable; empty when it works.
+    pub problem: String,
+    /// A development service: numbers are invented and nothing is changed.
+    pub simulated: bool,
+    /// Other firewalls found (`firewalld`, `ufw`); ours coexists with them.
+    pub firewalls: Vec<String>,
+    /// Why a cap is not in effect right now (another tool shapes the
+    /// interface); empty when every rule applies.
+    pub shaping_problems: Vec<String>,
+    /// The interface caps are applied to: the one the internet is reached
+    /// through, a VPN's TUN device when one carries the traffic.
+    pub iface: String,
+    /// A running VPN or proxy app (`v2rayn`), or empty. Its traffic with the
+    /// apps it carries is not counted again.
+    pub vpn: String,
+    /// The internet is reached through that VPN's TUN device.
+    pub vpn_tun: bool,
+}
+
+/// Readings beyond the snapshot, for the live monitor. Fetched with
+/// `System.Extra` so older clients keep the snapshot they know.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct ExtraSample {
+    pub ts_unix_ms: u64,
+    /// Current clock of each CPU, MHz, in kernel order; 0 where unreadable.
+    pub per_core_mhz: Vec<u32>,
+    /// Summed over whole disks (partitions are not counted twice).
+    pub disk_read_bps: u64,
+    pub disk_write_bps: u64,
+    /// Time the busiest disk spent working, 0–100.
+    pub disk_busy_pct: f64,
+    /// Battery charge 0–100, NaN without a battery.
+    pub battery_pct: f64,
+    /// Battery power in watts, NaN when unreported; positive = draining.
+    pub battery_w: f64,
+    /// `Charging`, `Discharging`, `Full`, `Not charging`, or empty.
+    pub battery_status: String,
+    pub on_ac: bool,
+    pub load_avg_1: f64,
+    pub processes: u32,
+}
+
+/// Frames per second of the running game, as MangoHud logs it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct FpsReading {
+    /// `live` (a game is being measured), `idle` (set up, nothing running
+    /// with MangoHud), `not-set-up` (MangoHud installed, logging not set up)
+    /// or `not-installed`.
+    pub state: String,
+    /// The game's name from MangoHud's log file name.
+    pub game: String,
+    /// Average over the last second; NaN when not live.
+    pub fps: f64,
+    pub frametime_ms: f64,
+    /// FPS at the slowest 1% of frames over the last ten seconds.
+    pub low_1pct_fps: f64,
+    /// About ten seconds of readings, oldest first: (Unix ms, FPS).
+    pub recent: Vec<(u64, f64)>,
+    /// The command that installs MangoHud here, for `not-installed`.
+    pub install_hint: String,
 }

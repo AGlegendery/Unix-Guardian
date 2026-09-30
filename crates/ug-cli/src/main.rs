@@ -10,8 +10,8 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use ug_proto::agent::{GamesProxy, MonitorProxy, PlaytimeProxy, ProfilesProxy};
-use ug_proto::daemon::{DaemonProxy, GpuProxy, PowerProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, PingProxy, PlaytimeProxy, ProfilesProxy};
+use ug_proto::daemon::{DaemonProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{GpuCapabilities, Inventory, PowerWatch, Snapshot};
 
 #[derive(Parser)]
@@ -47,6 +47,14 @@ enum Command {
     Battery {
         #[command(subcommand)]
         command: Option<BatteryCommand>,
+    },
+    /// Internet use per app and service; block an app or cap its speed.
+    Net {
+        #[command(subcommand)]
+        command: Option<NetCommand>,
+        /// Include apps that have not used the internet.
+        #[arg(long)]
+        all: bool,
     },
     /// Shut down, restart or sleep, now or on a schedule.
     Power {
@@ -88,11 +96,59 @@ enum Command {
         #[arg(long, default_value_t = 7)]
         days: u32,
     },
+    /// Ping to the router, the DNS server and the running game's server.
+    Ping {
+        /// Seconds to watch before printing (the agent measures once a second).
+        #[arg(long, default_value_t = 10)]
+        seconds: u32,
+    },
     /// Game profiles, and which game uses which.
     Profile {
         #[command(subcommand)]
         command: ProfileCommand,
     },
+}
+
+#[derive(Subcommand)]
+enum NetCommand {
+    /// Cut an app off the internet (by the name `ug net` shows).
+    Block {
+        app: String,
+        /// Only while game mode is on.
+        #[arg(long)]
+        gaming: bool,
+    },
+    /// Cap an app's upload and/or download speed.
+    Limit {
+        app: String,
+        /// Upload cap, e.g. 500k or 2m (bits per second).
+        #[arg(long)]
+        up: Option<String>,
+        /// Download cap, e.g. 8m.
+        #[arg(long)]
+        down: Option<String>,
+        /// Only while game mode is on.
+        #[arg(long)]
+        gaming: bool,
+    },
+    /// Remove an app's block or cap.
+    Allow { app: String },
+    /// Every rule.
+    Rules,
+}
+
+/// `500k`, `2m`, `2.5m` or plain kilobits → kbit/s.
+fn parse_kbps(s: &str) -> Result<u32> {
+    let t = s.trim().to_lowercase();
+    let (num, mul) = if let Some(n) = t.strip_suffix('m') {
+        (n, 1000.0)
+    } else if let Some(n) = t.strip_suffix('k') {
+        (n, 1.0)
+    } else {
+        (t.as_str(), 1.0)
+    };
+    let v: f64 = num.parse().map_err(|_| anyhow::anyhow!("\"{s}\" is not a speed; try 500k or 2m (bits per second)"))?;
+    Ok((v * mul).round() as u32)
 }
 
 #[derive(Subcommand)]
@@ -109,7 +165,7 @@ enum ProfileCommand {
     Option {
         profile: String,
         /// cpu_performance, cpu_no_idle_states, cpu_preferred_cores,
-        /// cpu_priority, memory_tuning or pause_services.
+        /// cpu_priority, memory_tuning, pause_services or network_tuning.
         setting: String,
         #[arg(value_parser = ["on", "off"])]
         value: String,
@@ -233,7 +289,18 @@ enum GpuCommand {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> std::process::ExitCode {
+    match run().await {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("Error: {e:#}");
+            eprintln!("If this looks like a bug in Unix Guardian, please report it to {}.", ug_core::BUG_REPORT_EMAIL);
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     if let Command::Tui = cli.command {
@@ -248,6 +315,7 @@ async fn main() -> Result<()> {
         Command::Profile { command } => return profile(command, cli.json).await,
         Command::History { hours } => return history(hours, cli.json).await,
         Command::Traffic { days } => return traffic(days, cli.json).await,
+        Command::Ping { seconds } => return ping(seconds, cli.json).await,
         _ => {}
     }
 
@@ -281,7 +349,8 @@ async fn main() -> Result<()> {
         Command::Gpu { command } => gpu(&conn, &daemon, command, cli.json).await,
         Command::Power { command } => power(&conn, command, cli.json).await,
         Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
-        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Tui => {
+        Command::Net { command, all } => net(&conn, command, all, cli.json).await,
+        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Tui => {
             unreachable!("handled above")
         }
     }
@@ -472,6 +541,42 @@ async fn traffic(days: u32, json: bool) -> Result<()> {
     Ok(())
 }
 
+async fn ping(seconds: u32, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let p = PingProxy::new(&conn).await?;
+    let start = now_ms();
+    // The first call starts the measurement; wait for it to collect samples.
+    p.recent(start).await.map_err(agent_hint)?;
+    if !json {
+        eprintln!("Measuring for {seconds} s…");
+    }
+    tokio::time::sleep(std::time::Duration::from_secs(seconds.max(1) as u64)).await;
+    let r = p.recent(start).await.map_err(agent_hint)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&r)?);
+        return Ok(());
+    }
+    let f = |v: f64| if v.is_nan() { "—".to_string() } else { format!("{v:.1} ms") };
+    println!("{:<24} {:<16} {:>10} {:>10} {:>10} {:>6}", "", "address", "median", "jitter", "95%", "loss");
+    for t in r.targets {
+        let name = if t.id == "game" { format!("Game: {}", t.label) } else { t.label.clone() };
+        if !t.problem.is_empty() {
+            println!("{name:<24} {}", t.problem);
+            continue;
+        }
+        let s = t.stats;
+        println!(
+            "{name:<24} {:<16} {:>10} {:>10} {:>10} {:>5.0}%",
+            t.addr,
+            f(s.median_ms),
+            f(s.jitter_ms),
+            f(s.p95_ms),
+            s.loss_pct
+        );
+    }
+    Ok(())
+}
+
 async fn profile(command: ProfileCommand, json: bool) -> Result<()> {
     let conn = agent_conn().await?;
     let profiles = ProfilesProxy::new(&conn).await?;
@@ -491,6 +596,7 @@ async fn profile(command: ProfileCommand, json: bool) -> Result<()> {
                 println!("    game priority          {}", on(p.cpu_priority));
                 println!("    memory tuning          {}", on(p.memory_tuning));
                 println!("    pause update services  {}", on(p.pause_services));
+                println!("    network tuning         {}", on(p.network_tuning));
                 if !p.pause_apps.is_empty() {
                     println!("    pause apps             {}", p.pause_apps.join(", "));
                 }
@@ -806,6 +912,117 @@ fn parse_rate(s: &str) -> Result<f64> {
     num.parse::<f64>().map(|n| n * mult).map_err(|_| anyhow::anyhow!("cannot read {s:?} as a rate; e.g. 50k or 2M"))
 }
 
+async fn net(conn: &zbus::Connection, command: Option<NetCommand>, all: bool, json: bool) -> Result<()> {
+    let p = NetProxy::new(conn).await?;
+    let when = |g: bool| if g { "gaming" } else { "always" };
+    match command {
+        None => {}
+        Some(NetCommand::Block { app, gaming }) => {
+            p.set_rule(&app, true, 0, 0, when(gaming)).await.map_err(daemon_error)?;
+            println!("{app} is blocked{}.", if gaming { " while game mode is on" } else { "" });
+            return Ok(());
+        }
+        Some(NetCommand::Limit { app, up, down, gaming }) => {
+            let up = up.as_deref().map(parse_kbps).transpose()?.unwrap_or(0);
+            let down = down.as_deref().map(parse_kbps).transpose()?.unwrap_or(0);
+            if up == 0 && down == 0 {
+                anyhow::bail!("give --up and/or --down, e.g. --up 500k");
+            }
+            p.set_rule(&app, false, up, down, when(gaming)).await.map_err(daemon_error)?;
+            println!("{app} is capped{}.", if gaming { " while game mode is on" } else { "" });
+            let st = p.status().await.map_err(daemon_error)?;
+            for problem in st.shaping_problems {
+                println!("Note: {problem}");
+            }
+            return Ok(());
+        }
+        Some(NetCommand::Allow { app }) => {
+            if p.remove_rule(&app).await.map_err(daemon_error)? {
+                println!("{app} has no limits any more.");
+            } else {
+                println!("{app} had no rule.");
+            }
+            return Ok(());
+        }
+        Some(NetCommand::Rules) => {
+            let rules = p.rules().await.map_err(daemon_error)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&rules)?);
+            } else if rules.is_empty() {
+                println!("No rules. `ug net block APP` or `ug net limit APP --up 500k` makes one.");
+            } else {
+                for r in rules {
+                    let what = if r.block {
+                        "blocked".to_string()
+                    } else {
+                        let f = |k: u32| if k == 0 { "—".to_string() } else if k >= 1000 { format!("{:.1} Mbit/s", k as f64 / 1000.0) } else { format!("{k} kbit/s") };
+                        format!("up {}  down {}", f(r.up_kbps), f(r.down_kbps))
+                    };
+                    let when = if r.when == "gaming" { "while gaming" } else { "always" };
+                    println!("{:<24} {:<32} {:<13} {}", r.app, what, when, if r.active { "in effect" } else { "waiting" });
+                }
+            }
+            return Ok(());
+        }
+    }
+    let status = p.status().await.map_err(daemon_error)?;
+    if !status.available {
+        anyhow::bail!("{}", status.problem);
+    }
+    // The first call starts two-second updates; the second has real rates.
+    p.apps().await.map_err(daemon_error)?;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let apps = p.apps().await.map_err(daemon_error)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&apps)?);
+        return Ok(());
+    }
+    if status.simulated {
+        println!("(development service: invented numbers)");
+    }
+    let mb = |b: u64| format!("{:.1} MB", b as f64 / 1e6);
+    println!("{:<28} {:<8} {:>12} {:>12} {:>11} {:>11}", "app", "kind", "down", "up", "down total", "up total");
+    let mut hidden = 0;
+    let (vpn, apps): (Vec<_>, Vec<_>) = apps.into_iter().partition(|a| a.category == "vpn");
+    for a in apps {
+        if !all && a.rx_bytes + a.tx_bytes == 0 {
+            hidden += 1;
+            continue;
+        }
+        let name: String = a.name.chars().take(28).collect();
+        let name = match a.state.as_str() {
+            "blocked" => format!("{} ⛔", name.chars().take(26).collect::<String>()),
+            "limited" => format!("{} ⏬", name.chars().take(26).collect::<String>()),
+            _ => name,
+        };
+        println!(
+            "{name:<28} {:<8} {:>12} {:>12} {:>11} {:>11}",
+            a.kind,
+            rate(a.rx_bps),
+            rate(a.tx_bps),
+            mb(a.rx_bytes),
+            mb(a.tx_bytes)
+        );
+    }
+    if hidden > 0 {
+        println!("({hidden} more without traffic; --all shows them)");
+    }
+    for v in vpn {
+        println!(
+            "\nVPN {} ({}): {} down, {} up of its own. It carries the apps above in {} mode; their traffic is not counted twice.",
+            v.name,
+            if status.vpn_tun { status.iface.as_str() } else { "proxy" },
+            rate(v.rx_bps),
+            rate(v.tx_bps),
+            if status.vpn_tun { "TUN" } else { "proxy" }
+        );
+    }
+    for p in &status.shaping_problems {
+        println!("Note: {p}");
+    }
+    Ok(())
+}
+
 async fn battery(conn: &zbus::Connection, command: BatteryCommand, json: bool) -> Result<()> {
     let p = PowerProxy::new(conn).await?;
     match command {
@@ -1095,7 +1312,7 @@ fn rate(bps: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::rate;
+    use super::{parse_kbps, rate};
 
     #[test]
     fn durations_read_naturally() {
@@ -1127,6 +1344,14 @@ mod tests {
         assert_eq!(super::csv_field("Counter-Strike 2"), "Counter-Strike 2");
         assert_eq!(super::csv_field("Warhammer 40,000"), "\"Warhammer 40,000\"");
         assert_eq!(super::csv_field("The \"Game\""), "\"The \"\"Game\"\"\"");
+    }
+
+    #[test]
+    fn speeds_read_as_kilobits() {
+        assert_eq!(parse_kbps("500k").unwrap(), 500);
+        assert_eq!(parse_kbps("2.5M").unwrap(), 2500);
+        assert_eq!(parse_kbps("800").unwrap(), 800);
+        assert!(parse_kbps("fast").is_err());
     }
 
     #[test]

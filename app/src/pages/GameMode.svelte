@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Problem from "../lib/ui/Problem.svelte";
   import { Cpu, Gamepad2, MonitorSmartphone, Settings2 } from "@lucide/svelte";
   import { api, errorText, type InstalledGame, type Overview, type Profile, type RunningGame } from "../lib/api";
   import { duration } from "../lib/format";
@@ -44,7 +45,7 @@
   const hasPreferred = $derived(!!cpu && (cpu.has_vcache || cpu.p_cores.length > 0));
 
   const cpuOptions = ["cpu_performance", "cpu_no_idle_states", "cpu_preferred_cores", "cpu_priority", "memory_tuning"] as const;
-  type Opt = (typeof cpuOptions)[number] | "pause_services";
+  type Opt = (typeof cpuOptions)[number] | "pause_services" | "network_tuning";
 
   async function setOption(opt: Opt, value: boolean) {
     if (!profile) return;
@@ -88,7 +89,7 @@
 </header>
 
 {#if error}
-  <p class="problem" role="alert">{error}</p>
+  <Problem text={error} />
 {/if}
 
 <!-- What is happening now. -->
@@ -157,6 +158,7 @@
           {/each}
         {:else if tab === "system"}
           {@render row("pause_services", profile.pause_services, null)}
+          {@render row("network_tuning", profile.network_tuning, null)}
           <div class="row static">
             <div>
               <p class="row-title">{t().gmp.pauseApps}</p>
@@ -221,14 +223,6 @@
   .chip { padding: 4px 12px; border-radius: 999px; background: var(--card-2); color: var(--text-2); font-size: 0.82rem; }
   .chip b { color: var(--text); font-weight: 600; }
   .saved { margin-inline-start: auto; color: var(--ok); font-size: 0.85rem; }
-  .problem {
-    margin: 0 0 16px;
-    padding: 12px 16px;
-    border-radius: var(--radius-sm);
-    background: color-mix(in oklab, var(--danger) 12%, var(--card));
-    color: var(--danger);
-    font-size: 0.9rem;
-  }
 
   .card { background: var(--card); border-radius: var(--radius); padding: 20px 22px; min-width: 0; }
   .card-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }

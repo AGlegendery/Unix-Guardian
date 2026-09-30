@@ -1635,6 +1635,7 @@ dependencies = [
  "libc",
  "serde_json",
  "tokio",
+ "ug-core",
  "ug-proto",
  "ug-tui",
  "zbus",
@@ -1670,6 +1671,7 @@ dependencies = [
  "ug-core",
  "ug-gpu",
  "ug-hw",
+ "ug-net",
  "ug-proto",
  "ug-testfs",
  "ug-tune",
@@ -1711,6 +1713,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ug-net"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "ug-hw",
+ "ug-proto",
+ "ug-testfs",
+]
+
+[[package]]
 name = "ug-proto"
 version = "0.1.0"
 dependencies = [
@@ -1734,7 +1749,9 @@ dependencies = [
  "crossterm",
  "libc",
  "ratatui",
+ "serde_json",
  "tokio",
+ "ug-core",
  "ug-proto",
  "zbus",
 ]

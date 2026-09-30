@@ -100,6 +100,9 @@ pub mod daemon {
         /// Cheap to call but meant to be fetched once and cached.
         fn inventory(&self) -> zbus::Result<Inventory>;
 
+        /// Disk throughput, battery power, per-core clocks, load average.
+        fn extra(&self) -> zbus::Result<ExtraSample>;
+
         /// Change the daemon's log filter at runtime, e.g. `"debug"` or
         /// `"ug_gpu=trace,info"`. Survives until the next restart.
         fn set_log_filter(&self, filter: &str) -> zbus::Result<()>;
@@ -246,6 +249,34 @@ pub mod daemon {
         #[zbus(property)]
         fn set_active_gpu(&self, pci: &str) -> zbus::Result<()>;
     }
+
+    /// Internet control: traffic per app (and, next, blocking and limits).
+    /// Counting happens in Unix Guardian's own nftables table; other
+    /// firewall rules are never touched.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Daemon1.Net",
+        default_service = "org.unixguardian.Daemon1",
+        default_path = "/org/unixguardian/Daemon1"
+    )]
+    pub trait Net {
+        /// Whether counting works here, and why not.
+        fn status(&self) -> zbus::Result<NetControlStatus>;
+
+        /// Every app and service with its traffic, busiest first. Asking
+        /// makes the next minute's rates update every two seconds.
+        fn apps(&self) -> zbus::Result<Vec<AppTraffic>>;
+
+        /// Every rule, with whether it applies now.
+        fn rules(&self) -> zbus::Result<Vec<NetRule>>;
+
+        /// Blocks an app, or caps its upload and/or download in kbit/s
+        /// (0 = no cap), `always` or only while `gaming`. Needs the
+        /// `org.unixguardian.net.control` polkit action.
+        fn set_rule(&self, app: &str, block: bool, up_kbps: u32, down_kbps: u32, when: &str) -> zbus::Result<()>;
+
+        /// Removes an app's rule; false if it had none.
+        fn remove_rule(&self, app: &str) -> zbus::Result<bool>;
+    }
 }
 
 /// Client proxies for the per-user agent's interfaces (session bus).
@@ -311,6 +342,29 @@ pub mod agent {
 
         /// Bytes received and sent per local day since `since_unix_ms`.
         fn traffic(&self, since_unix_ms: u64) -> zbus::Result<Vec<DayTraffic>>;
+
+        /// The running game's FPS, read from MangoHud's log.
+        fn fps(&self) -> zbus::Result<FpsReading>;
+
+        /// Adds (true) or removes (false) Unix Guardian's logging block in
+        /// the user's MangoHud.conf; the first change keeps a backup.
+        fn set_up_fps(&self, on: bool) -> zbus::Result<()>;
+    }
+
+    /// Ping to the router, the DNS server and the game's server. Measuring
+    /// runs only while someone asks for it (within the last minute) or a game
+    /// is running.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Ping",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Ping {
+        /// Samples since `since_unix_ms` for every target, plus the marks.
+        fn recent(&self, since_unix_ms: u64) -> zbus::Result<PingReport>;
+
+        /// Stats for the `window_s` seconds before and after `mark_unix_ms`.
+        fn compare(&self, target: &str, mark_unix_ms: u64, window_s: u32) -> zbus::Result<PingComparison>;
     }
 
     /// Game profiles and which game uses which.

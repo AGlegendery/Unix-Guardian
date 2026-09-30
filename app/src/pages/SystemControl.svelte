@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Problem from "../lib/ui/Problem.svelte";
   import { AlarmClock, Cpu, Moon, Power, RotateCcw, Snowflake, Trash2 } from "@lucide/svelte";
   import type { Component } from "svelte";
   import { api, errorText, type BatteryCare, type PowerUsage, type PowerAction, type PowerCapability, type PowerJob, type PowerWatch, type WatchKind } from "../lib/api";
@@ -246,7 +247,7 @@
   {/each}
 </div>
 
-{#if error}<p class="problem" role="alert">{error}</p>{/if}
+{#if error}<Problem text={error} />{/if}
 {#if notice}<p class="notice" role="status">{notice}</p>{/if}
 
 {#if tab === "command"}
@@ -521,8 +522,6 @@
   .tabs button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
   .tabs button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; border-radius: 6px; }
 
-  .problem, .notice { margin: 0 0 14px; padding: 12px 16px; border-radius: var(--radius-sm); font-size: 0.9rem; }
-  .problem { background: color-mix(in oklab, var(--danger) 12%, var(--card)); color: var(--danger); }
   .notice { background: color-mix(in oklab, var(--ok) 12%, var(--card)); color: var(--ok); }
 
   .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }

@@ -27,11 +27,13 @@ pub mod action {
     pub const GAMEMODE: &str = "org.unixguardian.gamemode";
     /// Shut down, restart or sleep, now or on a schedule.
     pub const POWER: &str = "org.unixguardian.power.control";
+    /// Block an app's internet, or cap its upload or download.
+    pub const NET: &str = "org.unixguardian.net.control";
 
     /// Every action, for the test that keeps this list and the shipped
     /// policy file in step.
     #[cfg(test)]
-    pub const ALL: &[&str] = &[DAEMON_DEBUG, GAMEMODE, POWER];
+    pub const ALL: &[&str] = &[DAEMON_DEBUG, GAMEMODE, POWER, NET];
 }
 
 /// Bit 0 of CheckAuthorization's flags: allow polkit to prompt the user.

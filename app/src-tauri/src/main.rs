@@ -51,6 +51,18 @@ fn main() {
                 let _ = w.set_focus();
             }
         }))
+        // `ug-app --open monitoring/thermal/live` opens straight at a page,
+        // tab and range (the same path the browser preview takes after `#`).
+        .setup(|app| {
+            use tauri::Manager;
+            let args: Vec<String> = std::env::args().collect();
+            let open = args.iter().position(|a| a == "--open").and_then(|i| args.get(i + 1)).cloned();
+            if let (Some(path), Some(w)) = (open, app.get_webview_window("main")) {
+                let path: String = path.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '/' || *c == '-').collect();
+                let _ = w.eval(&format!("if (location.hash !== '#{path}') {{ location.hash = '{path}'; location.reload(); }}"));
+            }
+            Ok(())
+        })
         .manage(bus::Bus::new(daemon_on_session))
         .invoke_handler(tauri::generate_handler![
             bus::overview,
@@ -80,10 +92,54 @@ fn main() {
             bus::set_battery_care,
             bus::history,
             bus::traffic,
+            bus::extra,
+            bus::fps,
+            bus::set_up_fps,
+            bus::ping_recent,
+            bus::ping_compare,
+            bus::net_status,
+            bus::net_apps,
+            bus::net_rules,
+            bus::net_set_rule,
+            bus::net_remove_rule,
             open_terminal_interface,
+            report_bug,
         ])
         .run(tauri::generate_context!())
         .expect("running the Unix Guardian window");
+}
+
+/// Opens the user's mail program with a bug report addressed and started:
+/// versions filled in, nothing sent until they send it.
+#[tauri::command]
+fn report_bug(context: String) -> Result<(), String> {
+    let kernel = std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default();
+    let os = std::fs::read_to_string("/etc/os-release")
+        .unwrap_or_default()
+        .lines()
+        .find_map(|l| l.strip_prefix("PRETTY_NAME=").map(|v| v.trim_matches('"').to_string()))
+        .unwrap_or_default();
+    let body = format!(
+        "What I did:\n\nWhat happened:\n\nWhat I expected:\n\n---\nUnix Guardian {}\n{}\nLinux {}\n{}",
+        env!("CARGO_PKG_VERSION"),
+        os,
+        kernel.trim(),
+        context
+    );
+    let enc = |s: &str| -> String {
+        s.bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+                _ => format!("%{b:02X}"),
+            })
+            .collect()
+    };
+    let url = format!("mailto:{}?subject={}&body={}", ug_core::BUG_REPORT_EMAIL, enc("Unix Guardian bug report"), enc(&body));
+    std::process::Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Could not open a mail program ({e}). Write to {} instead.", ug_core::BUG_REPORT_EMAIL))
 }
 
 /// Opens `ug tui` in the user's terminal and closes this window completely.

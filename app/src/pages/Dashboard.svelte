@@ -69,7 +69,7 @@
   const profile = $derived(profiles.find((p) => p.id === profileId) ?? null);
   const switches = [
     "cpu_performance", "cpu_no_idle_states", "cpu_preferred_cores",
-    "cpu_priority", "memory_tuning", "pause_services",
+    "cpu_priority", "memory_tuning", "pause_services", "network_tuning",
   ] as const;
 
   const memUsed = $derived(snap ? snap.mem.total_kb - snap.mem.available_kb : 0);

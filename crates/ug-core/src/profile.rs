@@ -35,6 +35,9 @@ pub struct Profile {
     /// Pause background services that cause stutter (package updates, file
     /// indexers) for the duration of the game.
     pub pause_services: bool,
+    /// Network settings for low latency while playing: Wi-Fi power saving
+    /// off, TCP Fast Open and a smaller send queue, BBR congestion control.
+    pub network_tuning: bool,
     /// Applications to pause (SIGSTOP) while playing, by executable name, e.g.
     /// `["discord", "steamwebhelper"]`. Resumed exactly as they were after.
     pub pause_apps: Vec<String>,
@@ -52,6 +55,7 @@ impl Default for Profile {
             cpu_priority: true,
             memory_tuning: true,
             pause_services: true,
+            network_tuning: true,
             pause_apps: Vec::new(),
         }
     }
@@ -74,6 +78,7 @@ pub fn builtin() -> Vec<Profile> {
             cpu_performance: false,
             cpu_no_idle_states: false,
             memory_tuning: false,
+            network_tuning: false,
             ..Profile::default()
         },
     ]
@@ -170,13 +175,14 @@ pub fn is_builtin(id: &str) -> bool {
 }
 
 /// The on/off settings a profile has, by their file and wire names.
-pub const OPTIONS: [&str; 6] = [
+pub const OPTIONS: [&str; 7] = [
     "cpu_performance",
     "cpu_no_idle_states",
     "cpu_preferred_cores",
     "cpu_priority",
     "memory_tuning",
     "pause_services",
+    "network_tuning",
 ];
 
 /// Turns one setting of a profile on or off by writing it into the user's

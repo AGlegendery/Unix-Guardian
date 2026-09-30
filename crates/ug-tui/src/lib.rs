@@ -22,7 +22,8 @@ use ratatui::Frame;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use ug_proto::{
-    BatteryCare, DayTraffic, HistoryPoint, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
+    AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, HistoryPoint, NetControlStatus, NetRule,
+    PingComparison, PingReport, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
     ProfileInfo, RunningGameInfo, Snapshot,
 };
 
@@ -34,7 +35,7 @@ pub const PAGES: [(&str, &str, bool); 12] = [
     ("Game mode", "Game", true),
     ("System control", "System", true),
     ("Monitoring", "Monitor", true),
-    ("Ping stability", "Ping", false),
+    ("Ping stability", "Ping", true),
     ("Overlay", "Overlay", false),
     ("Playtime", "Play", false),
     ("Recorder", "Rec", false),
@@ -84,6 +85,14 @@ pub struct App {
     pub battery: Cached<BatteryCare>,
     pub history: Cached<Vec<HistoryPoint>>,
     pub traffic: Cached<Vec<DayTraffic>>,
+    /// The live monitor's last two minutes: one snapshot and one extra
+    /// reading a second, only while it is on screen.
+    pub live: VecDeque<(Snapshot, ExtraSample)>,
+    pub live_due: Cached<()>,
+    pub fps: Cached<FpsReading>,
+    pub ping: Cached<PingReport>,
+    pub ping_compare: Option<(u64, PingComparison)>,
+    pub net: Cached<(Vec<AppTraffic>, Vec<NetRule>, NetControlStatus)>,
     /// A dangerous action armed by the first press; confirmed by a second
     /// within five seconds.
     pub armed: Option<(String, Instant)>,
@@ -123,6 +132,12 @@ impl App {
             battery: Cached::new(Duration::from_secs(15)),
             history: Cached::new(RARE),
             traffic: Cached::new(RARE),
+            live: VecDeque::new(),
+            live_due: Cached::new(LIVE),
+            fps: Cached::new(LIVE),
+            ping: Cached::new(LIVE),
+            ping_compare: None,
+            net: Cached::new(Duration::from_secs(2)),
             armed: None,
             notice: None,
             hits: Vec::new(),
@@ -181,11 +196,24 @@ impl App {
                 }
             }
             3 => {
-                if self.history.due() {
+                if self.tab == 0 && self.choice == 0 {
+                    if self.live_due.due() {
+                        match (self.bus.snapshot(), self.bus.extra()) {
+                            (Ok(s), Ok(e)) => {
+                                self.live.push_back((s, e));
+                                while self.live.len() > 120 {
+                                    self.live.pop_front();
+                                }
+                                self.live_due.store(Ok(()));
+                            }
+                            (Err(e), _) | (_, Err(e)) => self.live_due.store(Err(e)),
+                        }
+                    }
+                } else if self.tab == 0 && self.history.due() {
                     let now = data::now_ms();
                     let since = match self.choice {
-                        0 => now.saturating_sub(3_600_000),
-                        2 => now.saturating_sub(7 * 86_400_000),
+                        1 => now.saturating_sub(3_600_000),
+                        3 => now.saturating_sub(7 * 86_400_000),
                         _ => {
                             // Today: since local midnight, like the window.
                             let secs_today = unsafe {
@@ -198,17 +226,43 @@ impl App {
                         }
                     };
                     // About one point per 5 minutes for a day, per 30 for a week.
-                    let points = [60, 288, 336][self.choice.min(2)];
+                    let points = [60, 60, 288, 336][self.choice.min(3)];
                     let r = self.bus.history(since, now, points);
                     self.history.store(r);
+                }
+                if self.tab == 2 && self.fps.due() {
+                    let r = self.bus.fps();
+                    self.fps.store(r);
                 }
                 if self.tab == 1 && self.snapshot.due() {
                     let r = self.bus.snapshot();
                     self.snapshot.store(r);
                 }
-                if self.traffic.due() {
+                if self.tab == 1 && self.traffic.due() {
                     let r = self.bus.traffic(data::now_ms().saturating_sub(7 * 86_400_000));
                     self.traffic.store(r);
+                }
+            }
+            4 => {
+                if self.tab == 0 && self.ping.due() {
+                    let r = self.bus.ping(data::now_ms().saturating_sub(5 * 60_000));
+                    if let Ok(rep) = &r {
+                        // Compare around the last time game mode went on, once per mark.
+                        let mark = rep.marks.iter().rev().find(|m| m.kind == "gamemode-on").map(|m| m.ts_unix_ms);
+                        let far = rep.targets.iter().find(|t| t.id == "game" && !t.addr.is_empty()).or_else(|| rep.targets.iter().find(|t| t.id == "internet"));
+                        if let (Some(m), Some(t)) = (mark, far) {
+                            if data::now_ms() > m + 10_000 {
+                                if let Ok(c) = self.bus.ping_compare(&t.id, m) {
+                                    self.ping_compare = Some((m, c));
+                                }
+                            }
+                        }
+                    }
+                    self.ping.store(r);
+                }
+                if self.net.due() {
+                    let r = self.bus.net();
+                    self.net.store(r);
                 }
             }
             _ => {}
@@ -250,7 +304,8 @@ impl App {
     fn tabs(&self) -> usize {
         match self.page {
             2 => 3,
-            3 => 2,
+            3 => 3,
+            4 => 2,
             _ => 1,
         }
     }
@@ -296,6 +351,7 @@ impl App {
                 KeyCode::Right | KeyCode::Char('l') => pages::step_choice(self, 1),
                 KeyCode::Enter | KeyCode::Char(' ') => pages::activate(self, self.row),
                 KeyCode::Char('x') | KeyCode::Delete => pages::remove(self, self.row),
+                KeyCode::Char('b') => pages::block(self, self.row),
                 _ => {}
             },
         }
@@ -460,7 +516,12 @@ impl App {
                 r,
             );
         } else if let Some((text, ok, _)) = &self.notice {
-            f.render_widget(Paragraph::new(Span::styled(format!(" {text}"), Style::default().fg(if *ok { t.ok } else { t.danger }))), r);
+            let mut spans = vec![Span::styled(format!(" {text}"), Style::default().fg(if *ok { t.ok } else { t.danger }))];
+            let hint = format!("   A bug? {}", ug_core::BUG_REPORT_EMAIL);
+            if !ok && (text.chars().count() + hint.chars().count() + 1) < r.width as usize {
+                spans.push(Span::styled(hint, t.faint()));
+            }
+            f.render_widget(Paragraph::new(Line::from(spans)), r);
         }
     }
 
@@ -487,7 +548,7 @@ impl App {
     fn draw_help(&self, f: &mut Frame, area: Rect) {
         let t = &self.theme;
         let w = 64.min(area.width - 4);
-        let h = 18.min(area.height - 2);
+        let h = 20.min(area.height - 2);
         let r = Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h };
         f.render_widget(ratatui::widgets::Clear, r);
         let lines = vec![
@@ -497,7 +558,8 @@ impl App {
             Line::from("  Enter  → Tab    open the page / next section"),
             Line::from("  ← →  h l        change the choice on the page"),
             Line::from("  Enter  Space    press, toggle, run"),
-            Line::from("  x  Delete       remove a scheduled item"),
+            Line::from("  x  Delete       remove a scheduled item or a rule"),
+            Line::from("  b               block the selected app (Ping page)"),
             Line::from("  1 … 9           jump to a page"),
             Line::from("  Esc             back to the menu, then quit"),
             Line::from("  g               open the graphical window"),
@@ -505,6 +567,7 @@ impl App {
             Line::from(""),
             Line::from(Span::styled("Mouse: click anything; the wheel scrolls.", t.muted())),
             Line::from(Span::styled("Shut down and restart ask twice.", t.muted())),
+            Line::from(Span::styled(format!("Found a bug? {}", ug_core::BUG_REPORT_EMAIL), t.accent())),
         ];
         f.render_widget(
             Paragraph::new(lines).block(Block::default().borders(Borders::ALL).border_style(t.accent()).title(" Help ")),
@@ -607,6 +670,99 @@ mod tests {
         app.go(0);
         app.refresh();
         assert!(render(&mut app, 120, 34).contains("Cannot reach"), "an unreachable service is said, not hidden");
+    }
+
+    fn snap(i: u64) -> Snapshot {
+        serde_json::from_value(serde_json::json!({
+            "ts_unix_ms": 1_000_000 + i * 1000,
+            "cpu": {"load_pct": 20.0 + i as f64, "temp_c": 52.0, "power_w": 11.0, "freq_avg_mhz": 1800, "freq_max_mhz": 4100,
+                    "per_core_load": [10.0, 90.0, 50.0, 0.0], "governor": "powersave", "epp": "", "driver": "intel_pstate"},
+            "gpus": [{"pci": "0000:01:00.0", "temp_c": 0.0, "temp_hotspot_c": 0.0, "temp_mem_c": 0.0, "load_pct": 0.0,
+                      "power_w": 0.0, "power_limit_w": 0.0, "core_clock_mhz": 0, "mem_clock_mhz": 0, "vram_used_mb": 0,
+                      "fan_pct": 0.0, "fan_rpm": 0, "asleep": true}],
+            "mem": {"total_kb": 16_000_000, "available_kb": 6_000_000, "swap_total_kb": 0, "swap_used_kb": 0, "zram_used_kb": 0},
+            "net": {"iface": "wlan0", "rx_bps": 250_000, "tx_bps": 20_000, "rx_total_bytes": 0, "tx_total_bytes": 0}
+        }))
+        .map(|mut s: Snapshot| {
+            // As the daemon sends a sleeping card: nothing read.
+            s.gpus[0].temp_c = f64::NAN;
+            s
+        })
+        .expect("snapshot json")
+    }
+
+    #[test]
+    fn the_live_monitor_draws_every_reading() {
+        let mut app = App::new(Bus::offline());
+        app.go(3);
+        app.choice = 0;
+        for i in 0..10 {
+            let e = ExtraSample { battery_pct: 81.0, battery_w: 9.5, battery_status: "Discharging".into(), disk_read_bps: 2_500_000, load_avg_1: 1.25, processes: 612, ..Default::default() };
+            app.live.push_back((snap(i), e));
+        }
+        let screen = render(&mut app, 140, 44);
+        for want in ["Live", "Load avg", "1.25", "612", "81 % 9.5 W", "Temperature", "Clock", "Memory", "Disk", "Internet", "Battery power", "▂▇▅▁", "Battery power  9.5 W"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        // A sleeping graphics card is never charted (it was not read).
+        assert!(!screen.contains("Graphics card"));
+    }
+
+    #[test]
+    fn the_fps_tab_says_what_to_do_in_each_state() {
+        let mut app = App::new(Bus::offline());
+        app.go(3);
+        app.tab = 2;
+        let mut r = FpsReading { state: "not-installed".into(), install_hint: "sudo apt install mangohud".into(), ..Default::default() };
+        app.fps.store(Ok(r.clone()));
+        assert!(render(&mut app, 120, 34).contains("sudo apt install mangohud"));
+        r.state = "not-set-up".into();
+        app.fps.store(Ok(r.clone()));
+        assert!(render(&mut app, 120, 34).contains("Set up"));
+        r.state = "live".into();
+        r.game = "cs2".into();
+        r.fps = 141.0;
+        r.low_1pct_fps = 88.0;
+        r.frametime_ms = 7.1;
+        r.recent = (0..20).map(|i| (1_000_000 + i * 200, 140.0)).collect();
+        app.fps.store(Ok(r));
+        let screen = render(&mut app, 120, 34);
+        for want in ["cs2", "141", "88", "7.1 ms", "last ten seconds"] {
+            assert!(screen.contains(want), "missing {want:?}");
+        }
+    }
+
+    #[test]
+    fn the_ping_page_shows_targets_background_tasks_and_rules() {
+        use ug_proto::{AppTraffic, NetRule, PingSample, PingStats, PingTarget};
+        let mut app = App::new(Bus::offline());
+        app.go(4);
+        let samples: Vec<PingSample> = (0..30).map(|i| PingSample { ts_unix_ms: data::now_ms() - 30_000 + i * 1000, rtt_ms: 20.0 + (i % 3) as f64 }).collect();
+        let stats = PingStats { sent: 30, received: 30, median_ms: 21.0, jitter_ms: 1.5, p95_ms: 22.0, loss_pct: 0.0 };
+        app.ping.store(Ok(PingReport {
+            targets: vec![
+                PingTarget { id: "gateway".into(), label: "Router".into(), addr: "192.168.1.1".into(), samples: samples.clone(), stats: stats.clone(), problem: String::new(), via: "wlan0".into(), through_vpn: false },
+                PingTarget { id: "internet".into(), label: "DNS server".into(), addr: "1.1.1.1".into(), samples, stats, problem: String::new(), via: "tun0".into(), through_vpn: true },
+            ],
+            marks: vec![],
+        }));
+        let steam = AppTraffic {
+            id: "a/steam".into(), name: "steam".into(), kind: "app".into(), uid: 1000, exe: "steam".into(), pids: vec![1],
+            rx_bps: 4_200_000, tx_bps: 20_000, rx_bytes: 9e8 as u64, tx_bytes: 1, state: String::new(), category: "launcher".into(), has_game: false,
+        };
+        let firefox = AppTraffic { id: "a/ff".into(), name: "firefox-esr".into(), category: String::new(), rx_bps: 300_000, ..steam.clone() };
+        let rule = NetRule { app: "qbittorrent".into(), block: false, up_kbps: 1000, down_kbps: 8000, when: "gaming".into(), active: false };
+        app.net.store(Ok((vec![steam, firefox], vec![rule], NetControlStatus { available: true, ..Default::default() })));
+        let screen = render(&mut app, 130, 40);
+        for want in ["Router", "21 ms", "1.1.1.1", "through the VPN (tun0)", "direct (wlan0)", "Ping, last five minutes", "Background tasks", "steam", "launcher", "4.2 MB/s"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        assert!(!screen.contains("firefox-esr"), "a browser download is not a background task");
+        app.tab = 1;
+        let screen = render(&mut app, 130, 40);
+        for want in ["firefox-esr", "Rules", "qbittorrent", "up 1.0 Mbit/s", "waits for a game"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
     }
 
     #[test]
