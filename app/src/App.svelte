@@ -7,6 +7,7 @@
   import { api, errorText, type Overview } from "./lib/api";
   import { locale, setLocale, t } from "./lib/i18n.svelte";
   import Dashboard from "./pages/Dashboard.svelte";
+  import GameMode from "./pages/GameMode.svelte";
 
   type Page = keyof ReturnType<typeof t>["nav"];
   // Phoenix Guardian's order, with the Linux-only driver troubleshooter added.
@@ -25,9 +26,11 @@
     ["settings", Settings],
   ];
   // Built so far; every other page says plainly that it is not.
-  const built = new Set<Page>(["dashboard"]);
+  const built = new Set<Page>(["dashboard", "gamemode"]);
 
-  let page = $state<Page>("dashboard");
+  // `#gamemode` in the URL opens that page (handy in the browser preview).
+  const fromHash = location.hash.slice(1) as Page;
+  let page = $state<Page>(pages.some(([p]) => p === fromHash) ? fromHash : "dashboard");
   let overview = $state<Overview | null>(null);
   let loadError = $state<string | null>(null);
 
@@ -73,6 +76,8 @@
     {/if}
     {#if page === "dashboard"}
       <Dashboard {overview} />
+    {:else if page === "gamemode"}
+      <GameMode {overview} />
     {:else}
       <section class="unbuilt-page">
         <h1>{t().nav[page]}</h1>

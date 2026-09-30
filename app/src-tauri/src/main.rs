@@ -12,14 +12,34 @@
 
 mod bus;
 
+/// Sets an environment variable unless the user already chose a value.
+fn default_env(key: &str, value: &str) {
+    if std::env::var_os(key).is_none() {
+        std::env::set_var(key, value);
+    }
+}
+
 fn main() {
-    // WebKitGTK's DMA-BUF renderer shows a blank or flickering window with the
-    // NVIDIA proprietary driver when NVIDIA renders the desktop. On hybrid
-    // laptops the integrated GPU renders it and the renderer works (and costs
-    // less CPU: measured 2 % vs 5 % of a core at one update a second), so it is
-    // only disabled when an NVIDIA GPU drives the display.
-    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() && nvidia_drives_display() {
-        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    // Rendering is tuned for memory, the user's condition for a web-based UI.
+    // Measured on the development laptop (dashboard at 1 Hz, PSS of all three
+    // processes): 307 MB by default, 281 MB with only Mesa's EGL loaded (GLVND
+    // otherwise maps NVIDIA's EGL libraries into both processes even when the
+    // integrated GPU renders), 246 MB with WebKit's GPU compositing and GTK's
+    // GL also off, at the same 3 % of one core — the pages have no animation
+    // for a GPU to help with. WebKitGTK cannot run with no EGL at all (the web
+    // process aborts), so this is the floor. All of it is set before GTK or
+    // WebKit start, while the process is single-threaded.
+    if nvidia_drives_display() {
+        // The DMA-BUF renderer shows a blank or flickering window when the
+        // NVIDIA proprietary driver renders the desktop.
+        default_env("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    } else {
+        let mesa = "/usr/share/glvnd/egl_vendor.d/50_mesa.json";
+        if std::path::Path::new(mesa).exists() {
+            default_env("__EGL_VENDOR_LIBRARY_FILENAMES", mesa);
+        }
+        default_env("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+        default_env("GDK_GL", "disable");
     }
     let daemon_on_session = std::env::var_os("UG_SESSION").is_some_and(|v| v == "1");
 

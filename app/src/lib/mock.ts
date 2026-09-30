@@ -7,6 +7,7 @@ import data from "./preview-data.json";
 import type { InstalledGame, Overview, PlaytimeEntry, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
+const profiles = structuredClone(data.profiles) as Profile[];
 let t = 0;
 
 function jitter(v: number | null, spread: number, lo = 0, hi = 100): number | null {
@@ -55,8 +56,16 @@ export const mockApi = {
   gamemodeActive: async () => false,
   gamesRunning: async (): Promise<RunningGame[]> => [],
   gamesInstalled: async () => data.installed as InstalledGame[],
-  profiles: async () => data.profiles as Profile[],
-  setGameProfile: async () => {},
+  profiles: async () => structuredClone(profiles),
+  // The preview keeps changes in memory so the page can be tried out.
+  setGameProfile: async (key: string, profile: string) => {
+    for (const p of profiles) p.games = p.games.filter((g) => g !== key);
+    if (profile) profiles.find((p) => p.id === profile)?.games.push(key);
+  },
+  setProfileOption: async (profile: string, option: string, value: boolean) => {
+    const p = profiles.find((x) => x.id === profile) as unknown as Record<string, unknown> | undefined;
+    if (p) p[option] = value;
+  },
   playtime: async (): Promise<PlaytimeEntry[]> => [],
   onSample: async (f: (s: Snapshot) => void) => {
     listeners.add(f);

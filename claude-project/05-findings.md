@@ -97,6 +97,12 @@ one is encoded in code and tests now; keep them in mind when extending nearby.
     tray icon in the window process after closing the window still held
     **124 MB** and left WebKit's network process running, so the window process
     now exits on close (tray belongs in the agent).
+    **Memory floor, measured later:** 307 MB by default → 281 MB with only
+    Mesa's EGL vendor (GLVND maps NVIDIA's EGL libraries into both processes
+    even when the Intel GPU renders) → **~248 MB** with WebKit compositing and
+    GTK GL also off, CPU unchanged at 3 %. Mesa's LLVM (24 MB per process)
+    stays: WebKitGTK aborts with no EGL display. The roadmap's 150 MB open
+    budget is not reachable with WebKitGTK; closed is 0 (the process exits).
 21. **An installed agent sees the e2e scripts' fake games.** It scans all the
     user's processes, so `SteamAppId=730 … sleep` started by a test turned on
     real game mode and wrote real playtime; and a plain `dbus-run-session`

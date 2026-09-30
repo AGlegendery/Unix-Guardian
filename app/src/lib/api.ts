@@ -148,6 +148,8 @@ const tauriApi = {
   gamesInstalled: () => invoke<InstalledGame[]>("games_installed"),
   profiles: () => invoke<Profile[]>("profiles"),
   setGameProfile: (key: string, profile: string) => invoke<void>("set_game_profile", { key, profile }),
+  setProfileOption: (profile: string, option: string, value: boolean) =>
+    invoke<void>("set_profile_option", { profile, option, value }),
   playtime: (sinceUnixMs: number) => invoke<PlaytimeEntry[]>("playtime", { sinceUnixMs }),
   onSample: (f: (s: Snapshot) => void): Promise<UnlistenFn> => listen<Snapshot>("sample", (e) => f(e.payload)),
 };
