@@ -10,7 +10,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use ug_proto::agent::{GamesProxy, MonitorProxy, PingProxy, PlaytimeProxy, ProfilesProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy};
 use ug_proto::daemon::{DaemonProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{GpuCapabilities, Inventory, PowerWatch, Snapshot};
 
@@ -102,10 +102,56 @@ enum Command {
         #[arg(long, default_value_t = 10)]
         seconds: u32,
     },
+    /// The in-game overlay (MangoHud): show its settings, set it up, change it.
+    Overlay {
+        #[command(subcommand)]
+        command: Option<OverlayCommand>,
+    },
+    /// Frame statistics of recent game sessions (from MangoHud's log).
+    Fps {
+        /// Only the last seven days.
+        #[arg(long)]
+        week: bool,
+        /// Delete every recorded session.
+        #[arg(long)]
+        forget: bool,
+    },
     /// Game profiles, and which game uses which.
     Profile {
         #[command(subcommand)]
         command: ProfileCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum OverlayCommand {
+    /// Add Unix Guardian's block to MangoHud.conf (your file is backed up).
+    Setup,
+    /// Remove everything Unix Guardian added to MangoHud's configuration.
+    Undo,
+    /// Change settings; only the ones given change.
+    Set {
+        /// gaming, always or off
+        #[arg(long)]
+        show: Option<String>,
+        /// card or compact
+        #[arg(long)]
+        layout: Option<String>,
+        /// top-left, top-right, bottom-left, bottom-right or top-center
+        #[arg(long)]
+        position: Option<String>,
+        /// small, medium or large
+        #[arg(long)]
+        size: Option<String>,
+        /// Background opacity, 0-100.
+        #[arg(long)]
+        opacity: Option<u8>,
+        /// The key that shows and hides it in game, e.g. Alt_L+o.
+        #[arg(long)]
+        key: Option<String>,
+        /// Load MangoHud into every Vulkan game (after the next login).
+        #[arg(long, value_parser = ["on", "off"])]
+        every_game: Option<String>,
     },
 }
 
@@ -316,6 +362,8 @@ async fn run() -> Result<()> {
         Command::History { hours } => return history(hours, cli.json).await,
         Command::Traffic { days } => return traffic(days, cli.json).await,
         Command::Ping { seconds } => return ping(seconds, cli.json).await,
+        Command::Overlay { command } => return overlay(command, cli.json).await,
+        Command::Fps { week, forget } => return fps_sessions(week, forget, cli.json).await,
         _ => {}
     }
 
@@ -350,7 +398,7 @@ async fn run() -> Result<()> {
         Command::Power { command } => power(&conn, command, cli.json).await,
         Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
         Command::Net { command, all } => net(&conn, command, all, cli.json).await,
-        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Tui => {
+        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Fps { .. } | Command::Tui => {
             unreachable!("handled above")
         }
     }
@@ -572,6 +620,85 @@ async fn ping(seconds: u32, json: bool) -> Result<()> {
             f(s.jitter_ms),
             f(s.p95_ms),
             s.loss_pct
+        );
+    }
+    Ok(())
+}
+
+async fn overlay(command: Option<OverlayCommand>, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let o = OverlayProxy::new(&conn).await?;
+    match command {
+        None => {}
+        Some(OverlayCommand::Setup) => o.set_up(true).await.map_err(agent_hint)?,
+        Some(OverlayCommand::Undo) => {
+            o.set_up(false).await.map_err(agent_hint)?;
+            println!("MangoHud's configuration is back as it was.");
+            return Ok(());
+        }
+        Some(OverlayCommand::Set { show, layout, position, size, opacity, key, every_game }) => {
+            let mut s = o.state().await.map_err(agent_hint)?.settings;
+            if let Some(v) = show { s.show = v; }
+            if let Some(v) = layout { s.layout = v; }
+            if let Some(v) = position { s.position = v; }
+            if let Some(v) = size { s.size = v; }
+            if let Some(v) = opacity { s.opacity_pct = v; }
+            if let Some(v) = key { s.toggle_key = v; }
+            if let Some(v) = every_game { s.every_game = v == "on"; }
+            o.set(&s).await.map_err(agent_hint)?;
+        }
+    }
+    let st = o.state().await.map_err(agent_hint)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&st)?);
+        return Ok(());
+    }
+    if !st.installed {
+        println!("MangoHud is not installed. Install it with: {}", st.install_hint);
+        return Ok(());
+    }
+    let s = &st.settings;
+    println!("Overlay     {}", if st.set_up { "set up" } else { "not set up (ug overlay setup)" });
+    println!("Shows       {}", match s.show.as_str() { "gaming" => "only while a game runs", "always" => "always", _ => "never (FPS is still recorded)" });
+    println!("Layout      {}, {}, {} size, background {} %", s.layout, s.position, s.size, s.opacity_pct);
+    println!("Key         {} shows and hides it in game", s.toggle_key);
+    println!(
+        "Every game  {}{}",
+        if s.every_game { "on" } else { "off (or add `mangohud %command%` to a Steam game's launch options)" },
+        if s.every_game && !st.every_game_active { " — takes effect at your next login" } else { "" }
+    );
+    Ok(())
+}
+
+async fn fps_sessions(week: bool, forget: bool, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let m = MonitorProxy::new(&conn).await?;
+    if forget {
+        let n = m.forget_fps_sessions().await.map_err(agent_hint)?;
+        println!("Deleted {n} sessions.");
+        return Ok(());
+    }
+    let since = if week { now_ms().saturating_sub(7 * 86_400_000) } else { 0 };
+    let list = m.fps_sessions(since).await.map_err(agent_hint)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&list)?);
+        return Ok(());
+    }
+    if list.is_empty() {
+        println!("No sessions yet. They are recorded when a game runs with MangoHud and Unix Guardian's overlay set up.");
+        return Ok(());
+    }
+    println!("{:<17} {:<22} {:>7} {:>6} {:>7} {:>8} {:>9}", "started", "game", "minutes", "avg", "1% low", "0.1% low", "stutters");
+    for s in list {
+        println!(
+            "{:<17} {:<22} {:>7} {:>6.0} {:>7.0} {:>8.0} {:>9}",
+            &local_time(s.started_unix_ms)[..16],
+            s.game.chars().take(22).collect::<String>(),
+            s.duration_s / 60,
+            s.avg_fps,
+            s.low_1pct_fps,
+            s.low_01pct_fps,
+            s.stutters
         );
     }
     Ok(())

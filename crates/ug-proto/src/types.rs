@@ -681,3 +681,74 @@ pub struct FpsReading {
     /// The command that installs MangoHud here, for `not-installed`.
     pub install_hint: String,
 }
+
+/// How the in-game overlay looks and when it shows. Unix Guardian writes
+/// MangoHud's configuration from this; the user never edits that file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct OverlaySettings {
+    /// `gaming` (only while a game runs), `always` (every app MangoHud is
+    /// loaded into) or `off` (hidden; FPS is still recorded).
+    pub show: String,
+    /// `card` (full: CPU, GPU, memory, frame-time graph) or `compact` (one
+    /// line: FPS and temperatures).
+    pub layout: String,
+    /// `top-left`, `top-right`, `bottom-left`, `bottom-right`, `top-center`.
+    pub position: String,
+    /// `small`, `medium`, `large`.
+    pub size: String,
+    /// Background opacity, 0–100.
+    pub opacity_pct: u8,
+    /// MangoHud key names, e.g. `Alt_L+o` (shows and hides the overlay
+    /// while the game has focus).
+    pub toggle_key: String,
+    /// Load MangoHud into every Vulkan game (`MANGOHUD=1` in the session;
+    /// takes effect at the next login).
+    pub every_game: bool,
+}
+
+impl Default for OverlaySettings {
+    fn default() -> Self {
+        OverlaySettings {
+            show: "gaming".into(),
+            layout: "card".into(),
+            position: "top-left".into(),
+            size: "medium".into(),
+            opacity_pct: 50,
+            toggle_key: "Alt_L+o".into(),
+            every_game: false,
+        }
+    }
+}
+
+/// The overlay's settings with what this machine allows.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct OverlayState {
+    pub settings: OverlaySettings,
+    pub installed: bool,
+    /// Unix Guardian's block is in MangoHud.conf.
+    pub set_up: bool,
+    /// The command that installs MangoHud here.
+    pub install_hint: String,
+    /// `MANGOHUD=1` is in this session's environment now (a login after
+    /// turning `every_game` on).
+    pub every_game_active: bool,
+    /// A game is running, so `gaming` means shown right now.
+    pub game_running: bool,
+}
+
+/// One game session's frame statistics, from MangoHud's per-frame log.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct FpsSession {
+    pub game: String,
+    pub started_unix_ms: u64,
+    pub duration_s: u64,
+    pub frames: u64,
+    pub avg_fps: f64,
+    /// FPS at the 99th percentile frame time (the standard benchmark 1% low).
+    pub low_1pct_fps: f64,
+    /// FPS at the 99.9th percentile frame time.
+    pub low_01pct_fps: f64,
+    pub p99_frametime_ms: f64,
+    /// Frames that took more than twice the median frame time.
+    pub stutters: u64,
+}

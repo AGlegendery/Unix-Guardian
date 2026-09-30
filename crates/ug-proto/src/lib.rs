@@ -349,6 +349,12 @@ pub mod agent {
         /// Adds (true) or removes (false) Unix Guardian's logging block in
         /// the user's MangoHud.conf; the first change keeps a backup.
         fn set_up_fps(&self, on: bool) -> zbus::Result<()>;
+
+        /// Finished game sessions' frame statistics since `since_unix_ms`.
+        fn fps_sessions(&self, since_unix_ms: u64) -> zbus::Result<Vec<FpsSession>>;
+
+        /// Deletes every recorded FPS session; returns how many.
+        fn forget_fps_sessions(&self) -> zbus::Result<u32>;
     }
 
     /// Ping to the router, the DNS server and the game's server. Measuring
@@ -365,6 +371,24 @@ pub mod agent {
 
         /// Stats for the `window_s` seconds before and after `mark_unix_ms`.
         fn compare(&self, target: &str, mark_unix_ms: u64, window_s: u32) -> zbus::Result<PingComparison>;
+    }
+
+    /// The in-game overlay (MangoHud), set up and styled by Unix Guardian.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Overlay",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Overlay {
+        fn state(&self) -> zbus::Result<OverlayState>;
+
+        /// Saves the settings and rewrites MangoHud's configuration; a
+        /// running game picks the change up without restarting.
+        fn set(&self, settings: &OverlaySettings) -> zbus::Result<()>;
+
+        /// Adds (true) or removes (false) Unix Guardian's block in the
+        /// user's MangoHud.conf, and the session variable if it was set.
+        fn set_up(&self, on: bool) -> zbus::Result<()>;
     }
 
     /// Game profiles and which game uses which.

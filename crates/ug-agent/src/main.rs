@@ -15,6 +15,7 @@ mod gamemode;
 mod history;
 mod iface;
 mod notify;
+mod overlay;
 mod ping;
 mod playtime;
 
@@ -28,7 +29,7 @@ use ug_hw::SysRoot;
 use ug_proto::{AGENT_BUS_NAME, AGENT_OBJECT_PATH};
 
 use crate::core::{AgentCore, Outcome};
-use iface::{lock, now_ms, GamesIface, MonitorIface, PingIface, PlaytimeIface, ProfilesIface, Shared};
+use iface::{lock, now_ms, GamesIface, MonitorIface, OverlayIface, PingIface, PlaytimeIface, ProfilesIface, Shared};
 
 const GAMEMODE_NAME: &str = "com.feralinteractive.GameMode";
 const GAMEMODE_PATH: &str = "/com/feralinteractive/GameMode";
@@ -220,14 +221,19 @@ async fn main() -> Result<()> {
 
     let pinger = ping::Pinger::new(SysRoot::real());
     let config_home = ug_core::paths::user_config().parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    let fps = Arc::new(fps::Fps::for_user(&config_home, &ug_core::paths::user_data()));
+    let overlay = Arc::new(overlay::Overlay::new(
+        fps::Fps::for_user(&config_home, &ug_core::paths::user_data()),
+        &config_home,
+        &ug_core::paths::user_config(),
+    ));
     let (announce_tx, mut announce_rx) = tokio::sync::mpsc::unbounded_channel::<Outcome>();
 
     let conn = zbus::connection::Builder::session()?
         .serve_at(AGENT_OBJECT_PATH, GamesIface { core: Arc::clone(&core), announce: announce_tx.clone() })?
         .serve_at(AGENT_OBJECT_PATH, PlaytimeIface { core: Arc::clone(&core) })?
         .serve_at(AGENT_OBJECT_PATH, ProfilesIface { core: Arc::clone(&core) })?
-        .serve_at(AGENT_OBJECT_PATH, MonitorIface { history: Arc::clone(&history), fps: Arc::clone(&fps) })?
+        .serve_at(AGENT_OBJECT_PATH, MonitorIface { history: Arc::clone(&history), overlay: Arc::clone(&overlay) })?
+        .serve_at(AGENT_OBJECT_PATH, OverlayIface { overlay: Arc::clone(&overlay) })?
         .serve_at(AGENT_OBJECT_PATH, PingIface { pinger: pinger.clone() })?
         .build()
         .await
@@ -294,14 +300,14 @@ async fn main() -> Result<()> {
                     daemon.watch_background(&conn, &mut offered, &pending_limits).await;
                 }
                 follow_game(&core, &pinger).await;
+                overlay.follow(!lock(&core).running().is_empty());
             }
             Some(o) = announce_rx.recv() => announce(&conn, o, !args.quiet, &pending_dismissals).await,
             _ = heartbeat.tick() => {
                 lock(&core).heartbeat(now_ms());
                 daemon.record_history(&history).await;
-                if now_ms() % 3_600_000 < 60_000 {
-                    fps.prune(std::time::SystemTime::now());
-                }
+                let (h, o) = (Arc::clone(&history), Arc::clone(&overlay));
+                let _ = tokio::task::spawn_blocking(move || record_fps_sessions(&h, &o)).await;
             }
             _ = rescan.tick() => {
                 let c = Arc::clone(&core);
@@ -336,6 +342,27 @@ async fn follow_game(core: &Shared, pinger: &ping::Pinger) {
         tokio::task::spawn_blocking(move || ug_hw::procnet::game_peer(&SysRoot::real(), &pids)).await.ok().flatten();
     pinger.set_game(Some((g.name, peer)));
     pinger.touch();
+}
+
+/// Turns finished MangoHud logs into stored sessions and deletes them
+/// (per-frame logs are large). Old leftovers are pruned too.
+fn record_fps_sessions(history: &history::History, overlay: &overlay::Overlay) {
+    let now = std::time::SystemTime::now();
+    for (path, written) in overlay.fps.finished_logs(now) {
+        match fps::session_stats(&path, written) {
+            Some(s) => {
+                tracing::info!(game = %s.game, avg = s.avg_fps, low1 = s.low_1pct_fps, "FPS session recorded");
+                if history.record_fps(&s) {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+            // Too short to mean anything (a launcher flashing MangoHud).
+            None => {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+    overlay.fps.prune(now);
 }
 
 /// Takes the GameMode name if nobody has it.
