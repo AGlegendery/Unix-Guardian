@@ -44,7 +44,12 @@ impl Fps {
                 .flatten()
                 .any(|e| e.file_name().to_string_lossy().to_lowercase().contains("mangohud"))
         });
-        has_layer || ["usr/bin/mangohud", "usr/local/bin/mangohud"].iter().any(|p| self.root.join(p).exists())
+        // The Flatpak layer, for Flatpak Steam: system-wide or per user.
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let flatpak = self.root.join("var/lib/flatpak/runtime/org.freedesktop.Platform.VulkanLayer.MangoHud").exists()
+            || (self.root == Path::new("/")
+                && home.join(".local/share/flatpak/runtime/org.freedesktop.Platform.VulkanLayer.MangoHud").exists());
+        has_layer || flatpak || ["usr/bin/mangohud", "usr/local/bin/mangohud"].iter().any(|p| self.root.join(p).exists())
     }
 
     pub fn set_up(&self) -> bool {
@@ -340,6 +345,14 @@ mod tests {
         let r = fps.read(SystemTime::now());
         assert_eq!(r.state, "not-installed");
         assert_eq!(r.install_hint, "sudo apt install mangohud");
+    }
+
+    #[test]
+    fn the_flatpak_layer_counts_as_installed() {
+        let (d, fps) = fixture();
+        assert!(!fps.installed());
+        std::fs::create_dir_all(d.path().join("root/var/lib/flatpak/runtime/org.freedesktop.Platform.VulkanLayer.MangoHud")).unwrap();
+        assert!(fps.installed());
     }
 
     #[test]
