@@ -113,7 +113,7 @@ impl ProfilesIface {
 /// `org.unixguardian.Agent1.Monitor`
 pub struct MonitorIface {
     pub history: Arc<crate::history::History>,
-    pub fps: Arc<crate::fps::Fps>,
+    pub overlay: Arc<crate::overlay::Overlay>,
 }
 
 #[zbus::interface(name = "org.unixguardian.Agent1.Monitor")]
@@ -130,14 +130,53 @@ impl MonitorIface {
 
     /// The running game's FPS from MangoHud's log.
     async fn fps(&self) -> ug_proto::FpsReading {
-        let f = Arc::clone(&self.fps);
-        tokio::task::spawn_blocking(move || f.read(std::time::SystemTime::now())).await.unwrap_or_default()
+        let o = Arc::clone(&self.overlay);
+        tokio::task::spawn_blocking(move || o.fps.read(std::time::SystemTime::now())).await.unwrap_or_default()
+    }
+
+    async fn fps_sessions(&self, since_unix_ms: u64) -> Vec<ug_proto::FpsSession> {
+        let h = Arc::clone(&self.history);
+        tokio::task::spawn_blocking(move || h.fps_sessions(since_unix_ms)).await.unwrap_or_default()
+    }
+
+    async fn forget_fps_sessions(&self) -> u32 {
+        let h = Arc::clone(&self.history);
+        tokio::task::spawn_blocking(move || h.forget_fps()).await.unwrap_or(0)
     }
 
     /// Adds (true) or removes (false) Unix Guardian's block in MangoHud.conf.
     async fn set_up_fps(&self, on: bool) -> zbus::fdo::Result<()> {
-        let f = Arc::clone(&self.fps);
-        tokio::task::spawn_blocking(move || f.configure(on))
+        let o = Arc::clone(&self.overlay);
+        tokio::task::spawn_blocking(move || o.set_up(on))
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+            .map_err(zbus::fdo::Error::Failed)
+    }
+}
+
+/// `org.unixguardian.Agent1.Overlay`
+pub struct OverlayIface {
+    pub overlay: Arc<crate::overlay::Overlay>,
+}
+
+#[zbus::interface(name = "org.unixguardian.Agent1.Overlay")]
+impl OverlayIface {
+    async fn state(&self) -> ug_proto::OverlayState {
+        let o = Arc::clone(&self.overlay);
+        tokio::task::spawn_blocking(move || o.state()).await.unwrap_or_default()
+    }
+
+    async fn set(&self, settings: ug_proto::OverlaySettings) -> zbus::fdo::Result<()> {
+        let o = Arc::clone(&self.overlay);
+        tokio::task::spawn_blocking(move || o.set(settings))
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+            .map_err(zbus::fdo::Error::InvalidArgs)
+    }
+
+    async fn set_up(&self, on: bool) -> zbus::fdo::Result<()> {
+        let o = Arc::clone(&self.overlay);
+        tokio::task::spawn_blocking(move || o.set_up(on))
             .await
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
             .map_err(zbus::fdo::Error::Failed)

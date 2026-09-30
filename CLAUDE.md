@@ -39,6 +39,9 @@ Development daemon (no root, never touches real services):
   real machine. Afterwards check `ug playtime` for test entries.
 - The UI must never animate endlessly: WebKitGTK repaints at 60 fps and one
   pulsing dot measured as a full CPU core.
+- `dev-install.sh` copies `target/release` and `app/src-tauri/target/release`
+  as they are: run `cargo build --release --workspace` (and the Tauri
+  build) before asking the user to reinstall, or they install stale binaries.
 - Bugs get a failing test first; confirm it fails without the fix.
 - `rustfmt`/`clippy` are not installed on the dev machine; CI runs them.
 - Commit on the current phase branch (next: `p3-…`), merged into `main` when a

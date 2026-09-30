@@ -11,7 +11,7 @@
 use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Mutex;
-use ug_proto::{DayTraffic, HistoryPoint, Snapshot};
+use ug_proto::{DayTraffic, FpsSession, HistoryPoint, Snapshot};
 
 const KEEP_MS: u64 = 90 * 24 * 3_600_000;
 
@@ -51,6 +51,18 @@ impl History {
                  iface       TEXT,
                  rx_total    INTEGER,
                  tx_total    INTEGER
+             );
+             CREATE TABLE IF NOT EXISTS fps_sessions (
+                 started_ms INTEGER NOT NULL,
+                 game       TEXT    NOT NULL,
+                 duration_s INTEGER NOT NULL,
+                 frames     INTEGER NOT NULL,
+                 avg_fps    REAL    NOT NULL,
+                 low1       REAL    NOT NULL,
+                 low01      REAL    NOT NULL,
+                 p99_ms     REAL    NOT NULL,
+                 stutters   INTEGER NOT NULL,
+                 PRIMARY KEY (started_ms, game)
              );",
         )?;
         Ok(History { conn: Mutex::new(conn) })
@@ -58,6 +70,58 @@ impl History {
 
     fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
         self.conn.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Stores one finished game session's frame statistics (kept forever:
+    /// a row a session is nothing).
+    pub fn record_fps(&self, s: &FpsSession) -> bool {
+        self.conn()
+            .execute(
+                "INSERT OR REPLACE INTO fps_sessions VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    s.started_unix_ms as i64,
+                    s.game,
+                    s.duration_s as i64,
+                    s.frames as i64,
+                    s.avg_fps,
+                    s.low_1pct_fps,
+                    s.low_01pct_fps,
+                    s.p99_frametime_ms,
+                    s.stutters as i64
+                ],
+            )
+            .inspect_err(|e| tracing::warn!(error = %e, "could not store an FPS session"))
+            .is_ok()
+    }
+
+    /// Sessions that started since `since`, newest first.
+    pub fn fps_sessions(&self, since: u64) -> Vec<FpsSession> {
+        let c = self.conn();
+        let Ok(mut q) = c.prepare(
+            "SELECT started_ms, game, duration_s, frames, avg_fps, low1, low01, p99_ms, stutters
+             FROM fps_sessions WHERE started_ms >= ?1 ORDER BY started_ms DESC",
+        ) else {
+            return Vec::new();
+        };
+        q.query_map(params![since as i64], |r| {
+            Ok(FpsSession {
+                started_unix_ms: r.get::<_, i64>(0)? as u64,
+                game: r.get(1)?,
+                duration_s: r.get::<_, i64>(2)? as u64,
+                frames: r.get::<_, i64>(3)? as u64,
+                avg_fps: r.get(4)?,
+                low_1pct_fps: r.get(5)?,
+                low_01pct_fps: r.get(6)?,
+                p99_frametime_ms: r.get(7)?,
+                stutters: r.get::<_, i64>(8)? as u64,
+            })
+        })
+        .map(|rows| rows.flatten().collect())
+        .unwrap_or_default()
+    }
+
+    pub fn forget_fps(&self) -> u32 {
+        self.conn().execute("DELETE FROM fps_sessions", []).unwrap_or(0) as u32
     }
 
     /// Stores a reading. `gpu_pci` picks the GPU charted (the one that works:
@@ -253,5 +317,24 @@ mod tests {
         h.record(&snap(KEEP_MS + 2 * MIN, 40.0, 0, 0, "wlan0"), None);
         h.prune(KEEP_MS + 3 * MIN);
         assert_eq!(h.range(0, KEEP_MS * 2, 100).len(), 1);
+    }
+
+    #[test]
+    fn fps_sessions_are_stored_listed_newest_first_and_forgotten() {
+        let h = History::in_memory();
+        let s = |t: u64, g: &str| FpsSession {
+            game: g.into(), started_unix_ms: t, duration_s: 600, frames: 80_000, avg_fps: 133.0,
+            low_1pct_fps: 88.0, low_01pct_fps: 61.0, p99_frametime_ms: 11.4, stutters: 3,
+        };
+        assert!(h.record_fps(&s(1_000, "cs2")));
+        assert!(h.record_fps(&s(5_000, "eldenring")));
+        assert!(h.record_fps(&s(5_000, "eldenring")), "the same session twice is one row");
+        let all = h.fps_sessions(0);
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].game, "eldenring");
+        assert_eq!(all[1], s(1_000, "cs2"));
+        assert_eq!(h.fps_sessions(2_000).len(), 1);
+        assert_eq!(h.forget_fps(), 2);
+        assert!(h.fps_sessions(0).is_empty());
     }
 }

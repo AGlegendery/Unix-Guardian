@@ -102,6 +102,11 @@ fn main() {
             bus::net_rules,
             bus::net_set_rule,
             bus::net_remove_rule,
+            bus::overlay_state,
+            bus::overlay_set,
+            bus::overlay_set_up,
+            bus::fps_sessions,
+            bus::forget_fps_sessions,
             open_terminal_interface,
             report_bug,
         ])

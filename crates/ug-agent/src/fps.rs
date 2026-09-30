@@ -2,19 +2,27 @@
 //!
 //! Linux has no system-wide frame counter: frames are counted inside the game
 //! by a Vulkan/OpenGL layer. MangoHud is that layer on most distributions,
-//! and it appends one CSV row per `log_interval` while it logs, flushing each
-//! row. Setting up adds a marked block to the user's MangoHud.conf that
-//! starts logging into our folder whenever a game runs with MangoHud; undo
-//! removes exactly that block.
+//! and with `log_interval=0` it logs one CSV row per frame. From 0.8 it
+//! flushes each row, so the running game can be read live; 0.7 (Debian and
+//! Parrot today, checked on the dev laptop) writes the whole file only when
+//! the game closes cleanly, so there the live reading is honestly
+//! unavailable and only the session statistics appear. Setting up adds a marked block to the user's
+//! MangoHud.conf (see `overlay`) that starts logging into our folder whenever
+//! a game runs with MangoHud; undo removes exactly that block.
+//!
+//! A log that stops growing is a finished session: its statistics are
+//! computed once, stored, and the (large, per-frame) file deleted.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use ug_proto::FpsReading;
 
-const BEGIN: &str = "# >>> Unix Guardian: FPS reading (remove with Unix Guardian's Undo)";
-const END: &str = "# <<< Unix Guardian";
+pub(crate) const BEGIN: &str = "# >>> Unix Guardian: FPS reading (remove with Unix Guardian's Undo)";
+pub(crate) const END: &str = "# <<< Unix Guardian";
 /// A log not written for this long belongs to a game that has ended.
 const FRESH: Duration = Duration::from_secs(3);
+/// A log idle this long is a finished session, safe to summarise and delete.
+const FINISHED: Duration = Duration::from_secs(15);
 
 pub struct Fps {
     /// Where MangoHud writes for us.
@@ -30,7 +38,7 @@ impl Fps {
         Fps { folder: data.join("fps"), config: config_home.join("MangoHud/MangoHud.conf"), root: PathBuf::from("/") }
     }
 
-    fn installed(&self) -> bool {
+    pub fn installed(&self) -> bool {
         let layer_dirs = ["usr/share/vulkan/implicit_layer.d", "etc/vulkan/implicit_layer.d"];
         let has_layer = layer_dirs.iter().any(|d| {
             std::fs::read_dir(self.root.join(d))
@@ -39,14 +47,19 @@ impl Fps {
                 .flatten()
                 .any(|e| e.file_name().to_string_lossy().to_lowercase().contains("mangohud"))
         });
-        has_layer || ["usr/bin/mangohud", "usr/local/bin/mangohud"].iter().any(|p| self.root.join(p).exists())
+        // The Flatpak layer, for Flatpak Steam: system-wide or per user.
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let flatpak = self.root.join("var/lib/flatpak/runtime/org.freedesktop.Platform.VulkanLayer.MangoHud").exists()
+            || (self.root == Path::new("/")
+                && home.join(".local/share/flatpak/runtime/org.freedesktop.Platform.VulkanLayer.MangoHud").exists());
+        has_layer || flatpak || ["usr/bin/mangohud", "usr/local/bin/mangohud"].iter().any(|p| self.root.join(p).exists())
     }
 
     pub fn set_up(&self) -> bool {
         std::fs::read_to_string(&self.config).is_ok_and(|c| c.contains(BEGIN))
     }
 
-    fn install_hint(&self) -> String {
+    pub fn install_hint(&self) -> String {
         let has = |p: &str| self.root.join(p).exists();
         if has("usr/bin/apt") {
             "sudo apt install mangohud"
@@ -62,18 +75,30 @@ impl Fps {
         .into()
     }
 
-    /// Adds (or with `on == false` removes) our block. The first change keeps
-    /// a copy of the user's file as `MangoHud.conf.ug-backup`.
+    /// The lines that make MangoHud log every frame into our folder.
+    pub fn logging_lines(&self) -> String {
+        format!("output_folder={}\nautostart_log=1\nlog_interval=0\n", self.folder.display())
+    }
+
+    /// Adds (or with `on == false` removes) a block that only logs.
+    #[cfg(test)]
     pub fn configure(&self, on: bool) -> Result<(), String> {
+        let body = self.logging_lines();
+        self.write_block(on.then_some(body.as_str()))
+    }
+
+    /// Replaces our block with `body` (or with `None` removes it), leaving
+    /// the user's own lines as they are. The first change keeps a copy of
+    /// the user's file as `MangoHud.conf.ug-backup`. Writes nothing when the
+    /// file already says this, so MangoHud does not reload for nothing.
+    pub fn write_block(&self, body: Option<&str>) -> Result<(), String> {
+        let on = body.is_some();
         let old = std::fs::read_to_string(&self.config).unwrap_or_default();
         let kept = strip_block(&old);
-        let new = if on {
+        let new = if let Some(body) = body {
             std::fs::create_dir_all(&self.folder).map_err(|e| e.to_string())?;
             let sep = if kept.is_empty() || kept.ends_with('\n') { "" } else { "\n" };
-            format!(
-                "{kept}{sep}{BEGIN}\noutput_folder={}\nautostart_log=1\nlog_interval=200\n{END}\n",
-                self.folder.display()
-            )
+            format!("{kept}{sep}{BEGIN}\n{body}{END}\n")
         } else {
             kept
         };
@@ -97,8 +122,27 @@ impl Fps {
         std::fs::write(&self.config, new).map_err(|e| e.to_string())
     }
 
+    /// `mangohud --version` → `0.7.1`, cached after the first ask.
+    pub fn version(&self) -> String {
+        static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        if self.root != Path::new("/") {
+            return String::new();
+        }
+        CACHE
+            .get_or_init(|| {
+                std::process::Command::new("mangohud")
+                    .arg("--version")
+                    .output()
+                    .map(|o| parse_version(&String::from_utf8_lossy(&o.stdout)))
+                    .unwrap_or_default()
+            })
+            .clone()
+    }
+
     pub fn read(&self, now: SystemTime) -> FpsReading {
         let mut r = FpsReading { fps: f64::NAN, frametime_ms: f64::NAN, low_1pct_fps: f64::NAN, ..Default::default() };
+        r.mangohud_version = self.version();
+        r.live_unsupported = live_unsupported(&r.mangohud_version);
         if !self.installed() {
             r.state = "not-installed".into();
             r.install_hint = self.install_hint();
@@ -124,6 +168,24 @@ impl Fps {
         r
     }
 
+    /// Logs whose game has ended (idle for 15 s), oldest first, with when
+    /// they were last written.
+    pub fn finished_logs(&self, now: SystemTime) -> Vec<(PathBuf, SystemTime)> {
+        let mut v: Vec<(PathBuf, SystemTime)> = std::fs::read_dir(&self.folder)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| {
+                let n = e.file_name().to_string_lossy().into_owned();
+                n.ends_with(".csv") && !n.ends_with("_summary.csv")
+            })
+            .filter_map(|e| Some((e.path(), e.metadata().ok()?.modified().ok()?)))
+            .filter(|(_, m)| now.duration_since(*m).unwrap_or_default() > FINISHED)
+            .collect();
+        v.sort_by_key(|(_, m)| *m);
+        v
+    }
+
     /// Deletes our logs older than a day; MangoHud never does.
     pub fn prune(&self, now: SystemTime) {
         for e in std::fs::read_dir(&self.folder).into_iter().flatten().flatten() {
@@ -131,7 +193,9 @@ impl Fps {
                 .metadata()
                 .and_then(|m| m.modified())
                 .is_ok_and(|m| now.duration_since(m).unwrap_or_default() > Duration::from_secs(86_400));
-            if old && e.path().extension().is_some_and(|x| x == "csv") {
+            // Summaries MangoHud writes beside a log are never read.
+            let summary = e.file_name().to_string_lossy().ends_with("_summary.csv");
+            if (old || summary) && e.path().extension().is_some_and(|x| x == "csv") {
                 let _ = std::fs::remove_file(e.path());
             }
         }
@@ -171,8 +235,8 @@ fn tail_rows(path: &Path) -> Option<Vec<(f64, f64, u64)>> {
     use std::io::{Read, Seek, SeekFrom};
     let mut f = std::fs::File::open(path).ok()?;
     let len = f.metadata().ok()?.len();
-    // Ten seconds at 5 rows a second is ~50 rows of ~100 bytes.
-    let start = len.saturating_sub(16 * 1024);
+    // Ten seconds of per-frame rows at 144 FPS is ~1,440 rows of ~110 bytes.
+    let start = len.saturating_sub(256 * 1024);
     f.seek(SeekFrom::Start(start)).ok()?;
     let mut buf = String::new();
     f.read_to_string(&mut buf).ok()?;
@@ -199,10 +263,20 @@ fn fill(r: &mut FpsReading, rows: &[(f64, f64, u64)], end_ms: u64) {
     // MangoHud's elapsed column is nanoseconds since logging started.
     let window: Vec<&(f64, f64, u64)> =
         rows.iter().filter(|x| last_elapsed.saturating_sub(x.2) <= 10_000_000_000).collect();
-    r.recent = window
-        .iter()
-        .map(|x| (end_ms.saturating_sub(last_elapsed.saturating_sub(x.2) / 1_000_000), x.0))
-        .collect();
+    // One point per 200 ms: the average FPS of the frames in it.
+    let mut buckets: Vec<(u64, f64, u32)> = Vec::new();
+    for x in &window {
+        let ms = end_ms.saturating_sub(last_elapsed.saturating_sub(x.2) / 1_000_000);
+        let b = ms / 200 * 200;
+        match buckets.last_mut() {
+            Some(last) if last.0 == b => {
+                last.1 += x.0;
+                last.2 += 1;
+            }
+            _ => buckets.push((b, x.0, 1)),
+        }
+    }
+    r.recent = buckets.into_iter().map(|(t, sum, n)| (t, sum / n as f64)).collect();
     let last_second: Vec<&&(f64, f64, u64)> =
         window.iter().filter(|x| last_elapsed.saturating_sub(x.2) <= 1_000_000_000).collect();
     let n = last_second.len().max(1) as f64;
@@ -214,6 +288,61 @@ fn fill(r: &mut FpsReading, rows: &[(f64, f64, u64)], end_ms: u64) {
         let idx = ((ft.len() as f64) * 0.01).floor() as usize;
         r.low_1pct_fps = 1000.0 / ft[idx.min(ft.len() - 1)];
     }
+}
+
+/// Statistics of a finished log, the standard way: 1% and 0.1% lows are the
+/// FPS at the 99th and 99.9th percentile frame times, not averages of the
+/// worst frames. `None` for a log too short to mean anything (< 60 frames).
+pub fn session_stats(path: &Path, written: SystemTime) -> Option<ug_proto::FpsSession> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let rows: Vec<(f64, u64)> = text
+        .lines()
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split(',').collect();
+            let ft: f64 = f.get(1)?.trim().parse().ok()?;
+            let elapsed: u64 = f.last()?.trim().parse().ok()?;
+            (ft > 0.0).then_some((ft, elapsed))
+        })
+        .collect();
+    if rows.len() < 60 {
+        return None;
+    }
+    let mut ft: Vec<f64> = rows.iter().map(|r| r.0).collect();
+    let mean = ft.iter().sum::<f64>() / ft.len() as f64;
+    ft.sort_by(f64::total_cmp);
+    let pct = |q: f64| ft[((ft.len() - 1) as f64 * q).round() as usize];
+    let median = pct(0.5);
+    let duration_ns = rows.last()?.1.saturating_sub(rows.first()?.1);
+    let written_ms = written.duration_since(SystemTime::UNIX_EPOCH).ok()?.as_millis() as u64;
+    Some(ug_proto::FpsSession {
+        game: game_name(path),
+        started_unix_ms: written_ms.saturating_sub(duration_ns / 1_000_000),
+        duration_s: duration_ns / 1_000_000_000,
+        frames: rows.len() as u64,
+        avg_fps: 1000.0 / mean,
+        // With a few long spikes and many equal frames, the 99th percentile
+        // frame can be faster than the mean; a "low" above the average would
+        // read as nonsense, so it is never shown higher than the average.
+        low_1pct_fps: (1000.0 / pct(0.99)).min(1000.0 / mean),
+        low_01pct_fps: (1000.0 / pct(0.999)).min(1000.0 / mean),
+        p99_frametime_ms: pct(0.99),
+        stutters: ft.iter().filter(|v| **v > 2.0 * median).count() as u64,
+    })
+}
+
+/// `v0.7.1` → `0.7.1`.
+fn parse_version(s: &str) -> String {
+    s.split_whitespace().find_map(|w| {
+        let v = w.trim_start_matches('v');
+        (v.chars().next().is_some_and(|c| c.is_ascii_digit()) && v.contains('.')).then(|| v.to_string())
+    })
+    .unwrap_or_default()
+}
+
+/// Versions before 0.8 write the frame log only at the end.
+fn live_unsupported(version: &str) -> bool {
+    let mut p = version.split('.').map(|x| x.parse::<u32>().unwrap_or(0));
+    matches!((p.next(), p.next()), (Some(0), Some(m)) if m < 8)
 }
 
 /// MangoHud names logs `<program>_<YYYY-MM-DD_HH-MM-SS>.csv`.
@@ -253,6 +382,22 @@ mod tests {
         let r = fps.read(SystemTime::now());
         assert_eq!(r.state, "not-installed");
         assert_eq!(r.install_hint, "sudo apt install mangohud");
+    }
+
+    #[test]
+    fn old_mangohud_has_no_live_reading() {
+        assert_eq!(parse_version("v0.7.1\n"), "0.7.1");
+        assert!(live_unsupported("0.7.1"));
+        assert!(!live_unsupported("0.8.0"));
+        assert!(!live_unsupported(""), "unknown: assume it works and let the log tell");
+    }
+
+    #[test]
+    fn the_flatpak_layer_counts_as_installed() {
+        let (d, fps) = fixture();
+        assert!(!fps.installed());
+        std::fs::create_dir_all(d.path().join("root/var/lib/flatpak/runtime/org.freedesktop.Platform.VulkanLayer.MangoHud")).unwrap();
+        assert!(fps.installed());
     }
 
     #[test]
@@ -307,6 +452,32 @@ mod tests {
         assert!((r.low_1pct_fps - 20.0).abs() < 0.01, "{}", r.low_1pct_fps);
         assert_eq!(r.recent.len(), 50);
         assert!(r.recent.windows(2).all(|w| w[0].0 < w[1].0));
+    }
+
+    #[test]
+    fn session_statistics_use_frame_time_percentiles() {
+        let d = tempfile::tempdir().unwrap();
+        // 1000 frames: 989 at 10 ms, 10 at 25 ms, 1 at 100 ms.
+        let mut log = HEAD.to_string();
+        let mut t = 0u64;
+        for i in 0..1000u64 {
+            let ft = if i == 500 { 100.0 } else if i % 111 == 0 { 25.0 } else { 10.0 };
+            t += (ft * 1e6) as u64;
+            log += &format!("{:.1},{ft},0,0,0,0,0,0,0,0,0,0,0,0,0,{t}\n", 1000.0 / ft);
+        }
+        let p = d.path().join("eldenring_2026-10-01_12-00-00.csv");
+        std::fs::write(&p, log).unwrap();
+        let s = session_stats(&p, SystemTime::UNIX_EPOCH + Duration::from_secs(10_000)).unwrap();
+        assert_eq!(s.game, "eldenring");
+        assert_eq!(s.frames, 1000);
+        assert_eq!(s.p99_frametime_ms, 25.0);
+        assert!((s.low_1pct_fps - 40.0).abs() < 1e-9);
+        assert!((s.low_01pct_fps - 40.0).abs() < 1e-9, "99.9th of 1000 frames is the 999th: 25 ms");
+        assert_eq!(s.stutters, 11, "the ten 25 ms frames and the 100 ms one exceed 2x the 10 ms median");
+        assert!(s.avg_fps > 90.0 && s.avg_fps < 100.0, "{}", s.avg_fps);
+        assert!(s.low_1pct_fps <= s.avg_fps && s.low_01pct_fps <= s.low_1pct_fps);
+        assert_eq!(s.duration_s, 10);
+        assert!(session_stats(&d.path().join("missing.csv"), SystemTime::now()).is_none());
     }
 
     #[test]

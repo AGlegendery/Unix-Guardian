@@ -9,7 +9,7 @@ use futures_lite::StreamExt;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, OnceCell};
-use ug_proto::agent::{GamesProxy, MonitorProxy, PingProxy, PlaytimeProxy, ProfilesProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy};
 use ug_proto::daemon::{DaemonProxy, GameModeProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{BatteryCare, DayTraffic, HistoryPoint, Inventory, InstalledGameInfo, PlaytimeEntry, PowerCapability, PowerJob, PowerUsage, PowerWatch, ProfileInfo, RunningGameInfo, Snapshot};
 
@@ -385,6 +385,36 @@ pub async fn net_set_rule(bus: State<'_, Bus>, app: String, block: bool, up_kbps
 pub async fn net_remove_rule(bus: State<'_, Bus>, app: String) -> Res<bool> {
     let n = NetProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
     n.remove_rule(&app).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn overlay_state(bus: State<'_, Bus>) -> Res<ug_proto::OverlayState> {
+    let o = OverlayProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    o.state().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn overlay_set(bus: State<'_, Bus>, settings: ug_proto::OverlaySettings) -> Res<()> {
+    let o = OverlayProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    o.set(&settings).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn overlay_set_up(bus: State<'_, Bus>, on: bool) -> Res<()> {
+    let o = OverlayProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    o.set_up(on).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn fps_sessions(bus: State<'_, Bus>, since_unix_ms: u64) -> Res<Vec<ug_proto::FpsSession>> {
+    let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    m.fps_sessions(since_unix_ms).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn forget_fps_sessions(bus: State<'_, Bus>) -> Res<u32> {
+    let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    m.forget_fps_sessions().await.map_err(agent_err)
 }
 
 #[tauri::command]

@@ -123,6 +123,20 @@ one is encoded in code and tests now; keep them in mind when extending nearby.
     The browser pane throttles timers while hidden, so a page can look
     empty in a screenshot while it works.
 
+25. **MangoHud 0.7.x (Debian/Parrot package 0.7.2, `--version` v0.7.1)
+    writes the frame log only when logging stops or the game exits
+    cleanly** (checked with `mangohud vkcube --c 900`: file appears at
+    exit; killed by a signal: no file). Live FPS needs 0.8+ (rows flushed
+    as written). The session pipeline was checked end to end with that
+    real log: avg 144, 1 % 125, 0.1 % 111 for vkcube on the laptop. 0.7's
+    columns differ from master (no `cpu_power`); only fps, frametime and
+    the last column (elapsed ns) are read.
+26. **v2rayN "TUN on" on the laptop did not create a TUN device** (2026-10-01):
+    `EnableTun: true` in guiNConfig, but only xray runs with socks/http
+    inbounds (sing-box, which v2rayN uses for TUN, was not running), no
+    tun interface, no policy rules; apps use HTTP(S)_PROXY. Unix Guardian
+    correctly reported proxy mode.
+
 ## Bugs that only running the code revealed (all fixed, all with tests)
 
 | Bug | Cause | Fix |
