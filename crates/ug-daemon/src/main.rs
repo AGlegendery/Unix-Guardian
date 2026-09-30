@@ -21,6 +21,7 @@ mod gamemode;
 mod iface;
 mod polkit;
 mod power;
+mod rtc;
 mod sampler;
 mod schedule;
 
@@ -189,6 +190,10 @@ async fn main() -> Result<()> {
                 backend: Arc::clone(&backend),
                 gate: gate.clone(),
                 changed: Arc::clone(&schedule_changed),
+                // A --session run on the real /sys must not arm the real
+                // clock; with --sysroot the scratch tree is safe to write.
+                rtc: (!args.session || args.sysroot.is_some()).then(|| rtc::Rtc::new(root.clone())),
+                simulated_alarm: std::sync::Mutex::new(None),
             },
         )
         .await

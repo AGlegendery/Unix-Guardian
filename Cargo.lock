@@ -1160,6 +1160,7 @@ dependencies = [
  "anyhow",
  "clap",
  "futures-lite",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",
@@ -1169,6 +1170,7 @@ dependencies = [
  "ug-gpu",
  "ug-hw",
  "ug-proto",
+ "ug-testfs",
  "ug-tune",
  "zbus",
 ]

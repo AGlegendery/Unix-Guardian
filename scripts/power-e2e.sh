@@ -23,7 +23,7 @@ start_daemon() { "$B/ug-daemon" --session --state-dir "$W/state" --log warn 2>>"
 start_daemon || { echo "FAIL  daemon did not start"; exit 1; }
 trap 'kill $daemon ${mon:-} 2>/dev/null; rm -rf "$W"' EXIT
 
-check "every action is offered in a development run" "[ \"\$(ug power caps | grep -c ' available$')\" = 6 ]"
+check "every action is offered in a development run" "[ \"\$(ug power caps | grep -c ' available$')\" = 7 ]"
 check "'now' without --yes does nothing" "! ug power now reboot >/dev/null 2>&1 && simulated | grep -q 'as 0'"
 check "'now --yes' performs it (simulated)" "ug power now reboot --yes >/dev/null && simulated | grep -q '\"reboot\"'"
 check "an unknown action is refused with the choices" "out=\$(ug power now explode --yes 2>&1); grep -q 'power-off' <<<\"\$out\""
@@ -44,6 +44,9 @@ id=$(ug power list | awk '/power-off/{print substr($1,2)}')
 check "it can be cancelled by number" "ug power cancel $id | grep -q Cancelled && ug power list | grep -q 'Nothing scheduled'"
 check "cancelling a missing number fails" "! ug power cancel 999 >/dev/null 2>&1"
 check "a time in the past is refused" "! busctl --user call org.unixguardian.Daemon1 /org/unixguardian/Daemon1 org.unixguardian.Daemon1.Power Schedule stss reboot 1000 once x >/dev/null 2>&1"
+check "a wake alarm can be set and is listed" "ug power wake --in 8h >/dev/null && out=\$(ug power list) && grep -q 'Wake alarm' <<<\"\$out\""
+check "and cleared" "ug power wake --clear >/dev/null && out=\$(ug power list) && ! grep -q 'Wake alarm' <<<\"\$out\""
+check "a wake alarm in the past is refused" "! ug power wake --in 1s >/dev/null 2>&1"
 check "nothing was ever done for real (only simulated)" "grep -q 'power actions are simulated' '$W/daemon.log'"
 
 echo; [ "$fails" -eq 0 ] && echo "power-e2e: OK" || { echo "power-e2e: $fails failed"; exit 1; }

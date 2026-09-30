@@ -26,6 +26,8 @@ trait Login1 {
     fn can_hibernate(&self) -> zbus::Result<String>;
     fn can_hybrid_sleep(&self) -> zbus::Result<String>;
     fn can_suspend_then_hibernate(&self) -> zbus::Result<String>;
+    fn can_reboot_to_firmware_setup(&self) -> zbus::Result<String>;
+    fn set_reboot_to_firmware_setup(&self, enable: bool) -> zbus::Result<()>;
     fn power_off(&self, interactive: bool) -> zbus::Result<()>;
     fn reboot(&self, interactive: bool) -> zbus::Result<()>;
     fn suspend(&self, interactive: bool) -> zbus::Result<()>;
@@ -67,6 +69,7 @@ impl Backend {
                 Action::Hibernate => p.can_hibernate().await,
                 Action::HybridSleep => p.can_hybrid_sleep().await,
                 Action::SuspendThenHibernate => p.can_suspend_then_hibernate().await,
+                Action::RebootFirmware => p.can_reboot_to_firmware_setup().await,
             },
             Err(e) => Err(e),
         };
@@ -98,6 +101,12 @@ impl Backend {
             Action::Hibernate => p.hibernate(false).await,
             Action::HybridSleep => p.hybrid_sleep(false).await,
             Action::SuspendThenHibernate => p.suspend_then_hibernate(false).await,
+            // logind sets the one-shot EFI OsIndications flag; the next boot
+            // opens the firmware setup and the flag clears itself.
+            Action::RebootFirmware => match p.set_reboot_to_firmware_setup(true).await {
+                Ok(()) => p.reboot(false).await,
+                Err(e) => Err(e),
+            },
         };
         r.map_err(|e| match e {
             zbus::Error::MethodError(_, Some(msg), _) => msg,
@@ -111,6 +120,11 @@ fn not_supported(a: Action) -> String {
         Action::Hibernate | Action::HybridSleep | Action::SuspendThenHibernate => {
             "Hibernation is not set up on this system: it needs a swap area at least as large as the \
              memory in use and a resume device, and Secure Boot lockdown blocks it."
+                .into()
+        }
+        Action::RebootFirmware => {
+            "This computer does not report a firmware setup screen that can be reached from the \
+             system (it needs UEFI with OsIndications support)."
                 .into()
         }
         _ => format!("This system does not support {}.", a.name()),
@@ -142,6 +156,10 @@ pub struct PowerIface {
     pub gate: Gate,
     /// Wakes the runner when the queue changes.
     pub changed: Arc<Notify>,
+    /// The hardware clock; `None` in a development run on the real `/sys`,
+    /// where the alarm is only simulated (kept in `simulated_alarm`).
+    pub rtc: Option<crate::rtc::Rtc>,
+    pub simulated_alarm: Mutex<Option<u64>>,
 }
 
 fn lock(s: &SharedSchedule) -> std::sync::MutexGuard<'_, Schedule> {
@@ -209,6 +227,52 @@ impl PowerIface {
         Ok(removed)
     }
 
+    /// Wakes the computer at `at_unix_ms` (from sleep, or from off where the
+    /// firmware allows it). Replaces any alarm already set.
+    async fn set_wake_alarm(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, at_unix_ms: u64) -> zbus::fdo::Result<()> {
+        if at_unix_ms <= now_ms() + 30_000 {
+            return Err(invalid("pick a time at least a minute from now".into()));
+        }
+        self.gate.authorize(&hdr, action::POWER).await?;
+        match &self.rtc {
+            Some(r) if r.available() => r.set(at_unix_ms / 1000).map_err(zbus::fdo::Error::Failed)?,
+            Some(_) => return Err(zbus::fdo::Error::NotSupported("This computer has no wake-capable hardware clock.".into())),
+            None => {
+                *self.simulated_alarm.lock().unwrap_or_else(|e| e.into_inner()) = Some(at_unix_ms / 1000);
+                if let Backend::Simulated(log) = &*self.backend {
+                    log.lock().unwrap_or_else(|e| e.into_inner()).push(format!("wake-alarm {}", at_unix_ms / 1000));
+                }
+            }
+        }
+        tracing::info!(at_unix_ms, "wake alarm set");
+        Ok(())
+    }
+
+    async fn clear_wake_alarm(&self, #[zbus(header)] hdr: zbus::message::Header<'_>) -> zbus::fdo::Result<()> {
+        self.gate.authorize(&hdr, action::POWER).await?;
+        match &self.rtc {
+            Some(r) if r.available() => r.clear().map_err(zbus::fdo::Error::Failed)?,
+            Some(_) => {}
+            None => *self.simulated_alarm.lock().unwrap_or_else(|e| e.into_inner()) = None,
+        }
+        Ok(())
+    }
+
+    /// The armed wake alarm in Unix milliseconds, 0 when none.
+    #[zbus(property)]
+    async fn wake_alarm(&self) -> u64 {
+        let s = match &self.rtc {
+            Some(r) => r.get(),
+            None => *self.simulated_alarm.lock().unwrap_or_else(|e| e.into_inner()),
+        };
+        s.map(|s| s * 1000).unwrap_or(0)
+    }
+
+    #[zbus(property)]
+    async fn wake_alarm_supported(&self) -> bool {
+        self.rtc.as_ref().is_none_or(|r| r.available())
+    }
+
     #[zbus(signal)]
     pub async fn upcoming(emitter: &SignalEmitter<'_>, job: PowerJob, seconds: u32) -> zbus::Result<()>;
 
@@ -265,7 +329,7 @@ pub async fn run(conn: zbus::Connection, schedule: SharedSchedule, backend: Arc<
                 tracing::error!(id = j.id, error = %e, "scheduled power action failed");
                 continue;
             }
-            if matches!(j.action, Action::PowerOff | Action::Reboot) {
+            if matches!(j.action, Action::PowerOff | Action::Reboot | Action::RebootFirmware) {
                 break;
             }
         }

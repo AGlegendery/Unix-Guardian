@@ -135,7 +135,8 @@ export interface PowerCapability {
   reason: string;
 }
 
-export type PowerAction = "power-off" | "reboot" | "suspend" | "hibernate" | "hybrid-sleep" | "suspend-then-hibernate";
+export type PowerAction =
+  | "power-off" | "reboot" | "suspend" | "hibernate" | "hybrid-sleep" | "suspend-then-hibernate" | "reboot-firmware";
 
 export interface PowerJob {
   id: number;
@@ -172,6 +173,9 @@ const tauriApi = {
     invoke<PowerJob>("power_schedule", { action, atUnixMs, repeat }),
   powerJobs: () => invoke<PowerJob[]>("power_jobs"),
   powerCancel: (id: number) => invoke<boolean>("power_cancel", { id }),
+  wakeAlarm: () => invoke<[number, boolean]>("wake_alarm"),
+  setWakeAlarm: (atUnixMs: number) => invoke<void>("set_wake_alarm", { atUnixMs }),
+  clearWakeAlarm: () => invoke<void>("clear_wake_alarm"),
   playtime: (sinceUnixMs: number) => invoke<PlaytimeEntry[]>("playtime", { sinceUnixMs }),
   onSample: (f: (s: Snapshot) => void): Promise<UnlistenFn> => listen<Snapshot>("sample", (e) => f(e.payload)),
 };

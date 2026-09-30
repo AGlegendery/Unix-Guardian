@@ -138,7 +138,17 @@ enum PowerCommand {
         #[arg(long, default_value = "")]
         note: String,
     },
-    /// The scheduled actions.
+    /// Wake the computer at a time (from sleep, or from off where the
+    /// firmware allows): `ug power wake --at 07:00`, `--in 8h`, or `--clear`.
+    Wake {
+        #[arg(long, conflicts_with_all = ["at", "clear"])]
+        r#in: Option<String>,
+        #[arg(long, conflicts_with = "clear")]
+        at: Option<String>,
+        #[arg(long)]
+        clear: bool,
+    },
+    /// The scheduled actions and the wake alarm.
     List,
     /// Remove a scheduled action by its number.
     Cancel { id: u32 },
@@ -545,7 +555,25 @@ async fn power(conn: &zbus::Connection, command: PowerCommand, json: bool) -> Re
                 println!("Scheduled #{}: {} at {} ({}).", job.id, job.action, local_time(job.at_unix_ms), job.repeat);
             }
         }
+        PowerCommand::Wake { r#in, at, clear } => {
+            if clear {
+                p.clear_wake_alarm().await.map_err(daemon_error)?;
+                println!("Wake alarm cleared.");
+            } else {
+                let when = match (r#in, at) {
+                    (Some(d), _) => now_ms() + parse_duration(&d)?,
+                    (None, Some(t)) => next_local_time_ms(&t)?,
+                    (None, None) => anyhow::bail!("say when: --at HH:MM or --in 8h (or --clear)"),
+                };
+                p.set_wake_alarm(when).await.map_err(daemon_error)?;
+                println!("The computer will wake at {}.", local_time(when));
+            }
+        }
         PowerCommand::List => {
+            let alarm = p.wake_alarm().await.unwrap_or(0);
+            if !json && alarm > 0 {
+                println!("Wake alarm: {}", local_time(alarm));
+            }
             let jobs = p.jobs().await.map_err(daemon_error)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&jobs)?);

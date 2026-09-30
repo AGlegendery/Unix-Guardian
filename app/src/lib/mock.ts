@@ -9,6 +9,7 @@ import type { InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, Pro
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
 const jobs: PowerJob[] = [];
+let alarm = 0;
 let t = 0;
 
 function jitter(v: number | null, spread: number, lo = 0, hi = 100): number | null {
@@ -70,7 +71,7 @@ export const mockApi = {
   playtime: async (): Promise<PlaytimeEntry[]> => [],
   // Power in the preview: nothing is ever done; the queue lives in memory.
   powerCaps: async () =>
-    (["power-off", "reboot", "suspend", "hibernate", "hybrid-sleep", "suspend-then-hibernate"] as PowerAction[]).map((action) => ({
+    (["power-off", "reboot", "suspend", "hibernate", "hybrid-sleep", "suspend-then-hibernate", "reboot-firmware"] as PowerAction[]).map((action) => ({
       action,
       available: !action.includes("hibernate") && action !== "hybrid-sleep",
       reason: action.includes("hibernate") || action === "hybrid-sleep" ? "Hibernation is not set up on this system." : "",
@@ -82,6 +83,13 @@ export const mockApi = {
     return job;
   },
   powerJobs: async () => [...jobs],
+  wakeAlarm: async (): Promise<[number, boolean]> => [alarm, true],
+  setWakeAlarm: async (at: number) => {
+    alarm = at;
+  },
+  clearWakeAlarm: async () => {
+    alarm = 0;
+  },
   powerCancel: async (id: number) => {
     const i = jobs.findIndex((j) => j.id === id);
     if (i >= 0) jobs.splice(i, 1);

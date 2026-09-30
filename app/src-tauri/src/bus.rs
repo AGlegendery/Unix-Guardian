@@ -258,3 +258,22 @@ pub async fn power_cancel(bus: State<'_, Bus>, id: u32) -> Res<bool> {
     let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
     p.cancel(id).await.map_err(daemon_err)
 }
+
+/// The armed wake alarm (Unix ms, 0 = none) and whether the clock supports one.
+#[tauri::command]
+pub async fn wake_alarm(bus: State<'_, Bus>) -> Res<(u64, bool)> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    Ok((p.wake_alarm().await.unwrap_or(0), p.wake_alarm_supported().await.unwrap_or(false)))
+}
+
+#[tauri::command]
+pub async fn set_wake_alarm(bus: State<'_, Bus>, at_unix_ms: u64) -> Res<()> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.set_wake_alarm(at_unix_ms).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn clear_wake_alarm(bus: State<'_, Bus>) -> Res<()> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.clear_wake_alarm().await.map_err(daemon_err)
+}

@@ -22,16 +22,19 @@ pub enum Action {
     Hibernate,
     HybridSleep,
     SuspendThenHibernate,
+    /// Restart straight into the firmware (BIOS/UEFI) setup screen.
+    RebootFirmware,
 }
 
 impl Action {
-    pub const ALL: [Action; 6] = [
+    pub const ALL: [Action; 7] = [
         Action::PowerOff,
         Action::Reboot,
         Action::Suspend,
         Action::Hibernate,
         Action::HybridSleep,
         Action::SuspendThenHibernate,
+        Action::RebootFirmware,
     ];
 
     /// The wire and CLI name, e.g. `power-off`.
@@ -43,6 +46,7 @@ impl Action {
             Action::Hibernate => "hibernate",
             Action::HybridSleep => "hybrid-sleep",
             Action::SuspendThenHibernate => "suspend-then-hibernate",
+            Action::RebootFirmware => "reboot-firmware",
         }
     }
 

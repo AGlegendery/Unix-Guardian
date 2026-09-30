@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Moon, Power, RotateCcw, Snowflake, Trash2 } from "@lucide/svelte";
+  import { AlarmClock, Cpu, Moon, Power, RotateCcw, Snowflake, Trash2 } from "@lucide/svelte";
   import type { Component } from "svelte";
   import { api, errorText, type PowerAction, type PowerCapability, type PowerJob } from "../lib/api";
   import { locale, t } from "../lib/i18n.svelte";
@@ -18,6 +18,10 @@
   let busy = $state(false);
   let error = $state<string | null>(null);
   let notice = $state<string | null>(null);
+  let alarm = $state(0);
+  let alarmSupported = $state(true);
+  let alarmClock = $state("07:00");
+  let firmwareArmed = $state(false);
 
   // The four cards of the Windows app; the rarer logind actions stay in the CLI.
   const cards: [PowerAction, Component][] = [
@@ -30,7 +34,46 @@
 
   const refresh = () => {
     api.powerJobs().then((j) => (jobs = j)).catch((e) => (error = errorText(e)));
+    api.wakeAlarm().then(([a, ok]) => { alarm = a; alarmSupported = ok; }).catch(() => {});
   };
+
+  function nextClock(hhmm: string): number {
+    const [h, m] = hhmm.split(":").map(Number);
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
+    return d.getTime();
+  }
+
+  async function run(f: () => Promise<unknown>, ok?: string) {
+    error = null;
+    notice = null;
+    busy = true;
+    try {
+      await f();
+      if (ok) notice = ok;
+      refresh();
+    } catch (e) {
+      error = errorText(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  const setAlarm = () => run(() => api.setWakeAlarm(nextClock(alarmClock)), `${t().sys.alarmNow} ${fmt(nextClock(alarmClock))}`);
+  const sleepUntil = () => run(async () => {
+    await api.setWakeAlarm(nextClock(alarmClock));
+    await api.powerNow("suspend");
+  });
+  function firmware() {
+    if (!firmwareArmed) {
+      firmwareArmed = true;
+      setTimeout(() => (firmwareArmed = false), 5000);
+      return;
+    }
+    firmwareArmed = false;
+    run(() => api.powerNow("reboot-firmware"));
+  }
   $effect(() => {
     api.powerCaps().then((c) => (caps = c)).catch((e) => (error = errorText(e)));
     refresh();
@@ -194,6 +237,18 @@
     </button>
   </section>
 
+  {@const fw = capOf("reboot-firmware")}
+  <section class="card row">
+    <span class="row-ico"><Cpu size={20} aria-hidden="true" /></span>
+    <div class="grow">
+      <p class="row-title">{t().sys.firmware}</p>
+      <p class="small">{fw && !fw.available ? fw.reason : t().sys.firmwareHint}</p>
+    </div>
+    <button class="secondary" class:armed={firmwareArmed} disabled={busy || !fw?.available} onclick={firmware}>
+      {firmwareArmed ? t().sys.confirm : t().sys.actions.reboot}
+    </button>
+  </section>
+
   <section class="card">
     <h2>{t().sys.queued}</h2>
     {#if jobs.length}
@@ -211,6 +266,31 @@
     {/if}
     <p class="small">{t().sys.missed}</p>
     <p class="small ltr-mix">{t().sys.cli}</p>
+  </section>
+{:else if tab === "sleep" || tab === "alarm"}
+  <section class="card">
+    <h2><AlarmClock size={18} aria-hidden="true" /> {tab === "sleep" ? t().sys.sleepWake : t().sys.alarmTitle}</h2>
+    {#if alarmSupported}
+      <div class="line">
+        <input type="time" bind:value={alarmClock} aria-label={t().sys.atTime} />
+        {#if tab === "sleep"}
+          <button class="secondary" disabled={busy || !capOf("suspend")?.available} onclick={sleepUntil}>{t().sys.sleepWakeGo}</button>
+        {:else}
+          <button class="secondary" disabled={busy} onclick={setAlarm}>{t().sys.alarmSet}</button>
+        {/if}
+      </div>
+      <p class="muted">
+        {#if alarm}
+          {t().sys.alarmNow} <b>{fmt(alarm)}</b>
+          <button class="cancel" onclick={() => run(() => api.clearWakeAlarm())}><Trash2 size={15} aria-hidden="true" />{t().sys.alarmClear}</button>
+        {:else}
+          {t().sys.alarmNone}
+        {/if}
+      </p>
+      <p class="small">{t().sys.alarmHint}</p>
+    {:else}
+      <p class="muted">{t().sys.alarmUnsupported}</p>
+    {/if}
   </section>
 {:else}
   <section class="card">
@@ -333,5 +413,26 @@
   }
   .cancel:hover { background: color-mix(in oklab, var(--danger) 12%, transparent); }
   .cancel:focus-visible { outline: 2px solid var(--danger); }
+  .row { display: flex; align-items: center; gap: 14px; }
+  .row-ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--card-2); color: var(--text-2); flex: none; }
+  .grow { flex: 1; min-width: 0; }
+  .row-title { margin: 0; font-weight: 600; }
+  .row .small { margin: 2px 0 0; }
+  h2 { display: flex; align-items: center; gap: 8px; }
+  .secondary {
+    all: unset;
+    padding: 8px 16px;
+    border-radius: 10px;
+    background: var(--card-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .secondary:hover:not(:disabled) { border-color: var(--accent); }
+  .secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .secondary.armed { border-color: var(--danger); color: var(--danger); }
+  .secondary:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .small { margin: 12px 0 0; color: var(--text-3); font-size: 0.8rem; max-width: 80ch; }
 </style>

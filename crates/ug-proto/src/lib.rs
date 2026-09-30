@@ -183,6 +183,18 @@ pub mod daemon {
         #[zbus(signal)]
         fn upcoming(&self, job: PowerJob, seconds: u32) -> zbus::Result<()>;
 
+        /// Wakes the computer at this time; replaces any alarm set.
+        fn set_wake_alarm(&self, at_unix_ms: u64) -> zbus::Result<()>;
+
+        fn clear_wake_alarm(&self) -> zbus::Result<()>;
+
+        /// The armed alarm in Unix milliseconds; 0 when none.
+        #[zbus(property)]
+        fn wake_alarm(&self) -> zbus::Result<u64>;
+
+        #[zbus(property)]
+        fn wake_alarm_supported(&self) -> zbus::Result<bool>;
+
         /// Development runs only: what would have been done, in order.
         #[zbus(property)]
         fn simulated(&self) -> zbus::Result<Vec<String>>;

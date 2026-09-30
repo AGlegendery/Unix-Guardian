@@ -69,6 +69,9 @@ fn main() {
             bus::power_schedule,
             bus::power_jobs,
             bus::power_cancel,
+            bus::wake_alarm,
+            bus::set_wake_alarm,
+            bus::clear_wake_alarm,
         ])
         .run(tauri::generate_context!())
         .expect("running the Unix Guardian window");
