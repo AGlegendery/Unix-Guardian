@@ -70,6 +70,7 @@ kill "$game" "$other"; wait "$game" "$other" 2>/dev/null
 check "both games are seen to stop" "until_ 10 \"'$B/ug' game running | grep -q 'No game is running'\""
 check "the paused app runs again" "until_ 4 \"[ \\\"\$(state $chat)\\\" != T ]\""
 check "playtime was recorded for both" "'$B/ug' playtime | grep -q 'Counter-Strike 2' && '$B/ug' playtime | grep -q 'sleep'"
+check "the agent serves monitoring history (empty without a daemon)" "'$B/ug' history --hours 1 >/dev/null && '$B/ug' traffic >/dev/null"
 check "playtime exports as CSV, one row per session" "'$B/ug' playtime --csv | grep -q '^Counter-Strike 2,steam:730,' && [ \"\$('$B/ug' playtime --csv | head -1)\" = game,key,started,ended,minutes ]"
 check "the CSV export ends cleanly when the reader stops early" "'$B/ug' playtime --csv 2>&1 | head -1 >/dev/null; [ \"\${PIPESTATUS[0]}\" = 0 ]"
 

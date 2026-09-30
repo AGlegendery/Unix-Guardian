@@ -480,3 +480,27 @@ pub struct BatteryCare {
     /// Why it is unsupported, when it is.
     pub reason: String,
 }
+
+/// One point of the monitoring history (averaged over its bucket). NaN where
+/// nothing was measured.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct HistoryPoint {
+    pub ts_unix_ms: u64,
+    pub cpu_temp_c: f64,
+    pub cpu_load_pct: f64,
+    pub cpu_w: f64,
+    /// The GPU that was working at the time (the discrete one only while awake).
+    pub gpu_temp_c: f64,
+    pub gpu_load_pct: f64,
+    pub gpu_w: f64,
+    pub mem_used_kb: u64,
+}
+
+/// Internet traffic on one local day.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct DayTraffic {
+    /// `YYYY-MM-DD`, local time.
+    pub date: String,
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+}

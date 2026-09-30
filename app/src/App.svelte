@@ -9,6 +9,7 @@
   import Dashboard from "./pages/Dashboard.svelte";
   import GameMode from "./pages/GameMode.svelte";
   import SystemControl from "./pages/SystemControl.svelte";
+  import Monitoring from "./pages/Monitoring.svelte";
 
   type Page = keyof ReturnType<typeof t>["nav"];
   // Phoenix Guardian's order, with the Linux-only driver troubleshooter added.
@@ -27,7 +28,7 @@
     ["settings", Settings],
   ];
   // Built so far; every other page says plainly that it is not.
-  const built = new Set<Page>(["dashboard", "gamemode", "system"]);
+  const built = new Set<Page>(["dashboard", "gamemode", "system", "monitoring"]);
 
   // `#gamemode` in the URL opens that page (handy in the browser preview).
   const fromHash = location.hash.slice(1).split("/")[0] as Page;
@@ -81,6 +82,8 @@
       <GameMode {overview} />
     {:else if page === "system"}
       <SystemControl />
+    {:else if page === "monitoring"}
+      <Monitoring />
     {:else}
       <section class="unbuilt-page">
         <h1>{t().nav[page]}</h1>

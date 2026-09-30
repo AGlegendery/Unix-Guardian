@@ -3,7 +3,7 @@
 use crate::core::AgentCore;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use ug_proto::{InstalledGameInfo, PlaytimeEntry, PlaytimeSession, ProfileInfo, RunningGameInfo};
+use ug_proto::{DayTraffic, HistoryPoint, InstalledGameInfo, PlaytimeEntry, PlaytimeSession, ProfileInfo, RunningGameInfo};
 use zbus::object_server::SignalEmitter;
 
 pub type Shared = Arc<Mutex<AgentCore>>;
@@ -105,4 +105,34 @@ impl ProfilesIface {
     async fn set_option(&self, profile: &str, option: &str, value: bool) -> zbus::fdo::Result<()> {
         lock(&self.core).set_profile_option(profile, option, value).map_err(zbus::fdo::Error::InvalidArgs)
     }
+}
+
+/// `org.unixguardian.Agent1.Monitor`
+pub struct MonitorIface {
+    pub history: Arc<crate::history::History>,
+}
+
+#[zbus::interface(name = "org.unixguardian.Agent1.Monitor")]
+impl MonitorIface {
+    async fn history(&self, since_unix_ms: u64, until_unix_ms: u64, points: u32) -> Vec<HistoryPoint> {
+        let h = Arc::clone(&self.history);
+        tokio::task::spawn_blocking(move || h.range(since_unix_ms, until_unix_ms, points)).await.unwrap_or_default()
+    }
+
+    async fn traffic(&self, since_unix_ms: u64) -> Vec<DayTraffic> {
+        let h = Arc::clone(&self.history);
+        tokio::task::spawn_blocking(move || h.traffic(since_unix_ms, local_date)).await.unwrap_or_default()
+    }
+}
+
+/// `YYYY-MM-DD` of a Unix-ms time, in local time.
+pub fn local_date(ms: u64) -> String {
+    // SAFETY: localtime_r writes only into the struct we pass.
+    let tm = unsafe {
+        let t = (ms / 1000) as libc::time_t;
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&t, &mut tm);
+        tm
+    };
+    format!("{:04}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
 }

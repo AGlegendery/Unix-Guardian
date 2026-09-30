@@ -3,7 +3,7 @@
   import { api, type Overview, type PlaytimeEntry, type Profile, type RunningGame, type Snapshot } from "../lib/api";
   import { duration, gib, num, rate } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
-  import TempChart from "../lib/TempChart.svelte";
+  import LineChart from "../lib/LineChart.svelte";
 
   let { overview }: { overview: Overview | null } = $props();
 
@@ -226,7 +226,7 @@
     <div class="card-head">
       <h2>{t().chart.title}</h2>
     </div>
-    <TempChart {times} series={chartSeries} waiting={t().chart.waiting} />
+    <LineChart {times} series={chartSeries} waiting={t().chart.waiting} />
   </article>
 </section>
 

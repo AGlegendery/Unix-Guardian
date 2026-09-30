@@ -10,6 +10,7 @@ mod affinity;
 mod apps;
 mod core;
 mod gamemode;
+mod history;
 mod iface;
 mod notify;
 mod playtime;
@@ -24,7 +25,7 @@ use ug_hw::SysRoot;
 use ug_proto::{AGENT_BUS_NAME, AGENT_OBJECT_PATH};
 
 use crate::core::{AgentCore, Outcome};
-use iface::{lock, now_ms, GamesIface, PlaytimeIface, ProfilesIface, Shared};
+use iface::{lock, now_ms, GamesIface, MonitorIface, PlaytimeIface, ProfilesIface, Shared};
 
 const GAMEMODE_NAME: &str = "com.feralinteractive.GameMode";
 const GAMEMODE_PATH: &str = "/com/feralinteractive/GameMode";
@@ -135,6 +136,27 @@ impl DaemonLink {
         }
     }
 
+    /// Stores one monitoring reading (called once a minute). Charts the GPU
+    /// that is working: one that is awake and reports a temperature.
+    async fn record_history(&mut self, history: &Arc<history::History>) {
+        if self.conn.is_none() {
+            let c = if self.session { zbus::Connection::session().await } else { zbus::Connection::system().await };
+            self.conn = c.ok();
+        }
+        let Some(conn) = self.conn.clone() else { return };
+        let Ok(d) = ug_proto::daemon::DaemonProxy::new(&conn).await else { return };
+        let Ok(s) = d.snapshot().await else { return };
+        let gpu = s.gpus.iter().find(|g| !g.asleep && !g.temp_c.is_nan()).map(|g| g.pci.clone());
+        let h = Arc::clone(history);
+        let _ = tokio::task::spawn_blocking(move || {
+            h.record(&s, gpu.as_deref());
+            if s.ts_unix_ms % (24 * 3_600_000) < 60_000 {
+                h.prune(s.ts_unix_ms);
+            }
+        })
+        .await;
+    }
+
     fn failed(&mut self, msg: String, drop_connection: bool) {
         if drop_connection {
             self.conn = None;
@@ -159,6 +181,9 @@ async fn main() -> Result<()> {
         playtime::Playtime::open(&ug_core::paths::user_data().join("agent.db")).context("opening the playtime database")?,
     );
 
+    let history = Arc::new(
+        history::History::open(&ug_core::paths::user_data().join("agent.db")).context("opening the monitoring history")?,
+    );
     let test_run = std::env::var("UG_TEST_RUN").ok().filter(|t| !t.is_empty());
     let core: Shared = Arc::new(Mutex::new(
         tokio::task::spawn_blocking(move || {
@@ -175,6 +200,7 @@ async fn main() -> Result<()> {
         .serve_at(AGENT_OBJECT_PATH, GamesIface { core: Arc::clone(&core), announce: announce_tx.clone() })?
         .serve_at(AGENT_OBJECT_PATH, PlaytimeIface { core: Arc::clone(&core) })?
         .serve_at(AGENT_OBJECT_PATH, ProfilesIface { core: Arc::clone(&core) })?
+        .serve_at(AGENT_OBJECT_PATH, MonitorIface { history: Arc::clone(&history) })?
         .build()
         .await
         .context("connecting to the session bus")?;
@@ -223,7 +249,10 @@ async fn main() -> Result<()> {
                 daemon.sync(want).await;
             }
             Some(o) = announce_rx.recv() => announce(&conn, o, !args.quiet, &pending_dismissals).await,
-            _ = heartbeat.tick() => lock(&core).heartbeat(now_ms()),
+            _ = heartbeat.tick() => {
+                lock(&core).heartbeat(now_ms());
+                daemon.record_history(&history).await;
+            }
             _ = rescan.tick() => {
                 let c = Arc::clone(&core);
                 tokio::task::spawn_blocking(move || lock(&c).rescan()).await?;

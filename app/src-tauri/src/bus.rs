@@ -9,9 +9,9 @@ use futures_lite::StreamExt;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, OnceCell};
-use ug_proto::agent::{GamesProxy, PlaytimeProxy, ProfilesProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, PlaytimeProxy, ProfilesProxy};
 use ug_proto::daemon::{DaemonProxy, GameModeProxy, GpuProxy, PowerProxy};
-use ug_proto::{BatteryCare, Inventory, InstalledGameInfo, PlaytimeEntry, PowerCapability, PowerJob, PowerUsage, PowerWatch, ProfileInfo, RunningGameInfo, Snapshot};
+use ug_proto::{BatteryCare, DayTraffic, HistoryPoint, Inventory, InstalledGameInfo, PlaytimeEntry, PowerCapability, PowerJob, PowerUsage, PowerWatch, ProfileInfo, RunningGameInfo, Snapshot};
 
 pub struct Bus {
     /// Reach the daemon on the session bus (`UG_SESSION=1`), for a development
@@ -319,4 +319,16 @@ pub async fn battery(bus: State<'_, Bus>) -> Res<BatteryCare> {
 pub async fn set_battery_care(bus: State<'_, Bus>, mode: String, limit: u8) -> Res<()> {
     let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
     p.set_battery_care(&mode, limit).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn history(bus: State<'_, Bus>, since_unix_ms: u64, until_unix_ms: u64, points: u32) -> Res<Vec<HistoryPoint>> {
+    let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    m.history(since_unix_ms, until_unix_ms, points).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn traffic(bus: State<'_, Bus>, since_unix_ms: u64) -> Res<Vec<DayTraffic>> {
+    let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    m.traffic(since_unix_ms).await.map_err(agent_err)
 }

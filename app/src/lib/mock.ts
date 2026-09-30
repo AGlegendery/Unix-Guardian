@@ -4,7 +4,7 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { BatteryCare, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { BatteryCare, DayTraffic, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -108,6 +108,28 @@ export const mockApi = {
       return { date: d.toISOString().slice(0, 10), cpu_wh: [210, 340, 180, 420, 390, 260, 150][i] };
     }),
   }),
+  // Synthetic curves for the preview; the page labels preview data.
+  history: async (since: number, until: number, points: number): Promise<HistoryPoint[]> =>
+    Array.from({ length: points }, (_, i) => {
+      const ts = since + ((until - since) * i) / (points - 1);
+      const w = Math.sin(i / 7) * 0.5 + 0.5;
+      return {
+        ts_unix_ms: ts,
+        cpu_temp_c: 45 + w * 25,
+        cpu_load_pct: 10 + w * 60,
+        cpu_w: 15 + w * 45,
+        gpu_temp_c: i % 40 < 12 ? 55 + w * 15 : null,
+        gpu_load_pct: i % 40 < 12 ? 40 + w * 50 : null,
+        gpu_w: i % 40 < 12 ? 20 + w * 40 : null,
+        mem_used_kb: 18e6 + w * 4e6,
+      };
+    }),
+  traffic: async (): Promise<DayTraffic[]> =>
+    Array.from({ length: 7 }, (_, i) => ({
+      date: new Date(Date.now() - (6 - i) * 864e5).toISOString().slice(0, 10),
+      rx_bytes: [2.1, 5.4, 1.2, 8.8, 3.3, 0.9, 4.2][i] * 1e9,
+      tx_bytes: [0.3, 0.6, 0.2, 1.1, 0.4, 0.1, 0.5][i] * 1e9,
+    })),
   battery: async () => ({ ...bat }),
   setBatteryCare: async (mode: string, limit: number) => {
     bat.mode = mode as BatteryCare["mode"];

@@ -56,6 +56,7 @@ trap 'kill $daemon $agent ${game:-} 2>/dev/null; rm -rf "$W"' EXIT
 until_ 15 "'$B/ug' game running >/dev/null 2>&1" || { echo "FAIL  agent did not start"; exit 1; }
 
 check "starts from the machine's own settings" original
+check "the agent recorded a history reading from the daemon" "until_ 5 \"'$B/ug' history --hours 1 | grep -q '°C'\" && '$B/ug' history --hours 1 --json | python3 -c 'import json,sys; assert len(json.load(sys.stdin)) >= 1'"
 SteamAppId=730 bash -c 'exec -a cs2 sleep 120' & game=$!
 check "a game turns game mode on" "until_ 8 \"active | grep -q true\""
 check "CPU governor and EPP set to performance" "until_ 3 \"[ \\\"\$(gov)/\$(epp)\\\" = performance/performance ]\""
