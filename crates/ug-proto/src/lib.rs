@@ -198,6 +198,13 @@ pub mod daemon {
         /// day. Only what is measured: the rest of the machine has no sensor.
         fn usage(&self) -> zbus::Result<PowerUsage>;
 
+        /// Battery protection: what is supported and what is set.
+        fn battery(&self) -> zbus::Result<BatteryCare>;
+
+        /// `off` (charge to 100 %), `protect` (stop at `limit` %, or the
+        /// vendor's fixed limit) or `full-once` (100 % once, then protect).
+        fn set_battery_care(&self, mode: &str, limit: u8) -> zbus::Result<()>;
+
         /// Wakes the computer at this time; replaces any alarm set.
         fn set_wake_alarm(&self, at_unix_ms: u64) -> zbus::Result<()>;
 

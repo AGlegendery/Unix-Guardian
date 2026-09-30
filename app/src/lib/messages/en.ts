@@ -111,7 +111,7 @@ export const en = {
     saved: "Saved",
   },
   sys: {
-    tabs: { command: "Power command", conditional: "Conditional shutdown", usage: "Power usage", sleep: "Sleep and wake", alarm: "Wake alarm" },
+    tabs: { command: "Power command", conditional: "Conditional shutdown", usage: "Power usage", battery: "Battery", sleep: "Sleep and wake", alarm: "Wake alarm" },
     actions: { "power-off": "Shut down", reboot: "Restart", suspend: "Sleep", hibernate: "Hibernate", "hybrid-sleep": "Hybrid sleep", "suspend-then-hibernate": "Sleep, then hibernate" } as Record<string, string>,
     verbs: { "power-off": "Shut down now", reboot: "Restart now", suspend: "Sleep now", hibernate: "Hibernate now" } as Record<string, string>,
     confirm: "Press again to confirm",
@@ -131,6 +131,17 @@ export const en = {
     alarmClear: "Clear",
     alarmHint: "Wakes the computer from sleep. Waking from fully off depends on the firmware (often a BIOS setting).",
     alarmUnsupported: "This computer has no wake-capable hardware clock.",
+    bat: {
+      title: "Battery protection",
+      intro: "When the laptop mostly runs plugged in, keeping the battery at 100 % wears it out fastest. With protection on, charging stops at a limit and the laptop runs from the adapter.",
+      charge: "Charge now",
+      modes: { off: "Off (charge to 100 %)", protect: "Protect", "full-once": "Full charge once" } as Record<string, string>,
+      limit: "Stop charging at",
+      vendor: "This laptop uses the manufacturer's conservation mode; the firmware sets the limit (usually 60–80 %).",
+      onceHint: "For a trip: charges to 100 % once, then turns protection back on by itself.",
+      status: { Charging: "charging", Discharging: "on battery", Full: "full", "Not charging": "not charging (protected)" } as Record<string, string>,
+      noBattery: "This computer has no battery.",
+    },
     use: {
       now: "Right now",
       cpu: "Processor",

@@ -63,6 +63,17 @@ check "it fires after the program has been gone for its window" "until_ 45 '[ \"
 check "a fired condition leaves the list" "out=\$(ug power list) && ! grep -q '#w' <<<\"\$out\""
 check "a CPU threshold out of range is refused" "! ug power when suspend --cpu-idle --below 500 >/dev/null 2>&1"
 check "a condition can be removed" "id=\$(ug power when suspend --download-done --minutes 30 | sed -n 's/Armed #w\\([0-9]*\\).*/\\1/p') && ug power unwatch \$id >/dev/null && out=\$(ug power list) && ! grep -q '#w' <<<\"\$out\""
+real_types="$(cat /sys/class/power_supply/*/charge_types 2>/dev/null; cat /sys/class/power_supply/*/charge_control_end_threshold 2>/dev/null)"
+check "battery status answers" "ug battery >/dev/null"
+if ug battery | grep -q 'not available'; then
+  echo "SKIP  battery protection (not supported on this machine)"
+else
+  check "battery protection can be turned on" "ug battery protect --limit 80 | grep -q 'Protection    on'"
+  # Already full, full-once goes straight back to protecting.
+  check "full-once and off are accepted" "out=\$(ug battery full-once) && grep -qE 'paused|Protection    on' <<<\"\$out\" && out=\$(ug battery off) && grep -q 'off' <<<\"\$out\""
+fi
+check "a limit out of range is refused" "! ug battery protect --limit 10 >/dev/null 2>&1"
+check "the real battery settings were not touched" "[ \"\$(cat /sys/class/power_supply/*/charge_types 2>/dev/null; cat /sys/class/power_supply/*/charge_control_end_threshold 2>/dev/null)\" = \"\$real_types\" ]"
 check "nothing was ever done for real (only simulated)" "grep -q 'power actions are simulated' '$W/daemon.log'"
 
 echo; [ "$fails" -eq 0 ] && echo "power-e2e: OK" || { echo "power-e2e: $fails failed"; exit 1; }

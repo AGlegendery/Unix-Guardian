@@ -14,7 +14,7 @@ use tokio::sync::Notify;
 use crate::conditions::{Condition, Observation, Watch, Watches};
 use std::sync::atomic::{AtomicBool, Ordering};
 use ug_hw::SysRoot;
-use ug_proto::{DayEnergy, PowerCapability, PowerJob, PowerUsage, PowerWatch};
+use ug_proto::{BatteryCare, DayEnergy, PowerCapability, PowerJob, PowerUsage, PowerWatch};
 use zbus::object_server::SignalEmitter;
 
 #[zbus::proxy(
@@ -168,6 +168,29 @@ pub struct PowerIface {
     /// Wakes the condition loop when a watch is added.
     pub watches_changed: Arc<Notify>,
     pub energy: Arc<Mutex<crate::energy::EnergyMeter>>,
+    pub battery: SharedBattery,
+}
+
+pub type SharedBattery = Arc<Mutex<crate::battery::Battery>>;
+
+fn battery_to_wire(b: &crate::battery::Battery) -> BatteryCare {
+    use crate::battery::Care;
+    let (mode, limit) = match b.care {
+        Care::Off => ("off", 100),
+        Care::Protect { limit } => ("protect", limit),
+        Care::FullOnce { limit } => ("full-once", limit),
+    };
+    let (capacity, status) = b.level().unwrap_or((255, String::new()));
+    BatteryCare {
+        supported: b.method.is_some(),
+        method: b.method.as_ref().map(|m| m.name().to_string()).unwrap_or_default(),
+        adjustable: b.method.as_ref().is_some_and(|m| m.adjustable()),
+        mode: mode.into(),
+        limit,
+        capacity,
+        status,
+        reason: if b.method.is_some() { String::new() } else { crate::battery::unsupported_reason().into() },
+    }
 }
 
 pub type SharedWatches = Arc<Mutex<Watches>>;
@@ -339,6 +362,28 @@ impl PowerIface {
         .unwrap_or(PowerUsage { cpu_w: f64::NAN, gpu_w: f64::NAN, battery_w: f64::NAN, cpu_energy_recorded: false, days: Vec::new() })
     }
 
+    async fn battery(&self) -> BatteryCare {
+        battery_to_wire(&self.battery.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+
+    async fn set_battery_care(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, mode: &str, limit: u8) -> zbus::fdo::Result<()> {
+        use crate::battery::Care;
+        let care = match mode {
+            "off" => Care::Off,
+            "protect" => Care::Protect { limit },
+            "full-once" => Care::FullOnce { limit },
+            _ => return Err(invalid(format!("unknown mode {mode:?}; use off, protect or full-once"))),
+        };
+        self.gate.authorize(&hdr, action::POWER).await?;
+        let battery = Arc::clone(&self.battery);
+        tokio::task::spawn_blocking(move || battery.lock().unwrap_or_else(|e| e.into_inner()).set(care))
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+            .map_err(invalid)?;
+        tracing::info!(mode, limit, "battery protection set");
+        Ok(())
+    }
+
     /// Wakes the computer at `at_unix_ms` (from sleep, or from off where the
     /// firmware allows it). Replaces any alarm already set.
     async fn set_wake_alarm(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, at_unix_ms: u64) -> zbus::fdo::Result<()> {
@@ -493,5 +538,62 @@ pub async fn meter(energy: Arc<Mutex<crate::energy::EnergyMeter>>) {
             return;
         }
         tokio::time::sleep(every).await;
+    }
+}
+
+#[zbus::proxy(interface = "org.freedesktop.login1.Manager", default_service = "org.freedesktop.login1", default_path = "/org/freedesktop/login1")]
+trait Login1Sleep {
+    #[zbus(signal)]
+    fn prepare_for_sleep(&self, start: bool) -> zbus::Result<()>;
+}
+
+/// Keeps battery protection applied: once at start, after every resume
+/// (firmware may forget it), and every five minutes while a one-time full
+/// charge is running, to switch protection back on when it is done.
+pub async fn keep_battery(battery: SharedBattery, system: Option<zbus::Connection>) {
+    use futures_lite::StreamExt;
+    let reapply = |b: &SharedBattery| {
+        let b = Arc::clone(b);
+        async move {
+            let r = tokio::task::spawn_blocking(move || b.lock().unwrap_or_else(|e| e.into_inner()).apply()).await;
+            if let Ok(Err(e)) = r {
+                tracing::warn!(error = %e, "could not apply battery protection");
+            }
+        }
+    };
+    reapply(&battery).await;
+    let mut resumes = match &system {
+        Some(c) => match Login1SleepProxy::new(c).await {
+            Ok(p) => p.receive_prepare_for_sleep().await.ok(),
+            Err(_) => None,
+        },
+        None => None,
+    };
+    loop {
+        let full_once = matches!(battery.lock().unwrap_or_else(|e| e.into_inner()).care, crate::battery::Care::FullOnce { .. });
+        let tick = async {
+            if full_once {
+                tokio::time::sleep(std::time::Duration::from_secs(300)).await
+            } else {
+                std::future::pending::<()>().await
+            }
+        };
+        let resume = async {
+            match resumes.as_mut() {
+                Some(s) => loop {
+                    match s.next().await {
+                        Some(sig) if sig.args().is_ok_and(|a| !a.start) => break,
+                        Some(_) => continue,
+                        None => std::future::pending::<()>().await,
+                    }
+                },
+                None => std::future::pending::<()>().await,
+            }
+        };
+        tokio::select! {
+            _ = tick => {}
+            _ = resume => tracing::info!("resumed; applying battery protection again"),
+        }
+        reapply(&battery).await;
     }
 }

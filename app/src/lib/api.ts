@@ -166,6 +166,17 @@ export interface PowerUsage {
   days: { date: string; cpu_wh: number }[];
 }
 
+export interface BatteryCare {
+  supported: boolean;
+  method: string;
+  adjustable: boolean;
+  mode: "off" | "protect" | "full-once";
+  limit: number;
+  capacity: number;
+  status: string;
+  reason: string;
+}
+
 export interface PlaytimeEntry {
   key: string;
   name: string;
@@ -198,6 +209,8 @@ const tauriApi = {
   powerWatches: () => invoke<PowerWatch[]>("power_watches"),
   powerUnwatch: (id: number) => invoke<boolean>("power_unwatch", { id }),
   powerUsage: () => invoke<PowerUsage>("power_usage"),
+  battery: () => invoke<BatteryCare>("battery"),
+  setBatteryCare: (mode: string, limit: number) => invoke<void>("set_battery_care", { mode, limit }),
   wakeAlarm: () => invoke<[number, boolean]>("wake_alarm"),
   setWakeAlarm: (atUnixMs: number) => invoke<void>("set_wake_alarm", { atUnixMs }),
   clearWakeAlarm: () => invoke<void>("clear_wake_alarm"),

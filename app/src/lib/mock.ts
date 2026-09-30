@@ -4,12 +4,13 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { BatteryCare, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
 const jobs: PowerJob[] = [];
 let alarm = 0;
+const bat: BatteryCare = { supported: true, method: "vendor-long-life", adjustable: false, mode: "off", limit: 80, capacity: 100, status: "Full", reason: "" };
 const watches: PowerWatch[] = [];
 let t = 0;
 
@@ -107,6 +108,11 @@ export const mockApi = {
       return { date: d.toISOString().slice(0, 10), cpu_wh: [210, 340, 180, 420, 390, 260, 150][i] };
     }),
   }),
+  battery: async () => ({ ...bat }),
+  setBatteryCare: async (mode: string, limit: number) => {
+    bat.mode = mode as BatteryCare["mode"];
+    bat.limit = limit;
+  },
   wakeAlarm: async (): Promise<[number, boolean]> => [alarm, true],
   setWakeAlarm: async (at: number) => {
     alarm = at;

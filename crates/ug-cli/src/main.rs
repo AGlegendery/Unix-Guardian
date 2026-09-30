@@ -41,6 +41,11 @@ enum Command {
         #[arg(long, default_value_t = 1000)]
         interval: u32,
     },
+    /// Battery protection: stop charging at a limit and run from AC.
+    Battery {
+        #[command(subcommand)]
+        command: Option<BatteryCommand>,
+    },
     /// Shut down, restart or sleep, now or on a schedule.
     Power {
         #[command(subcommand)]
@@ -109,6 +114,24 @@ enum GameCommand {
     Rescan,
     /// Stop treating an executable as a game, e.g. `ug game ignore Render.exe`.
     Ignore { executable: String },
+}
+
+#[derive(Subcommand)]
+enum BatteryCommand {
+    /// What this laptop supports and what is set (the default).
+    Status,
+    /// Stop charging at --limit % (default 80; vendor modes use their own).
+    Protect {
+        #[arg(long, default_value_t = 80)]
+        limit: u8,
+    },
+    /// Charge to 100 % once (for a trip), then protect again.
+    FullOnce {
+        #[arg(long, default_value_t = 80)]
+        limit: u8,
+    },
+    /// Charge to 100 % always (the laptop's own behaviour).
+    Off,
 }
 
 #[derive(Subcommand)]
@@ -239,6 +262,7 @@ async fn main() -> Result<()> {
         Command::Monitor { interval } => monitor(&daemon, interval, cli.json).await,
         Command::Gpu { command } => gpu(&conn, &daemon, command, cli.json).await,
         Command::Power { command } => power(&conn, command, cli.json).await,
+        Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
         Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } => unreachable!("handled above"),
     }
 }
@@ -690,6 +714,35 @@ fn parse_rate(s: &str) -> Result<f64> {
         _ => (s, 1.0),
     };
     num.parse::<f64>().map(|n| n * mult).map_err(|_| anyhow::anyhow!("cannot read {s:?} as a rate; e.g. 50k or 2M"))
+}
+
+async fn battery(conn: &zbus::Connection, command: BatteryCommand, json: bool) -> Result<()> {
+    let p = PowerProxy::new(conn).await?;
+    match command {
+        BatteryCommand::Status => {}
+        BatteryCommand::Protect { limit } => p.set_battery_care("protect", limit).await.map_err(daemon_error)?,
+        BatteryCommand::FullOnce { limit } => p.set_battery_care("full-once", limit).await.map_err(daemon_error)?,
+        BatteryCommand::Off => p.set_battery_care("off", 100).await.map_err(daemon_error)?,
+    }
+    let b = p.battery().await.map_err(daemon_error)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&b)?);
+        return Ok(());
+    }
+    if b.capacity <= 100 {
+        println!("Battery       {} % ({})", b.capacity, b.status);
+    }
+    if !b.supported {
+        println!("Protection    not available: {}", b.reason);
+        return Ok(());
+    }
+    let how = if b.adjustable { format!("stops at {} %", b.limit) } else { "the vendor's conservation mode (limit set by the firmware)".into() };
+    match b.mode.as_str() {
+        "protect" => println!("Protection    on: {how}"),
+        "full-once" => println!("Protection    paused for one full charge, then back on ({how})"),
+        _ => println!("Protection    off: charges to 100 %"),
+    }
+    Ok(())
 }
 
 /// A refusal from the daemon is already a sentence for people.

@@ -461,3 +461,22 @@ pub struct PowerUsage {
     pub cpu_energy_recorded: bool,
     pub days: Vec<DayEnergy>,
 }
+
+/// Battery protection: what the laptop supports and what is set.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct BatteryCare {
+    pub supported: bool,
+    /// `threshold`, `vendor-long-life`, `vendor-conservation` or empty.
+    pub method: String,
+    /// True when any limit can be chosen; false when the firmware fixes it.
+    pub adjustable: bool,
+    /// `off`, `protect` or `full-once`.
+    pub mode: String,
+    pub limit: u8,
+    /// Battery charge now, 0–100; 255 without a battery.
+    pub capacity: u8,
+    /// `Charging`, `Discharging`, `Full`, `Not charging`… or empty.
+    pub status: String,
+    /// Why it is unsupported, when it is.
+    pub reason: String,
+}

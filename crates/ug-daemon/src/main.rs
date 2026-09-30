@@ -17,6 +17,7 @@
 //! $ cargo run -p ug-cli -- --session status
 //! ```
 
+mod battery;
 mod conditions;
 mod energy;
 mod gamemode;
@@ -185,6 +186,12 @@ async fn main() -> Result<()> {
     let schedule = Arc::new(std::sync::Mutex::new(schedule));
     let watches = Arc::new(std::sync::Mutex::new(conditions::Watches::load(&state_dir.join("conditions.json"))));
     let watches_changed = Arc::new(tokio::sync::Notify::new());
+    let battery = Arc::new(std::sync::Mutex::new(battery::Battery::new(
+        root.clone(),
+        &state_dir.join("battery.json"),
+        // A --session run on the real /sys must not change charging.
+        args.session && args.sysroot.is_none(),
+    )));
     let energy = Arc::new(std::sync::Mutex::new(energy::EnergyMeter::load(root.clone(), &state_dir.join("energy.json"))));
     let observer = Arc::new(power::Observer {
         sampler: Arc::clone(&sampler),
@@ -208,13 +215,19 @@ async fn main() -> Result<()> {
                 observer: Arc::clone(&observer),
                 watches_changed: Arc::clone(&watches_changed),
                 energy: Arc::clone(&energy),
+                battery: Arc::clone(&battery),
             },
         )
         .await
         .context("serving the power interface")?;
+    let backend_for_battery = Arc::clone(&backend);
     tokio::spawn(power::run(conn.clone(), schedule, Arc::clone(&backend), schedule_changed));
     tokio::spawn(power::watch(watches, observer, backend, watches_changed));
     tokio::spawn(power::meter(energy));
+    tokio::spawn(power::keep_battery(battery, match &*backend_for_battery {
+        power::Backend::Logind(c) => Some(c.clone()),
+        power::Backend::Simulated(_) => None,
+    }));
 
     tracing::info!(
         bus = if args.session { "session" } else { "system" },

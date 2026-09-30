@@ -1,13 +1,13 @@
 <script lang="ts">
   import { AlarmClock, Cpu, Moon, Power, RotateCcw, Snowflake, Trash2 } from "@lucide/svelte";
   import type { Component } from "svelte";
-  import { api, errorText, type PowerUsage, type PowerAction, type PowerCapability, type PowerJob, type PowerWatch, type WatchKind } from "../lib/api";
+  import { api, errorText, type BatteryCare, type PowerUsage, type PowerAction, type PowerCapability, type PowerJob, type PowerWatch, type WatchKind } from "../lib/api";
   import { num } from "../lib/format";
   import { locale, t } from "../lib/i18n.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
 
-  type Tab = "command" | "conditional" | "usage" | "sleep" | "alarm";
-  const tabs: Tab[] = ["command", "conditional", "usage", "sleep", "alarm"];
+  type Tab = "command" | "conditional" | "usage" | "battery" | "sleep" | "alarm";
+  const tabs: Tab[] = ["command", "conditional", "usage", "battery", "sleep", "alarm"];
   const hashTab = location.hash.split("/")[1] as Tab;
   let tab = $state<Tab>(tabs.includes(hashTab) ? hashTab : "command");
   let caps = $state<PowerCapability[]>([]);
@@ -32,6 +32,16 @@
   let condMinutes = $state(5);
   let condName = $state("");
   let usage = $state<PowerUsage | null>(null);
+  let bat = $state<BatteryCare | null>(null);
+  let batLimit = $state(80);
+  $effect(() => {
+    if (tab !== "battery") return;
+    const load = () => !document.hidden && api.battery().then((b) => { bat = b; if (b.mode !== "off") batLimit = b.limit; }).catch((e) => (error = errorText(e)));
+    load();
+    const id = setInterval(load, 15000);
+    return () => clearInterval(id);
+  });
+  const setBat = (mode: string) => run(async () => { await api.setBatteryCare(mode, batLimit); bat = await api.battery(); });
   let tariff = $state(readTariff());
 
   function readTariff(): number {
@@ -229,7 +239,7 @@
 </header>
 
 <div class="tabs" role="tablist">
-  {#each ["command", "conditional", "usage", "sleep", "alarm"] as const as id}
+  {#each tabs as id}
     <button role="tab" aria-selected={tab === id} class:active={tab === id} onclick={() => (tab = id)}>
       {t().sys.tabs[id]}
     </button>
@@ -380,6 +390,40 @@
       </ul>
     {:else}
       <p class="muted">{t().sys.cond.none}</p>
+    {/if}
+  </section>
+{:else if tab === "battery"}
+  <section class="card">
+    <h2>{t().sys.bat.title}</h2>
+    <p class="small intro">{t().sys.bat.intro}</p>
+    {#if bat && bat.capacity > 100}
+      <p class="muted">{t().sys.bat.noBattery}</p>
+    {:else if bat}
+      <div class="meters">
+        <div><span class="muted">{t().sys.bat.charge}</span><span class="big">{num(bat.capacity)}<small>{t().unit.pct}</small></span><span class="small">{t().sys.bat.status[bat.status] ?? bat.status}</span></div>
+      </div>
+      {#if !bat.supported}
+        <p class="muted">{bat.reason}</p>
+      {:else}
+        <div class="line top">
+          <Segmented
+            label={t().sys.bat.title}
+            value={bat.mode}
+            options={(["off", "protect", "full-once"] as const).map((m) => ({ value: m, label: t().sys.bat.modes[m] }))}
+            onchange={(m) => setBat(m)}
+          />
+        </div>
+        {#if bat.adjustable}
+          <div class="line">
+            <label class="muted" for="limit">{t().sys.bat.limit}</label>
+            <input id="limit" type="range" min="50" max="100" step="5" bind:value={batLimit} onchange={() => bat?.mode !== "off" && setBat(bat!.mode)} />
+            <span class="big">{num(batLimit)}<small>{t().unit.pct}</small></span>
+          </div>
+        {:else}
+          <p class="small">{t().sys.bat.vendor}</p>
+        {/if}
+        <p class="small">{t().sys.bat.onceHint}</p>
+      {/if}
     {/if}
   </section>
 {:else if tab === "usage"}
@@ -583,6 +627,9 @@
   .bar-fill { width: 24px; height: calc(var(--h) * 120px); min-height: 2px; background: var(--accent); border-radius: 4px 4px 0 0; }
   .bar-val { font-size: 0.75rem; color: var(--text-2); }
   .bar-day { font-size: 0.75rem; color: var(--text-3); }
+  .intro { margin: 0 0 14px; max-width: 75ch; }
+  .line.top { margin-top: 14px; }
+  input[type="range"] { accent-color: var(--accent); width: 220px; }
   .kinds { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 8px 0 14px; }
   @media (max-width: 900px) { .kinds { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .kind {
