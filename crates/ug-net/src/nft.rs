@@ -10,6 +10,11 @@
 //! `accept`s (which ends only this table's chain, never another table's), so
 //! a nested group is not counted twice.
 //!
+//! Blocking and shaping use two more structures per level, both empty until
+//! the user makes a rule: `blockL`, whose members' outgoing packets are
+//! dropped, and `markL`, which marks a member's packets (and its connection,
+//! so replies can be classified on the way in) for `tc` to cap.
+//!
 //! Driven through the `nft` program: `nft -f -` applies a script as one
 //! atomic transaction, and `nft -j` reports counters as JSON.
 
@@ -44,9 +49,21 @@ pub fn table_script() -> String {
         for d in [Dir::Rx, Dir::Tx] {
             s.push_str(&format!("  set {} {{ type cgroupsv2; flags dynamic; counter; }}\n", d.set(l)));
         }
+        s.push_str(&format!("  set block{l} {{ type cgroupsv2; flags dynamic; }}\n"));
+        s.push_str(&format!("  map mark{l} {{ type cgroupsv2 : mark; flags dynamic; }}\n"));
     }
     for (chain, hook, dir) in [("egress", "output", Dir::Tx), ("ingress", "input", Dir::Rx)] {
         s.push_str(&format!("  chain {chain} {{\n    type filter hook {hook} priority -150; policy accept;\n"));
+        if dir == Dir::Tx {
+            for l in (MIN_LEVEL..=MAX_LEVEL).rev() {
+                s.push_str(&format!("    socket cgroupv2 level {l} @block{l} drop\n"));
+            }
+            for l in (MIN_LEVEL..=MAX_LEVEL).rev() {
+                s.push_str(&format!("    meta mark 0 meta mark set socket cgroupv2 level {l} map @mark{l}\n"));
+            }
+            // Only our marks reach the connection: a VPN's own marks are left alone.
+            s.push_str("    meta mark & 0xffff0000 == 0x55470000 ct mark set meta mark\n");
+        }
         for l in (MIN_LEVEL..=MAX_LEVEL).rev() {
             s.push_str(&format!("    socket cgroupv2 level {l} @{} accept\n", dir.set(l)));
         }
@@ -90,6 +107,25 @@ pub fn refill_script(groups: &[(String, u8)]) -> String {
         }
     }
     s + &add_script(groups)
+}
+
+/// Replaces the block and mark members: `blocked` (path, level) and
+/// `marked` (path, level, mark).
+pub fn policy_script(blocked: &[(String, u8)], marked: &[(String, u8, u32)]) -> String {
+    let mut s = String::new();
+    for l in MIN_LEVEL..=MAX_LEVEL {
+        s.push_str(&format!("flush set inet {TABLE} block{l}\nflush map inet {TABLE} mark{l}\n"));
+        let b: Vec<String> = blocked.iter().filter(|(_, gl)| *gl == l).map(|(p, _)| quote(p)).collect();
+        if !b.is_empty() {
+            s.push_str(&format!("add element inet {TABLE} block{l} {{ {} }}\n", b.join(", ")));
+        }
+        let m: Vec<String> =
+            marked.iter().filter(|(_, gl, _)| *gl == l).map(|(p, _, m)| format!("{} : {m:#x}", quote(p))).collect();
+        if !m.is_empty() {
+            s.push_str(&format!("add element inet {TABLE} mark{l} {{ {} }}\n", m.join(", ")));
+        }
+    }
+    s
 }
 
 /// One element's counter.
@@ -205,8 +241,12 @@ mod tests {
         let l2 = egress.find("level 2 @tx2").unwrap();
         assert!(l8 < l2);
         assert!(s[s.find("chain ingress").unwrap()..].contains("level 5 @rx5 accept"));
-        // Nothing here ever drops or touches another table.
-        assert!(!s.contains("drop"));
+        // The only drop is for members of the (empty) block sets, before
+        // marking and counting; nothing touches another table.
+        assert_eq!(s.matches(" drop").count(), (MAX_LEVEL - MIN_LEVEL + 1) as usize);
+        assert!(egress.find("@block8 drop").unwrap() < egress.find("map @mark8").unwrap());
+        assert!(egress.find("ct mark set").unwrap() < l8);
+        assert!(!s[s.find("chain ingress").unwrap()..].contains("drop"));
         assert_eq!(s.matches("table inet").count(), 3);
     }
 
@@ -224,6 +264,15 @@ mod tests {
         let s = refill_script(&[("a/b".into(), 2)]);
         assert_eq!(s.matches("flush set").count(), 2 * (MAX_LEVEL - MIN_LEVEL + 1) as usize);
         assert!(s.rfind("flush").unwrap() < s.find("add element").unwrap());
+    }
+
+    #[test]
+    fn policy_replaces_members_by_level() {
+        let s = policy_script(&[("system.slice/x.service".into(), 2)], &[("a/b/c/d/steam.scope".into(), 5, 0x5547_0001)]);
+        assert!(s.contains("flush set inet unix_guardian block5\nflush map inet unix_guardian mark5\n"));
+        assert!(s.contains("add element inet unix_guardian block2 { \"system.slice/x.service\" }"));
+        assert!(s.contains("add element inet unix_guardian mark5 { \"a/b/c/d/steam.scope\" : 0x55470001 }"));
+        assert!(!policy_script(&[], &[]).contains("add element"));
     }
 
     #[test]

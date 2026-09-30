@@ -226,11 +226,13 @@ async fn main() -> Result<()> {
     let simulate_net = development && !net::in_private_userns();
     let net_state = Arc::new(std::sync::Mutex::new(tokio::task::spawn_blocking({
         let root = root.clone();
-        move || net::Net::new(root, simulate_net)
+        let state_dir = state_dir.clone();
+        let gaming = Arc::clone(&gamemode_active);
+        move || net::Net::new(root, simulate_net, &state_dir, gaming)
     })
     .await?));
     conn.object_server()
-        .at(DAEMON_OBJECT_PATH, net::NetIface { net: Arc::clone(&net_state) })
+        .at(DAEMON_OBJECT_PATH, net::NetIface { net: Arc::clone(&net_state), gate: gate.clone() })
         .await
         .context("serving the net interface")?;
     tokio::spawn(net::run(Arc::clone(&net_state)));

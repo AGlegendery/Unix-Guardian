@@ -39,9 +39,9 @@ before="$("$NFT" list table inet theirs)"
 trap 'kill $daemon ${gen:-} 2>/dev/null; rmdir "$child" 2>/dev/null; rm -rf "$W"' EXIT
 until_ 20 "ug net --json >/dev/null 2>&1" || { echo "FAIL  daemon did not start"; cat "$W/daemon.log"; exit 1; }
 
-check "counting is available and real (not simulated)" "out=\$(busctl --user call org.unixguardian.Daemon1 /org/unixguardian/Daemon1 org.unixguardian.Daemon1.Net Status) && grep -q '^(\?bsbas)\? true \"\" false' <<<\"\$out\""
+check "counting is available and real (not simulated)" "out=\$(busctl --user call org.unixguardian.Daemon1 /org/unixguardian/Daemon1 org.unixguardian.Daemon1.Net Status) && grep -q '^(\?bsbas[a-z]*)\? true \"\" false' <<<\"\$out\""
 check "our table exists" "\"$NFT\" list tables | grep -q 'inet unix_guardian'"
-check "the table never drops anything" "! \"$NFT\" list table inet unix_guardian | grep -q drop"
+check "nothing is blocked without a rule" "! \"$NFT\" -j list table inet unix_guardian | grep -q '\"name\": \"block[0-9]\", [^}]*\"elem\"'"
 check "other tables are untouched" "[ \"\$(\"$NFT\" list table inet theirs)\" = \"\$before\" ]"
 
 own="/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)"
@@ -74,6 +74,76 @@ print(n)" >"$W/got"
   check "and no stale element is left in the sets" "until_ 10 '[ \"\$(stale)\" = 0 ]'"
 else
   echo "SKIP  per-app counting (cannot create a child cgroup; run under systemd-run --user --scope -p Delegate=yes)"
+fi
+
+# Blocking and caps, against a peer in its own network namespace over veth.
+app="$own/ug-e2e-app.service"   # the name `ug net` shows: ug-e2e-app
+if mkdir "$app" 2>/dev/null; then
+  cat >"$W/peer.py" <<'PY'
+import socket, threading
+def sink(port):
+    s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("10.9.0.2", port)); s.listen()
+    while True:
+        c, _ = s.accept(); n = 0
+        while (d := c.recv(1 << 16)): n += len(d)
+        c.sendall(str(n).encode()); c.close()
+def source(port):
+    s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("10.9.0.2", port)); s.listen()
+    while True:
+        c, _ = s.accept(); c.sendall(b"y" * 2_000_000); c.close()
+threading.Thread(target=sink, args=(7001,), daemon=True).start()
+source(7002)
+PY
+  ip link add ugA type veth peer name ugB
+  unshare -n bash -c 'while ! ip link show ugB >/dev/null 2>&1; do sleep 0.1; done
+    ip link set lo up; ip addr add 10.9.0.2/24 dev ugB; ip link set ugB up; exec python3 '"$W/peer.py" &
+  peer=$!
+  sleep 0.3
+  ip link set ugB netns "$peer"
+  ip addr add 10.9.0.1/24 dev ugA; ip link set ugA up; ip route add default via 10.9.0.2
+  trap 'kill $daemon $peer ${gen:-} 2>/dev/null; rmdir "$app" "$child" 2>/dev/null; rm -rf "$W"' EXIT
+  sleep 0.5
+  # Runs a Python snippet as the app (inside its cgroup); prints seconds taken.
+  as_app() { sh -c 'echo $$ >"$1/cgroup.procs"; shift; exec python3 -c "$@"' _ "$app" "$1"; }
+  upload='import socket,time; t=time.time(); c=socket.create_connection(("10.9.0.2",7001),timeout=20); c.sendall(b"x"*2_000_000); c.shutdown(1); c.recv(64); print("%.1f"%(time.time()-t))'
+  download='import socket,time; t=time.time(); c=socket.create_connection(("10.9.0.2",7002),timeout=20); n=0
+while (d:=c.recv(1<<16)): n+=len(d)
+print("%.1f"%(time.time()-t))'
+  fast="$(as_app "$upload")"
+  check "without a rule 2 MB goes up quickly ($fast s)" "awk 'BEGIN{exit !($fast < 1.5)}'"
+  # A long-lived process keeps the group alive, as a running app would.
+  sh -c 'echo $$ >"$1/cgroup.procs"; exec sleep 300' _ "$app" & gen=$!
+  sleep 6   # the daemon's 5-second scan names the new group
+  check "the app is listed by name" "ug net --json --all | grep -q '\"name\": \"ug-e2e-app\"'"
+  ug net limit ug-e2e-app --up 4m >/dev/null
+  check "an upload cap installs our HTB tree on the default-route interface" "tc qdisc show dev ugA | grep -q 'htb 5547:'"
+  slow="$(as_app "$upload")"
+  check "a 4 Mbit/s upload cap makes 2 MB take about 4 s ($slow s)" "awk 'BEGIN{exit !($slow >= 3.2 && $slow < 8)}'"
+  other="$(python3 -c "$upload")"
+  check "other programs are not capped ($other s)" "awk 'BEGIN{exit !($other < 1.5)}'"
+  fastdown="$(as_app "$download")"
+  ug net limit ug-e2e-app --down 4m >/dev/null
+  check "a download cap moves to the IFB device and frees the upload" "ip link show ug-ifb0 >/dev/null 2>&1 && ! tc qdisc show dev ugA | grep -q 'htb 5547:'"
+  slowdown="$(as_app "$download")"
+  check "a 4 Mbit/s download cap makes 2 MB take about 4 s ($fastdown s before, $slowdown s after)" "awk 'BEGIN{exit !($slowdown >= 3.2 && $slowdown < 8 && $fastdown < 1.5)}'"
+  ug net block ug-e2e-app >/dev/null
+  check "a blocked app cannot connect" "! as_app \"\$upload\" >/dev/null 2>&1"
+  check "the app shows as blocked" "ug net --json --all | grep -A12 '\"name\": \"ug-e2e-app\"' | grep -q '\"state\": \"blocked\"'"
+  check "while other programs still can" "python3 -c \"\$upload\" >/dev/null"
+  check "rules are listed" "ug net rules | grep -q 'ug-e2e-app .*blocked'"
+  ug net allow ug-e2e-app >/dev/null
+  check "allowing it again restores its connection" "as_app \"\$upload\" >/dev/null"
+  check "and removes every trace of shaping" "! ip link show ug-ifb0 >/dev/null 2>&1 && ! tc qdisc show dev ugA | grep -q 5547 && ! tc qdisc show dev ugA | grep -q ingress"
+  ug net limit ug-e2e-app --up 1m --down 1m >/dev/null
+  kill -TERM "$daemon"; wait "$daemon" 2>/dev/null
+  check "a clean stop removes caps too" "! ip link show ug-ifb0 >/dev/null 2>&1 && ! tc qdisc show dev ugA | grep -q 5547"
+  check "rules survive a restart (saved)" "grep -q ug-e2e-app '$W/state/net.json'"
+  "$B/ug-daemon" --session --state-dir "$W/state" --log warn 2>>"$W/daemon.log" & daemon=$!
+  until_ 20 "ug net --json >/dev/null 2>&1"
+  check "and come back into force" "until_ 10 'tc qdisc show dev ugA | grep -q \"htb 5547:\"'"
+  ug net allow ug-e2e-app >/dev/null
+else
+  echo "SKIP  blocking and caps (cannot create a child cgroup; run under systemd-run --user --scope -p Delegate=yes)"
 fi
 
 "$NFT" flush ruleset

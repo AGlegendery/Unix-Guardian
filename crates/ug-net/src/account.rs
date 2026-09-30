@@ -2,6 +2,7 @@
 
 use crate::cgroups::{self, Label};
 use crate::nft::{self, Dir, Nft};
+use crate::rules::{mark, Policy};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 use ug_hw::SysRoot;
@@ -44,11 +45,14 @@ pub struct Accountant<N: Nft> {
     gone: bool,
     /// Paths seen by the last scan.
     live: HashSet<String>,
+    policy: Policy,
+    /// The block and mark members need rewriting.
+    policy_dirty: bool,
 }
 
 impl<N: Nft> Accountant<N> {
     pub fn new(nft: N, root: SysRoot) -> Self {
-        Accountant { nft, root, installed: false, rejected: HashSet::new(), apps: HashMap::new(), gone: false, live: HashSet::new() }
+        Accountant { nft, root, installed: false, rejected: HashSet::new(), apps: HashMap::new(), gone: false, live: HashSet::new(), policy: Policy::default(), policy_dirty: false }
     }
 
     /// Creates (or recreates) the table. Counting starts from zero.
@@ -65,6 +69,7 @@ impl<N: Nft> Accountant<N> {
         let known: Vec<(String, u8)> = self.apps.iter().map(|(p, e)| (p.clone(), e.level)).collect();
         let ok = self.add(&known);
         self.apps.retain(|p, _| ok.contains(p));
+        self.policy_dirty = true;
         Ok(())
     }
 
@@ -104,6 +109,9 @@ impl<N: Nft> Accountant<N> {
             } else if added.contains(&g.path) {
                 let exe = g.pids.first().map(|&p| cgroups::comm(&self.root, p)).unwrap_or_default();
                 let label = cgroups::label(&g.path, &exe);
+                if self.policy.blocks(&label.name) || self.policy.class_of(&label.name).is_some() {
+                    self.policy_dirty = true;
+                }
                 self.apps.insert(
                     g.path.clone(),
                     Entry { level: g.level, pids: g.pids.clone(), label, exe, bank: [0; 2], cur: [0; 2], last: None, bps: [0; 2] },
@@ -111,6 +119,9 @@ impl<N: Nft> Accountant<N> {
             }
         }
         self.live = groups.into_iter().map(|g| g.path).collect();
+        if self.policy_dirty {
+            self.apply_policy()?;
+        }
         Ok(vanished)
     }
 
@@ -158,6 +169,33 @@ impl<N: Nft> Accountant<N> {
         if stale {
             self.refill();
         }
+        Ok(())
+    }
+
+    /// What to block and cap; applied on the next sync.
+    pub fn set_policy(&mut self, p: Policy) {
+        if p != self.policy {
+            self.policy = p;
+            self.policy_dirty = true;
+        }
+    }
+
+    pub fn policy(&self) -> &Policy {
+        &self.policy
+    }
+
+    fn apply_policy(&mut self) -> Result<(), String> {
+        let mut blocked = Vec::new();
+        let mut marked = Vec::new();
+        for (p, e) in &self.apps {
+            if self.policy.blocks(&e.label.name) {
+                blocked.push((p.clone(), e.level));
+            } else if let Some(c) = self.policy.class_of(&e.label.name) {
+                marked.push((p.clone(), e.level, mark(c)));
+            }
+        }
+        self.nft.apply(&nft::policy_script(&blocked, &marked))?;
+        self.policy_dirty = false;
         Ok(())
     }
 
@@ -220,6 +258,13 @@ impl<N: Nft> Accountant<N> {
                 tx_bps: e.bps[1],
                 rx_bytes: e.total(0),
                 tx_bytes: e.total(1),
+                state: if self.policy.blocks(&e.label.name) {
+                    "blocked".into()
+                } else if self.policy.class_of(&e.label.name).is_some() {
+                    "limited".into()
+                } else {
+                    String::new()
+                },
             })
             .collect();
         out.sort_by(|a, b| {
@@ -271,13 +316,17 @@ mod tests {
                 }
             }
             let mut e = self.elems.lock().unwrap();
-            if script.contains("flush set") {
+            if script.contains("flush set inet unix_guardian rx") {
                 e.values_mut().for_each(|c| *c = [0; 2]);
                 self.stale.lock().unwrap().clear();
                 e.clear();
             }
             for line in script.lines().filter(|l| l.starts_with("add element")) {
-                let level: u8 = line.split_whitespace().nth(4).unwrap()[2..].parse().unwrap();
+                let set = line.split_whitespace().nth(4).unwrap();
+                if !(set.starts_with("rx") || set.starts_with("tx")) {
+                    continue; // block and mark members are checked from the script text
+                }
+                let level: u8 = set[2..].parse().unwrap();
                 let body = &line[line.find('{').unwrap() + 1..line.rfind('}').unwrap()];
                 for p in body.split(", ") {
                     e.entry((p.trim().trim_matches('"').to_string(), level)).or_insert([0; 2]);
@@ -362,7 +411,7 @@ mod tests {
         assert_eq!(apps.len(), 2);
         assert!(apps.iter().any(|x| x.name == "steam"));
         // The stale element forced a refill; Firefox's bytes were banked.
-        assert!(nft.scripts.lock().unwrap().last().unwrap().contains("flush set"));
+        assert!(nft.scripts.lock().unwrap().last().unwrap().contains("flush set inet unix_guardian rx"));
         nft.traffic(FF, 5, 10, 1);
         a.refresh(t0 + Duration::from_secs(6)).unwrap();
         let ff = a.apps().into_iter().find(|x| x.name == "firefox").unwrap();
@@ -387,6 +436,39 @@ mod tests {
         a.refresh(t0 + Duration::from_secs(6)).unwrap();
         let ff = a.apps().into_iter().find(|x| x.name == "firefox").unwrap();
         assert_eq!(ff.rx_bytes, 505);
+    }
+
+    #[test]
+    fn a_policy_blocks_and_marks_by_app_name_including_apps_started_later() {
+        use crate::rules::{Rule, When};
+        let fs = machine();
+        let nft = FakeNft::default();
+        let mut a = Accountant::new(nft.clone(), SysRoot::at(fs.root()));
+        a.refresh(Instant::now()).unwrap();
+        let rules = vec![
+            Rule { app: "packagekit".into(), block: true, up_kbps: 0, down_kbps: 0, when: When::Always },
+            Rule { app: "steam".into(), block: false, up_kbps: 500, down_kbps: 0, when: When::Always },
+        ];
+        a.set_policy(Policy::from_rules(&rules, false));
+        a.sync_groups().unwrap();
+        let last = nft.scripts.lock().unwrap().last().unwrap().clone();
+        assert!(last.contains(&format!("add element inet unix_guardian block2 {{ \"{PK}\" }}")), "{last}");
+        assert!(!last.contains("mark5 {"), "steam is not running yet");
+        let pk = a.apps().into_iter().find(|x| x.name == "packagekit").unwrap();
+        assert_eq!(pk.state, "blocked");
+
+        // Steam starts: its new group is marked without another rule change.
+        let steam = "user.slice/user-1000.slice/user@1000.service/app.slice/app-steam@x.service";
+        fs.write(format!("sys/fs/cgroup/{steam}/cgroup.procs"), "30");
+        a.sync_groups().unwrap();
+        let last = nft.scripts.lock().unwrap().last().unwrap().clone();
+        assert!(last.contains(&format!("add element inet unix_guardian mark5 {{ \"{steam}\" : 0x55470001 }}")), "{last}");
+        assert_eq!(a.apps().into_iter().find(|x| x.name == "steam").unwrap().state, "limited");
+
+        // Nothing changes: no new nft call.
+        let n = nft.scripts.lock().unwrap().len();
+        a.sync_groups().unwrap();
+        assert_eq!(nft.scripts.lock().unwrap().len(), n);
     }
 
     #[test]

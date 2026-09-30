@@ -6,17 +6,23 @@
 //! a minute after someone asks, so an idle machine costs one `nft` call a
 //! minute.
 
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use ug_hw::SysRoot;
 use ug_net::account::Accountant;
 use ug_net::nft::NftCmd;
-use ug_proto::{AppTraffic, NetControlStatus};
+use ug_net::rules::{Policy, Rule, Rules, When};
+use ug_net::shaper::{RealCmd, Shaper};
+use ug_proto::{AppTraffic, NetControlStatus, NetRule};
+
+use crate::polkit::{action, Gate};
 
 const WATCHED: Duration = Duration::from_secs(60);
 
 pub enum Backend {
-    Nft(Box<Accountant<NftCmd>>),
+    Nft(Box<Accountant<NftCmd>>, Box<Shaper<RealCmd>>),
     /// A development daemon on the host: real app names, invented numbers.
     Simulated { root: SysRoot, start: Instant },
     Unavailable,
@@ -24,6 +30,11 @@ pub enum Backend {
 
 pub struct Net {
     backend: Backend,
+    root: SysRoot,
+    rules: Rules,
+    gaming: Arc<AtomicBool>,
+    /// What the rules mean right now; recomputed each tick.
+    policy: Policy,
     status: NetControlStatus,
     wanted_until: Option<Instant>,
     last_read: Option<Instant>,
@@ -58,7 +69,11 @@ fn other_firewalls(root: &SysRoot) -> Vec<String> {
 }
 
 impl Net {
-    pub fn new(root: SysRoot, simulate: bool) -> Net {
+    pub fn new(root: SysRoot, simulate: bool, state_dir: &Path, gaming: Arc<AtomicBool>) -> Net {
+        let (rules, problem) = Rules::load(&state_dir.join("net.json"));
+        if let Some(p) = problem {
+            tracing::warn!(%p, "internet rules");
+        }
         let firewalls = other_firewalls(&root);
         if !firewalls.is_empty() {
             tracing::info!(?firewalls, "another firewall is active; Unix Guardian keeps to its own nftables table");
@@ -66,8 +81,8 @@ impl Net {
         let (backend, status) = if simulate {
             tracing::warn!("development run: per-app traffic is simulated, nftables is not touched");
             (
-                Backend::Simulated { root, start: Instant::now() },
-                NetControlStatus { available: true, simulated: true, firewalls, problem: String::new() },
+                Backend::Simulated { root: root.clone(), start: Instant::now() },
+                NetControlStatus { available: true, simulated: true, firewalls, ..Default::default() },
             )
         } else {
             match NftCmd::find() {
@@ -80,10 +95,15 @@ impl Net {
                     },
                 ),
                 Some(cmd) => {
-                    let mut a = Accountant::new(cmd, root);
+                    let mut a = Accountant::new(cmd, root.clone());
                     match a.install() {
                         Ok(()) => (
-                            Backend::Nft(Box::new(a)),
+                            Backend::Nft(Box::new(a), {
+                                // A crash may have left our shaping behind.
+                                let mut s = Shaper::new(RealCmd);
+                                s.clean_leftovers(&ug_hw::net::default_iface(&root).unwrap_or_default());
+                                Box::new(s)
+                            }),
                             NetControlStatus { available: true, firewalls, ..Default::default() },
                         ),
                         Err(e) => {
@@ -104,7 +124,7 @@ impl Net {
                 }
             }
         };
-        Net { backend, status, wanted_until: None, last_read: None, apps: Vec::new() }
+        Net { backend, root, rules, gaming, policy: Policy::default(), status, wanted_until: None, last_read: None, apps: Vec::new() }
     }
 
     fn watched(&self, now: Instant) -> bool {
@@ -117,8 +137,13 @@ impl Net {
             None => true,
             Some(t) => now.duration_since(t) >= if self.watched(now) { Duration::from_secs(2) } else { Duration::from_secs(60) },
         };
+        self.policy = Policy::from_rules(&self.rules.list, self.gaming.load(Ordering::Relaxed));
         match &mut self.backend {
-            Backend::Nft(a) => {
+            Backend::Nft(a, shaper) => {
+                a.set_policy(self.policy.clone());
+                let iface = ug_hw::net::default_iface(&self.root).unwrap_or_default();
+                self.status.shaping_problems = shaper.apply(&iface, &self.policy.limits);
+                self.status.iface = iface;
                 let r = if due { a.refresh(now) } else { a.sync_groups().map(|_| ()) };
                 match r {
                     Ok(()) => {
@@ -131,7 +156,11 @@ impl Net {
             }
             Backend::Simulated { root, start } => {
                 if due {
+                    let states = self.policy.states();
                     self.apps = simulated(root, now.duration_since(*start).as_secs());
+                    for a in &mut self.apps {
+                        a.state = states.get(&a.name.to_lowercase()).map(|s| s.to_string()).unwrap_or_default();
+                    }
                 }
             }
             Backend::Unavailable => {}
@@ -143,7 +172,8 @@ impl Net {
 
     /// Removes our table; the daemon's last act on a clean stop.
     pub fn shutdown(&mut self) {
-        if let Backend::Nft(a) = &mut self.backend {
+        if let Backend::Nft(a, shaper) = &mut self.backend {
+            shaper.clear();
             if let Err(e) = a.uninstall() {
                 tracing::warn!(error = %e, "could not remove the nftables table");
             }
@@ -174,6 +204,7 @@ fn simulated(root: &SysRoot, secs: u64) -> Vec<AppTraffic> {
                 tx_bps,
                 rx_bytes: rx_bps * secs / 2,
                 tx_bytes: tx_bps * secs / 2,
+                state: String::new(),
             }
         })
         .collect();
@@ -192,12 +223,75 @@ pub async fn run(net: SharedNet) {
 
 pub struct NetIface {
     pub net: SharedNet,
+    pub gate: Gate,
+}
+
+fn rule_out(r: &Rule, gaming: bool) -> NetRule {
+    NetRule {
+        app: r.app.clone(),
+        block: r.block,
+        up_kbps: r.up_kbps,
+        down_kbps: r.down_kbps,
+        when: r.when.as_str().into(),
+        active: r.when == When::Always || gaming,
+    }
 }
 
 #[zbus::interface(name = "org.unixguardian.Daemon1.Net")]
 impl NetIface {
     async fn status(&self) -> NetControlStatus {
         lock(&self.net).status.clone()
+    }
+
+    /// Every rule, with whether it applies now.
+    async fn rules(&self) -> Vec<NetRule> {
+        let n = lock(&self.net);
+        let gaming = n.gaming.load(Ordering::Relaxed);
+        n.rules.list.iter().map(|r| rule_out(r, gaming)).collect()
+    }
+
+    /// Blocks an app, or caps its upload and/or download (kbit/s, 0 = no
+    /// cap), `always` or only while `gaming`. Replaces the app's rule.
+    async fn set_rule(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        app: &str,
+        block: bool,
+        up_kbps: u32,
+        down_kbps: u32,
+        when: &str,
+    ) -> zbus::fdo::Result<()> {
+        let when = When::parse(when).map_err(zbus::fdo::Error::InvalidArgs)?;
+        self.gate.authorize(&hdr, action::NET).await?;
+        let rule = Rule { app: app.to_string(), block, up_kbps: if block { 0 } else { up_kbps }, down_kbps: if block { 0 } else { down_kbps }, when };
+        let net = Arc::clone(&self.net);
+        tokio::task::spawn_blocking(move || {
+            let mut n = lock(&net);
+            n.rules.set(rule)?;
+            n.last_read = None;
+            n.tick(Instant::now());
+            Ok::<_, String>(())
+        })
+        .await
+        .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+        .map_err(zbus::fdo::Error::InvalidArgs)
+    }
+
+    /// Removes an app's rule; returns false if it had none.
+    async fn remove_rule(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, app: &str) -> zbus::fdo::Result<bool> {
+        self.gate.authorize(&hdr, action::NET).await?;
+        let net = Arc::clone(&self.net);
+        let app = app.to_string();
+        tokio::task::spawn_blocking(move || {
+            let mut n = lock(&net);
+            let r = n.rules.remove(&app)?;
+            n.last_read = None;
+            n.tick(Instant::now());
+            Ok::<_, String>(r)
+        })
+        .await
+        .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+        .map_err(zbus::fdo::Error::Failed)
     }
 
     async fn apps(&self) -> Vec<AppTraffic> {

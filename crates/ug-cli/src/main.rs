@@ -48,8 +48,10 @@ enum Command {
         #[command(subcommand)]
         command: Option<BatteryCommand>,
     },
-    /// Internet use per app and service, counted by the service.
+    /// Internet use per app and service; block an app or cap its speed.
     Net {
+        #[command(subcommand)]
+        command: Option<NetCommand>,
         /// Include apps that have not used the internet.
         #[arg(long)]
         all: bool,
@@ -105,6 +107,48 @@ enum Command {
         #[command(subcommand)]
         command: ProfileCommand,
     },
+}
+
+#[derive(Subcommand)]
+enum NetCommand {
+    /// Cut an app off the internet (by the name `ug net` shows).
+    Block {
+        app: String,
+        /// Only while game mode is on.
+        #[arg(long)]
+        gaming: bool,
+    },
+    /// Cap an app's upload and/or download speed.
+    Limit {
+        app: String,
+        /// Upload cap, e.g. 500k or 2m (bits per second).
+        #[arg(long)]
+        up: Option<String>,
+        /// Download cap, e.g. 8m.
+        #[arg(long)]
+        down: Option<String>,
+        /// Only while game mode is on.
+        #[arg(long)]
+        gaming: bool,
+    },
+    /// Remove an app's block or cap.
+    Allow { app: String },
+    /// Every rule.
+    Rules,
+}
+
+/// `500k`, `2m`, `2.5m` or plain kilobits → kbit/s.
+fn parse_kbps(s: &str) -> Result<u32> {
+    let t = s.trim().to_lowercase();
+    let (num, mul) = if let Some(n) = t.strip_suffix('m') {
+        (n, 1000.0)
+    } else if let Some(n) = t.strip_suffix('k') {
+        (n, 1.0)
+    } else {
+        (t.as_str(), 1.0)
+    };
+    let v: f64 = num.parse().map_err(|_| anyhow::anyhow!("\"{s}\" is not a speed; try 500k or 2m (bits per second)"))?;
+    Ok((v * mul).round() as u32)
 }
 
 #[derive(Subcommand)]
@@ -294,7 +338,7 @@ async fn main() -> Result<()> {
         Command::Gpu { command } => gpu(&conn, &daemon, command, cli.json).await,
         Command::Power { command } => power(&conn, command, cli.json).await,
         Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
-        Command::Net { all } => net(&conn, all, cli.json).await,
+        Command::Net { command, all } => net(&conn, command, all, cli.json).await,
         Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Tui => {
             unreachable!("handled above")
         }
@@ -856,8 +900,59 @@ fn parse_rate(s: &str) -> Result<f64> {
     num.parse::<f64>().map(|n| n * mult).map_err(|_| anyhow::anyhow!("cannot read {s:?} as a rate; e.g. 50k or 2M"))
 }
 
-async fn net(conn: &zbus::Connection, all: bool, json: bool) -> Result<()> {
+async fn net(conn: &zbus::Connection, command: Option<NetCommand>, all: bool, json: bool) -> Result<()> {
     let p = NetProxy::new(conn).await?;
+    let when = |g: bool| if g { "gaming" } else { "always" };
+    match command {
+        None => {}
+        Some(NetCommand::Block { app, gaming }) => {
+            p.set_rule(&app, true, 0, 0, when(gaming)).await.map_err(daemon_error)?;
+            println!("{app} is blocked{}.", if gaming { " while game mode is on" } else { "" });
+            return Ok(());
+        }
+        Some(NetCommand::Limit { app, up, down, gaming }) => {
+            let up = up.as_deref().map(parse_kbps).transpose()?.unwrap_or(0);
+            let down = down.as_deref().map(parse_kbps).transpose()?.unwrap_or(0);
+            if up == 0 && down == 0 {
+                anyhow::bail!("give --up and/or --down, e.g. --up 500k");
+            }
+            p.set_rule(&app, false, up, down, when(gaming)).await.map_err(daemon_error)?;
+            println!("{app} is capped{}.", if gaming { " while game mode is on" } else { "" });
+            let st = p.status().await.map_err(daemon_error)?;
+            for problem in st.shaping_problems {
+                println!("Note: {problem}");
+            }
+            return Ok(());
+        }
+        Some(NetCommand::Allow { app }) => {
+            if p.remove_rule(&app).await.map_err(daemon_error)? {
+                println!("{app} has no limits any more.");
+            } else {
+                println!("{app} had no rule.");
+            }
+            return Ok(());
+        }
+        Some(NetCommand::Rules) => {
+            let rules = p.rules().await.map_err(daemon_error)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&rules)?);
+            } else if rules.is_empty() {
+                println!("No rules. `ug net block APP` or `ug net limit APP --up 500k` makes one.");
+            } else {
+                for r in rules {
+                    let what = if r.block {
+                        "blocked".to_string()
+                    } else {
+                        let f = |k: u32| if k == 0 { "—".to_string() } else if k >= 1000 { format!("{:.1} Mbit/s", k as f64 / 1000.0) } else { format!("{k} kbit/s") };
+                        format!("up {}  down {}", f(r.up_kbps), f(r.down_kbps))
+                    };
+                    let when = if r.when == "gaming" { "while gaming" } else { "always" };
+                    println!("{:<24} {:<32} {:<13} {}", r.app, what, when, if r.active { "in effect" } else { "waiting" });
+                }
+            }
+            return Ok(());
+        }
+    }
     let status = p.status().await.map_err(daemon_error)?;
     if !status.available {
         anyhow::bail!("{}", status.problem);
@@ -882,6 +977,11 @@ async fn net(conn: &zbus::Connection, all: bool, json: bool) -> Result<()> {
             continue;
         }
         let name: String = a.name.chars().take(28).collect();
+        let name = match a.state.as_str() {
+            "blocked" => format!("{} ⛔", name.chars().take(26).collect::<String>()),
+            "limited" => format!("{} ⏬", name.chars().take(26).collect::<String>()),
+            _ => name,
+        };
         println!(
             "{name:<28} {:<8} {:>12} {:>12} {:>11} {:>11}",
             a.kind,
@@ -1186,7 +1286,7 @@ fn rate(bps: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::rate;
+    use super::{parse_kbps, rate};
 
     #[test]
     fn durations_read_naturally() {
@@ -1218,6 +1318,14 @@ mod tests {
         assert_eq!(super::csv_field("Counter-Strike 2"), "Counter-Strike 2");
         assert_eq!(super::csv_field("Warhammer 40,000"), "\"Warhammer 40,000\"");
         assert_eq!(super::csv_field("The \"Game\""), "\"The \"\"Game\"\"\"");
+    }
+
+    #[test]
+    fn speeds_read_as_kilobits() {
+        assert_eq!(parse_kbps("500k").unwrap(), 500);
+        assert_eq!(parse_kbps("2.5M").unwrap(), 2500);
+        assert_eq!(parse_kbps("800").unwrap(), 800);
+        assert!(parse_kbps("fast").is_err());
     }
 
     #[test]

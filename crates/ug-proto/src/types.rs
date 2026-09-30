@@ -584,6 +584,23 @@ pub struct AppTraffic {
     /// Since the service started counting it.
     pub rx_bytes: u64,
     pub tx_bytes: u64,
+    /// `blocked`, `limited`, or empty.
+    pub state: String,
+}
+
+/// A user's rule for one app's internet.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct NetRule {
+    /// The app's name as `Apps` reports it.
+    pub app: String,
+    pub block: bool,
+    /// Kilobits per second; 0 = no cap.
+    pub up_kbps: u32,
+    pub down_kbps: u32,
+    /// `always` or `gaming` (only while game mode is on).
+    pub when: String,
+    /// Whether it applies right now.
+    pub active: bool,
 }
 
 /// Whether internet control works here, and why not.
@@ -596,6 +613,11 @@ pub struct NetControlStatus {
     pub simulated: bool,
     /// Other firewalls found (`firewalld`, `ufw`); ours coexists with them.
     pub firewalls: Vec<String>,
+    /// Why a cap is not in effect right now (another tool shapes the
+    /// interface); empty when every rule applies.
+    pub shaping_problems: Vec<String>,
+    /// The interface caps are applied to.
+    pub iface: String,
 }
 
 /// Readings beyond the snapshot, for the live monitor. Fetched with

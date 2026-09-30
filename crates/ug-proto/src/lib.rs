@@ -265,6 +265,17 @@ pub mod daemon {
         /// Every app and service with its traffic, busiest first. Asking
         /// makes the next minute's rates update every two seconds.
         fn apps(&self) -> zbus::Result<Vec<AppTraffic>>;
+
+        /// Every rule, with whether it applies now.
+        fn rules(&self) -> zbus::Result<Vec<NetRule>>;
+
+        /// Blocks an app, or caps its upload and/or download in kbit/s
+        /// (0 = no cap), `always` or only while `gaming`. Needs the
+        /// `org.unixguardian.net.control` polkit action.
+        fn set_rule(&self, app: &str, block: bool, up_kbps: u32, down_kbps: u32, when: &str) -> zbus::Result<()>;
+
+        /// Removes an app's rule; false if it had none.
+        fn remove_rule(&self, app: &str) -> zbus::Result<bool>;
     }
 }
 
