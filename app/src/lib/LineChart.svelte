@@ -21,6 +21,7 @@
     mode = "live",
     height = 190,
     timeStyle = "clock",
+    digits = 0,
   }: {
     times: number[];
     series: Series[];
@@ -32,6 +33,8 @@
     height?: number;
     /// History axis labels: clock times (a day or less) or weekdays (a week).
     timeStyle?: "clock" | "weekday";
+    /// Decimals in the axis and the hover (1 for GB or MB/s).
+    digits?: number;
   } = $props();
 
   const timeFmt = $derived(
@@ -81,7 +84,7 @@
           mode === "live"
             ? { ...axis, values: (_u, ticks) => ticks.map(() => ""), size: 10 }
             : { ...axis, size: 28, space: 70, values: (_u, ticks) => ticks.map((v) => timeFmt.format(new Date(v * 1000))) },
-          { ...axis, size: 48, values: (_u, ticks) => ticks.map((v) => `${num(v)}${unit}`) },
+          { ...axis, size: 48, values: (_u, ticks) => ticks.map((v) => `${num(v, digits)}${unit}`) },
         ],
         series: [
           {},
@@ -101,7 +104,7 @@
   }
 
   // Rebuild when the set of series or the width changes; otherwise only feed data.
-  const key = $derived(series.map((s) => s.label).join("|") + timeStyle + unit);
+  const key = $derived(series.map((s) => s.label).join("|") + timeStyle + unit + digits + mode);
   $effect(() => {
     void key;
     if (width > 0) build();
@@ -129,7 +132,7 @@
     <div class="tip" style:left="{hover.left + 56}px">
       <span class="tip-when">{mode === "live" ? `−${num(ago)}s` : tipFmt.format(new Date(times[hover.idx] * 1000))}</span>
       {#each series as s}
-        <span class="tip-row"><span class="key" style:background={s.color}></span>{s.label} {num(s.values[hover.idx])}{unit}</span>
+        <span class="tip-row"><span class="key" style:background={s.color}></span>{s.label} {num(s.values[hover.idx], digits)}{unit}</span>
       {/each}
     </div>
   {/if}

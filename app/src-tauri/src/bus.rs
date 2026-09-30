@@ -328,6 +328,24 @@ pub async fn history(bus: State<'_, Bus>, since_unix_ms: u64, until_unix_ms: u64
 }
 
 #[tauri::command]
+pub async fn extra(bus: State<'_, Bus>) -> Res<ug_proto::ExtraSample> {
+    let d = DaemonProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    d.extra().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn fps(bus: State<'_, Bus>) -> Res<ug_proto::FpsReading> {
+    let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    m.fps().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn set_up_fps(bus: State<'_, Bus>, on: bool) -> Res<()> {
+    let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    m.set_up_fps(on).await.map_err(agent_err)
+}
+
+#[tauri::command]
 pub async fn traffic(bus: State<'_, Bus>, since_unix_ms: u64) -> Res<Vec<DayTraffic>> {
     let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;
     m.traffic(since_unix_ms).await.map_err(agent_err)

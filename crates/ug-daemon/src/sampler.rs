@@ -36,6 +36,7 @@ struct Readers {
     load: cpu::LoadReader,
     power: rapl::PowerReader,
     net: net::NetReader,
+    extra: ug_hw::extra::ExtraReader,
 }
 
 impl Sampler {
@@ -78,6 +79,7 @@ impl Sampler {
                 load: cpu::LoadReader::new(),
                 power: rapl::PowerReader::new(),
                 net: net::NetReader::new(),
+                extra: ug_hw::extra::ExtraReader::new(),
             }),
             gpus,
             inventory,
@@ -136,6 +138,16 @@ impl Sampler {
     }
 
     /// Reads every sensor once.
+    /// Disk, battery, per-core clocks and load average (see `System.Extra`).
+    pub fn extra(&self) -> ug_proto::ExtraSample {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let mut readers = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        readers.extra.read(&self.root, ts)
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         let chips = hwmon::enumerate(&self.root);
         let scaling = cpu::scaling_state(&self.root);

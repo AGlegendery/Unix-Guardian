@@ -100,6 +100,9 @@ pub mod daemon {
         /// Cheap to call but meant to be fetched once and cached.
         fn inventory(&self) -> zbus::Result<Inventory>;
 
+        /// Disk throughput, battery power, per-core clocks, load average.
+        fn extra(&self) -> zbus::Result<ExtraSample>;
+
         /// Change the daemon's log filter at runtime, e.g. `"debug"` or
         /// `"ug_gpu=trace,info"`. Survives until the next restart.
         fn set_log_filter(&self, filter: &str) -> zbus::Result<()>;
@@ -328,6 +331,13 @@ pub mod agent {
 
         /// Bytes received and sent per local day since `since_unix_ms`.
         fn traffic(&self, since_unix_ms: u64) -> zbus::Result<Vec<DayTraffic>>;
+
+        /// The running game's FPS, read from MangoHud's log.
+        fn fps(&self) -> zbus::Result<FpsReading>;
+
+        /// Adds (true) or removes (false) Unix Guardian's logging block in
+        /// the user's MangoHud.conf; the first change keeps a backup.
+        fn set_up_fps(&self, on: bool) -> zbus::Result<()>;
     }
 
     /// Ping to the router, the DNS server and the game's server. Measuring

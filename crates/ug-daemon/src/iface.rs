@@ -105,6 +105,12 @@ impl SystemIface {
         self.sampler.snapshot()
     }
 
+    /// Disk, battery, per-core clocks and load average. Rates are since the
+    /// previous call by any client, so poll it at the same pace as Snapshot.
+    async fn extra(&self) -> ug_proto::ExtraSample {
+        self.sampler.extra()
+    }
+
     /// Static machine description.
     async fn inventory(&self) -> Inventory {
         self.sampler.inventory()

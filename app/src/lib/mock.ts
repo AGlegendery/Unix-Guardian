@@ -4,7 +4,7 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { BatteryCare, DayTraffic, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { BatteryCare, DayTraffic, ExtraSample, FpsReading, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -13,6 +13,7 @@ let alarm = 0;
 const bat: BatteryCare = { supported: true, method: "vendor-long-life", adjustable: false, mode: "off", limit: 80, capacity: 100, status: "Full", reason: "" };
 const watches: PowerWatch[] = [];
 let t = 0;
+let fpsSetUp = false;
 
 function jitter(v: number | null, spread: number, lo = 0, hi = 100): number | null {
   if (v == null) return null;
@@ -130,6 +131,27 @@ export const mockApi = {
       rx_bytes: [2.1, 5.4, 1.2, 8.8, 3.3, 0.9, 4.2][i] * 1e9,
       tx_bytes: [0.3, 0.6, 0.2, 1.1, 0.4, 0.1, 0.5][i] * 1e9,
     })),
+  extra: async (): Promise<ExtraSample> => ({
+    ts_unix_ms: Date.now(),
+    per_core_mhz: base.cpu.per_core_load.map((_, i) => Math.round(1800 + Math.random() * 2200 + (i < 8 ? 400 : 0))),
+    disk_read_bps: Math.random() < 0.7 ? Math.random() * 3e6 : 40e6 * Math.random(),
+    disk_write_bps: Math.random() * 2e6,
+    disk_busy_pct: Math.random() * 20,
+    battery_pct: 100,
+    battery_w: 0,
+    battery_status: "Full",
+    on_ac: true,
+    load_avg_1: 1.2 + Math.random(),
+    processes: 612,
+  }),
+  fps: async (): Promise<FpsReading> => {
+    const now = Date.now();
+    const recent: [number, number][] = Array.from({ length: 50 }, (_, i) => [now - (49 - i) * 200, 138 + Math.sin((now / 200 + i) / 4) * 8 - (i % 23 === 0 ? 50 : 0)]);
+    return { state: fpsSetUp ? "live" : "not-set-up", game: "cs2", fps: 141, frametime_ms: 7.1, low_1pct_fps: 88, recent, install_hint: "" };
+  },
+  setUpFps: async (on: boolean) => {
+    fpsSetUp = on;
+  },
   openTerminal: async () => {
     throw "The preview cannot open a terminal. In the app this opens ug tui.";
   },

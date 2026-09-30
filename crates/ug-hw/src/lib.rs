@@ -16,6 +16,7 @@
 //! reader fails because a file is absent — absence is information, not an error.
 
 pub mod cpu;
+pub mod extra;
 pub mod hwmon;
 pub mod mem;
 pub mod net;

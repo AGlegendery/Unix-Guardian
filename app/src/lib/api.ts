@@ -57,6 +57,30 @@ export interface Snapshot {
   net: NetSample;
 }
 
+export interface ExtraSample {
+  ts_unix_ms: number;
+  per_core_mhz: number[];
+  disk_read_bps: number;
+  disk_write_bps: number;
+  disk_busy_pct: number;
+  battery_pct: number | null;
+  battery_w: number | null;
+  battery_status: string;
+  on_ac: boolean;
+  load_avg_1: number | null;
+  processes: number;
+}
+
+export interface FpsReading {
+  state: "live" | "idle" | "not-set-up" | "not-installed";
+  game: string;
+  fps: number | null;
+  frametime_ms: number | null;
+  low_1pct_fps: number | null;
+  recent: [number, number][];
+  install_hint: string;
+}
+
 export interface GpuInfo {
   pci: string;
   name: string;
@@ -229,6 +253,9 @@ const tauriApi = {
   history: (sinceUnixMs: number, untilUnixMs: number, points: number) =>
     invoke<HistoryPoint[]>("history", { sinceUnixMs, untilUnixMs, points }),
   traffic: (sinceUnixMs: number) => invoke<DayTraffic[]>("traffic", { sinceUnixMs }),
+  extra: () => invoke<ExtraSample>("extra"),
+  fps: () => invoke<FpsReading>("fps"),
+  setUpFps: (on: boolean) => invoke<void>("set_up_fps", { on }),
   openTerminal: () => invoke<void>("open_terminal_interface"),
   battery: () => invoke<BatteryCare>("battery"),
   setBatteryCare: (mode: string, limit: number) => invoke<void>("set_battery_care", { mode, limit }),

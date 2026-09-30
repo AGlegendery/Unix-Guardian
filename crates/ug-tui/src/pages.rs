@@ -24,7 +24,7 @@ const ACTIONS: [(&str, &str); 5] = [
     ("hibernate", "Hibernate"),
     ("reboot-firmware", "Restart into BIOS/UEFI setup"),
 ];
-const RANGES: [&str; 3] = ["Last hour", "Today", "This week"];
+const RANGES: [&str; 4] = ["Live", "Last hour", "Today", "This week"];
 
 fn card<'a>(app: &App, title: &'a str) -> Block<'a> {
     Block::default()
@@ -472,12 +472,20 @@ fn battery(app: &mut App, f: &mut Frame, r: Rect) {
 }
 
 fn monitoring(app: &mut App, f: &mut Frame, r: Rect) {
-    tabs(app, f, Rect { height: 1, ..r }, &["Temperature and power", "Internet traffic"]);
+    tabs(app, f, Rect { height: 1, ..r }, &["Temperature and power", "Internet traffic", "FPS"]);
     let body = Rect { y: r.y + 2, height: r.height.saturating_sub(2), ..r };
+    if app.tab == 2 {
+        fps(app, f, body);
+        return;
+    }
     if app.tab == 0 {
         let names: Vec<String> = RANGES.iter().map(|s| s.to_string()).collect();
-        let chosen = app.choice.min(2);
+        let chosen = app.choice.min(3);
         choices(app, f, Rect { height: 1, ..body }, "Range", &names, chosen);
+        if chosen == 0 {
+            live(app, f, Rect { y: body.y + 2, height: body.height.saturating_sub(2), ..body });
+            return;
+        }
         let pts = app.history.value.clone().unwrap_or_default();
         let area = Rect { y: body.y + 2, height: body.height.saturating_sub(2), ..body };
         if pts.len() < 2 {
@@ -551,8 +559,176 @@ fn monitoring(app: &mut App, f: &mut Frame, r: Rect) {
             lines.push(Line::from(Span::styled("No traffic recorded yet.", app.theme.muted())));
         }
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("Per-app traffic comes with ping stability and internet control, in a later version.", app.theme.faint())));
+        lines.push(Line::from(Span::styled("Traffic per app: `ug net` (its page comes with ping stability).", app.theme.faint())));
         f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body);
+    }
+}
+
+/// One Braille line chart of up to two series against seconds ago.
+#[allow(clippy::too_many_arguments)]
+fn live_chart(app: &App, f: &mut Frame, r: Rect, title: &str, unit: &str, min: (f64, f64), a: (&str, Vec<(f64, f64)>), b: Option<(&str, Vec<(f64, f64)>)>) {
+    let all = a.1.iter().chain(b.iter().flat_map(|x| x.1.iter()));
+    let lo = all.clone().map(|p| p.1).fold(min.0, f64::min).floor();
+    let hi = all.map(|p| p.1).fold(min.1, f64::max).ceil();
+    let now = a.1.last().map(|p| p.1);
+    let head = match now {
+        Some(v) if unit.contains("MB") || unit.contains("GB") || unit == " W" => format!("{title}  {v:.1}{unit}"),
+        Some(v) => format!("{title}  {v:.0}{unit}"),
+        None => title.to_string(),
+    };
+    let mut sets = vec![Dataset::default().name(a.0.to_string()).marker(Marker::Braille).graph_type(GraphType::Line).style(Style::default().fg(app.theme.cpu)).data(&a.1)];
+    if let Some((name, d)) = &b {
+        if !d.is_empty() {
+            sets.push(Dataset::default().name(name.to_string()).marker(Marker::Braille).graph_type(GraphType::Line).style(Style::default().fg(app.theme.gpu)).data(d));
+        }
+    }
+    let two = sets.len() > 1;
+    let chart = Chart::new(sets)
+        .legend_position(two.then_some(ratatui::widgets::LegendPosition::TopLeft))
+        .block(card(app, &head))
+        .x_axis(Axis::default().bounds([-120.0, 0.0]))
+        .y_axis(Axis::default().style(app.theme.faint()).bounds([lo, hi.max(lo + 1.0)]).labels([Span::raw(format!("{lo:.0}")), Span::raw(format!("{hi:.0}"))]));
+    f.render_widget(chart, r);
+}
+
+/// The last two minutes, one reading a second.
+fn live(app: &mut App, f: &mut Frame, r: Rect) {
+    if app.live.len() < 2 {
+        let msg = app.live_due.error.clone().unwrap_or_else(|| "Collecting readings…".into());
+        f.render_widget(Paragraph::new(Span::styled(msg, app.theme.muted())), r);
+        return;
+    }
+    let t_end = app.live.back().map(|(s, _)| s.ts_unix_ms).unwrap_or(0) as f64 / 1000.0;
+    let pts = |get: &dyn Fn(&ug_proto::Snapshot, &ug_proto::ExtraSample) -> f64| -> Vec<(f64, f64)> {
+        app.live
+            .iter()
+            .filter_map(|(s, e)| {
+                let v = get(s, e);
+                (!v.is_nan()).then_some((s.ts_unix_ms as f64 / 1000.0 - t_end, v))
+            })
+            .collect()
+    };
+    let gpu = |s: &ug_proto::Snapshot| s.gpus.iter().find(|g| !g.asleep && !g.temp_c.is_nan()).cloned();
+    let (s, e) = app.live.back().cloned().expect("two readings");
+
+    // A line of numbers, then per-core load as bars.
+    let bars = "▁▂▃▄▅▆▇█";
+    let cores: String = s
+        .cpu
+        .per_core_load
+        .iter()
+        .map(|l| {
+            let i = ((l.max(0.0) / 100.0) * 7.0).round() as usize;
+            bars.chars().nth(i.min(7)).unwrap_or(' ')
+        })
+        .collect();
+    let bat = if e.battery_pct.is_nan() {
+        "no battery".to_string()
+    } else {
+        let w = if e.battery_w.is_nan() { String::new() } else { format!(" {:.1} W", e.battery_w.abs()) };
+        format!("{:.0} %{w}{}", e.battery_pct, if e.battery_status == "Charging" { " charging" } else { "" })
+    };
+    let head = vec![
+        Line::from(vec![
+            Span::styled("Load avg ", app.theme.muted()),
+            Span::styled(format!("{:.2}", e.load_avg_1), app.theme.title()),
+            Span::styled("   Processes ", app.theme.muted()),
+            Span::styled(e.processes.to_string(), app.theme.title()),
+            Span::styled("   Disk busy ", app.theme.muted()),
+            Span::styled(format!("{:.0} %", e.disk_busy_pct), app.theme.title()),
+            Span::styled("   Battery ", app.theme.muted()),
+            Span::styled(bat, app.theme.title()),
+        ]),
+        Line::from(vec![Span::styled("Cores ", app.theme.muted()), Span::styled(cores, Style::default().fg(app.theme.cpu))]),
+    ];
+    f.render_widget(Paragraph::new(head), Rect { height: 2, ..r });
+    let area = Rect { y: r.y + 3, height: r.height.saturating_sub(3), ..r };
+    let rows = Layout::default().direction(Direction::Vertical).constraints([Constraint::Ratio(1, 4); 4]).split(area);
+    let cell = |i: usize| {
+        let cols = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Ratio(1, 2); 2]).split(rows[i / 2]);
+        cols[i % 2]
+    };
+    let has_gpu = app.live.iter().any(|(s, _)| gpu(s).is_some());
+    let g = |get: fn(&ug_proto::GpuSample) -> f64| -> Option<(&'static str, Vec<(f64, f64)>)> {
+        has_gpu.then(|| ("Graphics card", pts(&|s, _| gpu(s).map(|x| get(&x)).unwrap_or(f64::NAN))))
+    };
+    live_chart(app, f, cell(0), "Temperature", "°", (30.0, 70.0), ("Processor", pts(&|s, _| s.cpu.temp_c)), g(|x| x.temp_c));
+    live_chart(app, f, cell(1), "Load", " %", (0.0, 100.0), ("Processor", pts(&|s, _| s.cpu.load_pct)), g(|x| x.load_pct));
+    live_chart(app, f, cell(2), "Power", " W", (0.0, 30.0), ("Processor", pts(&|s, _| s.cpu.power_w)), g(|x| x.power_w));
+    live_chart(app, f, cell(3), "Clock", " MHz", (0.0, 3000.0), ("Fastest core", pts(&|s, _| s.cpu.freq_max_mhz as f64)), g(|x| if x.core_clock_mhz == 0 { f64::NAN } else { x.core_clock_mhz as f64 }));
+    let gib = 1_048_576.0;
+    live_chart(app, f, cell(4), "Memory", " GB", (0.0, (s.mem.total_kb as f64 / gib).ceil()), ("Used", pts(&|s, _| s.mem.used_kb() as f64 / gib)), Some(("Swap", pts(&|s, _| s.mem.swap_used_kb as f64 / gib))));
+    live_chart(app, f, cell(5), "Disk", " MB/s", (0.0, 5.0), ("Read", pts(&|_, e| e.disk_read_bps as f64 / 1e6)), Some(("Write", pts(&|_, e| e.disk_write_bps as f64 / 1e6))));
+    live_chart(app, f, cell(6), "Internet", " MB/s", (0.0, 1.0), ("Down", pts(&|s, _| s.net.rx_bps as f64 / 1e6)), Some(("Up", pts(&|s, _| s.net.tx_bps as f64 / 1e6))));
+    if e.battery_pct.is_nan() {
+        live_chart(app, f, cell(7), "Load average", "", (0.0, 4.0), ("1 minute", pts(&|_, e| e.load_avg_1)), None);
+    } else {
+        live_chart(app, f, cell(7), "Battery power", " W", (0.0, 20.0), ("Battery", pts(&|_, e| e.battery_w)), None);
+    }
+}
+
+/// FPS from MangoHud, or what to do to get it.
+fn fps(app: &mut App, f: &mut Frame, r: Rect) {
+    let t = app.theme;
+    let Some(fr) = app.fps.value.clone() else {
+        let msg = app.fps.error.clone().unwrap_or_else(|| "Reading…".into());
+        f.render_widget(Paragraph::new(Span::styled(msg, t.muted())), r);
+        return;
+    };
+    let mut lines = vec![
+        Line::from(Span::styled(
+            "Linux has no system-wide FPS counter: frames are counted inside each game. Unix Guardian reads them from MangoHud's frame log.",
+            t.faint(),
+        )),
+        Line::from(""),
+    ];
+    app.rows = 0;
+    match fr.state.as_str() {
+        "not-installed" => {
+            lines.push(Line::from(Span::styled("MangoHud is not installed. Install it with:", t.text())));
+            lines.push(Line::from(Span::styled(format!("  {}", fr.install_hint), t.accent())));
+        }
+        "not-set-up" => {
+            lines.push(Line::from(Span::styled(
+                "MangoHud is installed. Set up adds a marked block to ~/.config/MangoHud/MangoHud.conf (your file is backed up first); Undo removes exactly that block.",
+                t.text(),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(" Enter  Set up ", t.selected())));
+            app.rows = 1;
+        }
+        "idle" => {
+            lines.push(Line::from(Span::styled("Waiting for a game running with MangoHud. In Steam, set a game's launch options to:", t.text())));
+            lines.push(Line::from(Span::styled("  mangohud %command%", t.accent())));
+            lines.push(Line::from(Span::styled("Other launchers: start the game with MANGOHUD=1 or through the mangohud command.", t.faint())));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(" Enter  Undo the setup ", t.muted())));
+            app.rows = 1;
+        }
+        _ => {
+            lines.push(Line::from(vec![
+                Span::styled("Now playing ", t.muted()),
+                Span::styled(fr.game.clone(), t.title()),
+                Span::styled("    FPS ", t.muted()),
+                Span::styled(format!("{:.0}", fr.fps), t.accent()),
+                Span::styled("    1% low ", t.muted()),
+                Span::styled(format!("{:.0}", fr.low_1pct_fps), t.title()),
+                Span::styled("    Frame time ", t.muted()),
+                Span::styled(format!("{:.1} ms", fr.frametime_ms), t.title()),
+            ]));
+        }
+    }
+    let h = lines.len() as u16 + 1;
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), Rect { height: h.min(r.height), ..r });
+    if fr.state == "live" && fr.recent.len() >= 2 {
+        let end = fr.recent.last().map(|p| p.0).unwrap_or(0) as f64 / 1000.0;
+        let d: Vec<(f64, f64)> = fr.recent.iter().map(|(ts, v)| (*ts as f64 / 1000.0 - end, *v)).collect();
+        let hi = d.iter().map(|p| p.1).fold(60.0, f64::max).ceil();
+        let chart = Chart::new(vec![Dataset::default().name("FPS").marker(Marker::Braille).graph_type(GraphType::Line).style(Style::default().fg(t.cpu)).data(&d)])
+            .block(card(app, "FPS, last ten seconds"))
+            .x_axis(Axis::default().bounds([-10.0, 0.0]))
+            .y_axis(Axis::default().style(t.faint()).bounds([0.0, hi]).labels([Span::raw("0"), Span::raw(format!("{hi:.0}"))]));
+        f.render_widget(chart, Rect { y: r.y + h + 1, height: r.height.saturating_sub(h + 1).min(16), ..r });
     }
 }
 
@@ -564,7 +740,8 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (2, 1) => vec![("Tab", "next tab"), ("x", "cancel")],
         (2, _) => vec![("Enter", "choose"), ("←→", "limit")],
         (3, 0) => vec![("Tab", "traffic"), ("←→", "range")],
-        (3, _) => vec![("Tab", "temperature")],
+        (3, 1) => vec![("Tab", "FPS")],
+        (3, _) => vec![("Tab", "temperature"), ("Enter", "set up / undo")],
         _ => vec![],
     }
 }
@@ -574,6 +751,8 @@ pub fn set_choice(app: &mut App, i: usize) {
     app.armed = None;
     if app.page == 3 {
         app.history.invalidate();
+        app.live.clear();
+        app.live_due.invalidate();
     }
     if app.page == 2 && app.tab == 2 {
         // A new limit applies at once when protection is on.
@@ -609,6 +788,16 @@ fn report(app: &mut App, r: Result<String, String>) {
 
 pub fn activate(app: &mut App, i: usize) {
     match (app.page, app.tab) {
+        (3, 2) => {
+            let on = app.fps.value.as_ref().is_some_and(|f| f.state == "not-set-up");
+            if !matches!(app.fps.value.as_ref().map(|f| f.state.as_str()), Some("not-set-up" | "idle" | "live")) {
+                return;
+            }
+            let r = app.bus.set_up_fps(on);
+            report(app, r.map(|_| if on { "FPS reading set up in MangoHud.conf.".into() } else { "MangoHud.conf is back as it was.".into() }));
+            app.fps.invalidate();
+            let _ = i;
+        }
         (1, _) => {
             let Some(profiles) = app.profiles.value.clone() else { return };
             let p = &profiles[app.choice.min(profiles.len() - 1)];

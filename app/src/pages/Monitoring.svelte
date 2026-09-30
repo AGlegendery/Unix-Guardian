@@ -1,13 +1,13 @@
 <script lang="ts">
   import { ArrowDown, ArrowUp } from "@lucide/svelte";
-  import { api, errorText, type DayTraffic, type HistoryPoint, type Snapshot } from "../lib/api";
+  import { api, errorText, type DayTraffic, type ExtraSample, type FpsReading, type HistoryPoint, type Snapshot } from "../lib/api";
   import { num, rate } from "../lib/format";
   import { locale, t } from "../lib/i18n.svelte";
   import LineChart from "../lib/LineChart.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
 
   type Tab = "fps" | "thermal" | "traffic";
-  type Range = "hour" | "day" | "week";
+  type Range = "live" | "hour" | "day" | "week";
   const hashTab = location.hash.split("/")[1] as Tab;
   let tab = $state<Tab>(["fps", "thermal", "traffic"].includes(hashTab) ? hashTab : "thermal");
   let range = $state<Range>("day");
@@ -16,6 +16,12 @@
   let live = $state<Snapshot | null>(null);
   let error = $state<string | null>(null);
   let loaded = $state(false);
+  // Live: one snapshot and one extra reading a second, the last two minutes.
+  const LIVE_POINTS = 120;
+  let snaps = $state.raw<Snapshot[]>([]);
+  let extras = $state.raw<ExtraSample[]>([]);
+  let fps = $state<FpsReading | null>(null);
+  let fpsBusy = $state(false);
 
   // Colours checked with the dataviz validator (see LineChart).
   const CPU = "#8f6af2";
@@ -33,6 +39,7 @@
   // while the page is visible.
   $effect(() => {
     const r = range;
+    if (r === "live") return;
     const load = () => {
       if (document.hidden) return;
       api.history(since(r), Date.now(), r === "hour" ? 60 : 240)
@@ -53,6 +60,66 @@
     const id = setInterval(tick, 2000);
     return () => clearInterval(id);
   });
+
+  $effect(() => {
+    if (tab !== "thermal" || range !== "live") return;
+    snaps = [];
+    extras = [];
+    const tick = () => {
+      if (document.hidden) return;
+      Promise.all([api.snapshot(), api.extra()])
+        .then(([s, e]) => {
+          snaps = [...snaps.slice(1 - LIVE_POINTS), s];
+          extras = [...extras.slice(1 - LIVE_POINTS), e];
+          error = null;
+        })
+        .catch((e) => (error = errorText(e)));
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  });
+
+  $effect(() => {
+    if (tab !== "fps") return;
+    const tick = () => !document.hidden && api.fps().then((f) => (fps = f)).catch((e) => (error = errorText(e)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  });
+
+  async function setUpFps(on: boolean) {
+    fpsBusy = true;
+    try {
+      await api.setUpFps(on);
+      fps = await api.fps();
+    } catch (e) {
+      error = errorText(e);
+    } finally {
+      fpsBusy = false;
+    }
+  }
+
+  // The GPU that is doing the work: awake and reporting; a sleeping card is
+  // never read (reading it would wake it).
+  function workingGpu(s: Snapshot) {
+    return s.gpus.find((g) => !g.asleep && g.temp_c != null) ?? null;
+  }
+  const liveTimes = $derived(snaps.map((s) => s.ts_unix_ms / 1000));
+  const liveHasGpu = $derived(snaps.some((s) => workingGpu(s) != null));
+  const lastSnap = $derived(snaps.at(-1) ?? null);
+  const lastExtra = $derived(extras.at(-1) ?? null);
+  function livePair(cpu: (s: Snapshot) => number | null, gpu: (s: Snapshot) => number | null) {
+    return [
+      { label: t().mon.cpu, color: CPU, values: snaps.map(cpu) },
+      ...(liveHasGpu ? [{ label: t().mon.gpu, color: GPU, values: snaps.map(gpu) }] : []),
+    ];
+  }
+  function gpuVal(s: Snapshot, f: (g: NonNullable<ReturnType<typeof workingGpu>>) => number | null): number | null {
+    const g = workingGpu(s);
+    return g ? f(g) : null;
+  }
+  const hasBattery = $derived(extras.some((e) => e.battery_w != null));
 
   const times = $derived(points.map((p) => p.ts_unix_ms / 1000));
   const hasGpu = $derived(points.some((p) => p.gpu_temp_c != null));
@@ -85,17 +152,123 @@
 {#if error}<p class="problem" role="alert">{error}</p>{/if}
 
 {#if tab === "fps"}
-  <section class="card"><p class="muted">{t().mon.fps}</p></section>
+  <section class="card">
+    <p class="muted">{t().mon.fpsTab.explain}</p>
+    {#if fps?.state === "not-installed"}
+      <p class="step">{t().mon.fpsTab.notInstalled}</p>
+      <code class="cmd" dir="ltr">{fps.install_hint}</code>
+    {:else if fps?.state === "not-set-up"}
+      <p class="step">{t().mon.fpsTab.notSetUp}</p>
+      <button class="btn primary" disabled={fpsBusy} onclick={() => setUpFps(true)}>{t().mon.fpsTab.setUp}</button>
+    {:else if fps?.state === "idle"}
+      <p class="step">{t().mon.fpsTab.idle}</p>
+      <code class="cmd" dir="ltr">mangohud %command%</code>
+      <p class="small">{t().mon.fpsTab.other}</p>
+      <button class="btn" disabled={fpsBusy} onclick={() => setUpFps(false)}>{t().mon.fpsTab.undo}</button>
+    {/if}
+  </section>
+  {#if fps?.state === "live"}
+    <div class="stats">
+      <section class="card stat"><span class="label">{t().mon.fpsTab.live}</span><b dir="ltr">{fps.game}</b></section>
+      <section class="card stat"><span class="label">{t().mon.fpsTab.fps}</span><b>{num(fps.fps)}</b></section>
+      <section class="card stat"><span class="label">{t().mon.fpsTab.low}</span><b>{num(fps.low_1pct_fps)}</b></section>
+      <section class="card stat"><span class="label">{t().mon.fpsTab.frametime}</span><b>{num(fps.frametime_ms, 1)} <small>{t().mon.fpsTab.ms}</small></b></section>
+    </div>
+    <section class="card">
+      <h2>{t().mon.fpsTab.chart}</h2>
+      <LineChart times={fps.recent.map((r) => r[0] / 1000)} series={[{ label: t().mon.fpsTab.fps, color: CPU, values: fps.recent.map((r) => r[1]) }]} waiting="" unit="" range={[0, 60]} height={200} />
+    </section>
+    <button class="btn" disabled={fpsBusy} onclick={() => setUpFps(false)}>{t().mon.fpsTab.undo}</button>
+  {/if}
 {:else if tab === "thermal"}
   <div class="filters">
     <Segmented
       label={t().mon.tabs.thermal}
       value={range}
-      options={(["hour", "day", "week"] as const).map((r) => ({ value: r, label: t().mon.ranges[r] }))}
+      options={(["live", "hour", "day", "week"] as const).map((r) => ({ value: r, label: t().mon.ranges[r] }))}
       onchange={(v) => (range = v)}
     />
   </div>
-  {#if loaded && points.length < 2}
+  {#if range === "live"}
+    {@const g = lastSnap ? workingGpu(lastSnap) : null}
+    <div class="stats">
+      <section class="card stat"><span class="label">{t().mon.live.load1}</span><b>{num(lastExtra?.load_avg_1, 2)}</b></section>
+      <section class="card stat"><span class="label">{t().mon.live.procs}</span><b>{num(lastExtra?.processes)}</b></section>
+      <section class="card stat"><span class="label">{t().mon.live.busy}</span><b>{num(lastExtra?.disk_busy_pct)}٪</b></section>
+      <section class="card stat">
+        <span class="label">{t().mon.live.battery}</span>
+        {#if lastExtra?.battery_pct != null}
+          <b>{num(lastExtra.battery_pct)}٪ <small>{lastExtra.battery_w != null ? `${num(Math.abs(lastExtra.battery_w), 1)} ${t().unit.w}` : ""}{lastExtra.battery_status === "Charging" ? ` · ${t().mon.live.charging}` : ""}</small></b>
+        {:else}
+          <b class="muted">{t().mon.live.batteryNone}</b>
+        {/if}
+      </section>
+    </div>
+    <div class="charts">
+      <section class="card">
+        <h2>{t().mon.temp}</h2>
+        <LineChart times={liveTimes} series={livePair((s) => s.cpu.temp_c, (s) => gpuVal(s, (g) => g.temp_c))} waiting={t().mon.live.waiting} height={150} />
+      </section>
+      <section class="card">
+        <h2>{t().mon.load}</h2>
+        <LineChart times={liveTimes} series={livePair((s) => s.cpu.load_pct, (s) => gpuVal(s, (g) => g.load_pct))} waiting={t().mon.live.waiting} unit="٪" range={[0, 100]} height={150} />
+      </section>
+      <section class="card">
+        <h2>{t().mon.power}</h2>
+        <LineChart times={liveTimes} series={livePair((s) => s.cpu.power_w, (s) => gpuVal(s, (g) => g.power_w))} waiting={t().mon.live.waiting} unit={` ${t().unit.w}`} range={[0, 30]} height={150} />
+      </section>
+      <section class="card">
+        <h2>{t().mon.live.clocks} <small class="muted">{t().unit.mhz}</small></h2>
+        <LineChart times={liveTimes} series={[
+          { label: t().mon.live.cpuMax, color: CPU, values: snaps.map((s) => s.cpu.freq_max_mhz || null) },
+          ...(liveHasGpu ? [{ label: t().mon.live.gpuClock, color: GPU, values: snaps.map((s) => gpuVal(s, (g) => g.core_clock_mhz || null)) }] : []),
+        ]} waiting={t().mon.live.waiting} unit="" range={[0, 3000]} height={150} />
+      </section>
+      <section class="card">
+        <h2>{t().mon.live.memory} <small class="muted">{t().unit.gb}</small></h2>
+        <LineChart times={liveTimes} series={[
+          { label: t().mon.live.ram, color: CPU, values: snaps.map((s) => (s.mem.total_kb - s.mem.available_kb) / 1_048_576) },
+          { label: t().mon.live.swap, color: GPU, values: snaps.map((s) => s.mem.swap_used_kb / 1_048_576) },
+        ]} waiting={t().mon.live.waiting} unit="" digits={1} range={[0, Math.ceil((lastSnap?.mem.total_kb ?? 0) / 1_048_576)]} height={150} />
+      </section>
+      <section class="card">
+        <h2>{t().mon.live.disk} <small class="muted">MB/s</small></h2>
+        <LineChart times={liveTimes} series={[
+          { label: t().mon.live.read, color: CPU, values: extras.map((e) => e.disk_read_bps / 1e6) },
+          { label: t().mon.live.write, color: GPU, values: extras.map((e) => e.disk_write_bps / 1e6) },
+        ]} waiting={t().mon.live.waiting} unit="" digits={1} range={[0, 5]} height={150} />
+      </section>
+      <section class="card">
+        <h2>{t().mon.live.network} <small class="muted">MB/s</small></h2>
+        <LineChart times={liveTimes} series={[
+          { label: t().mon.down, color: CPU, values: snaps.map((s) => s.net.rx_bps / 1e6) },
+          { label: t().mon.up, color: GPU, values: snaps.map((s) => s.net.tx_bps / 1e6) },
+        ]} waiting={t().mon.live.waiting} unit="" digits={2} range={[0, 1]} height={150} />
+      </section>
+      {#if hasBattery}
+        <section class="card">
+          <h2>{t().mon.live.battery}</h2>
+          <LineChart times={liveTimes} series={[{ label: t().mon.live.battery, color: CPU, values: extras.map((e) => e.battery_w) }]} waiting={t().mon.live.waiting} unit={` ${t().unit.w}`} digits={1} range={[0, 20]} height={150} />
+        </section>
+      {/if}
+      <section class="card">
+        <h2>{t().mon.live.cores}</h2>
+        {#if lastSnap}
+          <div class="cores" dir="ltr">
+            {#each lastSnap.cpu.per_core_load as l, i}
+              <div class="core" title={`CPU ${i}: ${num(l)}٪ · ${num(lastExtra?.per_core_mhz[i])} ${t().unit.mhz}`}>
+                <span class="core-bar"><span style:--h={(l ?? 0) / 100}></span></span>
+                <span class="core-mhz">{lastExtra?.per_core_mhz[i] ? num(lastExtra.per_core_mhz[i] / 1000, 1) : "—"}</span>
+              </div>
+            {/each}
+          </div>
+          <p class="small">{t().unit.ghz}</p>
+        {/if}
+      </section>
+    </div>
+    {#if lastSnap && !g && lastSnap.gpus.some((x) => x.asleep)}<p class="small">{t().mon.live.gpuAsleep}</p>{/if}
+    <p class="small">{t().mon.live.note}</p>
+  {:else if loaded && points.length < 2}
     <section class="card"><p class="muted">{t().mon.empty}</p></section>
   {:else}
     <div class="charts">
@@ -179,6 +352,25 @@
   @media (max-width: 1150px) { .charts { grid-template-columns: 1fr; } }
   .muted { color: var(--text-2); margin: 0; font-size: 0.9rem; }
   .small { color: var(--text-3); font-size: 0.8rem; margin: 10px 0 0; }
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+  .stats .card { margin: 0; }
+  @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .stat { display: grid; gap: 4px; }
+  .stat .label { color: var(--text-2); font-size: 0.85rem; }
+  .stat b { font-size: 1.45rem; font-weight: 800; }
+  .stat small { font-size: 0.8rem; font-weight: 500; color: var(--text-2); }
+  h2 small { font-weight: 500; font-size: 0.8rem; }
+  .step { margin: 12px 0 10px; font-size: 0.92rem; }
+  .cmd { display: inline-block; padding: 8px 12px; border-radius: 8px; background: var(--card-2); font-size: 0.9rem; user-select: all; margin-bottom: 8px; }
+  .btn { all: unset; padding: 8px 16px; border-radius: 10px; background: var(--card-2); color: var(--text); font-size: 0.9rem; cursor: pointer; margin-top: 10px; }
+  .btn.primary { background: var(--accent); color: white; font-weight: 600; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  .cores { display: flex; gap: 6px; align-items: flex-end; height: 110px; }
+  .core { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; min-width: 0; }
+  .core-bar { flex: 1; width: 100%; max-width: 22px; background: var(--card-2); border-radius: 4px; display: flex; align-items: flex-end; overflow: hidden; }
+  .core-bar span { display: block; width: 100%; height: calc(var(--h) * 100%); background: #8f6af2; }
+  .core-mhz { font-size: 0.68rem; color: var(--text-3); }
   .speeds { display: flex; flex-wrap: wrap; gap: 12px 36px; align-items: center; font-size: 0.95rem; }
   .speeds span { display: inline-flex; align-items: center; gap: 8px; }
   .speeds b { font-size: 1.3rem; }

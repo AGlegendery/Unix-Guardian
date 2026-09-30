@@ -15,3 +15,6 @@ zbus.workspace = true
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 crossterm = "0.29"
 libc.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

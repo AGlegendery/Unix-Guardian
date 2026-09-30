@@ -80,6 +80,9 @@ fn main() {
             bus::set_battery_care,
             bus::history,
             bus::traffic,
+            bus::extra,
+            bus::fps,
+            bus::set_up_fps,
             open_terminal_interface,
         ])
         .run(tauri::generate_context!())

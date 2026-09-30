@@ -1748,6 +1748,7 @@ dependencies = [
  "crossterm",
  "libc",
  "ratatui",
+ "serde_json",
  "tokio",
  "ug-proto",
  "zbus",

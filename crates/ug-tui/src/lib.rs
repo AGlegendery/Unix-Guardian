@@ -22,7 +22,7 @@ use ratatui::Frame;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use ug_proto::{
-    BatteryCare, DayTraffic, HistoryPoint, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
+    BatteryCare, DayTraffic, ExtraSample, FpsReading, HistoryPoint, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
     ProfileInfo, RunningGameInfo, Snapshot,
 };
 
@@ -84,6 +84,11 @@ pub struct App {
     pub battery: Cached<BatteryCare>,
     pub history: Cached<Vec<HistoryPoint>>,
     pub traffic: Cached<Vec<DayTraffic>>,
+    /// The live monitor's last two minutes: one snapshot and one extra
+    /// reading a second, only while it is on screen.
+    pub live: VecDeque<(Snapshot, ExtraSample)>,
+    pub live_due: Cached<()>,
+    pub fps: Cached<FpsReading>,
     /// A dangerous action armed by the first press; confirmed by a second
     /// within five seconds.
     pub armed: Option<(String, Instant)>,
@@ -123,6 +128,9 @@ impl App {
             battery: Cached::new(Duration::from_secs(15)),
             history: Cached::new(RARE),
             traffic: Cached::new(RARE),
+            live: VecDeque::new(),
+            live_due: Cached::new(LIVE),
+            fps: Cached::new(LIVE),
             armed: None,
             notice: None,
             hits: Vec::new(),
@@ -181,11 +189,24 @@ impl App {
                 }
             }
             3 => {
-                if self.history.due() {
+                if self.tab == 0 && self.choice == 0 {
+                    if self.live_due.due() {
+                        match (self.bus.snapshot(), self.bus.extra()) {
+                            (Ok(s), Ok(e)) => {
+                                self.live.push_back((s, e));
+                                while self.live.len() > 120 {
+                                    self.live.pop_front();
+                                }
+                                self.live_due.store(Ok(()));
+                            }
+                            (Err(e), _) | (_, Err(e)) => self.live_due.store(Err(e)),
+                        }
+                    }
+                } else if self.tab == 0 && self.history.due() {
                     let now = data::now_ms();
                     let since = match self.choice {
-                        0 => now.saturating_sub(3_600_000),
-                        2 => now.saturating_sub(7 * 86_400_000),
+                        1 => now.saturating_sub(3_600_000),
+                        3 => now.saturating_sub(7 * 86_400_000),
                         _ => {
                             // Today: since local midnight, like the window.
                             let secs_today = unsafe {
@@ -198,15 +219,19 @@ impl App {
                         }
                     };
                     // About one point per 5 minutes for a day, per 30 for a week.
-                    let points = [60, 288, 336][self.choice.min(2)];
+                    let points = [60, 60, 288, 336][self.choice.min(3)];
                     let r = self.bus.history(since, now, points);
                     self.history.store(r);
+                }
+                if self.tab == 2 && self.fps.due() {
+                    let r = self.bus.fps();
+                    self.fps.store(r);
                 }
                 if self.tab == 1 && self.snapshot.due() {
                     let r = self.bus.snapshot();
                     self.snapshot.store(r);
                 }
-                if self.traffic.due() {
+                if self.tab == 1 && self.traffic.due() {
                     let r = self.bus.traffic(data::now_ms().saturating_sub(7 * 86_400_000));
                     self.traffic.store(r);
                 }
@@ -250,7 +275,7 @@ impl App {
     fn tabs(&self) -> usize {
         match self.page {
             2 => 3,
-            3 => 2,
+            3 => 3,
             _ => 1,
         }
     }
@@ -607,6 +632,66 @@ mod tests {
         app.go(0);
         app.refresh();
         assert!(render(&mut app, 120, 34).contains("Cannot reach"), "an unreachable service is said, not hidden");
+    }
+
+    fn snap(i: u64) -> Snapshot {
+        serde_json::from_value(serde_json::json!({
+            "ts_unix_ms": 1_000_000 + i * 1000,
+            "cpu": {"load_pct": 20.0 + i as f64, "temp_c": 52.0, "power_w": 11.0, "freq_avg_mhz": 1800, "freq_max_mhz": 4100,
+                    "per_core_load": [10.0, 90.0, 50.0, 0.0], "governor": "powersave", "epp": "", "driver": "intel_pstate"},
+            "gpus": [{"pci": "0000:01:00.0", "temp_c": 0.0, "temp_hotspot_c": 0.0, "temp_mem_c": 0.0, "load_pct": 0.0,
+                      "power_w": 0.0, "power_limit_w": 0.0, "core_clock_mhz": 0, "mem_clock_mhz": 0, "vram_used_mb": 0,
+                      "fan_pct": 0.0, "fan_rpm": 0, "asleep": true}],
+            "mem": {"total_kb": 16_000_000, "available_kb": 6_000_000, "swap_total_kb": 0, "swap_used_kb": 0, "zram_used_kb": 0},
+            "net": {"iface": "wlan0", "rx_bps": 250_000, "tx_bps": 20_000, "rx_total_bytes": 0, "tx_total_bytes": 0}
+        }))
+        .map(|mut s: Snapshot| {
+            // As the daemon sends a sleeping card: nothing read.
+            s.gpus[0].temp_c = f64::NAN;
+            s
+        })
+        .expect("snapshot json")
+    }
+
+    #[test]
+    fn the_live_monitor_draws_every_reading() {
+        let mut app = App::new(Bus::offline());
+        app.go(3);
+        app.choice = 0;
+        for i in 0..10 {
+            let e = ExtraSample { battery_pct: 81.0, battery_w: 9.5, battery_status: "Discharging".into(), disk_read_bps: 2_500_000, load_avg_1: 1.25, processes: 612, ..Default::default() };
+            app.live.push_back((snap(i), e));
+        }
+        let screen = render(&mut app, 140, 44);
+        for want in ["Live", "Load avg", "1.25", "612", "81 % 9.5 W", "Temperature", "Clock", "Memory", "Disk", "Internet", "Battery power", "▂▇▅▁", "Battery power  9.5 W"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        // A sleeping graphics card is never charted (it was not read).
+        assert!(!screen.contains("Graphics card"));
+    }
+
+    #[test]
+    fn the_fps_tab_says_what_to_do_in_each_state() {
+        let mut app = App::new(Bus::offline());
+        app.go(3);
+        app.tab = 2;
+        let mut r = FpsReading { state: "not-installed".into(), install_hint: "sudo apt install mangohud".into(), ..Default::default() };
+        app.fps.store(Ok(r.clone()));
+        assert!(render(&mut app, 120, 34).contains("sudo apt install mangohud"));
+        r.state = "not-set-up".into();
+        app.fps.store(Ok(r.clone()));
+        assert!(render(&mut app, 120, 34).contains("Set up"));
+        r.state = "live".into();
+        r.game = "cs2".into();
+        r.fps = 141.0;
+        r.low_1pct_fps = 88.0;
+        r.frametime_ms = 7.1;
+        r.recent = (0..20).map(|i| (1_000_000 + i * 200, 140.0)).collect();
+        app.fps.store(Ok(r));
+        let screen = render(&mut app, 120, 34);
+        for want in ["cs2", "141", "88", "7.1 ms", "last ten seconds"] {
+            assert!(screen.contains(want), "missing {want:?}");
+        }
     }
 
     #[test]

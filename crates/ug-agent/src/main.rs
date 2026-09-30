@@ -9,6 +9,7 @@
 mod affinity;
 mod apps;
 mod core;
+mod fps;
 mod gamemode;
 mod history;
 mod iface;
@@ -196,13 +197,15 @@ async fn main() -> Result<()> {
     ));
 
     let pinger = ping::Pinger::new(SysRoot::real());
+    let config_home = ug_core::paths::user_config().parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    let fps = Arc::new(fps::Fps::for_user(&config_home, &ug_core::paths::user_data()));
     let (announce_tx, mut announce_rx) = tokio::sync::mpsc::unbounded_channel::<Outcome>();
 
     let conn = zbus::connection::Builder::session()?
         .serve_at(AGENT_OBJECT_PATH, GamesIface { core: Arc::clone(&core), announce: announce_tx.clone() })?
         .serve_at(AGENT_OBJECT_PATH, PlaytimeIface { core: Arc::clone(&core) })?
         .serve_at(AGENT_OBJECT_PATH, ProfilesIface { core: Arc::clone(&core) })?
-        .serve_at(AGENT_OBJECT_PATH, MonitorIface { history: Arc::clone(&history) })?
+        .serve_at(AGENT_OBJECT_PATH, MonitorIface { history: Arc::clone(&history), fps: Arc::clone(&fps) })?
         .serve_at(AGENT_OBJECT_PATH, PingIface { pinger: pinger.clone() })?
         .build()
         .await
@@ -260,6 +263,9 @@ async fn main() -> Result<()> {
             _ = heartbeat.tick() => {
                 lock(&core).heartbeat(now_ms());
                 daemon.record_history(&history).await;
+                if now_ms() % 3_600_000 < 60_000 {
+                    fps.prune(std::time::SystemTime::now());
+                }
             }
             _ = rescan.tick() => {
                 let c = Arc::clone(&core);

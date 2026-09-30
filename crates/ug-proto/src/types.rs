@@ -597,3 +597,46 @@ pub struct NetControlStatus {
     /// Other firewalls found (`firewalld`, `ufw`); ours coexists with them.
     pub firewalls: Vec<String>,
 }
+
+/// Readings beyond the snapshot, for the live monitor. Fetched with
+/// `System.Extra` so older clients keep the snapshot they know.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct ExtraSample {
+    pub ts_unix_ms: u64,
+    /// Current clock of each CPU, MHz, in kernel order; 0 where unreadable.
+    pub per_core_mhz: Vec<u32>,
+    /// Summed over whole disks (partitions are not counted twice).
+    pub disk_read_bps: u64,
+    pub disk_write_bps: u64,
+    /// Time the busiest disk spent working, 0–100.
+    pub disk_busy_pct: f64,
+    /// Battery charge 0–100, NaN without a battery.
+    pub battery_pct: f64,
+    /// Battery power in watts, NaN when unreported; positive = draining.
+    pub battery_w: f64,
+    /// `Charging`, `Discharging`, `Full`, `Not charging`, or empty.
+    pub battery_status: String,
+    pub on_ac: bool,
+    pub load_avg_1: f64,
+    pub processes: u32,
+}
+
+/// Frames per second of the running game, as MangoHud logs it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct FpsReading {
+    /// `live` (a game is being measured), `idle` (set up, nothing running
+    /// with MangoHud), `not-set-up` (MangoHud installed, logging not set up)
+    /// or `not-installed`.
+    pub state: String,
+    /// The game's name from MangoHud's log file name.
+    pub game: String,
+    /// Average over the last second; NaN when not live.
+    pub fps: f64,
+    pub frametime_ms: f64,
+    /// FPS at the slowest 1% of frames over the last ten seconds.
+    pub low_1pct_fps: f64,
+    /// About ten seconds of readings, oldest first: (Unix ms, FPS).
+    pub recent: Vec<(u64, f64)>,
+    /// The command that installs MangoHud here, for `not-installed`.
+    pub install_hint: String,
+}
