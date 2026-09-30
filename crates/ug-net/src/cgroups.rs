@@ -142,6 +142,39 @@ fn unescape(s: &str) -> String {
     out
 }
 
+/// Programs known to use the network in the background, by the words in
+/// their app or command name.
+const CATALOG: &[(&str, &[&str])] = &[
+    ("torrent", &["qbittorrent", "transmission", "deluge", "ktorrent", "fragments", "rtorrent", "aria2c", "tixati", "biglybt"]),
+    ("sync", &["dropbox", "syncthing", "nextcloud", "owncloud", "megasync", "onedrive", "insync", "rclone", "seafile", "pcloud", "maestral", "rsync"]),
+    ("updates", &["packagekit", "flatpak-system-helper", "snapd", "apt", "dnf", "zypper", "pamac", "discover", "fwupd", "unattended-upgr", "gnome-software", "mintupdate"]),
+    ("launcher", &["steam", "epicgameslauncher", "heroic", "lutris", "battle.net", "legendary", "itch", "gogdl", "bottles"]),
+    ("backup", &["backblaze", "duplicati", "deja-dup", "restic", "borg", "timeshift", "kopia", "vorta"]),
+    ("streaming", &["obs"]),
+];
+
+/// The background-task kind of an app, or `""`.
+pub fn category(name: &str, exe: &str) -> &'static str {
+    let (n, e) = (name.to_lowercase(), exe.to_lowercase());
+    for (cat, words) in CATALOG {
+        for w in *words {
+            // Whole-word match for short names ("apt", "obs") so "captain"
+            // or "jobs" do not count; substring for the distinctive ones.
+            let hit = |s: &str| {
+                if w.len() <= 4 {
+                    s.split(|c: char| !c.is_ascii_alphanumeric()).any(|part| part == *w)
+                } else {
+                    s.contains(w)
+                }
+            };
+            if hit(&n) || hit(&e) {
+                return cat;
+            }
+        }
+    }
+    ""
+}
+
 /// The command name of a process, from `/proc/<pid>/comm`.
 pub fn comm(root: &SysRoot, pid: i32) -> String {
     std::fs::read_to_string(root.join(format!("proc/{pid}/comm"))).map(|s| s.trim().to_string()).unwrap_or_default()
@@ -168,6 +201,17 @@ mod tests {
         assert_eq!(got[0].level, 2);
         assert_eq!(got[1].level, 5);
         assert_eq!(got[1].pids, vec![6072, 6100]);
+    }
+
+    #[test]
+    fn known_background_tasks_are_recognised_without_false_friends() {
+        assert_eq!(category("qBittorrent", "qbittorrent"), "torrent");
+        assert_eq!(category("packagekit", "packagekitd"), "updates");
+        assert_eq!(category("steam", "steamwebhelper"), "launcher");
+        assert_eq!(category("com.obsproject.Studio", "obs"), "streaming");
+        assert_eq!(category("syncthing", ""), "sync");
+        assert_eq!(category("jobs-app", "captain"), "", "short words match whole words only");
+        assert_eq!(category("firefox-esr", "firefox-esr"), "");
     }
 
     #[test]

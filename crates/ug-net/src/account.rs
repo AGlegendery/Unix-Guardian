@@ -258,6 +258,8 @@ impl<N: Nft> Accountant<N> {
                 tx_bps: e.bps[1],
                 rx_bytes: e.total(0),
                 tx_bytes: e.total(1),
+                category: cgroups::category(&e.label.name, &e.exe).into(),
+                has_game: false,
                 state: if self.policy.blocks(&e.label.name) {
                     "blocked".into()
                 } else if self.policy.class_of(&e.label.name).is_some() {

@@ -8,6 +8,7 @@
 
 mod affinity;
 mod apps;
+mod background;
 mod core;
 mod fps;
 mod gamemode;
@@ -159,6 +160,27 @@ impl DaemonLink {
         .await;
     }
 
+    /// While the game runs: offers to cap the busiest background task, once
+    /// per app per game session.
+    async fn watch_background(
+        &mut self,
+        conn: &zbus::Connection,
+        offered: &mut std::collections::HashSet<String>,
+        pending: &Arc<Mutex<HashMap<u32, String>>>,
+    ) {
+        let Some(c) = self.conn.clone() else { return };
+        let Ok(net) = ug_proto::daemon::NetProxy::new(&c).await else { return };
+        let (Ok(apps), Ok(rules)) = (net.apps().await, net.rules().await) else { return };
+        let ruled: std::collections::HashSet<String> = rules.iter().map(|r| r.app.to_lowercase()).collect();
+        let Some(a) = background::pick(&apps, &ruled, offered) else { return };
+        offered.insert(a.name.to_lowercase());
+        tracing::info!(app = %a.name, rx = a.rx_bps, tx = a.tx_bps, "background network use during the game");
+        let actions = [(notify::LIMIT_WHILE_GAMING, "Limit while I play")];
+        if let Some(id) = notify::show(conn, "Background download", &background::sentence(a), &actions).await {
+            pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id, a.name.clone());
+        }
+    }
+
     fn failed(&mut self, msg: String, drop_connection: bool) {
         if drop_connection {
             self.conn = None;
@@ -229,11 +251,21 @@ async fn main() -> Result<()> {
     }
     tracing::info!("agent ready");
 
-    // Notification id → executable, for the "not a game" button.
+    // Notification id → executable, for the "not a game" button, and
+    // notification id → app, for "limit while I play".
     let pending_dismissals: Arc<Mutex<HashMap<u32, String>>> = Arc::default();
+    let pending_limits: Arc<Mutex<HashMap<u32, String>>> = Arc::default();
     if !args.quiet {
-        tokio::spawn(watch_dismissals(conn.clone(), Arc::clone(&core), Arc::clone(&pending_dismissals), announce_tx.clone()));
+        tokio::spawn(watch_dismissals(
+            conn.clone(),
+            Arc::clone(&core),
+            Arc::clone(&pending_dismissals),
+            Arc::clone(&pending_limits),
+            args.daemon_session,
+            announce_tx.clone(),
+        ));
     }
+    let mut offered = std::collections::HashSet::new();
 
     let mut ticker = tokio::time::interval(Duration::from_secs(args.scan_interval.max(1)));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -256,6 +288,10 @@ async fn main() -> Result<()> {
                 daemon.sync(want).await;
                 if daemon.applied.is_some() != was_on {
                     pinger.mark(if was_on { "gamemode-off" } else { "gamemode-on" }, now_ms());
+                    offered.clear();
+                }
+                if daemon.applied.is_some() && !args.quiet && daemon.ticks % 15 == 5 {
+                    daemon.watch_background(&conn, &mut offered, &pending_limits).await;
                 }
                 follow_game(&core, &pinger).await;
             }
@@ -364,12 +400,33 @@ async fn watch_dismissals(
     conn: zbus::Connection,
     core: Shared,
     pending: Arc<Mutex<HashMap<u32, String>>>,
+    limits: Arc<Mutex<HashMap<u32, String>>>,
+    daemon_session: bool,
     announce: tokio::sync::mpsc::UnboundedSender<Outcome>,
 ) {
     let Ok(proxy) = notify::NotificationsProxy::new(&conn).await else { return };
     let Ok(mut clicks) = proxy.receive_action_invoked().await else { return };
     while let Some(sig) = clicks.next().await {
         let Ok(args) = sig.args() else { continue };
+        if args.action_key == notify::LIMIT_WHILE_GAMING {
+            let app = limits.lock().unwrap_or_else(|e| e.into_inner()).remove(&args.id);
+            if let Some(app) = app {
+                let daemon = if daemon_session { zbus::Connection::session().await } else { zbus::Connection::system().await };
+                let result = match daemon {
+                    Ok(d) => match ug_proto::daemon::NetProxy::new(&d).await {
+                        Ok(n) => n.set_rule(&app, false, background::OFFER_UP_KBPS, background::OFFER_DOWN_KBPS, "gaming").await,
+                        Err(e) => Err(e),
+                    },
+                    Err(e) => Err(e),
+                };
+                let (title, body) = match result {
+                    Ok(()) => (format!("{app} is limited while you play"), "About 1 MB/s down and 125 kB/s up. Undo it in Unix Guardian or with `ug net allow`.".to_string()),
+                    Err(e) => (format!("Could not limit {app}"), e.to_string()),
+                };
+                notify::show(&conn, &title, &body, &[]).await;
+            }
+            continue;
+        }
         if args.action_key != notify::NOT_A_GAME {
             continue;
         }

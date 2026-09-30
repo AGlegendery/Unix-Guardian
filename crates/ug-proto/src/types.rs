@@ -586,6 +586,12 @@ pub struct AppTraffic {
     pub tx_bytes: u64,
     /// `blocked`, `limited`, or empty.
     pub state: String,
+    /// What kind of background task it is known to be: `torrent`, `sync`,
+    /// `updates`, `launcher`, `backup`, `streaming`; empty when unknown.
+    pub category: String,
+    /// The running game is inside this group (e.g. a game Steam started runs
+    /// in Steam's group), so limiting it would limit the game too.
+    pub has_game: bool,
 }
 
 /// A user's rule for one app's internet.

@@ -160,7 +160,9 @@ async fn main() -> Result<()> {
     let tuner = gamemode::tuner(root.clone(), state_dir.join("gamemode.json"), services);
     let gamemode_owner: Arc<std::sync::Mutex<Option<gamemode::Owner>>> = Arc::default();
     let gamemode_active = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let game_pids: Arc<std::sync::Mutex<Vec<i32>>> = Arc::default();
     let gamemode = gamemode::GameModeIface {
+        game_pids: Arc::clone(&game_pids),
         tuner: Arc::clone(&tuner),
         gate: gate.clone(),
         owner: Arc::clone(&gamemode_owner),
@@ -228,7 +230,8 @@ async fn main() -> Result<()> {
         let root = root.clone();
         let state_dir = state_dir.clone();
         let gaming = Arc::clone(&gamemode_active);
-        move || net::Net::new(root, simulate_net, &state_dir, gaming)
+        let game_pids = Arc::clone(&game_pids);
+        move || net::Net::new(root, simulate_net, &state_dir, gaming, game_pids)
     })
     .await?));
     conn.object_server()

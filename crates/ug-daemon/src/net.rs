@@ -33,6 +33,8 @@ pub struct Net {
     root: SysRoot,
     rules: Rules,
     gaming: Arc<AtomicBool>,
+    /// The running game's processes, as game mode last received them.
+    game_pids: Arc<Mutex<Vec<i32>>>,
     /// What the rules mean right now; recomputed each tick.
     policy: Policy,
     status: NetControlStatus,
@@ -69,7 +71,7 @@ fn other_firewalls(root: &SysRoot) -> Vec<String> {
 }
 
 impl Net {
-    pub fn new(root: SysRoot, simulate: bool, state_dir: &Path, gaming: Arc<AtomicBool>) -> Net {
+    pub fn new(root: SysRoot, simulate: bool, state_dir: &Path, gaming: Arc<AtomicBool>, game_pids: Arc<Mutex<Vec<i32>>>) -> Net {
         let (rules, problem) = Rules::load(&state_dir.join("net.json"));
         if let Some(p) = problem {
             tracing::warn!(%p, "internet rules");
@@ -124,7 +126,7 @@ impl Net {
                 }
             }
         };
-        Net { backend, root, rules, gaming, policy: Policy::default(), status, wanted_until: None, last_read: None, apps: Vec::new() }
+        Net { backend, root, rules, gaming, game_pids, policy: Policy::default(), status, wanted_until: None, last_read: None, apps: Vec::new() }
     }
 
     fn watched(&self, now: Instant) -> bool {
@@ -167,6 +169,14 @@ impl Net {
         }
         if due {
             self.last_read = Some(now);
+            let pids = if self.gaming.load(Ordering::Relaxed) {
+                self.game_pids.lock().unwrap_or_else(|e| e.into_inner()).clone()
+            } else {
+                Vec::new()
+            };
+            for a in &mut self.apps {
+                a.has_game = a.pids.iter().any(|p| pids.contains(p));
+            }
         }
     }
 
@@ -190,6 +200,7 @@ fn simulated(root: &SysRoot, secs: u64) -> Vec<AppTraffic> {
         .map(|(i, g)| {
             let exe = g.pids.first().map(|&p| ug_net::cgroups::comm(root, p)).unwrap_or_default();
             let l = ug_net::cgroups::label(&g.path, &exe);
+            let category = ug_net::cgroups::category(&l.name, &exe).into();
             let busy = l.kind == "app" && i % 3 == 0;
             let wave = ((secs + i as u64 * 7) % 20) as u64;
             let (rx_bps, tx_bps) = if busy { (40_000 * wave, 3_000 * wave) } else { (0, 0) };
@@ -205,6 +216,8 @@ fn simulated(root: &SysRoot, secs: u64) -> Vec<AppTraffic> {
                 rx_bytes: rx_bps * secs / 2,
                 tx_bytes: tx_bps * secs / 2,
                 state: String::new(),
+                category,
+                has_game: false,
             }
         })
         .collect();

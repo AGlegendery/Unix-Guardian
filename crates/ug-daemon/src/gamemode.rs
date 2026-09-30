@@ -81,6 +81,9 @@ pub struct Owner {
 }
 
 pub struct GameModeIface {
+    /// The game's processes, for the net interface (which warns before a
+    /// rule would also cap the game).
+    pub game_pids: Arc<Mutex<Vec<i32>>>,
     pub tuner: SharedTuner,
     pub gate: Gate,
     pub owner: Arc<Mutex<Option<Owner>>>,
@@ -134,6 +137,7 @@ impl GameModeIface {
             pause_services: request.pause_services,
             pids: request.pids,
         };
+        *self.game_pids.lock().unwrap_or_else(|e| e.into_inner()) = req.pids.clone();
         let tuner = Arc::clone(&self.tuner);
         let active = Arc::clone(&self.active);
         let report = tokio::task::spawn_blocking(move || {

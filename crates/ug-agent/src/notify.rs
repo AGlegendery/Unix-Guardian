@@ -31,6 +31,8 @@ pub trait Notifications {
 
 /// Action key for "this is not a game".
 pub const NOT_A_GAME: &str = "not-a-game";
+/// Action key for "cap this app while I play".
+pub const LIMIT_WHILE_GAMING: &str = "limit-while-gaming";
 
 /// Shows a notification; `actions` are `(key, label)` pairs. Returns the id,
 /// or `None` when no notification server is running (a bare window manager),
