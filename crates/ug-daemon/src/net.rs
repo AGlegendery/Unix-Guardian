@@ -140,11 +140,32 @@ impl Net {
             Some(t) => now.duration_since(t) >= if self.watched(now) { Duration::from_secs(2) } else { Duration::from_secs(60) },
         };
         self.policy = Policy::from_rules(&self.rules.list, self.gaming.load(Ordering::Relaxed));
+        let watched = self.watched(now);
         match &mut self.backend {
             Backend::Nft(a, shaper) => {
                 a.set_policy(self.policy.clone());
-                let iface = ug_hw::net::default_iface(&self.root).unwrap_or_default();
-                self.status.shaping_problems = shaper.apply(&iface, &self.policy.limits);
+                // Where the internet really goes: through a VPN's TUN device
+                // when one is up (often by policy routing, which the main
+                // table does not show).
+                // Asking the kernel costs a fork, so only while it matters.
+                let iface = if !self.policy.limits.is_empty() || watched || self.status.iface.is_empty() {
+                    ug_hw::procnet::route_dev("1.1.1.1".parse().expect("address"))
+                        .or_else(|| ug_hw::net::default_iface(&self.root))
+                        .unwrap_or_default()
+                } else {
+                    self.status.iface.clone()
+                };
+                let mut problems = shaper.apply(&iface, &self.policy.limits);
+                self.status.vpn_tun = ug_hw::procnet::is_tun(&self.root, &iface);
+                self.status.vpn = self.apps.iter().find(|x| x.category == "vpn").map(|x| x.name.clone()).unwrap_or_default();
+                if !self.status.vpn.is_empty() && !self.status.vpn_tun && !self.policy.limits.is_empty() {
+                    problems.push(format!(
+                        "{} is running as a proxy (not in TUN mode): apps that use it reach the internet through it, \
+                         so their speed caps cannot apply. Blocking still works. Switch it to TUN mode for caps.",
+                        self.status.vpn
+                    ));
+                }
+                self.status.shaping_problems = problems;
                 self.status.iface = iface;
                 let r = if due { a.refresh(now) } else { a.sync_groups().map(|_| ()) };
                 match r {

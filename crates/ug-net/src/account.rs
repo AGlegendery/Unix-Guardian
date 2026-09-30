@@ -94,6 +94,8 @@ impl<N: Nft> Accountant<N> {
         let vanished = self.apps.keys().any(|p| !live.contains(p.as_str()));
         if vanished {
             self.gone = true;
+            // Its block, mark or VPN membership is stale too.
+            self.policy_dirty = true;
         }
         let new: Vec<(String, u8)> = groups
             .iter()
@@ -109,7 +111,10 @@ impl<N: Nft> Accountant<N> {
             } else if added.contains(&g.path) {
                 let exe = g.pids.first().map(|&p| cgroups::comm(&self.root, p)).unwrap_or_default();
                 let label = cgroups::label(&g.path, &exe);
-                if self.policy.blocks(&label.name) || self.policy.class_of(&label.name).is_some() {
+                if self.policy.blocks(&label.name)
+                    || self.policy.class_of(&label.name).is_some()
+                    || cgroups::category(&label.name, &exe) == "vpn"
+                {
                     self.policy_dirty = true;
                 }
                 self.apps.insert(
@@ -120,7 +125,14 @@ impl<N: Nft> Accountant<N> {
         }
         self.live = groups.into_iter().map(|g| g.path).collect();
         if self.policy_dirty {
-            self.apply_policy()?;
+            if let Err(e) = self.apply_policy() {
+                // A group that exited since the scan is retried next time; a
+                // missing table (someone flushed the ruleset) is rebuilt.
+                if !e.contains("cgroupv2 path") {
+                    self.installed = false;
+                }
+                return Err(e);
+            }
         }
         Ok(vanished)
     }
@@ -187,14 +199,19 @@ impl<N: Nft> Accountant<N> {
     fn apply_policy(&mut self) -> Result<(), String> {
         let mut blocked = Vec::new();
         let mut marked = Vec::new();
-        for (p, e) in &self.apps {
+        let mut vpn = Vec::new();
+        // Only groups that still exist: nft refuses a path that is gone.
+        for (p, e) in self.apps.iter().filter(|(p, _)| self.live.contains(*p)) {
+            if cgroups::category(&e.label.name, &e.exe) == "vpn" {
+                vpn.push((p.clone(), e.level));
+            }
             if self.policy.blocks(&e.label.name) {
                 blocked.push((p.clone(), e.level));
             } else if let Some(c) = self.policy.class_of(&e.label.name) {
                 marked.push((p.clone(), e.level, mark(c)));
             }
         }
-        self.nft.apply(&nft::policy_script(&blocked, &marked))?;
+        self.nft.apply(&nft::policy_script(&blocked, &marked, &vpn))?;
         self.policy_dirty = false;
         Ok(())
     }

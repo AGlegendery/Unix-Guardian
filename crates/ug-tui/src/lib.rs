@@ -741,8 +741,8 @@ mod tests {
         let stats = PingStats { sent: 30, received: 30, median_ms: 21.0, jitter_ms: 1.5, p95_ms: 22.0, loss_pct: 0.0 };
         app.ping.store(Ok(PingReport {
             targets: vec![
-                PingTarget { id: "gateway".into(), label: "Router".into(), addr: "192.168.1.1".into(), samples: samples.clone(), stats: stats.clone(), problem: String::new() },
-                PingTarget { id: "internet".into(), label: "DNS server".into(), addr: "1.1.1.1".into(), samples, stats, problem: String::new() },
+                PingTarget { id: "gateway".into(), label: "Router".into(), addr: "192.168.1.1".into(), samples: samples.clone(), stats: stats.clone(), problem: String::new(), via: "wlan0".into(), through_vpn: false },
+                PingTarget { id: "internet".into(), label: "DNS server".into(), addr: "1.1.1.1".into(), samples, stats, problem: String::new(), via: "tun0".into(), through_vpn: true },
             ],
             marks: vec![],
         }));
@@ -754,7 +754,7 @@ mod tests {
         let rule = NetRule { app: "qbittorrent".into(), block: false, up_kbps: 1000, down_kbps: 8000, when: "gaming".into(), active: false };
         app.net.store(Ok((vec![steam, firefox], vec![rule], NetControlStatus { available: true, ..Default::default() })));
         let screen = render(&mut app, 130, 40);
-        for want in ["Router", "21 ms", "1.1.1.1", "Ping, last five minutes", "Background tasks", "steam", "launcher", "4.2 MB/s"] {
+        for want in ["Router", "21 ms", "1.1.1.1", "through the VPN (tun0)", "direct (wlan0)", "Ping, last five minutes", "Background tasks", "steam", "launcher", "4.2 MB/s"] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
         assert!(!screen.contains("firefox-esr"), "a browser download is not a background task");

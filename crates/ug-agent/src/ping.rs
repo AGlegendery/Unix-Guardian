@@ -77,6 +77,19 @@ struct Target {
     addr: Option<IpAddr>,
     samples: VecDeque<PingSample>,
     problem: String,
+    via: String,
+    through_vpn: bool,
+}
+
+/// Below this, an internet host "answering" through a TUN device is the VPN
+/// program replying for it: no real path to a server is that short.
+const FAKE_MS: f64 = 2.0;
+
+/// The verdict on a target's numbers, given how its echoes travel.
+fn judge(id: &str, through_vpn: bool, s: &PingStats) -> Option<String> {
+    (id != "gateway" && through_vpn && s.received >= 5 && s.median_ms < FAKE_MS).then(|| {
+        "Answered by the VPN program itself (TUN mode), not by the real server: this number is not a real ping.".into()
+    })
 }
 
 struct State {
@@ -97,7 +110,15 @@ impl Pinger {
     pub fn new(root: SysRoot) -> Pinger {
         let targets = [("gateway", "Router"), ("internet", "DNS server"), ("game", "")]
             .into_iter()
-            .map(|(id, label)| Target { id, label: label.into(), addr: None, samples: VecDeque::new(), problem: String::new() })
+            .map(|(id, label)| Target {
+                id,
+                label: label.into(),
+                addr: None,
+                samples: VecDeque::new(),
+                problem: String::new(),
+                via: String::new(),
+                through_vpn: false,
+            })
             .collect();
         Pinger {
             state: Arc::new(Mutex::new(State { targets, marks: Vec::new(), wanted_until: None, running: false })),
@@ -165,13 +186,17 @@ impl Pinger {
                 .map(|t| {
                     let recent: Vec<PingSample> =
                         t.samples.iter().filter(|p| p.ts_unix_ms + 60_000 >= now).copied().collect();
+                    let stats = stats(&recent);
+                    let problem = if t.problem.is_empty() { judge(t.id, t.through_vpn, &stats).unwrap_or_default() } else { t.problem.clone() };
                     PingTarget {
                         id: t.id.into(),
                         label: t.label.clone(),
                         addr: t.addr.map(|a| a.to_string()).unwrap_or_default(),
                         samples: t.samples.iter().filter(|p| p.ts_unix_ms >= since).copied().collect(),
-                        stats: stats(&recent),
-                        problem: t.problem.clone(),
+                        stats,
+                        problem,
+                        via: t.via.clone(),
+                        through_vpn: t.through_vpn,
                     }
                 })
                 .collect(),
@@ -214,6 +239,20 @@ impl Pinger {
                         }
                         t.addr = addr;
                         t.problem = if addr.is_none() { none.into() } else { String::new() };
+                    }
+                    // Which way each host is reached: directly, or through a
+                    // VPN's TUN device (which may answer pings itself).
+                    for t in s.targets.iter_mut() {
+                        match t.addr {
+                            Some(a) => {
+                                t.via = procnet::route_dev(a).unwrap_or_default();
+                                t.through_vpn = !t.via.is_empty() && procnet::is_tun(&self.root, &t.via);
+                            }
+                            None => {
+                                t.via.clear();
+                                t.through_vpn = false;
+                            }
+                        }
                     }
                 }
                 let want: Vec<(&'static str, IpAddr)> = s.targets.iter().filter_map(|t| Some((t.id, t.addr?))).collect();
@@ -432,6 +471,16 @@ mod tests {
         let c = compare(&s, 60_000, 20_000);
         assert_eq!(c.before.sent, 20);
         assert_eq!(c.after.sent, 20);
+    }
+
+    #[test]
+    fn a_vpn_answering_pings_itself_is_called_out() {
+        let fast = stats(&run(&[0.3, 0.2, 0.4, 0.3, 0.3, 0.2], 0));
+        assert!(judge("internet", true, &fast).is_some());
+        assert!(judge("internet", false, &fast).is_none(), "a direct fast host is fine (a LAN server)");
+        assert!(judge("gateway", true, &fast).is_none(), "the router is near");
+        let real = stats(&run(&[80.0, 82.0, 79.0, 81.0, 80.0], 0));
+        assert!(judge("internet", true, &real).is_none(), "a real ping through the VPN is kept");
     }
 
     #[test]

@@ -983,6 +983,7 @@ async fn net(conn: &zbus::Connection, command: Option<NetCommand>, all: bool, js
     let mb = |b: u64| format!("{:.1} MB", b as f64 / 1e6);
     println!("{:<28} {:<8} {:>12} {:>12} {:>11} {:>11}", "app", "kind", "down", "up", "down total", "up total");
     let mut hidden = 0;
+    let (vpn, apps): (Vec<_>, Vec<_>) = apps.into_iter().partition(|a| a.category == "vpn");
     for a in apps {
         if !all && a.rx_bytes + a.tx_bytes == 0 {
             hidden += 1;
@@ -1005,6 +1006,19 @@ async fn net(conn: &zbus::Connection, command: Option<NetCommand>, all: bool, js
     }
     if hidden > 0 {
         println!("({hidden} more without traffic; --all shows them)");
+    }
+    for v in vpn {
+        println!(
+            "\nVPN {} ({}): {} down, {} up of its own. It carries the apps above in {} mode; their traffic is not counted twice.",
+            v.name,
+            if status.vpn_tun { status.iface.as_str() } else { "proxy" },
+            rate(v.rx_bps),
+            rate(v.tx_bps),
+            if status.vpn_tun { "TUN" } else { "proxy" }
+        );
+    }
+    for p in &status.shaping_problems {
+        println!("Note: {p}");
     }
     Ok(())
 }

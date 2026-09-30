@@ -70,7 +70,7 @@ print(n)" >"$W/got"
   kill "$gen"; wait "$gen" 2>/dev/null; gen=
   rmdir "$child"
   check "a finished group leaves the list" "until_ 15 '[ \"\$(sent)\" = -1 ]'"
-  stale() { "$NFT" -j list table inet unix_guardian | python3 -c "import json,sys; print(sum(str(e['elem']['val']).isdigit() for x in json.load(sys.stdin)['nftables'] for e in x.get('set',{}).get('elem',[])))"; }
+  stale() { "$NFT" -j list table inet unix_guardian | python3 -c "import json,sys; print(sum(str(e['elem']['val'] if isinstance(e, dict) and isinstance(e.get('elem'), dict) else e).isdigit() for x in json.load(sys.stdin)['nftables'] for e in x.get('set',{}).get('elem',[])))"; }
   check "and no stale element is left in the sets" "until_ 10 '[ \"\$(stale)\" = 0 ]'"
 else
   echo "SKIP  per-app counting (cannot create a child cgroup; run under systemd-run --user --scope -p Delegate=yes)"
@@ -142,12 +142,54 @@ print("%.1f"%(time.time()-t))'
   until_ 20 "ug net --json >/dev/null 2>&1"
   check "and come back into force" "until_ 10 'tc qdisc show dev ugA | grep -q \"htb 5547:\"'"
   ug net allow ug-e2e-app >/dev/null
+
+  # A VPN in proxy mode: apps reach the internet through a local proxy.
+  vpn="$own/ug-xray.service"   # named like xray: recognised as a VPN
+  mkdir "$vpn"
+  cat >"$W/proxy.py" <<'PY'
+import socket, sys, threading
+open(sys.argv[1], "w").write(str(__import__("os").getpid()))
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1", 1080)); s.listen()
+def pipe(a, b):
+    while (d := a.recv(1 << 16)): b.sendall(d)
+    b.shutdown(socket.SHUT_WR)
+while True:
+    c, _ = s.accept(); u = socket.create_connection(("10.9.0.2", 7001))
+    threading.Thread(target=pipe, args=(c, u), daemon=True).start()
+    threading.Thread(target=pipe, args=(u, c), daemon=True).start()
+PY
+  python3 "$W/proxy.py" "$vpn/cgroup.procs" & proxy=$!
+  sleep 6   # named by the next scan
+  counted() { ug net --json --all | python3 -c "import json,sys; print(next((a['$2'] for a in json.load(sys.stdin) if a['name']=='$1'), -1))"; }
+  app_before="$(counted ug-e2e-app tx_bytes)"; vpn_before="$(counted ug-xray tx_bytes)"
+  as_app 'import socket; c=socket.create_connection(("127.0.0.1",1080)); c.sendall(b"z"*2_000_000); c.shutdown(1); c.recv(64)' >/dev/null
+  sleep 3
+  app_sent=$(( $(counted ug-e2e-app tx_bytes) - app_before )); vpn_sent=$(( $(counted ug-xray tx_bytes) - vpn_before ))
+  check "an app using a local proxy is credited with its 2 MB ($app_sent)" "[ $app_sent -ge 2000000 ] && [ $app_sent -lt 2600000 ]"
+  check "the proxy counts only its own outside traffic, not the loopback copy ($vpn_sent)" "[ $vpn_sent -ge 2000000 ] && [ $vpn_sent -lt 2600000 ]"
+  check "the proxy is recognised as a VPN" "ug net --json --all | grep -A14 '\"name\": \"ug-xray\"' | grep -q '\"category\": \"vpn\"'"
+  ug net limit ug-e2e-app --up 1m >/dev/null
+  check "a cap in proxy mode says plainly that it cannot apply" "until_ 10 'ug net | grep -q \"running as a proxy\"'"
+  ug net allow ug-e2e-app >/dev/null
+  kill "$proxy"; wait "$proxy" 2>/dev/null
+  until_ 10 "! grep -q . '$vpn/cgroup.procs'"; rmdir "$vpn"
+
+  # A VPN in TUN mode: the internet route goes through a TUN device.
+  ip tuntap add dev ugtun0 mode tun && ip link set ugtun0 up && ip addr add 10.8.0.1/24 dev ugtun0
+  ip route add 1.1.1.1/32 dev ugtun0
+  ug net limit ug-e2e-app --up 1m >/dev/null
+  check "caps follow the internet route onto the TUN device" "until_ 10 'tc qdisc show dev ugtun0 | grep -q \"htb 5547:\"'"
+  check "and leave the other interface alone" "! tc qdisc show dev ugA | grep -q 5547"
+  check "the status says the internet goes through TUN" "busctl --user call org.unixguardian.Daemon1 /org/unixguardian/Daemon1 org.unixguardian.Daemon1.Net Status | grep -q '\"ugtun0\" \"[^\"]*\" true'"
+  ug net allow ug-e2e-app >/dev/null
+  check "and removing the cap clears the TUN device" "until_ 10 '! tc qdisc show dev ugtun0 | grep -q 5547'"
+  ip link del ugtun0
 else
   echo "SKIP  blocking and caps (cannot create a child cgroup; run under systemd-run --user --scope -p Delegate=yes)"
 fi
 
 "$NFT" flush ruleset
-check "a flushed ruleset gets our table back" "until_ 15 'ug net --json >/dev/null && \"$NFT\" list tables | grep -q unix_guardian'"
+check "a flushed ruleset gets our table back" "until_ 15 'ug net --json >/dev/null && \"$NFT\" list tables | grep -q unix_guardian' || { ug net; \"$NFT\" list tables; false; }"
 check "while leaving others' removals alone" "! \"$NFT\" list tables | grep -q theirs"
 
 kill -TERM "$daemon"; wait "$daemon" 2>/dev/null

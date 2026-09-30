@@ -50,6 +50,7 @@ pub fn table_script() -> String {
             s.push_str(&format!("  set {} {{ type cgroupsv2; flags dynamic; counter; }}\n", d.set(l)));
         }
         s.push_str(&format!("  set block{l} {{ type cgroupsv2; flags dynamic; }}\n"));
+        s.push_str(&format!("  set vpn{l} {{ type cgroupsv2; flags dynamic; }}\n"));
         s.push_str(&format!("  map mark{l} {{ type cgroupsv2 : mark; flags dynamic; }}\n"));
     }
     for (chain, hook, dir) in [("egress", "output", Dir::Tx), ("ingress", "input", Dir::Rx)] {
@@ -63,6 +64,13 @@ pub fn table_script() -> String {
             }
             // Only our marks reach the connection: a VPN's own marks are left alone.
             s.push_str("    meta mark & 0xffff0000 == 0x55470000 ct mark set meta mark\n");
+        }
+        // A VPN or proxy's traffic with the apps it carries (over loopback,
+        // in proxy mode) is theirs, already counted: only its own traffic
+        // with the outside world counts for it.
+        let lo = if dir == Dir::Tx { "oifname" } else { "iifname" };
+        for l in (MIN_LEVEL..=MAX_LEVEL).rev() {
+            s.push_str(&format!("    {lo} \"lo\" socket cgroupv2 level {l} @vpn{l} accept\n"));
         }
         for l in (MIN_LEVEL..=MAX_LEVEL).rev() {
             s.push_str(&format!("    socket cgroupv2 level {l} @{} accept\n", dir.set(l)));
@@ -111,10 +119,14 @@ pub fn refill_script(groups: &[(String, u8)]) -> String {
 
 /// Replaces the block and mark members: `blocked` (path, level) and
 /// `marked` (path, level, mark).
-pub fn policy_script(blocked: &[(String, u8)], marked: &[(String, u8, u32)]) -> String {
+pub fn policy_script(blocked: &[(String, u8)], marked: &[(String, u8, u32)], vpn: &[(String, u8)]) -> String {
     let mut s = String::new();
     for l in MIN_LEVEL..=MAX_LEVEL {
-        s.push_str(&format!("flush set inet {TABLE} block{l}\nflush map inet {TABLE} mark{l}\n"));
+        s.push_str(&format!("flush set inet {TABLE} block{l}\nflush map inet {TABLE} mark{l}\nflush set inet {TABLE} vpn{l}\n"));
+        let v: Vec<String> = vpn.iter().filter(|(_, gl)| *gl == l).map(|(p, _)| quote(p)).collect();
+        if !v.is_empty() {
+            s.push_str(&format!("add element inet {TABLE} vpn{l} {{ {} }}\n", v.join(", ")));
+        }
         let b: Vec<String> = blocked.iter().filter(|(_, gl)| *gl == l).map(|(p, _)| quote(p)).collect();
         if !b.is_empty() {
             s.push_str(&format!("add element inet {TABLE} block{l} {{ {} }}\n", b.join(", ")));
@@ -247,6 +259,9 @@ mod tests {
         assert!(egress.find("@block8 drop").unwrap() < egress.find("map @mark8").unwrap());
         assert!(egress.find("ct mark set").unwrap() < l8);
         assert!(!s[s.find("chain ingress").unwrap()..].contains("drop"));
+        // A VPN's loopback traffic is skipped before counting, both ways.
+        assert!(egress.find("oifname \"lo\" socket cgroupv2 level 8 @vpn8 accept").unwrap() < l8);
+        assert!(s[s.find("chain ingress").unwrap()..].contains("iifname \"lo\" socket cgroupv2 level 5 @vpn5 accept"));
         assert_eq!(s.matches("table inet").count(), 3);
     }
 
@@ -268,11 +283,12 @@ mod tests {
 
     #[test]
     fn policy_replaces_members_by_level() {
-        let s = policy_script(&[("system.slice/x.service".into(), 2)], &[("a/b/c/d/steam.scope".into(), 5, 0x5547_0001)]);
+        let s = policy_script(&[("system.slice/x.service".into(), 2)], &[("a/b/c/d/steam.scope".into(), 5, 0x5547_0001)], &[("a/b/c/d/v2rayn.service".into(), 5)]);
+        assert!(s.contains("add element inet unix_guardian vpn5 { \"a/b/c/d/v2rayn.service\" }"));
         assert!(s.contains("flush set inet unix_guardian block5\nflush map inet unix_guardian mark5\n"));
         assert!(s.contains("add element inet unix_guardian block2 { \"system.slice/x.service\" }"));
         assert!(s.contains("add element inet unix_guardian mark5 { \"a/b/c/d/steam.scope\" : 0x55470001 }"));
-        assert!(!policy_script(&[], &[]).contains("add element"));
+        assert!(!policy_script(&[], &[], &[]).contains("add element"));
     }
 
     #[test]

@@ -540,6 +540,11 @@ pub struct PingTarget {
     pub stats: PingStats,
     /// Why this host cannot be measured; empty when it can.
     pub problem: String,
+    /// The interface the echoes leave by, e.g. `wlp8s0` or a VPN's `tun0`.
+    pub via: String,
+    /// They go through a VPN's TUN device, so this is the ping through the
+    /// VPN, not the direct one.
+    pub through_vpn: bool,
 }
 
 /// A moment the chart splits at, e.g. when game mode or shaping went on.
@@ -624,8 +629,14 @@ pub struct NetControlStatus {
     /// Why a cap is not in effect right now (another tool shapes the
     /// interface); empty when every rule applies.
     pub shaping_problems: Vec<String>,
-    /// The interface caps are applied to.
+    /// The interface caps are applied to: the one the internet is reached
+    /// through, a VPN's TUN device when one carries the traffic.
     pub iface: String,
+    /// A running VPN or proxy app (`v2rayn`), or empty. Its traffic with the
+    /// apps it carries is not counted again.
+    pub vpn: String,
+    /// The internet is reached through that VPN's TUN device.
+    pub vpn_tun: bool,
 }
 
 /// Readings beyond the snapshot, for the live monitor. Fetched with

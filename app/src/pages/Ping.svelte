@@ -97,9 +97,12 @@
 
   const ruleFor = (name: string) => rules.find((r) => r.app.toLowerCase() === name.toLowerCase()) ?? null;
   const background = $derived(
-    apps.filter((a) => !a.has_game && a.kind !== "session" && (a.state !== "" || (a.category && a.rx_bps + a.tx_bps >= 50_000) || a.tx_bps >= 125_000)),
+    apps.filter((a) => !a.has_game && a.kind !== "session" && a.category !== "vpn" && (a.state !== "" || (a.category && a.rx_bps + a.tx_bps >= 50_000) || a.tx_bps >= 125_000)),
   );
-  const listed = $derived(showAll ? apps : apps.filter((a) => a.rx_bytes + a.tx_bytes > 0 || a.state !== ""));
+  // A VPN carries the other apps' traffic: it gets one line of its own.
+  const vpnApps = $derived(apps.filter((a) => a.category === "vpn"));
+  const others = $derived(apps.filter((a) => a.category !== "vpn"));
+  const listed = $derived(showAll ? others : others.filter((a) => a.rx_bytes + a.tx_bytes > 0 || a.state !== ""));
   const maxRate = $derived(Math.max(1, ...background.map((a) => a.rx_bps + a.tx_bps)));
 
   async function act(f: () => Promise<unknown>) {
@@ -149,6 +152,18 @@
 {#if status && !status.available}<p class="problem">{t().ping.unavailable} {status.problem}</p>{/if}
 {#each status?.shaping_problems ?? [] as p}<p class="problem">{p}</p>{/each}
 
+{#snippet vpnLine()}
+  {#each vpnApps as v (v.id)}
+    {@const d = rate(v.rx_bps)}
+    {@const u = rate(v.tx_bps)}
+    <p class="vpnline">
+      <b dir="auto">{v.name}</b>
+      <span dir="ltr">↓ {d.value} {d.unit} · ↑ {u.value} {u.unit}</span>
+      {status?.vpn_tun ? t().ping.vpnTun : t().ping.vpnProxy}
+    </p>
+  {/each}
+{/snippet}
+
 {#snippet appActions(a: AppTraffic)}
   {#if a.state !== ""}
     <span class="state {a.state}">{a.state === "blocked" ? t().ping.blocked : t().ping.limited}</span>
@@ -186,6 +201,7 @@
     {#each report?.targets ?? [] as tg (tg.id)}
       <section class="card stat">
         <span class="label">{targetName(tg)} <span class="addr" dir="ltr">{tg.addr}</span></span>
+        {#if tg.via}<span class="route" class:vpn={tg.through_vpn}>{tg.through_vpn ? t().ping.throughVpn : t().ping.direct} <span dir="ltr">{tg.via}</span></span>{/if}
         {#if tg.problem}
           <p class="muted">{tg.problem}</p>
         {:else}
@@ -236,6 +252,7 @@
     <h2>{t().ping.background}</h2>
     {#if background.length === 0}
       <p class="muted">{t().ping.backgroundEmpty}</p>
+      {@render vpnLine()}
     {:else}
       <ul class="list">
         {#each background as a (a.id)}
@@ -253,6 +270,7 @@
           {#if editing?.app === a.name}<li class="editing">{@render limitForm()}</li>{/if}
         {/each}
       </ul>
+      {@render vpnLine()}
     {/if}
   </section>
 {:else}
@@ -285,7 +303,7 @@
         {/each}
       </tbody>
     </table>
-    <p class="small">{t().ping.viaProxy}</p>
+    {@render vpnLine()}
   </section>
 
   <section class="card">
@@ -329,6 +347,9 @@
   .stat { display: grid; gap: 6px; }
   .stat .label { color: var(--text-2); font-size: 0.85rem; }
   .addr { color: var(--text-3); font-size: 0.78rem; margin-inline-start: 6px; }
+  .route { font-size: 0.75rem; color: var(--text-3); }
+  .route.vpn { color: var(--accent-text); }
+  .vpnline { margin: 12px 0 0; font-size: 0.82rem; color: var(--text-2); display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; }
   .stat > b { font-size: 1.7rem; font-weight: 800; }
   .stat small { font-size: 0.8rem; font-weight: 500; color: var(--text-2); }
   .sub { color: var(--text-2); font-size: 0.82rem; }

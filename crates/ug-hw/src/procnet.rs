@@ -71,6 +71,49 @@ pub fn dns_servers(root: &SysRoot) -> Vec<IpAddr> {
     parse("run/systemd/resolve/resolv.conf").into_iter().filter(|a| !a.is_loopback()).collect()
 }
 
+/// The interface the kernel would use to reach `ip`, asking `ip route get`
+/// (so policy routing, as VPNs in TUN mode set up, is honoured — the main
+/// table in `/proc/net/route` does not show it).
+pub fn route_dev(ip: IpAddr) -> Option<String> {
+    let bin = ["/usr/sbin/ip", "/sbin/ip", "/usr/bin/ip", "/bin/ip"].into_iter().find(|p| std::path::Path::new(p).exists())?;
+    let out = std::process::Command::new(bin).args(["-o", "route", "get", &ip.to_string()]).output().ok()?;
+    parse_route_get(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// `1.1.1.1 via 192.168.1.1 dev wlp8s0 src 192.168.1.100 uid 1000` → `wlp8s0`.
+fn parse_route_get(s: &str) -> Option<String> {
+    let mut words = s.split_whitespace();
+    while let Some(w) = words.next() {
+        if w == "dev" {
+            return words.next().map(str::to_string);
+        }
+    }
+    None
+}
+
+/// A TUN device, as VPN and proxy apps create for "TUN mode". Asks
+/// `ip -d link` (the network namespace's own view; sysfs shows the one it
+/// was mounted in), falling back to sysfs.
+pub fn is_tun(root: &SysRoot, dev: &str) -> bool {
+    if root.join(format!("sys/class/net/{dev}/tun_flags")).exists() {
+        return true;
+    }
+    let Some(bin) = ["/usr/sbin/ip", "/sbin/ip", "/usr/bin/ip", "/bin/ip"].into_iter().find(|p| std::path::Path::new(p).exists())
+    else {
+        return false;
+    };
+    std::process::Command::new(bin)
+        .args(["-o", "-d", "link", "show", "dev", dev])
+        .output()
+        .is_ok_and(|o| is_tun_details(&String::from_utf8_lossy(&o.stdout)))
+}
+
+/// `… link/none promiscuity 0 … \    tun type tun pi off vnet_hdr off …`
+fn is_tun_details(s: &str) -> bool {
+    let w: Vec<&str> = s.split_whitespace().collect();
+    w.windows(3).any(|x| x[0] == "tun" && x[1] == "type" && x[2] == "tun")
+}
+
 /// Every socket in one of the `/proc/.../net/*` tables.
 pub fn sockets(root: &SysRoot, dir: &str) -> Vec<SockEntry> {
     let mut out = Vec::new();
@@ -218,6 +261,28 @@ mod tests {
         assert_eq!(s.local, "[::1]:631".parse().unwrap());
         assert_eq!(s.remote, "192.168.1.1:80".parse().unwrap());
         assert_eq!(s.uid, 1000);
+    }
+
+    #[test]
+    fn route_get_names_the_device() {
+        assert_eq!(parse_route_get("1.1.1.1 via 192.168.1.1 dev wlp8s0 src 192.168.1.100 uid 1000 \\    cache"), Some("wlp8s0".into()));
+        assert_eq!(parse_route_get("1.1.1.1 dev singbox_tun table 2022 src 172.18.0.1 uid 1000"), Some("singbox_tun".into()));
+        assert_eq!(parse_route_get(""), None);
+    }
+
+    #[test]
+    fn ip_link_details_show_a_tun_device() {
+        assert!(is_tun_details("9: xray0: <POINTOPOINT,UP> mtu 1500 link/none promiscuity 0 \\    tun type tun pi off vnet_hdr off persist off"));
+        assert!(!is_tun_details("3: wlp8s0: <BROADCAST,UP> mtu 1500 link/ether b8:1e:a4:97:1e:99 promiscuity 0"));
+    }
+
+    #[test]
+    fn a_tun_device_has_tun_flags() {
+        let fs = TestFs::new();
+        fs.write("sys/class/net/xray0/tun_flags", "0x1001").dir("sys/class/net/wlan0");
+        let root = SysRoot::at(fs.root());
+        assert!(is_tun(&root, "xray0"));
+        assert!(!is_tun(&root, "wlan0"));
     }
 
     #[test]

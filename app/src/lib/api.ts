@@ -97,6 +97,8 @@ export interface PingTarget {
   samples: PingSample[];
   stats: PingStats;
   problem: string;
+  via: string;
+  through_vpn: boolean;
 }
 export interface PingMark { ts_unix_ms: number; kind: string }
 export interface PingReport { targets: PingTarget[]; marks: PingMark[] }
@@ -125,6 +127,8 @@ export interface NetControlStatus {
   firewalls: string[];
   shaping_problems: string[];
   iface: string;
+  vpn: string;
+  vpn_tun: boolean;
 }
 
 export interface GpuInfo {

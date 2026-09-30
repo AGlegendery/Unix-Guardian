@@ -739,6 +739,7 @@ fn fps(app: &mut App, f: &mut Frame, r: Rect) {
 fn is_background(a: &ug_proto::AppTraffic) -> bool {
     !a.has_game
         && a.kind != "session"
+        && a.category != "vpn"
         && (!a.state.is_empty() || (!a.category.is_empty() && a.rx_bps + a.tx_bps >= 50_000) || a.tx_bps >= 125_000)
 }
 
@@ -748,7 +749,7 @@ fn listed_apps(app: &App) -> Vec<ug_proto::AppTraffic> {
     if app.tab == 0 {
         apps.into_iter().filter(is_background).collect()
     } else {
-        apps.into_iter().filter(|a| a.rx_bytes + a.tx_bytes > 0 || !a.state.is_empty()).collect()
+        apps.into_iter().filter(|a| a.category != "vpn" && (a.rx_bytes + a.tx_bytes > 0 || !a.state.is_empty())).collect()
     }
 }
 
@@ -821,6 +822,10 @@ fn ping_page(app: &mut App, f: &mut Frame, r: Rect) {
                         Span::styled(format!("{:>6} ms", fmt(tg.stats.median_ms)), t.title()),
                         Span::styled(format!("   jitter {:>5}   95% {:>5}   loss {:>3.0} %", fmt(tg.stats.jitter_ms), fmt(tg.stats.p95_ms), tg.stats.loss_pct), t.muted()),
                         Span::styled(format!("   {}", tg.addr), t.faint()),
+                        Span::styled(
+                            if tg.via.is_empty() { String::new() } else if tg.through_vpn { format!("  through the VPN ({})", tg.via) } else { format!("  direct ({})", tg.via) },
+                            if tg.through_vpn { t.accent() } else { t.faint() },
+                        ),
                     ])
                 } else {
                     Line::from(vec![Span::styled(format!("{name:<22}"), t.muted()), Span::styled(tg.problem.clone(), t.faint())])
@@ -892,6 +897,25 @@ fn ping_page(app: &mut App, f: &mut Frame, r: Rect) {
     for (i, a) in list.iter().enumerate().skip(first).take(room) {
         let line = app_line(app, a, body.width);
         row(app, f, Rect { x: body.x, y, width: body.width, height: 1 }, i, line);
+        y += 1;
+    }
+    // The VPN carrying everything gets one line, not a place in the list.
+    let vpn_tun = app.net.value.as_ref().is_some_and(|n| n.2.vpn_tun);
+    let vpns: Vec<ug_proto::AppTraffic> =
+        app.net.value.as_ref().map(|n| n.0.iter().filter(|a| a.category == "vpn").cloned().collect()).unwrap_or_default();
+    for v in vpns {
+        if y >= bottom {
+            break;
+        }
+        let line = Line::from(vec![
+            Span::styled(format!(" VPN {} ", v.name), t.accent()),
+            Span::styled(format!("↓ {} ↑ {} of its own", rate(v.rx_bps), rate(v.tx_bps)), t.muted()),
+            Span::styled(
+                format!("  ({} mode: what it carries is counted for the apps, not again)", if vpn_tun { "TUN" } else { "proxy" }),
+                t.faint(),
+            ),
+        ]);
+        f.render_widget(Paragraph::new(line), Rect { x: body.x, y, width: body.width, height: 1 });
         y += 1;
     }
     if app.tab == 1 && y + 2 < bottom {

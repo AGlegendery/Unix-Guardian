@@ -145,6 +145,8 @@ fn unescape(s: &str) -> String {
 /// Programs known to use the network in the background, by the words in
 /// their app or command name.
 const CATALOG: &[(&str, &[&str])] = &[
+    // First: a VPN or proxy carries other apps' traffic (see `nft`).
+    ("vpn", &["v2rayn", "v2ray", "xray", "sing-box", "singbox", "clash", "mihomo", "hysteria", "tun2socks", "nekoray", "nekobox", "throne", "hiddify", "openvpn", "wireguard-go", "warp-svc", "outline", "shadowsocks", "ss-local", "trojan", "naiveproxy", "tailscaled", "psiphon", "lantern"]),
     ("torrent", &["qbittorrent", "transmission", "deluge", "ktorrent", "fragments", "rtorrent", "aria2c", "tixati", "biglybt"]),
     ("sync", &["dropbox", "syncthing", "nextcloud", "owncloud", "megasync", "onedrive", "insync", "rclone", "seafile", "pcloud", "maestral", "rsync"]),
     ("updates", &["packagekit", "flatpak-system-helper", "snapd", "apt", "dnf", "zypper", "pamac", "discover", "fwupd", "unattended-upgr", "gnome-software", "mintupdate"]),
@@ -210,6 +212,9 @@ mod tests {
         assert_eq!(category("steam", "steamwebhelper"), "launcher");
         assert_eq!(category("com.obsproject.Studio", "obs"), "streaming");
         assert_eq!(category("syncthing", ""), "sync");
+        assert_eq!(category("v2rayn", "xray"), "vpn");
+        assert_eq!(category("sing-box", ""), "vpn");
+        assert_eq!(category("mullvad-xray-helper", ""), "vpn");
         assert_eq!(category("jobs-app", "captain"), "", "short words match whole words only");
         assert_eq!(category("firefox-esr", "firefox-esr"), "");
     }

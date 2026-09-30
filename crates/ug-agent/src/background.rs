@@ -19,7 +19,8 @@ pub const OFFER_UP_KBPS: u32 = 1_000;
 /// that already has a rule, or one already offered this game session.
 pub fn pick<'a>(apps: &'a [AppTraffic], ruled: &HashSet<String>, offered: &HashSet<String>) -> Option<&'a AppTraffic> {
     apps.iter()
-        .filter(|a| !a.has_game && a.state.is_empty() && a.kind != "session")
+        // A VPN carries the other apps' traffic: it is never the culprit.
+        .filter(|a| !a.has_game && a.state.is_empty() && a.kind != "session" && a.category != "vpn")
         .filter(|a| !ruled.contains(&a.name.to_lowercase()) && !offered.contains(&a.name.to_lowercase()))
         .filter(|a| (!a.category.is_empty() && a.rx_bps + a.tx_bps >= BUSY_BPS) || a.tx_bps >= UPLOAD_BPS)
         .max_by_key(|a| a.rx_bps + a.tx_bps)
@@ -71,6 +72,12 @@ mod tests {
         assert!(pick(std::slice::from_ref(&up), &HashSet::new(), &HashSet::new()).is_some());
         up.has_game = true;
         assert!(pick(&[up], &HashSet::new(), &HashSet::new()).is_none());
+    }
+
+    #[test]
+    fn the_vpn_carrying_everything_is_not_blamed() {
+        let apps = vec![app("v2rayn", "vpn", 6_000_000, 400_000)];
+        assert!(pick(&apps, &HashSet::new(), &HashSet::new()).is_none());
     }
 
     #[test]

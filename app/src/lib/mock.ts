@@ -49,6 +49,7 @@ const mockApps = (): AppTraffic[] => {
     mk("Discord", "app", "", 30_000, 12_000),
     mk("packagekit", "service", "updates", 0, 0),
     mk("dropbox", "app", "sync", 2_000, 1_000),
+    mk("v2rayn", "app", "vpn", 180_000, 40_000),
   ].sort((a, b) => b.rx_bps + b.tx_bps - (a.rx_bps + a.tx_bps));
 };
 
@@ -195,8 +196,8 @@ export const mockApi = {
     const net = pingSeries(38, 20, 0.08, from);
     return {
       targets: [
-        { id: "gateway", label: "Router", addr: "192.168.1.1", samples: gw, stats: stats(gw.slice(-60)), problem: "" },
-        { id: "internet", label: "DNS server", addr: "1.1.1.1", samples: net, stats: stats(net.slice(-60)), problem: "" },
+        { id: "gateway", label: "Router", addr: "192.168.1.1", samples: gw, stats: stats(gw.slice(-60)), problem: "", via: "wlp8s0", through_vpn: false },
+        { id: "internet", label: "DNS server", addr: "1.1.1.1", samples: net, stats: stats(net.slice(-60)), problem: "", via: "wlp8s0", through_vpn: false },
       ],
       marks: [{ ts_unix_ms: pingStart + 20_000, kind: "gamemode-on" }].filter((m) => m.ts_unix_ms < Date.now()),
     };
@@ -208,7 +209,7 @@ export const mockApi = {
     const a = stats(r.filter((x) => x.ts_unix_ms >= cut));
     return { before: b, after: a, verdict: a.received < 10 ? "not-enough-data" : "flatter" } as const;
   },
-  netStatus: async () => ({ available: true, problem: "", simulated: false, firewalls: [], shaping_problems: [], iface: "wlp8s0" }),
+  netStatus: async () => ({ available: true, problem: "", simulated: false, firewalls: [], shaping_problems: [], iface: "wlp8s0", vpn: "v2rayn", vpn_tun: false }),
   netApps: async () => mockApps(),
   netRules: async () => netRules.map((r) => ({ ...r })),
   netSetRule: async (app: string, block: boolean, up: number, down: number, when: "always" | "gaming") => {
