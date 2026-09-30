@@ -183,6 +183,17 @@ pub mod daemon {
         #[zbus(signal)]
         fn upcoming(&self, job: PowerJob, seconds: u32) -> zbus::Result<()>;
 
+        /// Does `action` once a condition has held for its whole window:
+        /// `net-idle` (receive rate below `threshold` B/s for `minutes`),
+        /// `cpu-idle` (load below `threshold` % for `minutes`),
+        /// `process-gone` (the process `name` has exited), `game-over` (the
+        /// running game has ended).
+        fn when(&self, action: &str, kind: &str, threshold: f64, minutes: u32, name: &str, note: &str) -> zbus::Result<PowerWatch>;
+
+        fn watches(&self) -> zbus::Result<Vec<PowerWatch>>;
+
+        fn cancel_watch(&self, id: u32) -> zbus::Result<bool>;
+
         /// Wakes the computer at this time; replaces any alarm set.
         fn set_wake_alarm(&self, at_unix_ms: u64) -> zbus::Result<()>;
 

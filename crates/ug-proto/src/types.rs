@@ -423,3 +423,19 @@ pub struct PowerJob {
     pub repeat: String,
     pub note: String,
 }
+
+/// A power action waiting for a condition.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct PowerWatch {
+    pub id: u32,
+    pub action: String,
+    /// `net-idle`, `cpu-idle`, `process-gone` or `game-over`.
+    pub kind: String,
+    /// net-idle: bytes per second; cpu-idle: percent; otherwise 0.
+    pub threshold: f64,
+    /// How long the condition must hold (net-idle, cpu-idle); otherwise 0.
+    pub minutes: u32,
+    /// process-gone: the process name; otherwise empty.
+    pub name: String,
+    pub note: String,
+}

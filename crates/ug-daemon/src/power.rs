@@ -11,7 +11,10 @@ use crate::polkit::{action, Gate};
 use crate::schedule::{Action, Job, Repeat, Schedule};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
-use ug_proto::{PowerCapability, PowerJob};
+use crate::conditions::{Condition, Observation, Watch, Watches};
+use std::sync::atomic::{AtomicBool, Ordering};
+use ug_hw::SysRoot;
+use ug_proto::{PowerCapability, PowerJob, PowerWatch};
 use zbus::object_server::SignalEmitter;
 
 #[zbus::proxy(
@@ -160,6 +163,52 @@ pub struct PowerIface {
     /// where the alarm is only simulated (kept in `simulated_alarm`).
     pub rtc: Option<crate::rtc::Rtc>,
     pub simulated_alarm: Mutex<Option<u64>>,
+    pub watches: SharedWatches,
+    pub observer: Arc<Observer>,
+    /// Wakes the condition loop when a watch is added.
+    pub watches_changed: Arc<Notify>,
+}
+
+pub type SharedWatches = Arc<Mutex<Watches>>;
+
+/// Gathers what conditions look at. Reads only when a watch exists.
+pub struct Observer {
+    pub sampler: Arc<crate::sampler::Sampler>,
+    pub game_active: Arc<AtomicBool>,
+    pub root: SysRoot,
+}
+
+impl Observer {
+    pub fn read(&self) -> Observation {
+        let snap = self.sampler.snapshot();
+        Observation {
+            rx_bps: snap.net.rx_bps,
+            cpu_pct: Some(snap.cpu.load_pct).filter(|v| !v.is_nan()),
+            game_active: self.game_active.load(Ordering::SeqCst),
+            processes: process_names(&self.root),
+        }
+    }
+}
+
+/// Every running process's name (`/proc/<pid>/comm`, which the kernel cuts
+/// at 15 bytes).
+fn process_names(root: &SysRoot) -> Vec<String> {
+    let Ok(dir) = std::fs::read_dir(root.join("proc")) else { return Vec::new() };
+    dir.filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().bytes().all(|b| b.is_ascii_digit()))
+        .filter_map(|e| std::fs::read_to_string(e.path().join("comm")).ok())
+        .map(|s| s.trim().to_string())
+        .collect()
+}
+
+fn watch_to_wire(w: &Watch) -> PowerWatch {
+    let (kind, threshold, minutes, name) = match &w.condition {
+        Condition::NetIdle { below_bps, minutes } => ("net-idle", *below_bps as f64, *minutes, String::new()),
+        Condition::CpuIdle { below_pct, minutes } => ("cpu-idle", *below_pct, *minutes, String::new()),
+        Condition::ProcessGone { name } => ("process-gone", 0.0, 0, name.clone()),
+        Condition::GameOver => ("game-over", 0.0, 0, String::new()),
+    };
+    PowerWatch { id: w.id, action: w.action.name().into(), kind: kind.into(), threshold, minutes, name, note: w.note.clone() }
 }
 
 fn lock(s: &SharedSchedule) -> std::sync::MutexGuard<'_, Schedule> {
@@ -225,6 +274,49 @@ impl PowerIface {
             self.changed.notify_one();
         }
         Ok(removed)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn when(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        action: &str,
+        kind: &str,
+        threshold: f64,
+        minutes: u32,
+        name: &str,
+        note: &str,
+    ) -> zbus::fdo::Result<PowerWatch> {
+        let a = Action::parse(action).map_err(invalid)?;
+        let cond = match kind {
+            "net-idle" => Condition::NetIdle { below_bps: threshold.max(0.0) as u64, minutes },
+            "cpu-idle" => Condition::CpuIdle { below_pct: threshold, minutes },
+            // comm is cut at 15 bytes, so compare against what /proc shows.
+            "process-gone" => Condition::ProcessGone { name: name.trim().chars().take(15).collect() },
+            "game-over" => Condition::GameOver,
+            _ => return Err(invalid(format!("unknown condition {kind:?}; use net-idle, cpu-idle, process-gone or game-over"))),
+        };
+        cond.validate().map_err(invalid)?;
+        self.gate.authorize(&hdr, action::POWER).await?;
+        let (ok, why) = self.backend.capability(a).await;
+        if !ok {
+            return Err(zbus::fdo::Error::NotSupported(why));
+        }
+        let observer = Arc::clone(&self.observer);
+        let now = tokio::task::spawn_blocking(move || observer.read()).await.map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        let w = self.watches.lock().unwrap_or_else(|e| e.into_inner()).add(a, cond, note, &now).map_err(invalid)?;
+        tracing::info!(id = w.id, action = a.name(), kind, "conditional power action armed");
+        self.watches_changed.notify_one();
+        Ok(watch_to_wire(&w))
+    }
+
+    async fn watches(&self) -> Vec<PowerWatch> {
+        self.watches.lock().unwrap_or_else(|e| e.into_inner()).list().iter().map(watch_to_wire).collect()
+    }
+
+    async fn cancel_watch(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, id: u32) -> zbus::fdo::Result<bool> {
+        self.gate.authorize(&hdr, action::POWER).await?;
+        self.watches.lock().unwrap_or_else(|e| e.into_inner()).cancel(id).map_err(zbus::fdo::Error::Failed)
     }
 
     /// Wakes the computer at `at_unix_ms` (from sleep, or from off where the
@@ -332,6 +424,33 @@ pub async fn run(conn: zbus::Connection, schedule: SharedSchedule, backend: Arc<
             if matches!(j.action, Action::PowerOff | Action::Reboot | Action::RebootFirmware) {
                 break;
             }
+        }
+    }
+}
+
+/// How often conditions are checked while any exist.
+const WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Checks conditional actions every ten seconds while any exist; parks
+/// otherwise, so a machine with none does no work for them.
+pub async fn watch(watches: SharedWatches, observer: Arc<Observer>, backend: Arc<Backend>, changed: Arc<Notify>) {
+    loop {
+        if watches.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
+            changed.notified().await;
+            continue;
+        }
+        let obs_reader = Arc::clone(&observer);
+        let Ok(o) = tokio::task::spawn_blocking(move || obs_reader.read()).await else { continue };
+        let fired = watches.lock().unwrap_or_else(|e| e.into_inner()).observe(&o, now_ms());
+        for w in fired {
+            tracing::info!(id = w.id, action = w.action.name(), "condition met; running power action");
+            if let Err(e) = backend.perform(w.action).await {
+                tracing::error!(id = w.id, error = %e, "conditional power action failed");
+            }
+        }
+        tokio::select! {
+            _ = tokio::time::sleep(WATCH_EVERY) => {}
+            _ = changed.notified() => {}
         }
     }
 }

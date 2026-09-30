@@ -17,6 +17,7 @@
 //! $ cargo run -p ug-cli -- --session status
 //! ```
 
+mod conditions;
 mod gamemode;
 mod iface;
 mod polkit;
@@ -181,6 +182,13 @@ async fn main() -> Result<()> {
         tracing::warn!(%n, "power schedule");
     }
     let schedule = Arc::new(std::sync::Mutex::new(schedule));
+    let watches = Arc::new(std::sync::Mutex::new(conditions::Watches::load(&state_dir.join("conditions.json"))));
+    let watches_changed = Arc::new(tokio::sync::Notify::new());
+    let observer = Arc::new(power::Observer {
+        sampler: Arc::clone(&sampler),
+        game_active: Arc::clone(&gamemode_active),
+        root: root.clone(),
+    });
     let schedule_changed = Arc::new(tokio::sync::Notify::new());
     conn.object_server()
         .at(
@@ -194,11 +202,15 @@ async fn main() -> Result<()> {
                 // clock; with --sysroot the scratch tree is safe to write.
                 rtc: (!args.session || args.sysroot.is_some()).then(|| rtc::Rtc::new(root.clone())),
                 simulated_alarm: std::sync::Mutex::new(None),
+                watches: Arc::clone(&watches),
+                observer: Arc::clone(&observer),
+                watches_changed: Arc::clone(&watches_changed),
             },
         )
         .await
         .context("serving the power interface")?;
-    tokio::spawn(power::run(conn.clone(), schedule, backend, schedule_changed));
+    tokio::spawn(power::run(conn.clone(), schedule, Arc::clone(&backend), schedule_changed));
+    tokio::spawn(power::watch(watches, observer, backend, watches_changed));
 
     tracing::info!(
         bus = if args.session { "session" } else { "system" },

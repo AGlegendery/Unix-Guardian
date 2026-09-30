@@ -47,6 +47,22 @@ check "a time in the past is refused" "! busctl --user call org.unixguardian.Dae
 check "a wake alarm can be set and is listed" "ug power wake --in 8h >/dev/null && out=\$(ug power list) && grep -q 'Wake alarm' <<<\"\$out\""
 check "and cleared" "ug power wake --clear >/dev/null && out=\$(ug power list) && ! grep -q 'Wake alarm' <<<\"\$out\""
 check "a wake alarm in the past is refused" "! ug power wake --in 1s >/dev/null 2>&1"
+# Conditions. The fake program is named ugwatchme so no real process matches.
+ln -s "$(command -v sleep)" "$W/ugwatchme"
+"$W/ugwatchme" 300 & watched=$!
+check "waiting for a game when none runs is refused" "! ug power when power-off --game-over >/dev/null 2>&1"
+check "waiting for a program that is not running is refused" "! ug power when power-off --process nosuchprog >/dev/null 2>&1"
+check "a program's exit can be waited for" "ug power when reboot --process ugwatchme | grep -q 'Armed #w'"
+check "it is listed" "out=\$(ug power list) && grep -q 'when ugwatchme exits' <<<\"\$out\""
+sleep 12
+# The daemon was restarted above, so the simulated log started afresh.
+reboots() { simulated | grep -o '"reboot"' | wc -l; }
+check "it does not fire while the program runs" "[ \"\$(reboots)\" = 0 ]"
+kill "$watched"; wait "$watched" 2>/dev/null
+check "it fires after the program has been gone for its window" "until_ 45 '[ \"\$(reboots)\" = 1 ]'"
+check "a fired condition leaves the list" "out=\$(ug power list) && ! grep -q '#w' <<<\"\$out\""
+check "a CPU threshold out of range is refused" "! ug power when suspend --cpu-idle --below 500 >/dev/null 2>&1"
+check "a condition can be removed" "id=\$(ug power when suspend --download-done --minutes 30 | sed -n 's/Armed #w\\([0-9]*\\).*/\\1/p') && ug power unwatch \$id >/dev/null && out=\$(ug power list) && ! grep -q '#w' <<<\"\$out\""
 check "nothing was ever done for real (only simulated)" "grep -q 'power actions are simulated' '$W/daemon.log'"
 
 echo; [ "$fails" -eq 0 ] && echo "power-e2e: OK" || { echo "power-e2e: $fails failed"; exit 1; }

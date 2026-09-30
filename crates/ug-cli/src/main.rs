@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use ug_proto::agent::{GamesProxy, PlaytimeProxy, ProfilesProxy};
 use ug_proto::daemon::{DaemonProxy, GpuProxy, PowerProxy};
-use ug_proto::{GpuCapabilities, Inventory, Snapshot};
+use ug_proto::{GpuCapabilities, Inventory, PowerWatch, Snapshot};
 
 #[derive(Parser)]
 #[command(name = "ug", version, about = "Unix Guardian command-line client")]
@@ -148,7 +148,32 @@ enum PowerCommand {
         #[arg(long)]
         clear: bool,
     },
-    /// The scheduled actions and the wake alarm.
+    /// Do it once a condition holds: `ug power when power-off --download-done`,
+    /// `--cpu-idle`, `--process blender`, or `--game-over`.
+    When {
+        action: String,
+        /// Download finished: receive rate stays below --below (default 50k B/s).
+        #[arg(long, group = "cond")]
+        download_done: bool,
+        /// CPU load stays below --below (default 10 %).
+        #[arg(long, group = "cond")]
+        cpu_idle: bool,
+        /// This program (process name) has exited.
+        #[arg(long, group = "cond", value_name = "NAME")]
+        process: Option<String>,
+        /// The game running now has ended.
+        #[arg(long, group = "cond")]
+        game_over: bool,
+        /// Threshold for --download-done (bytes/s, k/M allowed) or --cpu-idle (%).
+        #[arg(long)]
+        below: Option<String>,
+        /// How long it must hold, for --download-done and --cpu-idle.
+        #[arg(long, default_value_t = 5)]
+        minutes: u32,
+    },
+    /// Remove a conditional action by its number (shown by `ug power list`).
+    Unwatch { id: u32 },
+    /// The scheduled and conditional actions, and the wake alarm.
     List,
     /// Remove a scheduled action by its number.
     Cancel { id: u32 },
@@ -569,7 +594,35 @@ async fn power(conn: &zbus::Connection, command: PowerCommand, json: bool) -> Re
                 println!("The computer will wake at {}.", local_time(when));
             }
         }
+        PowerCommand::When { action, download_done, cpu_idle, process, game_over, below, minutes } => {
+            let (kind, threshold, name) = if download_done {
+                ("net-idle", parse_rate(below.as_deref().unwrap_or("50k"))?, String::new())
+            } else if cpu_idle {
+                let pct: f64 = below.as_deref().unwrap_or("10").trim_end_matches('%').parse()
+                    .map_err(|_| anyhow::anyhow!("--below for --cpu-idle is a percentage, e.g. 10"))?;
+                ("cpu-idle", pct, String::new())
+            } else if let Some(p) = process {
+                ("process-gone", 0.0, p)
+            } else if game_over {
+                ("game-over", 0.0, String::new())
+            } else {
+                anyhow::bail!("say when: --download-done, --cpu-idle, --process NAME or --game-over");
+            };
+            let w = p.when(&action, kind, threshold, minutes, &name, "").await.map_err(daemon_error)?;
+            println!("Armed #w{}: {} {}.", w.id, w.action, describe_watch(&w));
+        }
+        PowerCommand::Unwatch { id } => {
+            if !p.cancel_watch(id).await.map_err(daemon_error)? {
+                anyhow::bail!("no conditional action with number {id} (see `ug power list`)");
+            }
+            println!("Removed #w{id}.");
+        }
         PowerCommand::List => {
+            if !json {
+                for w in p.watches().await.map_err(daemon_error)? {
+                    println!("#w{:<2} {:<24} {}", w.id, w.action, describe_watch(&w));
+                }
+            }
             let alarm = p.wake_alarm().await.unwrap_or(0);
             if !json && alarm > 0 {
                 println!("Wake alarm: {}", local_time(alarm));
@@ -595,6 +648,27 @@ async fn power(conn: &zbus::Connection, command: PowerCommand, json: bool) -> Re
         }
     }
     Ok(())
+}
+
+fn describe_watch(w: &PowerWatch) -> String {
+    match w.kind.as_str() {
+        "net-idle" => format!("when downloads stay below {} B/s for {} min", w.threshold as u64, w.minutes),
+        "cpu-idle" => format!("when CPU load stays below {} % for {} min", w.threshold, w.minutes),
+        "process-gone" => format!("when {} exits", w.name),
+        "game-over" => "when the running game ends".into(),
+        other => other.into(),
+    }
+}
+
+/// `50k`, `2M`, `1000` → bytes per second.
+fn parse_rate(s: &str) -> Result<f64> {
+    let s = s.trim();
+    let (num, mult) = match s.chars().last() {
+        Some('k' | 'K') => (&s[..s.len() - 1], 1e3),
+        Some('m' | 'M') => (&s[..s.len() - 1], 1e6),
+        _ => (s, 1.0),
+    };
+    num.parse::<f64>().map(|n| n * mult).map_err(|_| anyhow::anyhow!("cannot read {s:?} as a rate; e.g. 50k or 2M"))
 }
 
 /// A refusal from the daemon is already a sentence for people.
