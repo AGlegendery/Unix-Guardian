@@ -130,6 +130,9 @@ export const mockApi = {
       rx_bytes: [2.1, 5.4, 1.2, 8.8, 3.3, 0.9, 4.2][i] * 1e9,
       tx_bytes: [0.3, 0.6, 0.2, 1.1, 0.4, 0.1, 0.5][i] * 1e9,
     })),
+  openTerminal: async () => {
+    throw "The preview cannot open a terminal. In the app this opens ug tui.";
+  },
   battery: async () => ({ ...bat }),
   setBatteryCare: async (mode: string, limit: number) => {
     bat.mode = mode as BatteryCare["mode"];

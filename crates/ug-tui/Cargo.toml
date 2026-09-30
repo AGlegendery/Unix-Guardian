@@ -1,0 +1,17 @@
+[package]
+name = "ug-tui"
+description = "Unix Guardian terminal interface (ug tui)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ug-proto.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+zbus.workspace = true
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+crossterm = "0.29"
+libc.workspace = true

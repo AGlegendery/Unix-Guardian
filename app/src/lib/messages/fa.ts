@@ -3,6 +3,7 @@ import type { en } from "./en";
 export const fa: typeof en = {
   app: "Unix Guardian",
   preview: "پیش‌نمایش: عددهای ضبط‌شده، نه زنده",
+  terminal: "رابط ترمینالی",
   live: "زنده",
   nav: {
     dashboard: "داشبورد",

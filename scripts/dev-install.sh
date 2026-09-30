@@ -20,6 +20,7 @@ files=(
   /usr/local/bin/ug-daemon
   /usr/local/bin/ug-agent
   /usr/local/bin/ug
+  /usr/local/bin/ug-app
   /etc/systemd/user/ug-agent.service
   /usr/local/share/dbus-1/services/org.unixguardian.Agent1.service
   /etc/xdg/autostart/ug-agent.desktop
@@ -45,6 +46,11 @@ bin="$here/target/release"
 install -Dm755 "$bin/ug-daemon" /usr/local/bin/ug-daemon
 install -Dm755 "$bin/ug-agent"  /usr/local/bin/ug-agent
 install -Dm755 "$bin/ug"        /usr/local/bin/ug
+# The window, when it has been built (cd app && npx tauri build --no-bundle).
+# `ug tui` opens it with g, and it opens `ug tui` from its sidebar.
+if [ -x "$here/app/src-tauri/target/release/ug-app" ]; then
+  install -Dm755 "$here/app/src-tauri/target/release/ug-app" /usr/local/bin/ug-app
+fi
 sed 's|/usr/bin/ug-daemon|/usr/local/bin/ug-daemon|' "$pkg/systemd/unix-guardiand.service" \
   > /etc/systemd/system/unix-guardiand.service
 install -Dm644 "$pkg/dbus/org.unixguardian.Daemon1.conf" /etc/dbus-1/system.d/org.unixguardian.Daemon1.conf
