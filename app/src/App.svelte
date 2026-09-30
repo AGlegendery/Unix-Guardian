@@ -30,7 +30,7 @@
   const built = new Set<Page>(["dashboard", "gamemode", "system"]);
 
   // `#gamemode` in the URL opens that page (handy in the browser preview).
-  const fromHash = location.hash.slice(1) as Page;
+  const fromHash = location.hash.slice(1).split("/")[0] as Page;
   let page = $state<Page>(pages.some(([p]) => p === fromHash) ? fromHash : "dashboard");
   let overview = $state<Overview | null>(null);
   let loadError = $state<string | null>(null);

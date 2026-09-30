@@ -4,12 +4,13 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, Profile, RunningGame, Snapshot } from "./api";
+import type { InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
 const jobs: PowerJob[] = [];
 let alarm = 0;
+const watches: PowerWatch[] = [];
 let t = 0;
 
 function jitter(v: number | null, spread: number, lo = 0, hi = 100): number | null {
@@ -83,6 +84,18 @@ export const mockApi = {
     return job;
   },
   powerJobs: async () => [...jobs],
+  powerWhen: async (action: PowerAction, kind: WatchKind, threshold: number, minutes: number, name: string) => {
+    if (kind === "game-over") throw "no game is running right now";
+    const w: PowerWatch = { id: watches.length + 1, action, kind, threshold, minutes, name, note: "" };
+    watches.push(w);
+    return w;
+  },
+  powerWatches: async () => [...watches],
+  powerUnwatch: async (id: number) => {
+    const i = watches.findIndex((w) => w.id === id);
+    if (i >= 0) watches.splice(i, 1);
+    return i >= 0;
+  },
   wakeAlarm: async (): Promise<[number, boolean]> => [alarm, true],
   setWakeAlarm: async (at: number) => {
     alarm = at;

@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, OnceCell};
 use ug_proto::agent::{GamesProxy, PlaytimeProxy, ProfilesProxy};
 use ug_proto::daemon::{DaemonProxy, GameModeProxy, GpuProxy, PowerProxy};
-use ug_proto::{Inventory, InstalledGameInfo, PlaytimeEntry, PowerCapability, PowerJob, ProfileInfo, RunningGameInfo, Snapshot};
+use ug_proto::{Inventory, InstalledGameInfo, PlaytimeEntry, PowerCapability, PowerJob, PowerWatch, ProfileInfo, RunningGameInfo, Snapshot};
 
 pub struct Bus {
     /// Reach the daemon on the session bus (`UG_SESSION=1`), for a development
@@ -276,4 +276,29 @@ pub async fn set_wake_alarm(bus: State<'_, Bus>, at_unix_ms: u64) -> Res<()> {
 pub async fn clear_wake_alarm(bus: State<'_, Bus>) -> Res<()> {
     let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
     p.clear_wake_alarm().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn power_when(
+    bus: State<'_, Bus>,
+    action: String,
+    kind: String,
+    threshold: f64,
+    minutes: u32,
+    name: String,
+) -> Res<PowerWatch> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.when(&action, &kind, threshold, minutes, &name, "").await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn power_watches(bus: State<'_, Bus>) -> Res<Vec<PowerWatch>> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.watches().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn power_unwatch(bus: State<'_, Bus>, id: u32) -> Res<bool> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.cancel_watch(id).await.map_err(daemon_err)
 }

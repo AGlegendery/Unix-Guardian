@@ -146,6 +146,18 @@ export interface PowerJob {
   note: string;
 }
 
+export type WatchKind = "net-idle" | "cpu-idle" | "process-gone" | "game-over";
+
+export interface PowerWatch {
+  id: number;
+  action: PowerAction;
+  kind: WatchKind;
+  threshold: number;
+  minutes: number;
+  name: string;
+  note: string;
+}
+
 export interface PlaytimeEntry {
   key: string;
   name: string;
@@ -173,6 +185,10 @@ const tauriApi = {
     invoke<PowerJob>("power_schedule", { action, atUnixMs, repeat }),
   powerJobs: () => invoke<PowerJob[]>("power_jobs"),
   powerCancel: (id: number) => invoke<boolean>("power_cancel", { id }),
+  powerWhen: (action: PowerAction, kind: WatchKind, threshold: number, minutes: number, name: string) =>
+    invoke<PowerWatch>("power_when", { action, kind, threshold, minutes, name }),
+  powerWatches: () => invoke<PowerWatch[]>("power_watches"),
+  powerUnwatch: (id: number) => invoke<boolean>("power_unwatch", { id }),
   wakeAlarm: () => invoke<[number, boolean]>("wake_alarm"),
   setWakeAlarm: (atUnixMs: number) => invoke<void>("set_wake_alarm", { atUnixMs }),
   clearWakeAlarm: () => invoke<void>("clear_wake_alarm"),

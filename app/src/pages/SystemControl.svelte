@@ -1,12 +1,15 @@
 <script lang="ts">
   import { AlarmClock, Cpu, Moon, Power, RotateCcw, Snowflake, Trash2 } from "@lucide/svelte";
   import type { Component } from "svelte";
-  import { api, errorText, type PowerAction, type PowerCapability, type PowerJob } from "../lib/api";
+  import { api, errorText, type PowerAction, type PowerCapability, type PowerJob, type PowerWatch, type WatchKind } from "../lib/api";
+  import { num } from "../lib/format";
   import { locale, t } from "../lib/i18n.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
 
   type Tab = "command" | "conditional" | "usage" | "sleep" | "alarm";
-  let tab = $state<Tab>("command");
+  const tabs: Tab[] = ["command", "conditional", "usage", "sleep", "alarm"];
+  const hashTab = location.hash.split("/")[1] as Tab;
+  let tab = $state<Tab>(tabs.includes(hashTab) ? hashTab : "command");
   let caps = $state<PowerCapability[]>([]);
   let jobs = $state<PowerJob[]>([]);
   let chosen = $state<PowerAction>("power-off");
@@ -22,6 +25,12 @@
   let alarmSupported = $state(true);
   let alarmClock = $state("07:00");
   let firmwareArmed = $state(false);
+  let watches = $state<PowerWatch[]>([]);
+  let condAction = $state<PowerAction>("power-off");
+  let condKind = $state<WatchKind>("net-idle");
+  let condBelow = $state(50);
+  let condMinutes = $state(5);
+  let condName = $state("");
 
   // The four cards of the Windows app; the rarer logind actions stay in the CLI.
   const cards: [PowerAction, Component][] = [
@@ -34,6 +43,7 @@
 
   const refresh = () => {
     api.powerJobs().then((j) => (jobs = j)).catch((e) => (error = errorText(e)));
+    api.powerWatches().then((w) => (watches = w)).catch(() => {});
     api.wakeAlarm().then(([a, ok]) => { alarm = a; alarmSupported = ok; }).catch(() => {});
   };
 
@@ -65,6 +75,28 @@
     await api.setWakeAlarm(nextClock(alarmClock));
     await api.powerNow("suspend");
   });
+  // net-idle threshold is entered in kB/s; the daemon takes bytes per second.
+  const arm = () =>
+    run(() =>
+      api.powerWhen(
+        condAction,
+        condKind,
+        condKind === "net-idle" ? condBelow * 1000 : condBelow,
+        condMinutes,
+        condName.trim(),
+      ),
+    );
+  function describe(w: PowerWatch): string {
+    return (t().sys.cond.desc[w.kind] ?? w.kind)
+      .replace("{t}", num(w.kind === "net-idle" ? w.threshold / 1000 : w.threshold))
+      .replace("{m}", num(w.minutes))
+      .replace("{n}", w.name);
+  }
+  $effect(() => {
+    void condKind;
+    condBelow = condKind === "net-idle" ? 50 : 10;
+  });
+
   function firmware() {
     if (!firmwareArmed) {
       firmwareArmed = true;
@@ -267,6 +299,57 @@
     <p class="small">{t().sys.missed}</p>
     <p class="small ltr-mix">{t().sys.cli}</p>
   </section>
+{:else if tab === "conditional"}
+  <section class="card">
+    <div class="line">
+      <span class="muted">{t().sys.cond.then}</span>
+      <Segmented
+        label={t().sys.cond.then}
+        value={condAction}
+        options={(["power-off", "reboot", "suspend"] as const).map((a) => ({ value: a, label: t().sys.actions[a], disabled: !capOf(a)?.available }))}
+        onchange={(v) => (condAction = v)}
+      />
+    </div>
+    <p class="muted">{t().sys.cond.when}</p>
+    <div class="kinds" role="radiogroup" aria-label={t().sys.cond.when}>
+      {#each ["net-idle", "cpu-idle", "process-gone", "game-over"] as const as k}
+        <button class="kind" role="radio" aria-checked={condKind === k} onclick={() => (condKind = k)}>{t().sys.cond.kinds[k]}</button>
+      {/each}
+    </div>
+    {#if condKind === "net-idle" || condKind === "cpu-idle"}
+      <div class="line">
+        <label class="muted" for="below">{t().sys.cond.below}</label>
+        <input id="below" class="num" type="number" min="1" bind:value={condBelow} />
+        <span class="muted">{condKind === "net-idle" ? "kB/s" : "%"}</span>
+        <label class="muted" for="mins">{t().sys.cond.forMin}</label>
+        <input id="mins" class="num" type="number" min="1" max="1440" bind:value={condMinutes} />
+      </div>
+    {:else if condKind === "process-gone"}
+      <div class="line">
+        <label class="muted" for="prog">{t().sys.cond.program}</label>
+        <input id="prog" class="text" dir="ltr" bind:value={condName} placeholder="blender" />
+        <span class="small">{t().sys.cond.programHint}</span>
+      </div>
+    {/if}
+    <p class="small">{t().sys.cond.explain}</p>
+    <button class="go" disabled={busy || (condKind === "process-gone" && !condName.trim())} onclick={arm}>{t().sys.cond.arm}</button>
+  </section>
+
+  <section class="card">
+    <h2>{t().sys.cond.armed}</h2>
+    {#if watches.length}
+      <ul class="jobs">
+        {#each watches as w (w.id)}
+          <li>
+            <span><b>{t().sys.actions[w.action] ?? w.action}</b> {describe(w)}</span>
+            <button class="cancel" onclick={() => run(() => api.powerUnwatch(w.id))}><Trash2 size={15} aria-hidden="true" />{t().sys.cond.remove}</button>
+          </li>
+        {/each}
+      </ul>
+    {:else}
+      <p class="muted">{t().sys.cond.none}</p>
+    {/if}
+  </section>
 {:else if tab === "sleep" || tab === "alarm"}
   <section class="card">
     <h2><AlarmClock size={18} aria-hidden="true" /> {tab === "sleep" ? t().sys.sleepWake : t().sys.alarmTitle}</h2>
@@ -413,6 +496,31 @@
   }
   .cancel:hover { background: color-mix(in oklab, var(--danger) 12%, transparent); }
   .cancel:focus-visible { outline: 2px solid var(--danger); }
+  .kinds { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 8px 0 14px; }
+  @media (max-width: 900px) { .kinds { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .kind {
+    all: unset;
+    box-sizing: border-box;
+    padding: 14px;
+    border-radius: 12px;
+    background: var(--card-2);
+    border: 1.5px solid transparent;
+    text-align: center;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  .kind[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+  .kind:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  input.num, input.text {
+    font: inherit;
+    color: var(--text);
+    background: var(--card-2);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 5px 10px;
+  }
+  input.num { width: 5.5em; }
+  input.text { width: 12em; }
   .row { display: flex; align-items: center; gap: 14px; }
   .row-ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--card-2); color: var(--text-2); flex: none; }
   .grow { flex: 1; min-width: 0; }
