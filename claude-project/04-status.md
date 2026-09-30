@@ -87,9 +87,45 @@ Legend: ✅ done · 🟨 partial · ⛔ blocked · ⬜ not started. Task texts a
 | 2.11 notifications | 🟨 | Written with a "Not a game" button for heuristic detections; not seen on a real desktop yet. |
 
 ### P3–P10
-⬜ Not started: P3 system control, P4 network & ping, P5 GPU tuning & fans, P6
+P3 done (see git log); P4 in progress (above). ⬜ Not started: P5 GPU tuning & fans, P6
 overlay & FPS, P7 recording & Telegram, P8 driver troubleshooter, P9 Linux
 extras, P10 packaging & 1.0.
+
+## P4 (branch `p4-network`) — where it stopped, 2026-09-30
+
+`pt-tui` is merged into `main`; P4 work is on `p4-network` (not merged).
+
+- ✅ **4.6 ping** (`60c9cd6`): `ug-agent/src/ping.rs` — unprivileged ICMP
+  sockets, router + DNS server + the running game's server
+  (`ug_hw::procnet::game_peer`), 1/s only while asked (`Agent1.Ping.Recent`,
+  60 s linger) or a game runs; median/jitter/p95/loss; `Compare` gives an
+  honest verdict around `gamemode-on/off` marks. `ug ping`. Verified live.
+- ✅ **4.4 per-app traffic** (`412bfd6`): new crate `ug-net` (cgroup scan and
+  naming, the `inet unix_guardian` table with per-level `cgroupsv2` counter
+  sets, `Accountant`), daemon `Daemon1.Net` (`Status`, `Apps`), `ug net`.
+  Development daemons simulate unless inside a private user+net namespace.
+  `scripts/net-e2e.sh` (11 checks) passes via
+  `systemd-run --user --scope -q -p Delegate=yes unshare -rn ./scripts/test-bus.sh ./scripts/net-e2e.sh`
+  (needs `/usr/sbin` on PATH). CI job `net-e2e` added, never run.
+  Findings: nft cannot name an element whose cgroup is gone (it prints the
+  numeric id and rejects ids as input), so sets are flushed and refilled;
+  the laptop runs v2rayN, so proxied apps' traffic shows under v2rayN.
+- ⏭ **Next: 4.1–4.3 block and limit.** Verified in a netns (not yet coded):
+  `map markL { type cgroupsv2 : mark }` with
+  `meta mark set socket cgroupv2 level L map @markL` + `ct mark set meta mark`,
+  a `blockL` set with `drop`, veth + ifb creation, HTB classes + `fw`
+  filters, and CAKE all work as namespace root. Plan: rules persisted by app
+  *name* (a restarted app gets a new scope), "always / only while gaming"
+  (daemon already knows `gamemode_active`), upload via HTB on the default
+  interface, download via ifb + `connmark` restore. For the throughput test,
+  the peer netns must be entered with `nsenter --user` ordering fixed
+  (`nsenter -t $P -n` failed with EINVAL from a nested userns — use
+  `ip netns`-free setup: run the peer command itself under `unshare -n`
+  and configure it from inside).
+- ⬜ 4.5 background-task detection, 4.7 system network settings, 4.8 the
+  Ping stability page in the window and the TUI.
+- The user still has to reinstall (`sudo ./scripts/dev-install.sh`) to get
+  `ug tui`, and push with their own token.
 
 ## Next steps, in order
 
