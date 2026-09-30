@@ -9,8 +9,8 @@ use futures_lite::StreamExt;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, OnceCell};
-use ug_proto::agent::{GamesProxy, MonitorProxy, PlaytimeProxy, ProfilesProxy};
-use ug_proto::daemon::{DaemonProxy, GameModeProxy, GpuProxy, PowerProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, PingProxy, PlaytimeProxy, ProfilesProxy};
+use ug_proto::daemon::{DaemonProxy, GameModeProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{BatteryCare, DayTraffic, HistoryPoint, Inventory, InstalledGameInfo, PlaytimeEntry, PowerCapability, PowerJob, PowerUsage, PowerWatch, ProfileInfo, RunningGameInfo, Snapshot};
 
 pub struct Bus {
@@ -343,6 +343,48 @@ pub async fn fps(bus: State<'_, Bus>) -> Res<ug_proto::FpsReading> {
 pub async fn set_up_fps(bus: State<'_, Bus>, on: bool) -> Res<()> {
     let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;
     m.set_up_fps(on).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn ping_recent(bus: State<'_, Bus>, since_unix_ms: u64) -> Res<ug_proto::PingReport> {
+    let p = PingProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.recent(since_unix_ms).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn ping_compare(bus: State<'_, Bus>, target: String, mark_unix_ms: u64, window_s: u32) -> Res<ug_proto::PingComparison> {
+    let p = PingProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.compare(&target, mark_unix_ms, window_s).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn net_status(bus: State<'_, Bus>) -> Res<ug_proto::NetControlStatus> {
+    let n = NetProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    n.status().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn net_apps(bus: State<'_, Bus>) -> Res<Vec<ug_proto::AppTraffic>> {
+    let n = NetProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    n.apps().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn net_rules(bus: State<'_, Bus>) -> Res<Vec<ug_proto::NetRule>> {
+    let n = NetProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    n.rules().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn net_set_rule(bus: State<'_, Bus>, app: String, block: bool, up_kbps: u32, down_kbps: u32, when: String) -> Res<()> {
+    let n = NetProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    n.set_rule(&app, block, up_kbps, down_kbps, &when).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn net_remove_rule(bus: State<'_, Bus>, app: String) -> Res<bool> {
+    let n = NetProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    n.remove_rule(&app).await.map_err(daemon_err)
 }
 
 #[tauri::command]

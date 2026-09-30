@@ -81,6 +81,52 @@ export interface FpsReading {
   install_hint: string;
 }
 
+export interface PingStats {
+  sent: number;
+  received: number;
+  median_ms: number | null;
+  jitter_ms: number | null;
+  p95_ms: number | null;
+  loss_pct: number;
+}
+export interface PingSample { ts_unix_ms: number; rtt_ms: number | null }
+export interface PingTarget {
+  id: "gateway" | "internet" | "game";
+  label: string;
+  addr: string;
+  samples: PingSample[];
+  stats: PingStats;
+  problem: string;
+}
+export interface PingMark { ts_unix_ms: number; kind: string }
+export interface PingReport { targets: PingTarget[]; marks: PingMark[] }
+export interface PingComparison { before: PingStats; after: PingStats; verdict: "flatter" | "same" | "worse" | "not-enough-data" }
+
+export interface AppTraffic {
+  id: string;
+  name: string;
+  kind: "app" | "service" | "session";
+  uid: number;
+  exe: string;
+  pids: number[];
+  rx_bps: number;
+  tx_bps: number;
+  rx_bytes: number;
+  tx_bytes: number;
+  state: "" | "blocked" | "limited";
+  category: string;
+  has_game: boolean;
+}
+export interface NetRule { app: string; block: boolean; up_kbps: number; down_kbps: number; when: "always" | "gaming"; active: boolean }
+export interface NetControlStatus {
+  available: boolean;
+  problem: string;
+  simulated: boolean;
+  firewalls: string[];
+  shaping_problems: string[];
+  iface: string;
+}
+
 export interface GpuInfo {
   pci: string;
   name: string;
@@ -257,6 +303,15 @@ const tauriApi = {
   extra: () => invoke<ExtraSample>("extra"),
   fps: () => invoke<FpsReading>("fps"),
   setUpFps: (on: boolean) => invoke<void>("set_up_fps", { on }),
+  pingRecent: (sinceUnixMs: number) => invoke<PingReport>("ping_recent", { sinceUnixMs }),
+  pingCompare: (target: string, markUnixMs: number, windowS: number) =>
+    invoke<PingComparison>("ping_compare", { target, markUnixMs, windowS }),
+  netStatus: () => invoke<NetControlStatus>("net_status"),
+  netApps: () => invoke<AppTraffic[]>("net_apps"),
+  netRules: () => invoke<NetRule[]>("net_rules"),
+  netSetRule: (app: string, block: boolean, upKbps: number, downKbps: number, when: "always" | "gaming") =>
+    invoke<void>("net_set_rule", { app, block, upKbps, downKbps, when }),
+  netRemoveRule: (app: string) => invoke<boolean>("net_remove_rule", { app }),
   openTerminal: () => invoke<void>("open_terminal_interface"),
   battery: () => invoke<BatteryCare>("battery"),
   setBatteryCare: (mode: string, limit: number) => invoke<void>("set_battery_care", { mode, limit }),

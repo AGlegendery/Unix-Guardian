@@ -95,6 +95,13 @@ fn main() {
             bus::extra,
             bus::fps,
             bus::set_up_fps,
+            bus::ping_recent,
+            bus::ping_compare,
+            bus::net_status,
+            bus::net_apps,
+            bus::net_rules,
+            bus::net_set_rule,
+            bus::net_remove_rule,
             open_terminal_interface,
         ])
         .run(tauri::generate_context!())
