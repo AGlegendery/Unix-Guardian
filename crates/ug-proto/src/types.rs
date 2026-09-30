@@ -504,3 +504,62 @@ pub struct DayTraffic {
     pub rx_bytes: u64,
     pub tx_bytes: u64,
 }
+
+/// Ping statistics over a window of samples.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct PingStats {
+    pub sent: u32,
+    pub received: u32,
+    /// NaN when no reply arrived.
+    pub median_ms: f64,
+    /// Mean difference between consecutive replies (RFC 3550 style).
+    pub jitter_ms: f64,
+    pub p95_ms: f64,
+    pub loss_pct: f64,
+}
+
+/// One echo: when it was sent and its round trip, NaN if it was lost.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Type)]
+pub struct PingSample {
+    pub ts_unix_ms: u64,
+    pub rtt_ms: f64,
+}
+
+/// A host the agent pings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct PingTarget {
+    /// `gateway`, `internet` or `game`.
+    pub id: String,
+    /// `Router`, `DNS server`, or the game's name.
+    pub label: String,
+    pub addr: String,
+    pub samples: Vec<PingSample>,
+    /// Over the last 60 seconds.
+    pub stats: PingStats,
+    /// Why this host cannot be measured; empty when it can.
+    pub problem: String,
+}
+
+/// A moment the chart splits at, e.g. when game mode or shaping went on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct PingMark {
+    pub ts_unix_ms: u64,
+    /// `gamemode-on`, `gamemode-off`, `shaping-on`, `shaping-off`.
+    pub kind: String,
+}
+
+/// What the ping chart shows.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct PingReport {
+    pub targets: Vec<PingTarget>,
+    pub marks: Vec<PingMark>,
+}
+
+/// Before and after a mark, computed from real samples.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct PingComparison {
+    pub before: PingStats,
+    pub after: PingStats,
+    /// `flatter`, `same`, `worse`, or `not-enough-data`.
+    pub verdict: String,
+}

@@ -313,6 +313,22 @@ pub mod agent {
         fn traffic(&self, since_unix_ms: u64) -> zbus::Result<Vec<DayTraffic>>;
     }
 
+    /// Ping to the router, the DNS server and the game's server. Measuring
+    /// runs only while someone asks for it (within the last minute) or a game
+    /// is running.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Ping",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Ping {
+        /// Samples since `since_unix_ms` for every target, plus the marks.
+        fn recent(&self, since_unix_ms: u64) -> zbus::Result<PingReport>;
+
+        /// Stats for the `window_s` seconds before and after `mark_unix_ms`.
+        fn compare(&self, target: &str, mark_unix_ms: u64, window_s: u32) -> zbus::Result<PingComparison>;
+    }
+
     /// Game profiles and which game uses which.
     #[zbus::proxy(
         interface = "org.unixguardian.Agent1.Profiles",

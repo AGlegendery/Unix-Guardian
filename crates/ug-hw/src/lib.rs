@@ -19,6 +19,7 @@ pub mod cpu;
 pub mod hwmon;
 pub mod mem;
 pub mod net;
+pub mod procnet;
 pub mod rapl;
 pub mod topology;
 

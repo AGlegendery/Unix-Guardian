@@ -10,7 +10,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use ug_proto::agent::{GamesProxy, MonitorProxy, PlaytimeProxy, ProfilesProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, PingProxy, PlaytimeProxy, ProfilesProxy};
 use ug_proto::daemon::{DaemonProxy, GpuProxy, PowerProxy};
 use ug_proto::{GpuCapabilities, Inventory, PowerWatch, Snapshot};
 
@@ -87,6 +87,12 @@ enum Command {
     Traffic {
         #[arg(long, default_value_t = 7)]
         days: u32,
+    },
+    /// Ping to the router, the DNS server and the running game's server.
+    Ping {
+        /// Seconds to watch before printing (the agent measures once a second).
+        #[arg(long, default_value_t = 10)]
+        seconds: u32,
     },
     /// Game profiles, and which game uses which.
     Profile {
@@ -248,6 +254,7 @@ async fn main() -> Result<()> {
         Command::Profile { command } => return profile(command, cli.json).await,
         Command::History { hours } => return history(hours, cli.json).await,
         Command::Traffic { days } => return traffic(days, cli.json).await,
+        Command::Ping { seconds } => return ping(seconds, cli.json).await,
         _ => {}
     }
 
@@ -281,7 +288,7 @@ async fn main() -> Result<()> {
         Command::Gpu { command } => gpu(&conn, &daemon, command, cli.json).await,
         Command::Power { command } => power(&conn, command, cli.json).await,
         Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
-        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Tui => {
+        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Tui => {
             unreachable!("handled above")
         }
     }
@@ -468,6 +475,42 @@ async fn traffic(days: u32, json: bool) -> Result<()> {
     let mb = |b: u64| b as f64 / 1e6;
     for d in t {
         println!("{}  down {:>9.1} MB  up {:>9.1} MB", d.date, mb(d.rx_bytes), mb(d.tx_bytes));
+    }
+    Ok(())
+}
+
+async fn ping(seconds: u32, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let p = PingProxy::new(&conn).await?;
+    let start = now_ms();
+    // The first call starts the measurement; wait for it to collect samples.
+    p.recent(start).await.map_err(agent_hint)?;
+    if !json {
+        eprintln!("Measuring for {seconds} s…");
+    }
+    tokio::time::sleep(std::time::Duration::from_secs(seconds.max(1) as u64)).await;
+    let r = p.recent(start).await.map_err(agent_hint)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&r)?);
+        return Ok(());
+    }
+    let f = |v: f64| if v.is_nan() { "—".to_string() } else { format!("{v:.1} ms") };
+    println!("{:<24} {:<16} {:>10} {:>10} {:>10} {:>6}", "", "address", "median", "jitter", "95%", "loss");
+    for t in r.targets {
+        let name = if t.id == "game" { format!("Game: {}", t.label) } else { t.label.clone() };
+        if !t.problem.is_empty() {
+            println!("{name:<24} {}", t.problem);
+            continue;
+        }
+        let s = t.stats;
+        println!(
+            "{name:<24} {:<16} {:>10} {:>10} {:>10} {:>5.0}%",
+            t.addr,
+            f(s.median_ms),
+            f(s.jitter_ms),
+            f(s.p95_ms),
+            s.loss_pct
+        );
     }
     Ok(())
 }

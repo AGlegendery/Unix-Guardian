@@ -13,6 +13,7 @@ mod gamemode;
 mod history;
 mod iface;
 mod notify;
+mod ping;
 mod playtime;
 
 use anyhow::{Context, Result};
@@ -25,7 +26,7 @@ use ug_hw::SysRoot;
 use ug_proto::{AGENT_BUS_NAME, AGENT_OBJECT_PATH};
 
 use crate::core::{AgentCore, Outcome};
-use iface::{lock, now_ms, GamesIface, MonitorIface, PlaytimeIface, ProfilesIface, Shared};
+use iface::{lock, now_ms, GamesIface, MonitorIface, PingIface, PlaytimeIface, ProfilesIface, Shared};
 
 const GAMEMODE_NAME: &str = "com.feralinteractive.GameMode";
 const GAMEMODE_PATH: &str = "/com/feralinteractive/GameMode";
@@ -194,6 +195,7 @@ async fn main() -> Result<()> {
         .await?,
     ));
 
+    let pinger = ping::Pinger::new(SysRoot::real());
     let (announce_tx, mut announce_rx) = tokio::sync::mpsc::unbounded_channel::<Outcome>();
 
     let conn = zbus::connection::Builder::session()?
@@ -201,6 +203,7 @@ async fn main() -> Result<()> {
         .serve_at(AGENT_OBJECT_PATH, PlaytimeIface { core: Arc::clone(&core) })?
         .serve_at(AGENT_OBJECT_PATH, ProfilesIface { core: Arc::clone(&core) })?
         .serve_at(AGENT_OBJECT_PATH, MonitorIface { history: Arc::clone(&history) })?
+        .serve_at(AGENT_OBJECT_PATH, PingIface { pinger: pinger.clone() })?
         .build()
         .await
         .context("connecting to the session bus")?;
@@ -246,7 +249,12 @@ async fn main() -> Result<()> {
                     announce(&conn, o, !args.quiet, &pending_dismissals).await;
                 }
                 let want = lock(&core).gamemode_desired();
+                let was_on = daemon.applied.is_some();
                 daemon.sync(want).await;
+                if daemon.applied.is_some() != was_on {
+                    pinger.mark(if was_on { "gamemode-off" } else { "gamemode-on" }, now_ms());
+                }
+                follow_game(&core, &pinger).await;
             }
             Some(o) = announce_rx.recv() => announce(&conn, o, !args.quiet, &pending_dismissals).await,
             _ = heartbeat.tick() => {
@@ -271,6 +279,21 @@ async fn main() -> Result<()> {
     }
     tracing::info!("agent stopped");
     Ok(())
+}
+
+/// While a game runs, keeps ping measured and aimed at its server, so the
+/// chart has the whole game session, before and after game mode went on.
+async fn follow_game(core: &Shared, pinger: &ping::Pinger) {
+    let game = lock(core).running().into_iter().next();
+    let Some(g) = game else {
+        pinger.set_game(None);
+        return;
+    };
+    let pids = g.pids.clone();
+    let peer =
+        tokio::task::spawn_blocking(move || ug_hw::procnet::game_peer(&SysRoot::real(), &pids)).await.ok().flatten();
+    pinger.set_game(Some((g.name, peer)));
+    pinger.touch();
 }
 
 /// Takes the GameMode name if nobody has it.
