@@ -116,6 +116,12 @@ claimed.
 5. Persian first: right-to-left, Persian digits and wording are the primary
    design, not a translation.
 
+6. Unavailable is a starting point (the user's rule, 2026-09-30): wherever a
+   feature is unavailable on this machine, offer a "Set up" path that fixes it
+   as far as is feasible (hibernate first: swap + resume). Setup shows exactly
+   what it will change, asks through polkit, backs up what it edits and can be
+   undone. Same in the window, the CLI and the TUI.
+
 ## Accessibility & Inclusion
 
 Right-to-left layout as the primary direction with a correct left-to-right

@@ -129,6 +129,54 @@ export interface Profile {
   games: string[];
 }
 
+export interface PowerCapability {
+  action: PowerAction;
+  available: boolean;
+  reason: string;
+}
+
+export type PowerAction =
+  | "power-off" | "reboot" | "suspend" | "hibernate" | "hybrid-sleep" | "suspend-then-hibernate" | "reboot-firmware";
+
+export interface PowerJob {
+  id: number;
+  action: PowerAction;
+  at_unix_ms: number;
+  repeat: "once" | "daily" | "weekly";
+  note: string;
+}
+
+export type WatchKind = "net-idle" | "cpu-idle" | "process-gone" | "game-over";
+
+export interface PowerWatch {
+  id: number;
+  action: PowerAction;
+  kind: WatchKind;
+  threshold: number;
+  minutes: number;
+  name: string;
+  note: string;
+}
+
+export interface PowerUsage {
+  cpu_w: number | null;
+  gpu_w: number | null;
+  battery_w: number | null;
+  cpu_energy_recorded: boolean;
+  days: { date: string; cpu_wh: number }[];
+}
+
+export interface BatteryCare {
+  supported: boolean;
+  method: string;
+  adjustable: boolean;
+  mode: "off" | "protect" | "full-once";
+  limit: number;
+  capacity: number;
+  status: string;
+  reason: string;
+}
+
 export interface PlaytimeEntry {
   key: string;
   name: string;
@@ -150,6 +198,22 @@ const tauriApi = {
   setGameProfile: (key: string, profile: string) => invoke<void>("set_game_profile", { key, profile }),
   setProfileOption: (profile: string, option: string, value: boolean) =>
     invoke<void>("set_profile_option", { profile, option, value }),
+  powerCaps: () => invoke<PowerCapability[]>("power_caps"),
+  powerNow: (action: PowerAction) => invoke<void>("power_now", { action }),
+  powerSchedule: (action: PowerAction, atUnixMs: number, repeat: string) =>
+    invoke<PowerJob>("power_schedule", { action, atUnixMs, repeat }),
+  powerJobs: () => invoke<PowerJob[]>("power_jobs"),
+  powerCancel: (id: number) => invoke<boolean>("power_cancel", { id }),
+  powerWhen: (action: PowerAction, kind: WatchKind, threshold: number, minutes: number, name: string) =>
+    invoke<PowerWatch>("power_when", { action, kind, threshold, minutes, name }),
+  powerWatches: () => invoke<PowerWatch[]>("power_watches"),
+  powerUnwatch: (id: number) => invoke<boolean>("power_unwatch", { id }),
+  powerUsage: () => invoke<PowerUsage>("power_usage"),
+  battery: () => invoke<BatteryCare>("battery"),
+  setBatteryCare: (mode: string, limit: number) => invoke<void>("set_battery_care", { mode, limit }),
+  wakeAlarm: () => invoke<[number, boolean]>("wake_alarm"),
+  setWakeAlarm: (atUnixMs: number) => invoke<void>("set_wake_alarm", { atUnixMs }),
+  clearWakeAlarm: () => invoke<void>("clear_wake_alarm"),
   playtime: (sinceUnixMs: number) => invoke<PlaytimeEntry[]>("playtime", { sinceUnixMs }),
   onSample: (f: (s: Snapshot) => void): Promise<UnlistenFn> => listen<Snapshot>("sample", (e) => f(e.payload)),
 };

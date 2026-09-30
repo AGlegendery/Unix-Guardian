@@ -17,10 +17,16 @@
 //! $ cargo run -p ug-cli -- --session status
 //! ```
 
+mod battery;
+mod conditions;
+mod energy;
 mod gamemode;
 mod iface;
 mod polkit;
+mod power;
+mod rtc;
 mod sampler;
+mod schedule;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -166,6 +172,63 @@ async fn main() -> Result<()> {
         .await
         .context("serving the game-mode interface")?;
 
+    // Power: a development run records instead of acting, whatever bus it is on.
+    let backend = Arc::new(if development {
+        tracing::warn!("development run: power actions are simulated, never performed");
+        power::Backend::Simulated(std::sync::Mutex::new(Vec::new()))
+    } else {
+        power::Backend::Logind(zbus::Connection::system().await.context("connecting to the system bus for logind")?)
+    });
+    let (schedule, notes) = schedule::Schedule::load(&state_dir.join("schedule.json"), now_unix_ms());
+    for n in notes {
+        tracing::warn!(%n, "power schedule");
+    }
+    let schedule = Arc::new(std::sync::Mutex::new(schedule));
+    let watches = Arc::new(std::sync::Mutex::new(conditions::Watches::load(&state_dir.join("conditions.json"))));
+    let watches_changed = Arc::new(tokio::sync::Notify::new());
+    let battery = Arc::new(std::sync::Mutex::new(battery::Battery::new(
+        root.clone(),
+        &state_dir.join("battery.json"),
+        // A --session run on the real /sys must not change charging.
+        args.session && args.sysroot.is_none(),
+    )));
+    let energy = Arc::new(std::sync::Mutex::new(energy::EnergyMeter::load(root.clone(), &state_dir.join("energy.json"))));
+    let observer = Arc::new(power::Observer {
+        sampler: Arc::clone(&sampler),
+        game_active: Arc::clone(&gamemode_active),
+        root: root.clone(),
+    });
+    let schedule_changed = Arc::new(tokio::sync::Notify::new());
+    conn.object_server()
+        .at(
+            DAEMON_OBJECT_PATH,
+            power::PowerIface {
+                schedule: Arc::clone(&schedule),
+                backend: Arc::clone(&backend),
+                gate: gate.clone(),
+                changed: Arc::clone(&schedule_changed),
+                // A --session run on the real /sys must not arm the real
+                // clock; with --sysroot the scratch tree is safe to write.
+                rtc: (!args.session || args.sysroot.is_some()).then(|| rtc::Rtc::new(root.clone())),
+                simulated_alarm: std::sync::Mutex::new(None),
+                watches: Arc::clone(&watches),
+                observer: Arc::clone(&observer),
+                watches_changed: Arc::clone(&watches_changed),
+                energy: Arc::clone(&energy),
+                battery: Arc::clone(&battery),
+            },
+        )
+        .await
+        .context("serving the power interface")?;
+    let backend_for_battery = Arc::clone(&backend);
+    tokio::spawn(power::run(conn.clone(), schedule, Arc::clone(&backend), schedule_changed));
+    tokio::spawn(power::watch(watches, observer, backend, watches_changed));
+    tokio::spawn(power::meter(energy));
+    tokio::spawn(power::keep_battery(battery, match &*backend_for_battery {
+        power::Backend::Logind(c) => Some(c.clone()),
+        power::Backend::Simulated(_) => None,
+    }));
+
     tracing::info!(
         bus = if args.session { "session" } else { "system" },
         name = DAEMON_BUS_NAME,
@@ -286,6 +349,13 @@ async fn release_departed_clients(
         }
     }
     Ok(())
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// True when the process can perform privileged writes.

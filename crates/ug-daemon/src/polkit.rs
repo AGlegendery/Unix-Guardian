@@ -25,11 +25,13 @@ pub mod action {
     pub const DAEMON_DEBUG: &str = "org.unixguardian.daemon.debug";
     /// Apply game mode while a game runs.
     pub const GAMEMODE: &str = "org.unixguardian.gamemode";
+    /// Shut down, restart or sleep, now or on a schedule.
+    pub const POWER: &str = "org.unixguardian.power.control";
 
     /// Every action, for the test that keeps this list and the shipped
     /// policy file in step.
     #[cfg(test)]
-    pub const ALL: &[&str] = &[DAEMON_DEBUG, GAMEMODE];
+    pub const ALL: &[&str] = &[DAEMON_DEBUG, GAMEMODE, POWER];
 }
 
 /// Bit 0 of CheckAuthorization's flags: allow polkit to prompt the user.

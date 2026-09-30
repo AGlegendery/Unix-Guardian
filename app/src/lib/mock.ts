@@ -4,10 +4,14 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { InstalledGame, Overview, PlaytimeEntry, Profile, RunningGame, Snapshot } from "./api";
+import type { BatteryCare, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
+const jobs: PowerJob[] = [];
+let alarm = 0;
+const bat: BatteryCare = { supported: true, method: "vendor-long-life", adjustable: false, mode: "off", limit: 80, capacity: 100, status: "Full", reason: "" };
+const watches: PowerWatch[] = [];
 let t = 0;
 
 function jitter(v: number | null, spread: number, lo = 0, hi = 100): number | null {
@@ -67,6 +71,60 @@ export const mockApi = {
     if (p) p[option] = value;
   },
   playtime: async (): Promise<PlaytimeEntry[]> => [],
+  // Power in the preview: nothing is ever done; the queue lives in memory.
+  powerCaps: async () =>
+    (["power-off", "reboot", "suspend", "hibernate", "hybrid-sleep", "suspend-then-hibernate", "reboot-firmware"] as PowerAction[]).map((action) => ({
+      action,
+      available: !action.includes("hibernate") && action !== "hybrid-sleep",
+      reason: action.includes("hibernate") || action === "hybrid-sleep" ? "Hibernation is not set up on this system." : "",
+    })),
+  powerNow: async () => {},
+  powerSchedule: async (action: PowerAction, at_unix_ms: number, repeat: string) => {
+    const job: PowerJob = { id: jobs.length + 1, action, at_unix_ms, repeat: repeat as PowerJob["repeat"], note: "" };
+    jobs.push(job);
+    return job;
+  },
+  powerJobs: async () => [...jobs],
+  powerWhen: async (action: PowerAction, kind: WatchKind, threshold: number, minutes: number, name: string) => {
+    if (kind === "game-over") throw "no game is running right now";
+    const w: PowerWatch = { id: watches.length + 1, action, kind, threshold, minutes, name, note: "" };
+    watches.push(w);
+    return w;
+  },
+  powerWatches: async () => [...watches],
+  powerUnwatch: async (id: number) => {
+    const i = watches.findIndex((w) => w.id === id);
+    if (i >= 0) watches.splice(i, 1);
+    return i >= 0;
+  },
+  // Invented for the preview only; the page labels preview data as such.
+  powerUsage: async (): Promise<PowerUsage> => ({
+    cpu_w: base.cpu.power_w,
+    gpu_w: null,
+    battery_w: null,
+    cpu_energy_recorded: true,
+    days: Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(Date.now() - (6 - i) * 864e5);
+      return { date: d.toISOString().slice(0, 10), cpu_wh: [210, 340, 180, 420, 390, 260, 150][i] };
+    }),
+  }),
+  battery: async () => ({ ...bat }),
+  setBatteryCare: async (mode: string, limit: number) => {
+    bat.mode = mode as BatteryCare["mode"];
+    bat.limit = limit;
+  },
+  wakeAlarm: async (): Promise<[number, boolean]> => [alarm, true],
+  setWakeAlarm: async (at: number) => {
+    alarm = at;
+  },
+  clearWakeAlarm: async () => {
+    alarm = 0;
+  },
+  powerCancel: async (id: number) => {
+    const i = jobs.findIndex((j) => j.id === id);
+    if (i >= 0) jobs.splice(i, 1);
+    return i >= 0;
+  },
   onSample: async (f: (s: Snapshot) => void) => {
     listeners.add(f);
     return () => listeners.delete(f);

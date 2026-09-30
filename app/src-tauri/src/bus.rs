@@ -10,8 +10,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, OnceCell};
 use ug_proto::agent::{GamesProxy, PlaytimeProxy, ProfilesProxy};
-use ug_proto::daemon::{DaemonProxy, GameModeProxy, GpuProxy};
-use ug_proto::{Inventory, InstalledGameInfo, PlaytimeEntry, ProfileInfo, RunningGameInfo, Snapshot};
+use ug_proto::daemon::{DaemonProxy, GameModeProxy, GpuProxy, PowerProxy};
+use ug_proto::{BatteryCare, Inventory, InstalledGameInfo, PlaytimeEntry, PowerCapability, PowerJob, PowerUsage, PowerWatch, ProfileInfo, RunningGameInfo, Snapshot};
 
 pub struct Bus {
     /// Reach the daemon on the session bus (`UG_SESSION=1`), for a development
@@ -227,4 +227,96 @@ pub async fn set_profile_option(bus: State<'_, Bus>, profile: String, option: St
 pub async fn playtime(bus: State<'_, Bus>, since_unix_ms: u64) -> Res<Vec<PlaytimeEntry>> {
     let p = PlaytimeProxy::new(bus.agent().await?).await.map_err(agent_err)?;
     p.summary(since_unix_ms).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn power_caps(bus: State<'_, Bus>) -> Res<Vec<PowerCapability>> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.capabilities().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn power_now(bus: State<'_, Bus>, action: String) -> Res<()> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.now(&action).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn power_schedule(bus: State<'_, Bus>, action: String, at_unix_ms: u64, repeat: String) -> Res<PowerJob> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.schedule(&action, at_unix_ms, &repeat, "").await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn power_jobs(bus: State<'_, Bus>) -> Res<Vec<PowerJob>> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.jobs().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn power_cancel(bus: State<'_, Bus>, id: u32) -> Res<bool> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.cancel(id).await.map_err(daemon_err)
+}
+
+/// The armed wake alarm (Unix ms, 0 = none) and whether the clock supports one.
+#[tauri::command]
+pub async fn wake_alarm(bus: State<'_, Bus>) -> Res<(u64, bool)> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    Ok((p.wake_alarm().await.unwrap_or(0), p.wake_alarm_supported().await.unwrap_or(false)))
+}
+
+#[tauri::command]
+pub async fn set_wake_alarm(bus: State<'_, Bus>, at_unix_ms: u64) -> Res<()> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.set_wake_alarm(at_unix_ms).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn clear_wake_alarm(bus: State<'_, Bus>) -> Res<()> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.clear_wake_alarm().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn power_when(
+    bus: State<'_, Bus>,
+    action: String,
+    kind: String,
+    threshold: f64,
+    minutes: u32,
+    name: String,
+) -> Res<PowerWatch> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.when(&action, &kind, threshold, minutes, &name, "").await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn power_watches(bus: State<'_, Bus>) -> Res<Vec<PowerWatch>> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.watches().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn power_unwatch(bus: State<'_, Bus>, id: u32) -> Res<bool> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.cancel_watch(id).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn power_usage(bus: State<'_, Bus>) -> Res<PowerUsage> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.usage().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn battery(bus: State<'_, Bus>) -> Res<BatteryCare> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.battery().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn set_battery_care(bus: State<'_, Bus>, mode: String, limit: u8) -> Res<()> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.set_battery_care(&mode, limit).await.map_err(daemon_err)
 }

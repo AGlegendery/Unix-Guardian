@@ -400,3 +400,83 @@ pub struct GameModeReport {
     pub applied: Vec<String>,
     pub skipped: Vec<String>,
 }
+
+/// Whether this machine can do one power action, and if not, why not.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct PowerCapability {
+    /// `power-off`, `reboot`, `suspend`, `hibernate`, `hybrid-sleep` or
+    /// `suspend-then-hibernate`.
+    pub action: String,
+    pub available: bool,
+    /// Empty when available; otherwise a sentence to show beside the
+    /// disabled control.
+    pub reason: String,
+}
+
+/// A scheduled power action.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct PowerJob {
+    pub id: u32,
+    pub action: String,
+    pub at_unix_ms: u64,
+    /// `once`, `daily` or `weekly`.
+    pub repeat: String,
+    pub note: String,
+}
+
+/// A power action waiting for a condition.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct PowerWatch {
+    pub id: u32,
+    pub action: String,
+    /// `net-idle`, `cpu-idle`, `process-gone` or `game-over`.
+    pub kind: String,
+    /// net-idle: bytes per second; cpu-idle: percent; otherwise 0.
+    pub threshold: f64,
+    /// How long the condition must hold (net-idle, cpu-idle); otherwise 0.
+    pub minutes: u32,
+    /// process-gone: the process name; otherwise empty.
+    pub name: String,
+    pub note: String,
+}
+
+/// Energy the CPU package used on one local day.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct DayEnergy {
+    /// `YYYY-MM-DD`, local time.
+    pub date: String,
+    pub cpu_wh: f64,
+}
+
+/// Power draw now and energy used so far.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct PowerUsage {
+    /// CPU package, watts; NaN without RAPL.
+    pub cpu_w: f64,
+    /// Awake GPUs that report power, watts; NaN when none does.
+    pub gpu_w: f64,
+    /// Whole machine while on battery, watts; NaN on AC.
+    pub battery_w: f64,
+    /// Whether per-day CPU energy is being recorded on this machine.
+    pub cpu_energy_recorded: bool,
+    pub days: Vec<DayEnergy>,
+}
+
+/// Battery protection: what the laptop supports and what is set.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct BatteryCare {
+    pub supported: bool,
+    /// `threshold`, `vendor-long-life`, `vendor-conservation` or empty.
+    pub method: String,
+    /// True when any limit can be chosen; false when the firmware fixes it.
+    pub adjustable: bool,
+    /// `off`, `protect` or `full-once`.
+    pub mode: String,
+    pub limit: u8,
+    /// Battery charge now, 0–100; 255 without a battery.
+    pub capacity: u8,
+    /// `Charging`, `Discharging`, `Full`, `Not charging`… or empty.
+    pub status: String,
+    /// Why it is unsupported, when it is.
+    pub reason: String,
+}

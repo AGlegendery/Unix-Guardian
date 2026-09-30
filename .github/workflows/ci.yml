@@ -68,3 +68,4 @@ jobs:
           ./scripts/test-bus.sh ./scripts/smoke.sh target/debug
           ./scripts/test-bus.sh ./scripts/agent-e2e.sh target/debug
           ./scripts/test-bus.sh ./scripts/gamemode-e2e.sh target/debug
+          ./scripts/test-bus.sh ./scripts/power-e2e.sh target/debug

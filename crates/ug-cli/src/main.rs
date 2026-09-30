@@ -11,8 +11,8 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use ug_proto::agent::{GamesProxy, PlaytimeProxy, ProfilesProxy};
-use ug_proto::daemon::{DaemonProxy, GpuProxy};
-use ug_proto::{GpuCapabilities, Inventory, Snapshot};
+use ug_proto::daemon::{DaemonProxy, GpuProxy, PowerProxy};
+use ug_proto::{GpuCapabilities, Inventory, PowerWatch, Snapshot};
 
 #[derive(Parser)]
 #[command(name = "ug", version, about = "Unix Guardian command-line client")]
@@ -40,6 +40,16 @@ enum Command {
         /// Milliseconds between samples.
         #[arg(long, default_value_t = 1000)]
         interval: u32,
+    },
+    /// Battery protection: stop charging at a limit and run from AC.
+    Battery {
+        #[command(subcommand)]
+        command: Option<BatteryCommand>,
+    },
+    /// Shut down, restart or sleep, now or on a schedule.
+    Power {
+        #[command(subcommand)]
+        command: PowerCommand,
     },
     /// GPU commands.
     Gpu {
@@ -107,6 +117,94 @@ enum GameCommand {
 }
 
 #[derive(Subcommand)]
+enum BatteryCommand {
+    /// What this laptop supports and what is set (the default).
+    Status,
+    /// Stop charging at --limit % (default 80; vendor modes use their own).
+    Protect {
+        #[arg(long, default_value_t = 80)]
+        limit: u8,
+    },
+    /// Charge to 100 % once (for a trip), then protect again.
+    FullOnce {
+        #[arg(long, default_value_t = 80)]
+        limit: u8,
+    },
+    /// Charge to 100 % always (the laptop's own behaviour).
+    Off,
+}
+
+#[derive(Subcommand)]
+enum PowerCommand {
+    /// Which actions this machine supports, and why the others are not.
+    Caps,
+    /// Do it now: power-off, reboot, suspend, hibernate, hybrid-sleep or
+    /// suspend-then-hibernate. Asks for --yes first.
+    Now {
+        action: String,
+        /// Confirm: without it nothing happens.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Schedule it, e.g. `ug power at reboot --in 2h` or
+    /// `ug power at power-off --at 01:00 --repeat daily`.
+    At {
+        action: String,
+        /// After this long: 90s, 30m, 2h, 1h30m.
+        #[arg(long, conflicts_with = "at", required_unless_present = "at")]
+        r#in: Option<String>,
+        /// At this local time (HH:MM), today or else tomorrow.
+        #[arg(long)]
+        at: Option<String>,
+        #[arg(long, default_value = "once", value_parser = ["once", "daily", "weekly"])]
+        repeat: String,
+        #[arg(long, default_value = "")]
+        note: String,
+    },
+    /// Wake the computer at a time (from sleep, or from off where the
+    /// firmware allows): `ug power wake --at 07:00`, `--in 8h`, or `--clear`.
+    Wake {
+        #[arg(long, conflicts_with_all = ["at", "clear"])]
+        r#in: Option<String>,
+        #[arg(long, conflicts_with = "clear")]
+        at: Option<String>,
+        #[arg(long)]
+        clear: bool,
+    },
+    /// Do it once a condition holds: `ug power when power-off --download-done`,
+    /// `--cpu-idle`, `--process blender`, or `--game-over`.
+    When {
+        action: String,
+        /// Download finished: receive rate stays below --below (default 50k B/s).
+        #[arg(long, group = "cond")]
+        download_done: bool,
+        /// CPU load stays below --below (default 10 %).
+        #[arg(long, group = "cond")]
+        cpu_idle: bool,
+        /// This program (process name) has exited.
+        #[arg(long, group = "cond", value_name = "NAME")]
+        process: Option<String>,
+        /// The game running now has ended.
+        #[arg(long, group = "cond")]
+        game_over: bool,
+        /// Threshold for --download-done (bytes/s, k/M allowed) or --cpu-idle (%).
+        #[arg(long)]
+        below: Option<String>,
+        /// How long it must hold, for --download-done and --cpu-idle.
+        #[arg(long, default_value_t = 5)]
+        minutes: u32,
+    },
+    /// Remove a conditional action by its number (shown by `ug power list`).
+    Unwatch { id: u32 },
+    /// Power draw now and CPU energy per day.
+    Usage,
+    /// The scheduled and conditional actions, and the wake alarm.
+    List,
+    /// Remove a scheduled action by its number.
+    Cancel { id: u32 },
+}
+
+#[derive(Subcommand)]
 enum GpuCommand {
     /// List every GPU in the machine.
     List,
@@ -163,6 +261,8 @@ async fn main() -> Result<()> {
         }
         Command::Monitor { interval } => monitor(&daemon, interval, cli.json).await,
         Command::Gpu { command } => gpu(&conn, &daemon, command, cli.json).await,
+        Command::Power { command } => power(&conn, command, cli.json).await,
+        Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
         Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } => unreachable!("handled above"),
     }
 }
@@ -469,6 +569,241 @@ async fn monitor(daemon: &DaemonProxy<'_>, interval: u32, json: bool) -> Result<
     result
 }
 
+async fn power(conn: &zbus::Connection, command: PowerCommand, json: bool) -> Result<()> {
+    let p = PowerProxy::new(conn).await?;
+    match command {
+        PowerCommand::Caps => {
+            let caps = p.capabilities().await.map_err(daemon_error)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&caps)?);
+            } else {
+                for c in caps {
+                    if c.available {
+                        println!("{:<24} available", c.action);
+                    } else {
+                        println!("{:<24} not available: {}", c.action, c.reason);
+                    }
+                }
+            }
+        }
+        PowerCommand::Now { action, yes } => {
+            if !yes {
+                anyhow::bail!("this will {action} the computer now; run again with --yes to confirm");
+            }
+            p.now(&action).await.map_err(daemon_error)?;
+            println!("{action}: requested.");
+        }
+        PowerCommand::At { action, r#in, at, repeat, note } => {
+            let when = match (r#in, at) {
+                (Some(d), _) => now_ms() + parse_duration(&d)?,
+                (None, Some(t)) => next_local_time_ms(&t)?,
+                (None, None) => unreachable!("clap requires one"),
+            };
+            let job = p.schedule(&action, when, &repeat, &note).await.map_err(daemon_error)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&job)?);
+            } else {
+                println!("Scheduled #{}: {} at {} ({}).", job.id, job.action, local_time(job.at_unix_ms), job.repeat);
+            }
+        }
+        PowerCommand::Wake { r#in, at, clear } => {
+            if clear {
+                p.clear_wake_alarm().await.map_err(daemon_error)?;
+                println!("Wake alarm cleared.");
+            } else {
+                let when = match (r#in, at) {
+                    (Some(d), _) => now_ms() + parse_duration(&d)?,
+                    (None, Some(t)) => next_local_time_ms(&t)?,
+                    (None, None) => anyhow::bail!("say when: --at HH:MM or --in 8h (or --clear)"),
+                };
+                p.set_wake_alarm(when).await.map_err(daemon_error)?;
+                println!("The computer will wake at {}.", local_time(when));
+            }
+        }
+        PowerCommand::When { action, download_done, cpu_idle, process, game_over, below, minutes } => {
+            let (kind, threshold, name) = if download_done {
+                ("net-idle", parse_rate(below.as_deref().unwrap_or("50k"))?, String::new())
+            } else if cpu_idle {
+                let pct: f64 = below.as_deref().unwrap_or("10").trim_end_matches('%').parse()
+                    .map_err(|_| anyhow::anyhow!("--below for --cpu-idle is a percentage, e.g. 10"))?;
+                ("cpu-idle", pct, String::new())
+            } else if let Some(p) = process {
+                ("process-gone", 0.0, p)
+            } else if game_over {
+                ("game-over", 0.0, String::new())
+            } else {
+                anyhow::bail!("say when: --download-done, --cpu-idle, --process NAME or --game-over");
+            };
+            let w = p.when(&action, kind, threshold, minutes, &name, "").await.map_err(daemon_error)?;
+            println!("Armed #w{}: {} {}.", w.id, w.action, describe_watch(&w));
+        }
+        PowerCommand::Usage => {
+            let u = p.usage().await.map_err(daemon_error)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&u)?);
+                return Ok(());
+            }
+            let w = |v: f64| if v.is_nan() { "—".to_string() } else { format!("{v:.1} W") };
+            println!("CPU package   {}", w(u.cpu_w));
+            println!("GPU           {}", w(u.gpu_w));
+            println!("On battery    {}{}", w(u.battery_w), if u.battery_w.is_nan() { "  (only measurable while on battery)" } else { "  (whole machine)" });
+            if u.cpu_energy_recorded {
+                println!("\nCPU energy per day (the rest of the machine has no sensor):");
+                for d in u.days.iter().rev().take(7) {
+                    println!("  {}  {:.0} Wh", d.date, d.cpu_wh);
+                }
+            } else {
+                println!("\nDaily energy is not recorded: this machine has no readable RAPL counter.");
+            }
+        }
+        PowerCommand::Unwatch { id } => {
+            if !p.cancel_watch(id).await.map_err(daemon_error)? {
+                anyhow::bail!("no conditional action with number {id} (see `ug power list`)");
+            }
+            println!("Removed #w{id}.");
+        }
+        PowerCommand::List => {
+            if !json {
+                for w in p.watches().await.map_err(daemon_error)? {
+                    println!("#w{:<2} {:<24} {}", w.id, w.action, describe_watch(&w));
+                }
+            }
+            let alarm = p.wake_alarm().await.unwrap_or(0);
+            if !json && alarm > 0 {
+                println!("Wake alarm: {}", local_time(alarm));
+            }
+            let jobs = p.jobs().await.map_err(daemon_error)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&jobs)?);
+            } else if jobs.is_empty() {
+                println!("Nothing scheduled.");
+            } else {
+                for j in jobs {
+                    let note = if j.note.is_empty() { String::new() } else { format!("  {}", j.note) };
+                    println!("#{:<3} {:<24} {}  {}{note}", j.id, j.action, local_time(j.at_unix_ms), j.repeat);
+                }
+            }
+        }
+        PowerCommand::Cancel { id } => {
+            if p.cancel(id).await.map_err(daemon_error)? {
+                println!("Cancelled #{id}.");
+            } else {
+                anyhow::bail!("nothing scheduled with number {id} (see `ug power list`)");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn describe_watch(w: &PowerWatch) -> String {
+    match w.kind.as_str() {
+        "net-idle" => format!("when downloads stay below {} B/s for {} min", w.threshold as u64, w.minutes),
+        "cpu-idle" => format!("when CPU load stays below {} % for {} min", w.threshold, w.minutes),
+        "process-gone" => format!("when {} exits", w.name),
+        "game-over" => "when the running game ends".into(),
+        other => other.into(),
+    }
+}
+
+/// `50k`, `2M`, `1000` → bytes per second.
+fn parse_rate(s: &str) -> Result<f64> {
+    let s = s.trim();
+    let (num, mult) = match s.chars().last() {
+        Some('k' | 'K') => (&s[..s.len() - 1], 1e3),
+        Some('m' | 'M') => (&s[..s.len() - 1], 1e6),
+        _ => (s, 1.0),
+    };
+    num.parse::<f64>().map(|n| n * mult).map_err(|_| anyhow::anyhow!("cannot read {s:?} as a rate; e.g. 50k or 2M"))
+}
+
+async fn battery(conn: &zbus::Connection, command: BatteryCommand, json: bool) -> Result<()> {
+    let p = PowerProxy::new(conn).await?;
+    match command {
+        BatteryCommand::Status => {}
+        BatteryCommand::Protect { limit } => p.set_battery_care("protect", limit).await.map_err(daemon_error)?,
+        BatteryCommand::FullOnce { limit } => p.set_battery_care("full-once", limit).await.map_err(daemon_error)?,
+        BatteryCommand::Off => p.set_battery_care("off", 100).await.map_err(daemon_error)?,
+    }
+    let b = p.battery().await.map_err(daemon_error)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&b)?);
+        return Ok(());
+    }
+    if b.capacity <= 100 {
+        println!("Battery       {} % ({})", b.capacity, b.status);
+    }
+    if !b.supported {
+        println!("Protection    not available: {}", b.reason);
+        return Ok(());
+    }
+    let how = if b.adjustable { format!("stops at {} %", b.limit) } else { "the vendor's conservation mode (limit set by the firmware)".into() };
+    match b.mode.as_str() {
+        "protect" => println!("Protection    on: {how}"),
+        "full-once" => println!("Protection    paused for one full charge, then back on ({how})"),
+        _ => println!("Protection    off: charges to 100 %"),
+    }
+    Ok(())
+}
+
+/// A refusal from the daemon is already a sentence for people.
+fn daemon_error(e: zbus::Error) -> anyhow::Error {
+    match e {
+        zbus::Error::MethodError(_, Some(msg), _) => anyhow::anyhow!(msg),
+        other => anyhow::anyhow!(other),
+    }
+}
+
+/// `90s`, `30m`, `2h`, `1h30m`, `1d` → milliseconds.
+fn parse_duration(s: &str) -> Result<u64> {
+    let mut total = 0u64;
+    let mut num = String::new();
+    for c in s.trim().chars() {
+        if c.is_ascii_digit() {
+            num.push(c);
+            continue;
+        }
+        let n: u64 = num.parse().map_err(|_| anyhow::anyhow!("cannot read {s:?} as a duration; try 90s, 30m, 2h or 1h30m"))?;
+        num.clear();
+        total += n * match c {
+            's' => 1_000,
+            'm' => 60_000,
+            'h' => 3_600_000,
+            'd' => 86_400_000,
+            _ => anyhow::bail!("cannot read {s:?} as a duration; try 90s, 30m, 2h or 1h30m"),
+        };
+    }
+    if !num.is_empty() || total == 0 {
+        anyhow::bail!("cannot read {s:?} as a duration; try 90s, 30m, 2h or 1h30m");
+    }
+    Ok(total)
+}
+
+/// The next local wall-clock `HH:MM`: today if still ahead, else tomorrow.
+fn next_local_time_ms(hhmm: &str) -> Result<u64> {
+    let bad = || anyhow::anyhow!("cannot read {hhmm:?} as a time; use HH:MM, e.g. 01:30");
+    let (h, m) = hhmm.split_once(':').ok_or_else(bad)?;
+    let (h, m): (i32, i32) = (h.parse().map_err(|_| bad())?, m.parse().map_err(|_| bad())?);
+    if !(0..24).contains(&h) || !(0..60).contains(&m) {
+        return Err(bad());
+    }
+    // SAFETY: localtime_r/mktime only touch the struct we pass.
+    let at = unsafe {
+        let now = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&now, &mut tm);
+        tm.tm_hour = h;
+        tm.tm_min = m;
+        tm.tm_sec = 0;
+        let mut t = libc::mktime(&mut tm);
+        if t <= now {
+            tm.tm_mday += 1;
+            t = libc::mktime(&mut tm);
+        }
+        t.max(0) as u64
+    };
+    Ok(at * 1000)
+}
+
 async fn gpu(
     conn: &zbus::Connection,
     daemon: &DaemonProxy<'_>,
@@ -676,6 +1011,25 @@ mod tests {
     fn durations_read_naturally() {
         assert_eq!(super::hms(65), "1:05");
         assert_eq!(super::hms(3600 * 12 + 300), "12:05:00");
+    }
+
+    #[test]
+    fn durations_read_the_way_people_write_them() {
+        assert_eq!(super::parse_duration("90s").unwrap(), 90_000);
+        assert_eq!(super::parse_duration("2h").unwrap(), 7_200_000);
+        assert_eq!(super::parse_duration("1h30m").unwrap(), 5_400_000);
+        for bad in ["", "2", "h", "2x", "0m"] {
+            assert!(super::parse_duration(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_clock_time_is_always_in_the_future_and_bad_ones_are_refused() {
+        let now = super::now_ms();
+        let t = super::next_local_time_ms("00:00").unwrap();
+        assert!(t > now && t - now <= 24 * 3_600_000);
+        assert!(super::next_local_time_ms("25:00").is_err());
+        assert!(super::next_local_time_ms("noon").is_err());
     }
 
     #[test]
