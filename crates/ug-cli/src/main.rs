@@ -10,6 +10,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use ug_proto::agent::{GamesProxy, PlaytimeProxy, ProfilesProxy};
 use ug_proto::daemon::{DaemonProxy, GpuProxy};
 use ug_proto::{GpuCapabilities, Inventory, Snapshot};
 
@@ -45,6 +46,54 @@ enum Command {
         #[command(subcommand)]
         command: GpuCommand,
     },
+    /// Installed and running games.
+    Game {
+        #[command(subcommand)]
+        command: GameCommand,
+    },
+    /// Time spent in each game.
+    Playtime {
+        /// Only today (since local midnight).
+        #[arg(long, conflicts_with_all = ["week"])]
+        today: bool,
+        /// Only the last seven days.
+        #[arg(long)]
+        week: bool,
+        /// Delete all recorded sessions of one game, by key (e.g. `steam:730`).
+        #[arg(long, value_name = "KEY")]
+        forget: Option<String>,
+        /// Print every session as CSV (for a spreadsheet) instead of a summary.
+        #[arg(long, conflicts_with = "forget")]
+        csv: bool,
+    },
+    /// Game profiles, and which game uses which.
+    Profile {
+        #[command(subcommand)]
+        command: ProfileCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProfileCommand {
+    /// Every profile, what it changes, and the games assigned to it.
+    List,
+    /// Run a game with a profile, e.g. `ug profile set steam:730 quiet`.
+    /// Game keys are shown by `ug game list` and `ug game running`.
+    Set { game: String, profile: String },
+    /// Return a game to the profile the game database suggests.
+    Reset { game: String },
+}
+
+#[derive(Subcommand)]
+enum GameCommand {
+    /// Games installed through Steam, Lutris, Heroic or Bottles.
+    List,
+    /// Games running now, and the profile each runs with.
+    Running,
+    /// Re-read every launcher's library.
+    Rescan,
+    /// Stop treating an executable as a game, e.g. `ug game ignore Render.exe`.
+    Ignore { executable: String },
 }
 
 #[derive(Subcommand)]
@@ -66,6 +115,15 @@ enum GpuCommand {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // The agent always lives on the session bus, so game and playtime commands
+    // work whether or not the daemon is reachable.
+    match cli.command {
+        Command::Game { command } => return game(command, cli.json).await,
+        Command::Playtime { today, week, forget, csv } => return playtime(today, week, forget, csv, cli.json).await,
+        Command::Profile { command } => return profile(command, cli.json).await,
+        _ => {}
+    }
 
     let conn = if cli.session {
         zbus::Connection::session().await
@@ -95,6 +153,234 @@ async fn main() -> Result<()> {
         }
         Command::Monitor { interval } => monitor(&daemon, interval, cli.json).await,
         Command::Gpu { command } => gpu(&conn, &daemon, command, cli.json).await,
+        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } => unreachable!("handled above"),
+    }
+}
+
+async fn agent_conn() -> Result<zbus::Connection> {
+    zbus::Connection::session().await.context("connecting to the session bus")
+}
+
+fn agent_hint(e: zbus::Error) -> anyhow::Error {
+    anyhow::anyhow!("{e}\nIs ug-agent running in this session? It starts with your desktop login.")
+}
+
+async fn game(command: GameCommand, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let games = GamesProxy::new(&conn).await?;
+    match command {
+        GameCommand::List => {
+            let mut list = games.installed().await.map_err(agent_hint)?;
+            list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            if json {
+                println!("{}", serde_json::to_string_pretty(&list)?);
+            } else if list.is_empty() {
+                println!("No installed games found in Steam, Lutris, Heroic or Bottles.");
+            } else {
+                let width = list.iter().map(|g| g.id.len()).max().unwrap_or(0);
+                for g in &list {
+                    println!("{:<8} {:<width$}  {}", g.launcher, g.id, g.name);
+                }
+                println!("\n{} games", list.len());
+            }
+        }
+        GameCommand::Running => {
+            let list = games.running().await.map_err(agent_hint)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&list)?);
+            } else if list.is_empty() {
+                println!("No game is running.");
+            } else {
+                let now = now_ms();
+                for g in &list {
+                    let mins = now.saturating_sub(g.started_unix_ms) / 60_000;
+                    println!("{}  [{} profile]  {} min  ({})", g.name, g.profile, mins, g.key);
+                    println!("    recognised by: {}   processes: {:?}", g.evidence.replace('_', " "), g.pids);
+                    if !g.blocked_note.is_empty() {
+                        println!("    note: {}", g.blocked_note);
+                    }
+                }
+            }
+        }
+        GameCommand::Rescan => {
+            let n = games.rescan().await.map_err(agent_hint)?;
+            println!("{n} installed games found.");
+        }
+        GameCommand::Ignore { executable } => {
+            games.ignore_executable(&executable).await.map_err(agent_hint)?;
+            println!("{executable} will no longer be treated as a game.");
+        }
+    }
+    Ok(())
+}
+
+async fn playtime(today: bool, week: bool, forget: Option<String>, csv: bool, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let pt = PlaytimeProxy::new(&conn).await?;
+    if let Some(key) = forget {
+        let n = pt.forget(&key).await.map_err(agent_hint)?;
+        println!("Deleted {n} sessions of {key}.");
+        return Ok(());
+    }
+    let since = if today {
+        local_midnight_ms()
+    } else if week {
+        now_ms().saturating_sub(7 * 24 * 3_600_000)
+    } else {
+        0
+    };
+    if csv {
+        let sessions = pt.sessions(since).await.map_err(agent_hint)?;
+        // Written by hand rather than with println!, so `| head` ends the
+        // export cleanly instead of panicking on the closed pipe.
+        use std::io::Write;
+        let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+        let written = writeln!(out, "game,key,started,ended,minutes").and_then(|()| {
+            for s in &sessions {
+                let minutes = s.ended_unix_ms.saturating_sub(s.started_unix_ms) as f64 / 60_000.0;
+                writeln!(
+                    out,
+                    "{},{},{},{},{minutes:.1}",
+                    csv_field(&s.name),
+                    csv_field(&s.key),
+                    local_time(s.started_unix_ms),
+                    local_time(s.ended_unix_ms)
+                )?;
+            }
+            out.flush()
+        });
+        return match written {
+            Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => Err(e.into()),
+            _ => Ok(()),
+        };
+    }
+    let entries = pt.summary(since).await.map_err(agent_hint)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&entries)?);
+        return Ok(());
+    }
+    if entries.is_empty() {
+        println!("No playtime recorded{}.", if today { " today" } else if week { " this week" } else { "" });
+        return Ok(());
+    }
+    let total: u64 = entries.iter().map(|e| e.seconds).sum();
+    for e in &entries {
+        let pct = if total > 0 { e.seconds * 100 / total } else { 0 };
+        println!("{:>8}  {:>3}%  {}", hms(e.seconds), pct, e.name);
+    }
+    println!("{:>8}        total, {} games", hms(total), entries.len());
+    Ok(())
+}
+
+async fn profile(command: ProfileCommand, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let profiles = ProfilesProxy::new(&conn).await?;
+    match command {
+        ProfileCommand::List => {
+            let list = profiles.list().await.map_err(agent_hint)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&list)?);
+                return Ok(());
+            }
+            for p in &list {
+                println!("{}{}", p.id, if p.builtin { "" } else { "  (yours)" });
+                let on = |b: bool| if b { "on " } else { "off" };
+                println!("    CPU performance mode   {}", on(p.cpu_performance));
+                println!("    no CPU idle states     {}", on(p.cpu_no_idle_states));
+                println!("    preferred cores        {}", on(p.cpu_preferred_cores));
+                println!("    game priority          {}", on(p.cpu_priority));
+                println!("    memory tuning          {}", on(p.memory_tuning));
+                println!("    pause update services  {}", on(p.pause_services));
+                if !p.pause_apps.is_empty() {
+                    println!("    pause apps             {}", p.pause_apps.join(", "));
+                }
+                if !p.games.is_empty() {
+                    println!("    chosen for             {}", p.games.join(", "));
+                }
+            }
+            println!("\nChange one with a file in ~/.config/unix-guardian/profiles/<name>.toml");
+        }
+        ProfileCommand::Set { game, profile } => {
+            profiles.set_game_profile(&game, &profile).await.map_err(agent_error)?;
+            println!("{game} now runs with the {profile} profile.");
+        }
+        ProfileCommand::Reset { game } => {
+            profiles.set_game_profile(&game, "").await.map_err(agent_error)?;
+            println!("{game} is back on the profile the game database suggests.");
+        }
+    }
+    Ok(())
+}
+
+/// A refusal from the agent is the message itself; anything else may mean the
+/// agent is not running.
+fn agent_error(e: zbus::Error) -> anyhow::Error {
+    match e {
+        zbus::Error::MethodError(name, Some(msg), _) if name.as_str() == "org.freedesktop.DBus.Error.InvalidArgs" => {
+            anyhow::anyhow!(msg)
+        }
+        other => agent_hint(other),
+    }
+}
+
+/// Quotes a CSV field when it needs it (RFC 4180): game names do contain
+/// commas ("Warhammer 40,000") and quotes.
+fn csv_field(s: &str) -> String {
+    if s.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+/// `2026-09-30 21:04:05` in local time, which spreadsheets read as a date.
+fn local_time(unix_ms: u64) -> String {
+    // SAFETY: localtime_r writes only into the struct we pass.
+    let tm = unsafe {
+        let t = (unix_ms / 1000) as libc::time_t;
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&t, &mut tm);
+        tm
+    };
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday,
+        tm.tm_hour,
+        tm.tm_min,
+        tm.tm_sec
+    )
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Start of today in local time, as Unix milliseconds.
+fn local_midnight_ms() -> u64 {
+    // SAFETY: localtime_r writes only into the struct we pass.
+    unsafe {
+        let now = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&now, &mut tm);
+        tm.tm_hour = 0;
+        tm.tm_min = 0;
+        tm.tm_sec = 0;
+        (libc::mktime(&mut tm).max(0) as u64) * 1000
+    }
+}
+
+/// `3:07` for minutes, `12:05:00` once it reaches hours.
+fn hms(s: u64) -> String {
+    let (h, m) = (s / 3600, (s % 3600) / 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{:02}", s % 60)
+    } else {
+        format!("{m}:{:02}", s % 60)
     }
 }
 
@@ -371,6 +657,19 @@ fn rate(bps: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::rate;
+
+    #[test]
+    fn durations_read_naturally() {
+        assert_eq!(super::hms(65), "1:05");
+        assert_eq!(super::hms(3600 * 12 + 300), "12:05:00");
+    }
+
+    #[test]
+    fn csv_fields_are_quoted_only_when_needed() {
+        assert_eq!(super::csv_field("Counter-Strike 2"), "Counter-Strike 2");
+        assert_eq!(super::csv_field("Warhammer 40,000"), "\"Warhammer 40,000\"");
+        assert_eq!(super::csv_field("The \"Game\""), "\"The \"\"Game\"\"\"");
+    }
 
     #[test]
     fn rates_pick_a_readable_scale() {

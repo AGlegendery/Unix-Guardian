@@ -1,0 +1,28 @@
+# Installed to /usr/lib/systemd/user/ug-agent.service and enabled for every user
+# with `systemctl --global enable ug-agent.service`.
+#
+# Tied to the graphical session because the agent needs what only it has: the
+# session bus (GameMode, notifications), WAYLAND_DISPLAY/DISPLAY for the overlay
+# and recorder later, and the user's own processes. Desktops that import their
+# environment into the user manager (GNOME, KDE, most others) start
+# graphical-session.target; elsewhere the XDG autostart entry starts the agent.
+[Unit]
+Description=Unix Guardian agent (game detection, playtime)
+Documentation=https://github.com/AGlegendery/Unix-Guardian
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+# Not Type=dbus: when the autostart entry got there first, this copy exits 0
+# without claiming the name, and that must read as "done", not as a failure to
+# restart from.
+Type=exec
+ExecStart=/usr/bin/ug-agent
+Restart=on-failure
+RestartSec=2
+# Background work; the game it is looking after comes first.
+Nice=5
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=graphical-session.target

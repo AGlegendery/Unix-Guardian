@@ -1,0 +1,14 @@
+# Installed to /etc/xdg/autostart/. Fallback for sessions without a systemd user
+# manager. Where systemd turns autostart entries into units, this one is skipped
+# because ug-agent.service already covers it; if both ever run, the second
+# agent exits by itself.
+[Desktop Entry]
+Type=Application
+Name=Unix Guardian agent
+Comment=Detects games, applies game mode and records playtime
+Exec=ug-agent
+Icon=applications-games
+NoDisplay=true
+Terminal=false
+X-systemd-skip=true
+X-GNOME-Autostart-Phase=Applications

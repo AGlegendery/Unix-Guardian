@@ -66,3 +66,5 @@ jobs:
         run: |
           cargo build --workspace
           dbus-run-session -- ./scripts/smoke.sh target/debug
+          dbus-run-session -- ./scripts/agent-e2e.sh target/debug
+          dbus-run-session -- ./scripts/gamemode-e2e.sh target/debug

@@ -16,6 +16,7 @@ ug-proto.workspace = true
 ug-core.workspace = true
 ug-hw.workspace = true
 ug-gpu.workspace = true
+ug-tune.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 tokio.workspace = true

@@ -31,7 +31,19 @@ pub fn read(root: &SysRoot) -> CpuTopology {
         smt: smt_enabled(root, &cpus),
         has_vcache: l3_domains.iter().any(|d| d.size_kb >= VCACHE_MIN_KB),
         l3_domains,
+        p_cores: hybrid_cpus(root, "cpu_core"),
+        e_cores: hybrid_cpus(root, "cpu_atom"),
     }
+}
+
+/// CPUs of one core type on an Intel hybrid part.
+///
+/// The kernel registers a separate PMU per core type, each with a `cpus` file;
+/// on a non-hybrid CPU neither directory exists and this is empty.
+fn hybrid_cpus(root: &SysRoot, pmu: &str) -> Vec<u32> {
+    read_trimmed(root.join(format!("sys/devices/{pmu}/cpus")))
+        .map(|s| crate::parse_cpu_list(&s))
+        .unwrap_or_default()
 }
 
 /// First `model name` line from `/proc/cpuinfo`.
@@ -155,6 +167,30 @@ pub fn preferred_domain(topo: &CpuTopology) -> Option<&L3Domain> {
     }
 }
 
+/// Why a set of CPUs is preferred for games.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreferredReason {
+    /// AMD X3D: the CCD carrying the stacked cache.
+    VCache,
+    /// Intel hybrid: performance cores, excluding efficiency cores.
+    PerformanceCores,
+}
+
+/// The CPUs a game benefits from being kept on, if the CPU has such a subset.
+///
+/// This is the one decision behind both "lock to the V-Cache CCD" on AMD and
+/// "keep off the E-cores" on Intel; on a uniform CPU there is no such subset
+/// and pinning would only take threads away from the game.
+pub fn preferred_cpus(topo: &CpuTopology) -> Option<(Vec<u32>, PreferredReason)> {
+    if let Some(d) = preferred_domain(topo) {
+        return Some((d.cpus.clone(), PreferredReason::VCache));
+    }
+    if !topo.p_cores.is_empty() && !topo.e_cores.is_empty() {
+        return Some((topo.p_cores.clone(), PreferredReason::PerformanceCores));
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,6 +249,33 @@ mod tests {
             preferred_domain(&topo).is_none(),
             "pinning to the only domain would constrain the scheduler for nothing"
         );
+        assert!(preferred_cpus(&topo).is_none(), "not hybrid either");
+    }
+
+    #[test]
+    fn intel_hybrid_prefers_the_performance_cores() {
+        let fs = TestFs::new();
+        for cpu in 0..12 {
+            fs.cpu(cpu, "powersave", "intel_pstate", 2_400_000);
+            fs.cpu_l3(cpu, 0, "12288K", "0-11");
+        }
+        fs.write("sys/devices/cpu_core/cpus", "0-7");
+        fs.write("sys/devices/cpu_atom/cpus", "8-11");
+
+        let topo = read(&SysRoot::at(fs.root()));
+        assert_eq!(topo.p_cores, (0..8).collect::<Vec<_>>());
+        assert_eq!(topo.e_cores, vec![8, 9, 10, 11]);
+        let (cpus, why) = preferred_cpus(&topo).unwrap();
+        assert_eq!(cpus, (0..8).collect::<Vec<_>>());
+        assert_eq!(why, PreferredReason::PerformanceCores);
+    }
+
+    #[test]
+    fn x3d_prefers_the_cache_ccd_over_anything_else() {
+        let fs = asymmetric_x3d();
+        let (cpus, why) = preferred_cpus(&read(&SysRoot::at(fs.root()))).unwrap();
+        assert_eq!(why, PreferredReason::VCache);
+        assert_eq!(cpus, (0..16).collect::<Vec<_>>());
     }
 
     #[test]

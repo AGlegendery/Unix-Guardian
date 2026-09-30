@@ -3,3 +3,4 @@
 pub mod distro;
 pub mod logging;
 pub mod paths;
+pub mod profile;

@@ -1,0 +1,32 @@
+[package]
+name = "ug-agent"
+description = "Unix Guardian per-user agent: game detection, playtime, app control"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "ug-agent"
+path = "src/main.rs"
+
+[dependencies]
+ug-proto.workspace = true
+ug-core.workspace = true
+ug-hw.workspace = true
+ug-games.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true
+zbus.workspace = true
+futures-lite.workspace = true
+tracing.workspace = true
+rusqlite.workspace = true
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+ug-testfs.workspace = true
+tempfile.workspace = true

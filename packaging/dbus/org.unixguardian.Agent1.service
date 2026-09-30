@@ -1,0 +1,7 @@
+# Installed to /usr/share/dbus-1/services/.
+# Lets `ug game`/`ug playtime` (and later the UI) start the agent on demand when
+# it is not running yet, through the user unit so there is only ever one.
+[D-BUS Service]
+Name=org.unixguardian.Agent1
+Exec=/usr/bin/ug-agent
+SystemdService=ug-agent.service

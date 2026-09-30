@@ -6,7 +6,10 @@ members = [
     "crates/ug-hw",
     "crates/ug-gpu",
     "crates/ug-core",
+    "crates/ug-games",
+    "crates/ug-tune",
     "crates/ug-daemon",
+    "crates/ug-agent",
     "crates/ug-cli",
 ]
 
@@ -15,7 +18,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
 license = "GPL-3.0-or-later"
-repository = "https://github.com/unix-guardian/unix-guardian"
+repository = "https://github.com/AGlegendery/Unix-Guardian"
 authors = ["Unix Guardian contributors"]
 
 [workspace.dependencies]
@@ -24,6 +27,8 @@ ug-testfs = { path = "crates/ug-testfs" }
 ug-hw = { path = "crates/ug-hw" }
 ug-gpu = { path = "crates/ug-gpu" }
 ug-core = { path = "crates/ug-core" }
+ug-games = { path = "crates/ug-games" }
+ug-tune = { path = "crates/ug-tune" }
 
 anyhow = "1"
 thiserror = "2"
@@ -38,6 +43,9 @@ clap = { version = "4", features = ["derive"] }
 libloading = "0.8"
 tempfile = "3"
 futures-lite = "2"
+rusqlite = { version = "0.40", features = ["bundled"] }
+yaml-rust2 = "0.13"
+libc = "0.2"
 
 [profile.release]
 opt-level = "s"

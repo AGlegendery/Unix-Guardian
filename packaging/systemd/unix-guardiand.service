@@ -1,7 +1,7 @@
 # Installed to /usr/lib/systemd/system/unix-guardiand.service
 [Unit]
 Description=Unix Guardian daemon
-Documentation=https://github.com/unix-guardian/unix-guardian
+Documentation=https://github.com/AGlegendery/Unix-Guardian
 After=dbus.service polkit.service
 
 [Service]

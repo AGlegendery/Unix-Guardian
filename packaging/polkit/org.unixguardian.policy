@@ -14,6 +14,25 @@
   <vendor_url>https://github.com/unix-guardian/unix-guardian</vendor_url>
   <icon_name>unix-guardian</icon_name>
 
+  <!--
+    Game mode runs by itself when a game starts, so a password prompt here
+    would appear in the middle of launching a game. Active local sessions are
+    therefore allowed without one — the same trust Feral's GameMode grants —
+    and everything it changes is temporary and reverted automatically.
+    Remote and inactive sessions still need an administrator.
+  -->
+  <action id="org.unixguardian.gamemode">
+    <description>Apply game mode while a game runs</description>
+    <description xml:lang="fa">اعمال حالت گیمینگ در زمان اجرای بازی</description>
+    <message>Authentication is required to apply game mode.</message>
+    <message xml:lang="fa">برای اعمال حالت گیمینگ احراز هویت لازم است.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
   <action id="org.unixguardian.daemon.debug">
     <description>Change Unix Guardian diagnostic settings</description>
     <description xml:lang="fa">تغییر تنظیمات عیب‌یابی Unix Guardian</description>

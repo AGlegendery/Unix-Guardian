@@ -280,6 +280,11 @@ pub struct CpuTopology {
     /// True when any L3 domain is large enough to be 3D V-Cache (>= 96 MiB),
     /// which is when "lock the game to the cache CCD" becomes meaningful.
     pub has_vcache: bool,
+    /// Performance cores on an Intel hybrid CPU (from `/sys/devices/cpu_core`);
+    /// empty on non-hybrid parts.
+    pub p_cores: Vec<u32>,
+    /// Efficiency cores on an Intel hybrid CPU (from `/sys/devices/cpu_atom`).
+    pub e_cores: Vec<u32>,
 }
 
 /// One L3 cache domain and the logical CPUs that share it.
@@ -309,4 +314,89 @@ pub struct Inventory {
     /// True when the daemon is running with the privileges its write paths need.
     /// The UI shows read-only mode rather than failing calls when this is false.
     pub privileged: bool,
+}
+
+/// A game that is running now, as the agent reports it.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct RunningGameInfo {
+    /// Stable identity, e.g. `steam:730`, `lutris:3`, `exe:somegame`.
+    pub key: String,
+    pub name: String,
+    /// How the game was recognised: `steam_app_id`, `game_mode`, `library`,
+    /// `database` or `heuristic`.
+    pub evidence: String,
+    /// Profile in effect: `competitive`, `balanced` or `quiet`.
+    pub profile: String,
+    pub pids: Vec<i32>,
+    /// Non-empty when this game's anti-cheat is known to refuse Linux.
+    pub blocked_note: String,
+    pub started_unix_ms: u64,
+}
+
+/// A game some launcher reports as installed.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct InstalledGameInfo {
+    pub id: String,
+    pub name: String,
+    /// `steam`, `lutris`, `heroic` or `bottles`.
+    pub launcher: String,
+}
+
+/// Time spent in one game over a period.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct PlaytimeEntry {
+    pub key: String,
+    pub name: String,
+    pub seconds: u64,
+    pub sessions: u32,
+    pub last_played_unix_ms: u64,
+}
+
+/// One recorded play session, for exporting history.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct PlaytimeSession {
+    pub key: String,
+    pub name: String,
+    pub started_unix_ms: u64,
+    /// For a game still running, the last heartbeat (at most a minute ago).
+    pub ended_unix_ms: u64,
+}
+
+/// A game profile, with the games the user has assigned to it.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct ProfileInfo {
+    pub id: String,
+    /// One of the shipped profiles (`competitive`, `balanced`, `quiet`). They
+    /// can be changed through a user file but not removed.
+    pub builtin: bool,
+    pub cpu_performance: bool,
+    pub cpu_no_idle_states: bool,
+    pub cpu_preferred_cores: bool,
+    pub cpu_priority: bool,
+    pub memory_tuning: bool,
+    pub pause_services: bool,
+    pub pause_apps: Vec<String>,
+    /// Game keys the user chose this profile for. Games that use it because
+    /// the database suggests it are not listed.
+    pub games: Vec<String>,
+}
+
+/// What the agent asks the daemon to do while games run. Built from the
+/// game's profile; each flag maps to one reversible change.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct GameModeRequest {
+    pub cpu_performance: bool,
+    pub cpu_no_idle_states: bool,
+    pub cpu_priority: bool,
+    pub memory_tuning: bool,
+    pub pause_services: bool,
+    /// Game processes. The daemon refuses any that do not belong to the caller.
+    pub pids: Vec<i32>,
+}
+
+/// What game mode changed, and what it could not, as sentences for the UI.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+pub struct GameModeReport {
+    pub applied: Vec<String>,
+    pub skipped: Vec<String>,
 }

@@ -1,0 +1,472 @@
+{
+  "$comment": "Unix Guardian game database. Steam App IDs are verified against the Steam store API (scripts/verify-games-db.py); exe names are basenames without .exe, matched case-insensitively. One game per pull request.",
+  "version": 1,
+  "games": [
+    {
+      "id": "ats",
+      "name": "American Truck Simulator",
+      "steam_appid": 270880,
+      "exe": [
+        "amtrucks"
+      ],
+      "profile": "balanced"
+    },
+    {
+      "id": "amongus",
+      "name": "Among Us",
+      "steam_appid": 945360,
+      "profile": "balanced"
+    },
+    {
+      "id": "apex",
+      "name": "Apex Legends™",
+      "steam_appid": 1172470,
+      "exe": [
+        "r5apex",
+        "r5apex_dx12"
+      ],
+      "profile": "competitive",
+      "linux": "blocked",
+      "linux_note": "EA disabled Linux support for Apex Legends in 2024"
+    },
+    {
+      "id": "bg3",
+      "name": "Baldur's Gate 3",
+      "steam_appid": 1086940,
+      "exe": [
+        "bg3",
+        "bg3_dx11"
+      ],
+      "profile": "balanced"
+    },
+    {
+      "id": "bf2042",
+      "name": "Battlefield™ 2042",
+      "steam_appid": 1517290,
+      "profile": "competitive"
+    },
+    {
+      "id": "wukong",
+      "name": "Black Myth: Wukong",
+      "steam_appid": 2358720,
+      "exe": [
+        "b1-Win64-Shipping"
+      ],
+      "profile": "balanced"
+    },
+    {
+      "id": "cod",
+      "name": "Call of Duty®",
+      "steam_appid": 1938090,
+      "profile": "competitive",
+      "linux": "blocked",
+      "linux_note": "Ricochet anti-cheat does not support Linux"
+    },
+    {
+      "id": "cs2",
+      "name": "Counter-Strike 2",
+      "steam_appid": 730,
+      "exe": [
+        "cs2"
+      ],
+      "profile": "competitive"
+    },
+    {
+      "id": "cyberpunk2077",
+      "name": "Cyberpunk 2077",
+      "steam_appid": 1091500,
+      "exe": [
+        "Cyberpunk2077"
+      ],
+      "profile": "balanced"
+    },
+    {
+      "id": "darksouls3",
+      "name": "DARK SOULS™ III",
+      "steam_appid": 374320,
+      "exe": [
+        "DarkSoulsIII"
+      ],
+      "profile": "balanced"
+    },
+    {
+      "id": "dbd",
+      "name": "Dead by Daylight",
+      "steam_appid": 381210,
+      "profile": "balanced"
+    },
+    {
+      "id": "drg",
+      "name": "Deep Rock Galactic",
+      "steam_appid": 548430,
+      "profile": "balanced"
+    },
+    {
+      "id": "destiny2",
+      "name": "Destiny 2",
+      "steam_appid": 1085660,
+      "profile": "competitive",
+      "linux": "blocked",
+      "linux_note": "BattlEye blocks Linux"
+    },
+    {
+      "id": "diablo4",
+      "name": "Diablo® IV",
+      "steam_appid": 2344520,
+      "profile": "balanced"
+    },
+    {
+      "id": "dst",
+      "name": "Don't Starve Together",
+      "steam_appid": 322330,
+      "profile": "balanced"
+    },
+    {
+      "id": "dota2",
+      "name": "Dota 2",
+      "steam_appid": 570,
+      "exe": [
+        "dota2"
+      ],
+      "profile": "competitive"
+    },
+    {
+      "id": "eldenring",
+      "name": "ELDEN RING",
+      "steam_appid": 1245620,
+      "exe": [
+        "eldenring"
+      ],
+      "profile": "balanced"
+    },
+    {
+      "id": "eldenring-nightreign",
+      "name": "ELDEN RING NIGHTREIGN",
+      "steam_appid": 2622380,
+      "profile": "balanced"
+    },
+    {
+      "id": "ets2",
+      "name": "Euro Truck Simulator 2",
+      "steam_appid": 227300,
+      "exe": [
+        "eurotrucks2"
+      ],
+      "profile": "balanced"
+    },
+    {
+      "id": "fallout4",
+      "name": "Fallout 4",
+      "steam_appid": 377160,
+      "exe": [
+        "Fallout4"
+      ],
+      "profile": "balanced"
+    },
+    {
+      "id": "fh5",
+      "name": "Forza Horizon 5",
+      "steam_appid": 1551360,
+      "profile": "balanced"
+    },
+    {
+      "id": "ghostoftsushima",
+      "name": "Ghost of Tsushima DIRECTOR'S CUT",
+      "steam_appid": 2215430,
+      "profile": "balanced"
+    },
+    {
+      "id": "gow2018",
+      "name": "God of War",
+      "steam_appid": 1593500,
+      "profile": "balanced"
+    },
+    {
+      "id": "gtav-enhanced",
+      "name": "Grand Theft Auto V Enhanced",
+      "steam_appid": 3240220,
+      "profile": "balanced",
+      "linux": "blocked",
+      "linux_note": "GTA Online's BattlEye blocks Linux; story mode is unaffected"
+    },
+    {
+      "id": "gtav-legacy",
+      "name": "Grand Theft Auto V Legacy",
+      "steam_appid": 271590,
+      "profile": "balanced",
+      "linux": "blocked",
+      "linux_note": "GTA Online's BattlEye blocks Linux; story mode is unaffected"
+    },
+    {
+      "id": "hades",
+      "name": "Hades",
+      "steam_appid": 1145360,
+      "profile": "balanced"
+    },
+    {
+      "id": "helldivers2",
+      "name": "HELLDIVERS™ 2",
+      "steam_appid": 553850,
+      "profile": "balanced"
+    },
+    {
+      "id": "hollowknight",
+      "name": "Hollow Knight",
+      "steam_appid": 367520,
+      "profile": "balanced"
+    },
+    {
+      "id": "silksong",
+      "name": "Hollow Knight: Silksong",
+      "steam_appid": 1030300,
+      "profile": "balanced"
+    },
+    {
+      "id": "hunt",
+      "name": "Hunt: Showdown 1896",
+      "steam_appid": 594650,
+      "profile": "competitive"
+    },
+    {
+      "id": "ittakestwo",
+      "name": "It Takes Two",
+      "steam_appid": 1426210,
+      "profile": "balanced"
+    },
+    {
+      "id": "lethalcompany",
+      "name": "Lethal Company",
+      "steam_appid": 1966720,
+      "profile": "balanced"
+    },
+    {
+      "id": "marvelrivals",
+      "name": "Marvel Rivals",
+      "steam_appid": 2767030,
+      "profile": "competitive"
+    },
+    {
+      "id": "spiderman",
+      "name": "Marvel’s Spider-Man Remastered",
+      "steam_appid": 1817070,
+      "profile": "balanced"
+    },
+    {
+      "id": "naraka",
+      "name": "NARAKA: BLADEPOINT",
+      "steam_appid": 1203220,
+      "profile": "competitive"
+    },
+    {
+      "id": "overwatch2",
+      "name": "Overwatch®",
+      "steam_appid": 2357570,
+      "profile": "competitive"
+    },
+    {
+      "id": "palworld",
+      "name": "Palworld",
+      "steam_appid": 1623730,
+      "exe": [
+        "Palworld-Win64-Shipping"
+      ],
+      "profile": "balanced"
+    },
+    {
+      "id": "phasmophobia",
+      "name": "Phasmophobia",
+      "steam_appid": 739630,
+      "profile": "balanced"
+    },
+    {
+      "id": "pubg",
+      "name": "PUBG: BATTLEGROUNDS",
+      "steam_appid": 578080,
+      "exe": [
+        "TslGame"
+      ],
+      "profile": "competitive",
+      "linux": "blocked",
+      "linux_note": "BattlEye is not enabled for Linux"
+    },
+    {
+      "id": "rdr2",
+      "name": "Red Dead Redemption 2",
+      "steam_appid": 1174180,
+      "exe": [
+        "RDR2"
+      ],
+      "profile": "balanced"
+    },
+    {
+      "id": "re4",
+      "name": "Resident Evil 4",
+      "steam_appid": 2050650,
+      "profile": "balanced"
+    },
+    {
+      "id": "rust",
+      "name": "Rust",
+      "steam_appid": 252490,
+      "profile": "balanced"
+    },
+    {
+      "id": "seaofthieves",
+      "name": "Sea of Thieves: 2026 Edition",
+      "steam_appid": 1172620,
+      "profile": "balanced"
+    },
+    {
+      "id": "sekiro",
+      "name": "Sekiro™: Shadows Die Twice - GOTY Edition",
+      "steam_appid": 814380,
+      "exe": [
+        "sekiro"
+      ],
+      "profile": "balanced"
+    },
+    {
+      "id": "sonsoftheforest",
+      "name": "Sons Of The Forest",
+      "steam_appid": 1326470,
+      "profile": "balanced"
+    },
+    {
+      "id": "stardew",
+      "name": "Stardew Valley",
+      "steam_appid": 413150,
+      "profile": "balanced"
+    },
+    {
+      "id": "starfield",
+      "name": "Starfield",
+      "steam_appid": 1716740,
+      "profile": "balanced"
+    },
+    {
+      "id": "sf6",
+      "name": "Street Fighter™ 6",
+      "steam_appid": 1364780,
+      "profile": "competitive"
+    },
+    {
+      "id": "tf2",
+      "name": "Team Fortress 2",
+      "steam_appid": 440,
+      "profile": "competitive"
+    },
+    {
+      "id": "tekken8",
+      "name": "TEKKEN 8",
+      "steam_appid": 1778820,
+      "profile": "competitive"
+    },
+    {
+      "id": "terraria",
+      "name": "Terraria",
+      "steam_appid": 105600,
+      "profile": "balanced"
+    },
+    {
+      "id": "skyrimse",
+      "name": "The Elder Scrolls V: Skyrim Special Edition",
+      "steam_appid": 489830,
+      "exe": [
+        "SkyrimSE"
+      ],
+      "profile": "balanced"
+    },
+    {
+      "id": "thefinals",
+      "name": "THE FINALS",
+      "steam_appid": 2073850,
+      "profile": "competitive"
+    },
+    {
+      "id": "tlou1",
+      "name": "The Last of Us™ Part I",
+      "steam_appid": 1888930,
+      "profile": "balanced"
+    },
+    {
+      "id": "sims4",
+      "name": "The Sims™ 4",
+      "steam_appid": 1222670,
+      "profile": "balanced"
+    },
+    {
+      "id": "witcher3",
+      "name": "The Witcher 3: Wild Hunt — Remastered",
+      "steam_appid": 292030,
+      "exe": [
+        "witcher3"
+      ],
+      "profile": "balanced"
+    },
+    {
+      "id": "r6siege",
+      "name": "Tom Clancy's Rainbow Six Siege",
+      "steam_appid": 359550,
+      "profile": "competitive",
+      "linux": "blocked",
+      "linux_note": "BattlEye is not enabled for Linux"
+    },
+    {
+      "id": "valheim",
+      "name": "Valheim",
+      "steam_appid": 892970,
+      "profile": "balanced"
+    },
+    {
+      "id": "warthunder",
+      "name": "War Thunder",
+      "steam_appid": 236390,
+      "profile": "balanced"
+    },
+    {
+      "id": "warframe",
+      "name": "Warframe",
+      "steam_appid": 230410,
+      "profile": "competitive"
+    },
+    {
+      "id": "lol",
+      "name": "League of Legends",
+      "exe": [
+        "League of Legends",
+        "LeagueClient"
+      ],
+      "profile": "competitive",
+      "linux": "blocked",
+      "linux_note": "Riot Vanguard is a Windows kernel driver; League cannot run on Linux"
+    },
+    {
+      "id": "valorant",
+      "name": "VALORANT",
+      "exe": [
+        "VALORANT-Win64-Shipping"
+      ],
+      "profile": "competitive",
+      "linux": "blocked",
+      "linux_note": "Riot Vanguard is a Windows kernel driver; VALORANT cannot run on Linux"
+    },
+    {
+      "id": "fortnite",
+      "name": "Fortnite",
+      "exe": [
+        "FortniteClient-Win64-Shipping"
+      ],
+      "profile": "competitive",
+      "linux": "blocked",
+      "linux_note": "Epic has not enabled Easy Anti-Cheat for Linux in Fortnite"
+    },
+    {
+      "id": "minecraft-java",
+      "name": "Minecraft: Java Edition",
+      "cmdline": [
+        "net.minecraft.client.main.Main"
+      ],
+      "profile": "balanced"
+    }
+  ]
+}

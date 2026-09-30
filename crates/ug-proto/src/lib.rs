@@ -126,6 +126,29 @@ pub mod daemon {
         fn unsubscribe(&self) -> zbus::Result<()>;
     }
 
+    /// The privileged half of game mode.
+    ///
+    /// Requires the `org.unixguardian.gamemode` polkit action, which active
+    /// local sessions have without a password: it runs automatically when a
+    /// game starts, and everything it does is reverted when the game ends —
+    /// or when the calling agent disappears, or on the daemon's next start
+    /// after a crash.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Daemon1.GameMode",
+        default_service = "org.unixguardian.Daemon1",
+        default_path = "/org/unixguardian/Daemon1"
+    )]
+    pub trait GameMode {
+        /// Turns game mode on, or adds processes to it if it is already on.
+        fn enter(&self, request: &GameModeRequest) -> zbus::Result<GameModeReport>;
+
+        /// Turns game mode off and restores everything it changed.
+        fn leave(&self) -> zbus::Result<GameModeReport>;
+
+        #[zbus(property)]
+        fn active(&self) -> zbus::Result<bool>;
+    }
+
     /// Read and write GPU state: clocks, power limits, fans.
     ///
     /// Write methods each require the `org.unixguardian.gpu.tune` polkit action.
@@ -149,5 +172,73 @@ pub mod daemon {
         fn active_gpu(&self) -> zbus::Result<String>;
         #[zbus(property)]
         fn set_active_gpu(&self, pci: &str) -> zbus::Result<()>;
+    }
+}
+
+/// Client proxies for the per-user agent's interfaces (session bus).
+pub mod agent {
+    use crate::types::*;
+
+    /// Games: what is installed, what is running, and correcting the detector.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Games",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Games {
+        /// Installed games from every launcher found, as of the last scan.
+        fn installed(&self) -> zbus::Result<Vec<InstalledGameInfo>>;
+
+        /// Games running now.
+        fn running(&self) -> zbus::Result<Vec<RunningGameInfo>>;
+
+        /// Re-reads every launcher's library. Returns how many games it found.
+        fn rescan(&self) -> zbus::Result<u32>;
+
+        /// "This is not a game": stops treating an executable as one, now and
+        /// in future. Takes the executable name, e.g. `"Render.exe"`.
+        fn ignore_executable(&self, name: &str) -> zbus::Result<()>;
+
+        #[zbus(signal)]
+        fn game_started(&self, game: RunningGameInfo) -> zbus::Result<()>;
+
+        /// `played_s` counts until the game's last process exited.
+        #[zbus(signal)]
+        fn game_stopped(&self, game: RunningGameInfo, played_s: u64) -> zbus::Result<()>;
+    }
+
+    /// Playtime history.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Playtime",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Playtime {
+        /// Time per game since `since_unix_ms` (0 for all time), most played
+        /// first. Sessions spanning the boundary count only their later part.
+        fn summary(&self, since_unix_ms: u64) -> zbus::Result<Vec<PlaytimeEntry>>;
+
+        /// Deletes every recorded session of one game.
+        fn forget(&self, key: &str) -> zbus::Result<u32>;
+
+        /// Every session that ended after `since_unix_ms` (0 for all), oldest
+        /// first, for export.
+        fn sessions(&self, since_unix_ms: u64) -> zbus::Result<Vec<PlaytimeSession>>;
+    }
+
+    /// Game profiles and which game uses which.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Profiles",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Profiles {
+        /// Every profile, as loaded from the built-ins and the user's files.
+        fn list(&self) -> zbus::Result<Vec<ProfileInfo>>;
+
+        /// Makes a game (by key, e.g. `steam:730`) run with a profile; an empty
+        /// `profile` returns it to the one the game database suggests. Takes
+        /// effect for a running game on the next detection tick.
+        fn set_game_profile(&self, key: &str, profile: &str) -> zbus::Result<()>;
     }
 }

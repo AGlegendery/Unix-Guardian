@@ -23,11 +23,13 @@ use zbus::zvariant::Value;
 pub mod action {
     /// Change runtime diagnostics such as the log level.
     pub const DAEMON_DEBUG: &str = "org.unixguardian.daemon.debug";
+    /// Apply game mode while a game runs.
+    pub const GAMEMODE: &str = "org.unixguardian.gamemode";
 
     /// Every action, for the test that keeps this list and the shipped
     /// policy file in step.
     #[cfg(test)]
-    pub const ALL: &[&str] = &[DAEMON_DEBUG];
+    pub const ALL: &[&str] = &[DAEMON_DEBUG, GAMEMODE];
 }
 
 /// Bit 0 of CheckAuthorization's flags: allow polkit to prompt the user.
