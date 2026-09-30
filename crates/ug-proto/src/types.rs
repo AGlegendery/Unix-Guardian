@@ -439,3 +439,25 @@ pub struct PowerWatch {
     pub name: String,
     pub note: String,
 }
+
+/// Energy the CPU package used on one local day.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct DayEnergy {
+    /// `YYYY-MM-DD`, local time.
+    pub date: String,
+    pub cpu_wh: f64,
+}
+
+/// Power draw now and energy used so far.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct PowerUsage {
+    /// CPU package, watts; NaN without RAPL.
+    pub cpu_w: f64,
+    /// Awake GPUs that report power, watts; NaN when none does.
+    pub gpu_w: f64,
+    /// Whole machine while on battery, watts; NaN on AC.
+    pub battery_w: f64,
+    /// Whether per-day CPU energy is being recorded on this machine.
+    pub cpu_energy_recorded: bool,
+    pub days: Vec<DayEnergy>,
+}

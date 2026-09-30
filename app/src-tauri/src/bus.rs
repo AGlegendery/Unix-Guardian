@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, OnceCell};
 use ug_proto::agent::{GamesProxy, PlaytimeProxy, ProfilesProxy};
 use ug_proto::daemon::{DaemonProxy, GameModeProxy, GpuProxy, PowerProxy};
-use ug_proto::{Inventory, InstalledGameInfo, PlaytimeEntry, PowerCapability, PowerJob, PowerWatch, ProfileInfo, RunningGameInfo, Snapshot};
+use ug_proto::{Inventory, InstalledGameInfo, PlaytimeEntry, PowerCapability, PowerJob, PowerUsage, PowerWatch, ProfileInfo, RunningGameInfo, Snapshot};
 
 pub struct Bus {
     /// Reach the daemon on the session bus (`UG_SESSION=1`), for a development
@@ -301,4 +301,10 @@ pub async fn power_watches(bus: State<'_, Bus>) -> Res<Vec<PowerWatch>> {
 pub async fn power_unwatch(bus: State<'_, Bus>, id: u32) -> Res<bool> {
     let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
     p.cancel_watch(id).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn power_usage(bus: State<'_, Bus>) -> Res<PowerUsage> {
+    let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    p.usage().await.map_err(daemon_err)
 }

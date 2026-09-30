@@ -173,6 +173,8 @@ enum PowerCommand {
     },
     /// Remove a conditional action by its number (shown by `ug power list`).
     Unwatch { id: u32 },
+    /// Power draw now and CPU energy per day.
+    Usage,
     /// The scheduled and conditional actions, and the wake alarm.
     List,
     /// Remove a scheduled action by its number.
@@ -610,6 +612,25 @@ async fn power(conn: &zbus::Connection, command: PowerCommand, json: bool) -> Re
             };
             let w = p.when(&action, kind, threshold, minutes, &name, "").await.map_err(daemon_error)?;
             println!("Armed #w{}: {} {}.", w.id, w.action, describe_watch(&w));
+        }
+        PowerCommand::Usage => {
+            let u = p.usage().await.map_err(daemon_error)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&u)?);
+                return Ok(());
+            }
+            let w = |v: f64| if v.is_nan() { "—".to_string() } else { format!("{v:.1} W") };
+            println!("CPU package   {}", w(u.cpu_w));
+            println!("GPU           {}", w(u.gpu_w));
+            println!("On battery    {}{}", w(u.battery_w), if u.battery_w.is_nan() { "  (only measurable while on battery)" } else { "  (whole machine)" });
+            if u.cpu_energy_recorded {
+                println!("\nCPU energy per day (the rest of the machine has no sensor):");
+                for d in u.days.iter().rev().take(7) {
+                    println!("  {}  {:.0} Wh", d.date, d.cpu_wh);
+                }
+            } else {
+                println!("\nDaily energy is not recorded: this machine has no readable RAPL counter.");
+            }
         }
         PowerCommand::Unwatch { id } => {
             if !p.cancel_watch(id).await.map_err(daemon_error)? {

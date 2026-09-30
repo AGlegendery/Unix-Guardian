@@ -4,7 +4,7 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -96,6 +96,17 @@ export const mockApi = {
     if (i >= 0) watches.splice(i, 1);
     return i >= 0;
   },
+  // Invented for the preview only; the page labels preview data as such.
+  powerUsage: async (): Promise<PowerUsage> => ({
+    cpu_w: base.cpu.power_w,
+    gpu_w: null,
+    battery_w: null,
+    cpu_energy_recorded: true,
+    days: Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(Date.now() - (6 - i) * 864e5);
+      return { date: d.toISOString().slice(0, 10), cpu_wh: [210, 340, 180, 420, 390, 260, 150][i] };
+    }),
+  }),
   wakeAlarm: async (): Promise<[number, boolean]> => [alarm, true],
   setWakeAlarm: async (at: number) => {
     alarm = at;

@@ -18,6 +18,7 @@
 //! ```
 
 mod conditions;
+mod energy;
 mod gamemode;
 mod iface;
 mod polkit;
@@ -184,6 +185,7 @@ async fn main() -> Result<()> {
     let schedule = Arc::new(std::sync::Mutex::new(schedule));
     let watches = Arc::new(std::sync::Mutex::new(conditions::Watches::load(&state_dir.join("conditions.json"))));
     let watches_changed = Arc::new(tokio::sync::Notify::new());
+    let energy = Arc::new(std::sync::Mutex::new(energy::EnergyMeter::load(root.clone(), &state_dir.join("energy.json"))));
     let observer = Arc::new(power::Observer {
         sampler: Arc::clone(&sampler),
         game_active: Arc::clone(&gamemode_active),
@@ -205,12 +207,14 @@ async fn main() -> Result<()> {
                 watches: Arc::clone(&watches),
                 observer: Arc::clone(&observer),
                 watches_changed: Arc::clone(&watches_changed),
+                energy: Arc::clone(&energy),
             },
         )
         .await
         .context("serving the power interface")?;
     tokio::spawn(power::run(conn.clone(), schedule, Arc::clone(&backend), schedule_changed));
     tokio::spawn(power::watch(watches, observer, backend, watches_changed));
+    tokio::spawn(power::meter(energy));
 
     tracing::info!(
         bus = if args.session { "session" } else { "system" },

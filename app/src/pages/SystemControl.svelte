@@ -1,7 +1,7 @@
 <script lang="ts">
   import { AlarmClock, Cpu, Moon, Power, RotateCcw, Snowflake, Trash2 } from "@lucide/svelte";
   import type { Component } from "svelte";
-  import { api, errorText, type PowerAction, type PowerCapability, type PowerJob, type PowerWatch, type WatchKind } from "../lib/api";
+  import { api, errorText, type PowerUsage, type PowerAction, type PowerCapability, type PowerJob, type PowerWatch, type WatchKind } from "../lib/api";
   import { num } from "../lib/format";
   import { locale, t } from "../lib/i18n.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
@@ -31,6 +31,38 @@
   let condBelow = $state(50);
   let condMinutes = $state(5);
   let condName = $state("");
+  let usage = $state<PowerUsage | null>(null);
+  let tariff = $state(readTariff());
+
+  function readTariff(): number {
+    try {
+      return Number(localStorage.getItem("ug.tariff")) || 0;
+    } catch {
+      return 0;
+    }
+  }
+  $effect(() => {
+    try {
+      localStorage.setItem("ug.tariff", String(tariff || ""));
+    } catch {
+      /* not remembered; still used for this session */
+    }
+  });
+  // Live draw while the tab is open, every 5 s (one D-Bus call).
+  $effect(() => {
+    if (tab !== "usage") return;
+    const load = () => !document.hidden && api.powerUsage().then((u) => (usage = u)).catch((e) => (error = errorText(e)));
+    load();
+    const id = setInterval(load, 5000);
+    return () => clearInterval(id);
+  });
+  const last7 = $derived((usage?.days ?? []).slice(-7));
+  const weekWh = $derived(last7.reduce((a, d) => a + d.cpu_wh, 0));
+  const todayWh = $derived(last7.at(-1)?.cpu_wh ?? 0);
+  const maxWh = $derived(Math.max(1, ...last7.map((d) => d.cpu_wh)));
+  function dayName(date: string): string {
+    return new Intl.DateTimeFormat(locale.current === "fa" ? "fa-IR" : "en-GB", { weekday: "short" }).format(new Date(date + "T12:00"));
+  }
 
   // The four cards of the Windows app; the rarer logind actions stay in the CLI.
   const cards: [PowerAction, Component][] = [
@@ -350,6 +382,51 @@
       <p class="muted">{t().sys.cond.none}</p>
     {/if}
   </section>
+{:else if tab === "usage"}
+  <section class="card">
+    <h2>{t().sys.use.now}</h2>
+    <div class="meters">
+      <div><span class="muted">{t().sys.use.cpu}</span><span class="big">{num(usage?.cpu_w ?? null)} <small>{t().unit.w}</small></span></div>
+      <div><span class="muted">{t().sys.use.gpu}</span><span class="big">{num(usage?.gpu_w ?? null)} <small>{t().unit.w}</small></span></div>
+      <div>
+        <span class="muted">{t().sys.use.battery}</span>
+        {#if usage?.battery_w != null}
+          <span class="big">{num(usage.battery_w)} <small>{t().unit.w}</small></span>
+        {:else}
+          <span class="small">{t().sys.use.batteryAc}</span>
+        {/if}
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>{t().sys.use.week}</h2>
+    {#if usage && !usage.cpu_energy_recorded}
+      <p class="muted">{t().sys.use.none}</p>
+    {:else if last7.length}
+      <div class="bars" role="img" aria-label={t().sys.use.week}>
+        {#each last7 as d, i (d.date)}
+          <div class="bar-col" title={`${d.date}: ${num(d.cpu_wh)} ${t().sys.use.wh}`}>
+            {#if i === last7.length - 1 || d.cpu_wh === maxWh}<span class="bar-val">{num(d.cpu_wh)}</span>{/if}
+            <span class="bar-fill" style:--h={d.cpu_wh / maxWh}></span>
+            <span class="bar-day">{i === last7.length - 1 ? t().sys.use.today : dayName(d.date)}</span>
+          </div>
+        {/each}
+      </div>
+      <div class="meters">
+        <div><span class="muted">{t().sys.use.today}</span><span class="big">{num(todayWh / 1000, 2)} <small>{t().sys.use.kwh}</small></span></div>
+        <div><span class="muted">{t().sys.use.weekTotal}</span><span class="big">{num(weekWh / 1000, 2)} <small>{t().sys.use.kwh}</small></span></div>
+        <div>
+          <label class="muted" for="tariff">{t().sys.use.tariff} ({t().sys.use.currency})</label>
+          <input id="tariff" class="num wide" type="number" min="0" bind:value={tariff} />
+        </div>
+        {#if tariff > 0}
+          <div><span class="muted">{t().sys.use.cost}</span><span class="big">{num((weekWh / 1000) * tariff)} <small>{t().sys.use.currency}</small></span></div>
+        {/if}
+      </div>
+    {/if}
+    <p class="small">{t().sys.use.honest}</p>
+  </section>
 {:else if tab === "sleep" || tab === "alarm"}
   <section class="card">
     <h2><AlarmClock size={18} aria-hidden="true" /> {tab === "sleep" ? t().sys.sleepWake : t().sys.alarmTitle}</h2>
@@ -496,6 +573,16 @@
   }
   .cancel:hover { background: color-mix(in oklab, var(--danger) 12%, transparent); }
   .cancel:focus-visible { outline: 2px solid var(--danger); }
+  .meters { display: flex; flex-wrap: wrap; gap: 14px 40px; margin-top: 6px; }
+  .meters > div { display: grid; gap: 2px; }
+  .big { font-size: 1.6rem; font-weight: 700; }
+  .big small { font-size: 0.55em; color: var(--text-2); font-weight: 500; }
+  input.num.wide { width: 8em; }
+  .bars { display: flex; align-items: flex-end; gap: 14px; height: 170px; margin: 8px 0 18px; }
+  .bar-col { flex: 1; max-width: 56px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; }
+  .bar-fill { width: 24px; height: calc(var(--h) * 120px); min-height: 2px; background: var(--accent); border-radius: 4px 4px 0 0; }
+  .bar-val { font-size: 0.75rem; color: var(--text-2); }
+  .bar-day { font-size: 0.75rem; color: var(--text-3); }
   .kinds { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 8px 0 14px; }
   @media (max-width: 900px) { .kinds { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .kind {

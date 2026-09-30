@@ -158,6 +158,14 @@ export interface PowerWatch {
   note: string;
 }
 
+export interface PowerUsage {
+  cpu_w: number | null;
+  gpu_w: number | null;
+  battery_w: number | null;
+  cpu_energy_recorded: boolean;
+  days: { date: string; cpu_wh: number }[];
+}
+
 export interface PlaytimeEntry {
   key: string;
   name: string;
@@ -189,6 +197,7 @@ const tauriApi = {
     invoke<PowerWatch>("power_when", { action, kind, threshold, minutes, name }),
   powerWatches: () => invoke<PowerWatch[]>("power_watches"),
   powerUnwatch: (id: number) => invoke<boolean>("power_unwatch", { id }),
+  powerUsage: () => invoke<PowerUsage>("power_usage"),
   wakeAlarm: () => invoke<[number, boolean]>("wake_alarm"),
   setWakeAlarm: (atUnixMs: number) => invoke<void>("set_wake_alarm", { atUnixMs }),
   clearWakeAlarm: () => invoke<void>("clear_wake_alarm"),

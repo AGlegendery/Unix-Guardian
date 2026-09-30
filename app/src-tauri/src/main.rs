@@ -75,6 +75,7 @@ fn main() {
             bus::power_when,
             bus::power_watches,
             bus::power_unwatch,
+            bus::power_usage,
         ])
         .run(tauri::generate_context!())
         .expect("running the Unix Guardian window");

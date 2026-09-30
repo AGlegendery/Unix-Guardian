@@ -194,6 +194,10 @@ pub mod daemon {
 
         fn cancel_watch(&self, id: u32) -> zbus::Result<bool>;
 
+        /// Draw now (CPU, GPU, whole machine on battery) and CPU energy per
+        /// day. Only what is measured: the rest of the machine has no sensor.
+        fn usage(&self) -> zbus::Result<PowerUsage>;
+
         /// Wakes the computer at this time; replaces any alarm set.
         fn set_wake_alarm(&self, at_unix_ms: u64) -> zbus::Result<()>;
 

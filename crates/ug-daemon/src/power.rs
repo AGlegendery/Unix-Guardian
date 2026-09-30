@@ -14,7 +14,7 @@ use tokio::sync::Notify;
 use crate::conditions::{Condition, Observation, Watch, Watches};
 use std::sync::atomic::{AtomicBool, Ordering};
 use ug_hw::SysRoot;
-use ug_proto::{PowerCapability, PowerJob, PowerWatch};
+use ug_proto::{DayEnergy, PowerCapability, PowerJob, PowerUsage, PowerWatch};
 use zbus::object_server::SignalEmitter;
 
 #[zbus::proxy(
@@ -167,6 +167,7 @@ pub struct PowerIface {
     pub observer: Arc<Observer>,
     /// Wakes the condition loop when a watch is added.
     pub watches_changed: Arc<Notify>,
+    pub energy: Arc<Mutex<crate::energy::EnergyMeter>>,
 }
 
 pub type SharedWatches = Arc<Mutex<Watches>>;
@@ -319,6 +320,25 @@ impl PowerIface {
         self.watches.lock().unwrap_or_else(|e| e.into_inner()).cancel(id).map_err(zbus::fdo::Error::Failed)
     }
 
+    async fn usage(&self) -> PowerUsage {
+        let observer = Arc::clone(&self.observer);
+        let energy = Arc::clone(&self.energy);
+        tokio::task::spawn_blocking(move || {
+            let snap = observer.sampler.snapshot();
+            let gpus: Vec<f64> = snap.gpus.iter().filter(|g| !g.asleep && !g.power_w.is_nan()).map(|g| g.power_w).collect();
+            let meter = energy.lock().unwrap_or_else(|e| e.into_inner());
+            PowerUsage {
+                cpu_w: snap.cpu.power_w,
+                gpu_w: if gpus.is_empty() { f64::NAN } else { gpus.iter().sum() },
+                battery_w: crate::energy::battery_discharge_w(&observer.root).unwrap_or(f64::NAN),
+                cpu_energy_recorded: meter.available(),
+                days: meter.days().into_iter().map(|(date, cpu_wh)| DayEnergy { date, cpu_wh }).collect(),
+            }
+        })
+        .await
+        .unwrap_or(PowerUsage { cpu_w: f64::NAN, gpu_w: f64::NAN, battery_w: f64::NAN, cpu_energy_recorded: false, days: Vec::new() })
+    }
+
     /// Wakes the computer at `at_unix_ms` (from sleep, or from off where the
     /// firmware allows it). Replaces any alarm already set.
     async fn set_wake_alarm(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, at_unix_ms: u64) -> zbus::fdo::Result<()> {
@@ -452,5 +472,26 @@ pub async fn watch(watches: SharedWatches, observer: Arc<Observer>, backend: Arc
             _ = tokio::time::sleep(WATCH_EVERY) => {}
             _ = changed.notified() => {}
         }
+    }
+}
+
+/// Books CPU energy every ten minutes (see `energy`); does nothing on a
+/// machine without a readable RAPL counter.
+pub async fn meter(energy: Arc<Mutex<crate::energy::EnergyMeter>>) {
+    let every = std::time::Duration::from_secs(600);
+    loop {
+        let e = Arc::clone(&energy);
+        let available = tokio::task::spawn_blocking(move || {
+            let mut m = e.lock().unwrap_or_else(|e| e.into_inner());
+            m.tick(&crate::energy::local_date());
+            m.available()
+        })
+        .await
+        .unwrap_or(false);
+        if !available {
+            tracing::info!("no readable RAPL counter; daily CPU energy is not recorded");
+            return;
+        }
+        tokio::time::sleep(every).await;
     }
 }
