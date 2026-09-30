@@ -563,3 +563,37 @@ pub struct PingComparison {
     /// `flatter`, `same`, `worse`, or `not-enough-data`.
     pub verdict: String,
 }
+
+/// Internet use of one app or service, counted by its cgroup.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct AppTraffic {
+    /// The cgroup path, relative to the cgroup root; stable while it runs.
+    pub id: String,
+    /// `Firefox`, `Steam`, `packagekit`.
+    pub name: String,
+    /// `app`, `service` (system or user service) or `session` (a login
+    /// session: programs started from a terminal outside an app's own group).
+    pub kind: String,
+    /// Owner: the user whose slice it runs in, 0 for system services.
+    pub uid: u32,
+    /// The first process's command name, e.g. `firefox-esr`.
+    pub exe: String,
+    pub pids: Vec<i32>,
+    pub rx_bps: u64,
+    pub tx_bps: u64,
+    /// Since the service started counting it.
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+}
+
+/// Whether internet control works here, and why not.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct NetControlStatus {
+    pub available: bool,
+    /// Why it is unavailable; empty when it works.
+    pub problem: String,
+    /// A development service: numbers are invented and nothing is changed.
+    pub simulated: bool,
+    /// Other firewalls found (`firewalld`, `ufw`); ours coexists with them.
+    pub firewalls: Vec<String>,
+}

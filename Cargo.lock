@@ -1670,6 +1670,7 @@ dependencies = [
  "ug-core",
  "ug-gpu",
  "ug-hw",
+ "ug-net",
  "ug-proto",
  "ug-testfs",
  "ug-tune",
@@ -1706,6 +1707,19 @@ name = "ug-hw"
 version = "0.1.0"
 dependencies = [
  "tracing",
+ "ug-proto",
+ "ug-testfs",
+]
+
+[[package]]
+name = "ug-net"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "ug-hw",
  "ug-proto",
  "ug-testfs",
 ]

@@ -11,7 +11,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use ug_proto::agent::{GamesProxy, MonitorProxy, PingProxy, PlaytimeProxy, ProfilesProxy};
-use ug_proto::daemon::{DaemonProxy, GpuProxy, PowerProxy};
+use ug_proto::daemon::{DaemonProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{GpuCapabilities, Inventory, PowerWatch, Snapshot};
 
 #[derive(Parser)]
@@ -47,6 +47,12 @@ enum Command {
     Battery {
         #[command(subcommand)]
         command: Option<BatteryCommand>,
+    },
+    /// Internet use per app and service, counted by the service.
+    Net {
+        /// Include apps that have not used the internet.
+        #[arg(long)]
+        all: bool,
     },
     /// Shut down, restart or sleep, now or on a schedule.
     Power {
@@ -288,6 +294,7 @@ async fn main() -> Result<()> {
         Command::Gpu { command } => gpu(&conn, &daemon, command, cli.json).await,
         Command::Power { command } => power(&conn, command, cli.json).await,
         Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
+        Command::Net { all } => net(&conn, all, cli.json).await,
         Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Tui => {
             unreachable!("handled above")
         }
@@ -847,6 +854,47 @@ fn parse_rate(s: &str) -> Result<f64> {
         _ => (s, 1.0),
     };
     num.parse::<f64>().map(|n| n * mult).map_err(|_| anyhow::anyhow!("cannot read {s:?} as a rate; e.g. 50k or 2M"))
+}
+
+async fn net(conn: &zbus::Connection, all: bool, json: bool) -> Result<()> {
+    let p = NetProxy::new(conn).await?;
+    let status = p.status().await.map_err(daemon_error)?;
+    if !status.available {
+        anyhow::bail!("{}", status.problem);
+    }
+    // The first call starts two-second updates; the second has real rates.
+    p.apps().await.map_err(daemon_error)?;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let apps = p.apps().await.map_err(daemon_error)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&apps)?);
+        return Ok(());
+    }
+    if status.simulated {
+        println!("(development service: invented numbers)");
+    }
+    let mb = |b: u64| format!("{:.1} MB", b as f64 / 1e6);
+    println!("{:<28} {:<8} {:>12} {:>12} {:>11} {:>11}", "app", "kind", "down", "up", "down total", "up total");
+    let mut hidden = 0;
+    for a in apps {
+        if !all && a.rx_bytes + a.tx_bytes == 0 {
+            hidden += 1;
+            continue;
+        }
+        let name: String = a.name.chars().take(28).collect();
+        println!(
+            "{name:<28} {:<8} {:>12} {:>12} {:>11} {:>11}",
+            a.kind,
+            rate(a.rx_bps),
+            rate(a.tx_bps),
+            mb(a.rx_bytes),
+            mb(a.tx_bytes)
+        );
+    }
+    if hidden > 0 {
+        println!("({hidden} more without traffic; --all shows them)");
+    }
+    Ok(())
 }
 
 async fn battery(conn: &zbus::Connection, command: BatteryCommand, json: bool) -> Result<()> {

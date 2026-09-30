@@ -246,6 +246,23 @@ pub mod daemon {
         #[zbus(property)]
         fn set_active_gpu(&self, pci: &str) -> zbus::Result<()>;
     }
+
+    /// Internet control: traffic per app (and, next, blocking and limits).
+    /// Counting happens in Unix Guardian's own nftables table; other
+    /// firewall rules are never touched.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Daemon1.Net",
+        default_service = "org.unixguardian.Daemon1",
+        default_path = "/org/unixguardian/Daemon1"
+    )]
+    pub trait Net {
+        /// Whether counting works here, and why not.
+        fn status(&self) -> zbus::Result<NetControlStatus>;
+
+        /// Every app and service with its traffic, busiest first. Asking
+        /// makes the next minute's rates update every two seconds.
+        fn apps(&self) -> zbus::Result<Vec<AppTraffic>>;
+    }
 }
 
 /// Client proxies for the per-user agent's interfaces (session bus).
