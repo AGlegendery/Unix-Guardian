@@ -10,7 +10,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use ug_proto::agent::{GamesProxy, PlaytimeProxy, ProfilesProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, PlaytimeProxy, ProfilesProxy};
 use ug_proto::daemon::{DaemonProxy, GpuProxy, PowerProxy};
 use ug_proto::{GpuCapabilities, Inventory, PowerWatch, Snapshot};
 
@@ -75,6 +75,16 @@ enum Command {
         /// Print every session as CSV (for a spreadsheet) instead of a summary.
         #[arg(long, conflicts_with = "forget")]
         csv: bool,
+    },
+    /// Temperature, load and power over the past hours (recorded once a minute).
+    History {
+        #[arg(long, default_value_t = 24)]
+        hours: u32,
+    },
+    /// Internet traffic per day.
+    Traffic {
+        #[arg(long, default_value_t = 7)]
+        days: u32,
     },
     /// Game profiles, and which game uses which.
     Profile {
@@ -230,6 +240,8 @@ async fn main() -> Result<()> {
         Command::Game { command } => return game(command, cli.json).await,
         Command::Playtime { today, week, forget, csv } => return playtime(today, week, forget, csv, cli.json).await,
         Command::Profile { command } => return profile(command, cli.json).await,
+        Command::History { hours } => return history(hours, cli.json).await,
+        Command::Traffic { days } => return traffic(days, cli.json).await,
         _ => {}
     }
 
@@ -263,7 +275,9 @@ async fn main() -> Result<()> {
         Command::Gpu { command } => gpu(&conn, &daemon, command, cli.json).await,
         Command::Power { command } => power(&conn, command, cli.json).await,
         Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
-        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } => unreachable!("handled above"),
+        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } => {
+            unreachable!("handled above")
+        }
     }
 }
 
@@ -379,6 +393,53 @@ async fn playtime(today: bool, week: bool, forget: Option<String>, csv: bool, js
         println!("{:>8}  {:>3}%  {}", hms(e.seconds), pct, e.name);
     }
     println!("{:>8}        total, {} games", hms(total), entries.len());
+    Ok(())
+}
+
+async fn history(hours: u32, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let m = MonitorProxy::new(&conn).await?;
+    let now = now_ms();
+    let pts = m.history(now.saturating_sub(hours as u64 * 3_600_000), now, 24).await.map_err(agent_hint)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&pts)?);
+        return Ok(());
+    }
+    if pts.is_empty() {
+        println!("No history yet: the agent records one reading a minute.");
+        return Ok(());
+    }
+    let f = |v: f64, unit: &str| if v.is_nan() { "—".to_string() } else { format!("{v:.0}{unit}") };
+    println!("{:<17} {:>8} {:>8} {:>8} {:>8} {:>8}", "time", "CPU °C", "CPU %", "CPU W", "GPU °C", "GPU %");
+    for p in pts {
+        println!(
+            "{:<17} {:>8} {:>8} {:>8} {:>8} {:>8}",
+            &local_time(p.ts_unix_ms)[..16],
+            f(p.cpu_temp_c, ""),
+            f(p.cpu_load_pct, ""),
+            f(p.cpu_w, ""),
+            f(p.gpu_temp_c, ""),
+            f(p.gpu_load_pct, "")
+        );
+    }
+    Ok(())
+}
+
+async fn traffic(days: u32, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let m = MonitorProxy::new(&conn).await?;
+    let t = m.traffic(now_ms().saturating_sub(days as u64 * 86_400_000)).await.map_err(agent_hint)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&t)?);
+        return Ok(());
+    }
+    if t.is_empty() {
+        println!("No traffic recorded yet.");
+    }
+    let mb = |b: u64| b as f64 / 1e6;
+    for d in t {
+        println!("{}  down {:>9.1} MB  up {:>9.1} MB", d.date, mb(d.rx_bytes), mb(d.tx_bytes));
+    }
     Ok(())
 }
 

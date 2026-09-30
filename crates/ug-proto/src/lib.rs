@@ -299,6 +299,20 @@ pub mod agent {
         fn sessions(&self, since_unix_ms: u64) -> zbus::Result<Vec<PlaytimeSession>>;
     }
 
+    /// Monitoring history the agent records once a minute (90 days).
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Monitor",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Monitor {
+        /// Readings between two times, averaged into at most `points` buckets.
+        fn history(&self, since_unix_ms: u64, until_unix_ms: u64, points: u32) -> zbus::Result<Vec<HistoryPoint>>;
+
+        /// Bytes received and sent per local day since `since_unix_ms`.
+        fn traffic(&self, since_unix_ms: u64) -> zbus::Result<Vec<DayTraffic>>;
+    }
+
     /// Game profiles and which game uses which.
     #[zbus::proxy(
         interface = "org.unixguardian.Agent1.Profiles",
