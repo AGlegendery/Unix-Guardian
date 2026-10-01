@@ -1,6 +1,7 @@
 //! The pages: drawing, and what their keys and clicks do.
 
 use crate::{data, App, Hit, PAGES};
+use std::time::{Duration, Instant};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::symbols::Marker;
@@ -65,7 +66,15 @@ pub fn draw(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
     app.rows = 0;
     match app.page {
         0 => dashboard(app, f, inner, wide),
-        1 => game_mode(app, f, inner),
+        1 => {
+            tabs(app, f, Rect { height: 1, ..inner }, &["Game mode", "Graphics card"]);
+            let body = Rect { y: inner.y + 2, height: inner.height.saturating_sub(2), ..inner };
+            if app.tab == 1 {
+                gpu_tune_page(app, f, body)
+            } else {
+                game_mode(app, f, body)
+            }
+        }
         2 => system(app, f, inner),
         3 => monitoring(app, f, inner),
         4 => ping_page(app, f, inner),
@@ -376,12 +385,13 @@ fn capital(s: &str) -> String {
 }
 
 fn system(app: &mut App, f: &mut Frame, r: Rect) {
-    tabs(app, f, Rect { height: 1, ..r }, &["Power command", "Queue", "Battery"]);
+    tabs(app, f, Rect { height: 1, ..r }, &["Power command", "Queue", "Battery", "Cooling"]);
     let body = Rect { y: r.y + 2, height: r.height.saturating_sub(2), ..r };
     match app.tab {
         0 => power(app, f, body),
         1 => queue(app, f, body),
-        _ => battery(app, f, body),
+        2 => battery(app, f, body),
+        _ => cooling(app, f, body),
     }
 }
 
@@ -450,6 +460,233 @@ fn queue(app: &mut App, f: &mut Frame, r: Rect) {
         y += 1;
     }
     app.rows = jobs.len() + watches.len();
+}
+
+const PROFILES: [&str; 3] = ["power-saver", "balanced", "performance"];
+const FAN_CURVES: [(&str, [(f64, f64); 4]); 3] = [
+    ("quiet", [(40.0, 20.0), (60.0, 35.0), (75.0, 60.0), (85.0, 100.0)]),
+    ("balanced", [(40.0, 25.0), (60.0, 45.0), (75.0, 70.0), (85.0, 100.0)]),
+    ("cool", [(40.0, 35.0), (55.0, 55.0), (70.0, 85.0), (80.0, 100.0)]),
+];
+
+/// Power limit and clock offsets; nothing is read until Enter (it wakes the card).
+fn gpu_tune_page(app: &mut App, f: &mut Frame, r: Rect) {
+    let t = app.theme;
+    let Some((pci, st)) = app.tune.clone() else {
+        let lines = vec![
+            Line::from(Span::styled("Power limit and clock offsets", t.title())),
+            Line::from(Span::styled("Reading them wakes the graphics card for a moment, so they are read only when you ask.", t.faint())),
+            Line::from(""),
+        ];
+        f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), Rect { height: 3, ..r });
+        app.rows = 1;
+        row(app, f, Rect { y: r.y + 3, height: 1, ..r }, 0, Line::from(Span::styled(" Enter  Show tuning ", t.accent())));
+        return;
+    };
+    let d = app.tune_draft;
+    let mut lines = vec![Line::from(Span::styled(format!("Power limit and clock offsets ({pci})"), t.title()))];
+    if !st.crashed.is_default() {
+        lines.push(Line::from(Span::styled(
+            format!("Not applied again: the setting being tried when the machine stopped ({:.0} W, core {:+}, memory {:+}).", st.crashed.power_limit_w, st.crashed.core_offset_mhz, st.crashed.mem_offset_mhz),
+            t.warn_style(),
+        )));
+    }
+    let h = lines.len() as u16 + 1;
+    f.render_widget(Paragraph::new(lines), Rect { height: h, ..r });
+    let mut y = r.y + h;
+    let mut rows: Vec<Line> = Vec::new();
+    if st.power_limit {
+        rows.push(Line::from(vec![Span::styled(format!(" {:<22}", "Power limit"), t.text()), Span::styled(format!("‹ {:.0} W ›  default {:.0}, {:.0}–{:.0} W", d.power_limit_w, st.power_default_w, st.power_min_w, st.power_max_w), t.muted())]));
+    }
+    if st.core_offset {
+        rows.push(Line::from(vec![Span::styled(format!(" {:<22}", "Core clock offset"), t.text()), Span::styled(format!("‹ {:+} MHz ›  {:+}…{:+}", d.core_offset_mhz, st.core_min_mhz, st.core_max_mhz), t.muted())]));
+    }
+    if st.mem_offset {
+        rows.push(Line::from(vec![Span::styled(format!(" {:<22}", "Memory clock offset"), t.text()), Span::styled(format!("‹ {:+} MHz ›  {:+}…{:+}", d.mem_offset_mhz, st.mem_min_mhz, st.mem_max_mhz), t.muted())]));
+    }
+    let trying = app.tune_until.map(|u| u.saturating_duration_since(Instant::now()).as_secs());
+    match trying {
+        Some(s) => {
+            rows.push(Line::from(Span::styled(format!(" Enter  Keep  (undone by itself in {s} s)"), t.accent())));
+            rows.push(Line::from(Span::styled(" Enter  Undo now", t.muted())));
+        }
+        None => {
+            rows.push(Line::from(Span::styled(" Enter  Try for 30 seconds", t.accent())));
+            rows.push(Line::from(Span::styled(" Enter  Card's defaults", t.muted())));
+        }
+    }
+    app.rows = rows.len();
+    for (i, l) in rows.into_iter().enumerate() {
+        row(app, f, Rect { y, height: 1, ..r }, i, l);
+        y += 1;
+    }
+    let mut notes = vec![Line::from(Span::styled(
+        "Every change is a 30-second trial; a setting being tried when the machine froze is never applied again; a tuned card at 88 °C gets its defaults back.",
+        t.faint(),
+    ))];
+    notes.extend(st.notes.iter().map(|n| Line::from(Span::styled(n.clone(), t.faint()))));
+    if y + 1 < r.bottom() {
+        f.render_widget(Paragraph::new(notes).wrap(Wrap { trim: true }), Rect { y: y + 1, height: r.bottom() - y - 1, ..r });
+    }
+}
+
+/// The adjustable rows of the GPU tuner, in order.
+fn tune_fields(st: &ug_proto::GpuTuneState) -> Vec<&'static str> {
+    let mut v = Vec::new();
+    if st.power_limit {
+        v.push("power");
+    }
+    if st.core_offset {
+        v.push("core");
+    }
+    if st.mem_offset {
+        v.push("mem");
+    }
+    v
+}
+
+fn step_tune(app: &mut App, d: i32) {
+    let Some((_, st)) = app.tune.clone() else { return };
+    if app.tune_until.is_some() {
+        return;
+    }
+    let Some(field) = tune_fields(&st).get(app.row).copied() else { return };
+    let t = &mut app.tune_draft;
+    match field {
+        "power" => t.power_limit_w = (t.power_limit_w + 5.0 * d as f64).clamp(st.power_min_w, st.power_max_w),
+        "core" => t.core_offset_mhz = (t.core_offset_mhz + 15 * d).clamp(st.core_min_mhz, st.core_max_mhz),
+        _ => t.mem_offset_mhz = (t.mem_offset_mhz + 50 * d).clamp(st.mem_min_mhz, st.mem_max_mhz),
+    }
+}
+
+fn activate_tune(app: &mut App, i: usize) {
+    let Some((pci, st)) = app.tune.clone() else {
+        let r = app.bus.active_gpu().and_then(|pci| app.bus.gpu_tune_state(&pci).map(|st| (pci, st)));
+        match r {
+            Ok((pci, st)) => {
+                let a = st.applied;
+                app.tune_draft = ug_proto::GpuTune {
+                    power_limit_w: if a.power_limit_w == 0.0 { st.power_limit_w } else { a.power_limit_w },
+                    ..a
+                };
+                app.tune = Some((pci, st));
+                app.row = 0;
+            }
+            Err(e) => app.say(e, false),
+        }
+        return;
+    };
+    let fields = tune_fields(&st).len();
+    if i < fields {
+        step_tune(app, 1);
+        return;
+    }
+    let first = i == fields;
+    let (op, msg) = match (app.tune_until.is_some(), first) {
+        (false, true) => ("try", "Trying it: keep it within 30 seconds, or it is undone by itself."),
+        (false, false) => ("reset", "Back to the card's own defaults."),
+        (true, true) => ("keep", "Kept. It is applied again whenever the card wakes."),
+        (true, false) => ("cancel", "Undone."),
+    };
+    let mut t = app.tune_draft;
+    if (t.power_limit_w - st.power_default_w).abs() < 0.5 {
+        t.power_limit_w = 0.0;
+    }
+    match app.bus.gpu_tune(&pci, op, &t) {
+        Ok(()) => {
+            app.tune_until = (op == "try").then(|| Instant::now() + Duration::from_secs(30));
+            app.say(msg, true);
+            if op != "try" {
+                if let Ok(st) = app.bus.gpu_tune_state(&pci) {
+                    app.tune = Some((pci, st));
+                }
+            }
+        }
+        Err(e) => app.say(e, false),
+    }
+}
+
+/// Rows: power profile, firmware fan mode (when there is one), then fans.
+fn cooling(app: &mut App, f: &mut Frame, r: Rect) {
+    let t = app.theme;
+    let Some((st, ppd)) = app.cooling.value.clone() else {
+        let msg = app.cooling.error.clone().unwrap_or_else(|| "Reading…".into());
+        f.render_widget(Paragraph::new(Span::styled(msg, t.muted())), r);
+        return;
+    };
+    let mut y = r.y;
+    let mut i = 0;
+    let profile = if ppd.is_empty() { "no power profile service".to_string() } else { format!("‹ {ppd} ›") };
+    row(app, f, Rect { y, height: 1, ..r }, i, Line::from(vec![Span::styled(format!(" {:<24}", "Power profile"), t.text()), Span::styled(profile, t.muted())]));
+    y += 1;
+    i += 1;
+    if st.fan_mode >= 0 {
+        let name = st.fan_modes.iter().find(|(v, _)| *v == st.fan_mode).map(|(_, n)| n.clone()).unwrap_or_else(|| "other".into());
+        row(app, f, Rect { y, height: 1, ..r }, i, Line::from(vec![Span::styled(format!(" {:<24}", "Laptop fan mode"), t.text()), Span::styled(format!("‹ {name} ›"), t.muted())]));
+        y += 1;
+        i += 1;
+    }
+    y += 1;
+    for fan in &st.fans {
+        if y >= r.bottom() {
+            break;
+        }
+        let mode = if fan.mode == "curve" {
+            FAN_CURVES.iter().find(|(_, c)| fan.curve == c.to_vec()).map(|(n, _)| format!("{n} curve")).unwrap_or_else(|| "own curve".into())
+        } else {
+            "automatic".into()
+        };
+        let line = Line::from(vec![
+            Span::styled(format!(" {:<24}", fan.label), t.text()),
+            Span::styled(format!("{:>5} rpm {:>4.0} % {:>4.0} °C  ", fan.rpm, fan.pct, fan.temp_c), t.muted()),
+            Span::styled(format!("‹ {mode} ›"), t.accent()),
+        ]);
+        row(app, f, Rect { y, height: 1, ..r }, i, line);
+        y += 1;
+        i += 1;
+    }
+    app.rows = i;
+    let mut notes: Vec<Line> = st.notes.iter().map(|n| Line::from(Span::styled(n.clone(), t.faint()))).collect();
+    notes.push(Line::from(Span::styled("No curve runs a fan below 30 % at 80 °C; a stopped or crashed service hands fans back to automatic.", t.faint())));
+    if y + 1 < r.bottom() {
+        f.render_widget(Paragraph::new(notes).wrap(Wrap { trim: true }), Rect { y: y + 1, height: r.bottom() - y - 1, ..r });
+    }
+}
+
+/// ←→ (or Enter) on a cooling row.
+fn step_cooling(app: &mut App, d: i32) {
+    let Some((st, ppd)) = app.cooling.value.clone() else { return };
+    let cycle = |i: usize, n: usize| ((i as i32 + d).rem_euclid(n as i32)) as usize;
+    let mut row = app.row;
+    let r = if row == 0 {
+        if ppd.is_empty() {
+            return;
+        }
+        let i = PROFILES.iter().position(|p| *p == ppd).unwrap_or(1);
+        let next = PROFILES[cycle(i, PROFILES.len())];
+        app.bus.set_power_profile(next).map(|_| format!("Power profile: {next}."))
+    } else {
+        row -= 1;
+        if st.fan_mode >= 0 && row == 0 {
+            let i = st.fan_modes.iter().position(|(v, _)| *v == st.fan_mode).unwrap_or(0);
+            let (v, n) = st.fan_modes[cycle(i, st.fan_modes.len())].clone();
+            app.bus.set_fan_mode(v).map(|_| format!("Laptop fan mode: {n}."))
+        } else {
+            let fi = if st.fan_mode >= 0 { row - 1 } else { row };
+            let Some(fan) = st.fans.get(fi) else { return };
+            // automatic → quiet → balanced → cool → automatic
+            let cur = if fan.mode == "curve" { FAN_CURVES.iter().position(|(_, c)| fan.curve == c.to_vec()).map(|p| p + 1).unwrap_or(0) } else { 0 };
+            let next = cycle(cur, FAN_CURVES.len() + 1);
+            if next == 0 {
+                app.bus.set_fan_auto(&fan.id).map(|_| format!("{}: automatic.", fan.label))
+            } else {
+                let (n, c) = FAN_CURVES[next - 1];
+                app.bus.set_fan_curve(&fan.id, &c).map(|_| format!("{}: {n} curve.", fan.label))
+            }
+        }
+    };
+    report(app, r);
+    app.cooling.invalidate();
 }
 
 fn battery(app: &mut App, f: &mut Frame, r: Rect) {
@@ -1089,9 +1326,11 @@ fn ping_page(app: &mut App, f: &mut Frame, r: Rect) {
 /// The page's own keys, for the key bar.
 pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
     match (app.page, app.tab) {
-        (1, _) => vec![("←→", "profile"), ("Enter", "toggle")],
+        (1, 1) => vec![("Tab", "game mode"), ("←→", "change"), ("Enter", "run")],
+        (1, _) => vec![("Tab", "graphics card"), ("←→", "profile"), ("Enter", "toggle")],
         (2, 0) => vec![("←→", "when"), ("Enter", "run")],
         (2, 1) => vec![("Tab", "next tab"), ("x", "cancel")],
+        (2, 3) => vec![("↑↓", "row"), ("←→", "change"), ("Enter", "next")],
         (2, _) => vec![("Enter", "choose"), ("←→", "limit")],
         (3, 0) => vec![("Tab", "traffic"), ("←→", "range")],
         (3, 1) => vec![("Tab", "FPS")],
@@ -1124,8 +1363,16 @@ pub fn set_choice(app: &mut App, i: usize) {
 }
 
 pub fn step_choice(app: &mut App, d: i32) {
+    if (app.page, app.tab) == (1, 1) {
+        step_tune(app, d);
+        return;
+    }
     if app.page == 5 {
         step_overlay(app, d);
+        return;
+    }
+    if (app.page, app.tab) == (2, 3) {
+        step_cooling(app, d);
         return;
     }
     let max = match (app.page, app.tab) {
@@ -1148,6 +1395,11 @@ fn report(app: &mut App, r: Result<String, String>) {
 
 pub fn activate(app: &mut App, i: usize) {
     match (app.page, app.tab) {
+        (1, 1) => activate_tune(app, i),
+        (2, 3) => {
+            let _ = i;
+            step_cooling(app, 1);
+        }
         (5, _) => {
             let Some(st) = app.overlay.value.clone() else { return };
             if !st.installed {

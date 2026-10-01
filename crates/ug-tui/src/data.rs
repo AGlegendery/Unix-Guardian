@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, ProfilesProxy};
-use ug_proto::daemon::{DaemonProxy, GameModeProxy, NetProxy, PowerProxy};
+use ug_proto::daemon::{CoolingProxy, DaemonProxy, GameModeProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{
     AppTraffic, BatteryCare, FpsSession, OverlaySettings, OverlayState, DayTraffic, ExtraSample, NetControlStatus, NetRule, PingComparison, PingReport, FpsReading, HistoryPoint, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
     ProfileInfo, RunningGameInfo, Snapshot,
@@ -129,6 +129,72 @@ impl Bus {
     pub fn fps_sessions(&self, since_ms: u64) -> Result<Vec<FpsSession>, String> {
         let c = self.agent()?;
         self.rt.block_on(async { MonitorProxy::new(c).await?.fps_sessions(since_ms).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn cooling(&self) -> Result<ug_proto::CoolingState, String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { CoolingProxy::new(c).await?.state().await }).map_err(|e| msg(e, "service"))
+    }
+
+    pub fn set_fan_curve(&self, id: &str, points: &[(f64, f64)]) -> Result<(), String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { CoolingProxy::new(c).await?.set_curve(id, points).await }).map_err(|e| msg(e, "service"))
+    }
+
+    pub fn set_fan_auto(&self, id: &str) -> Result<(), String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { CoolingProxy::new(c).await?.set_auto(id).await }).map_err(|e| msg(e, "service"))
+    }
+
+    pub fn set_fan_mode(&self, mode: i32) -> Result<(), String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { CoolingProxy::new(c).await?.set_fan_mode(mode).await }).map_err(|e| msg(e, "service"))
+    }
+
+    /// The system power profile (power-profiles-daemon); empty when absent.
+    pub fn power_profile(&self) -> String {
+        self.rt.block_on(async {
+            let c = zbus::Connection::system().await.ok()?;
+            let p = zbus::Proxy::new(&c, "org.freedesktop.UPower.PowerProfiles", "/org/freedesktop/UPower/PowerProfiles", "org.freedesktop.UPower.PowerProfiles").await.ok()?;
+            p.get_property::<String>("ActiveProfile").await.ok()
+        })
+        .unwrap_or_default()
+    }
+
+    pub fn set_power_profile(&self, profile: &str) -> Result<(), String> {
+        self.rt.block_on(async {
+            let c = zbus::Connection::system().await.map_err(|e| e.to_string())?;
+            let p = zbus::Proxy::new(&c, "org.freedesktop.UPower.PowerProfiles", "/org/freedesktop/UPower/PowerProfiles", "org.freedesktop.UPower.PowerProfiles")
+                .await
+                .map_err(|e| e.to_string())?;
+            p.set_property("ActiveProfile", profile).await.map_err(|e| e.to_string())
+        })
+    }
+
+    pub fn active_gpu(&self) -> Result<String, String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { GpuProxy::new(c).await?.active_gpu().await }).map_err(|e| msg(e, "service"))
+    }
+
+    pub fn gpu_tune_state(&self, pci: &str) -> Result<ug_proto::GpuTuneState, String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { GpuProxy::new(c).await?.tune_state(pci).await }).map_err(|e| msg(e, "service"))
+    }
+
+    /// `op`: try (with `t`), keep, cancel or reset.
+    pub fn gpu_tune(&self, pci: &str, op: &str, t: &ug_proto::GpuTune) -> Result<(), String> {
+        let c = self.daemon()?;
+        self.rt
+            .block_on(async {
+                let g = GpuProxy::new(c).await?;
+                match op {
+                    "try" => g.try_tune(pci, t).await,
+                    "keep" => g.keep_tune(pci).await,
+                    "cancel" => g.cancel_tune(pci).await,
+                    _ => g.reset_tune(pci).await,
+                }
+            })
+            .map_err(|e| msg(e, "service"))
     }
 
     pub fn gamemode_active(&self) -> Result<bool, String> {

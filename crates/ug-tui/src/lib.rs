@@ -94,6 +94,12 @@ pub struct App {
     pub ping_compare: Option<(u64, PingComparison)>,
     pub net: Cached<(Vec<AppTraffic>, Vec<NetRule>, NetControlStatus)>,
     pub overlay: Cached<OverlayState>,
+    pub cooling: Cached<(ug_proto::CoolingState, String)>,
+    /// GPU tuning on the game mode page: the card, its state (read only on
+    /// request: it wakes the card), the draft, and the trial's deadline.
+    pub tune: Option<(String, ug_proto::GpuTuneState)>,
+    pub tune_draft: ug_proto::GpuTune,
+    pub tune_until: Option<Instant>,
     pub sessions: Cached<Vec<FpsSession>>,
     /// A dangerous action armed by the first press; confirmed by a second
     /// within five seconds.
@@ -141,6 +147,10 @@ impl App {
             ping_compare: None,
             net: Cached::new(Duration::from_secs(2)),
             overlay: Cached::new(SLOW),
+            cooling: Cached::new(Duration::from_secs(3)),
+            tune: None,
+            tune_draft: Default::default(),
+            tune_until: None,
             sessions: Cached::new(Duration::from_secs(30)),
             armed: None,
             notice: None,
@@ -197,6 +207,10 @@ impl App {
                 if self.battery.due() {
                     let r = self.bus.battery();
                     self.battery.store(r);
+                }
+                if self.tab == 3 && self.cooling.due() {
+                    let r = self.bus.cooling().map(|c| (c, self.bus.power_profile()));
+                    self.cooling.store(r);
                 }
             }
             3 => {
@@ -281,6 +295,15 @@ impl App {
             }
             _ => {}
         }
+        // A GPU trial ends by itself in the service; show that here too.
+        if self.tune_until.is_some_and(|t| t <= Instant::now()) {
+            self.tune_until = None;
+            if let Some((pci, _)) = self.tune.clone() {
+                if let Ok(st) = self.bus.gpu_tune_state(&pci) {
+                    self.tune = Some((pci, st));
+                }
+            }
+        }
         if self.armed.as_ref().is_some_and(|(_, t)| t.elapsed() > Duration::from_secs(5)) {
             self.armed = None;
         }
@@ -317,7 +340,8 @@ impl App {
 
     fn tabs(&self) -> usize {
         match self.page {
-            2 => 3,
+            1 => 2,
+            2 => 4,
             3 => 3,
             4 => 2,
             _ => 1,
@@ -800,6 +824,27 @@ mod tests {
         }]));
         let screen = render(&mut app, 120, 34);
         for want in ["Game sessions this week", "cs2", "141", "96", "71", "smooth"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+    }
+
+    #[test]
+    fn the_gpu_tuner_waits_to_be_asked_then_shows_limits() {
+        let mut app = App::new(Bus::offline());
+        app.go(1);
+        app.tab = 1;
+        let screen = render(&mut app, 120, 34);
+        assert!(screen.contains("Show tuning") && screen.contains("wakes the graphics card"));
+        let st = ug_proto::GpuTuneState {
+            pci: "0000:01:00.0".into(), power_limit: true, power_limit_w: 60.0, power_default_w: 60.0, power_min_w: 35.0, power_max_w: 95.0,
+            core_offset: true, core_min_mhz: -200, core_max_mhz: 300, ..Default::default()
+        };
+        app.tune_draft = ug_proto::GpuTune { power_limit_w: 60.0, ..Default::default() };
+        app.tune = Some(("0000:01:00.0".into(), st));
+        app.row = 0;
+        pages::step_choice(&mut app, -1);
+        let screen = render(&mut app, 120, 34);
+        for want in ["55 W", "default 60, 35–95 W", "Core clock offset", "Try for 30 seconds", "88 °C"] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
     }
