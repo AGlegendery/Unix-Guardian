@@ -803,3 +803,34 @@ impl GpuTune {
         self.power_limit_w == 0.0 && self.core_offset_mhz == 0 && self.mem_offset_mhz == 0
     }
 }
+
+/// One fan Unix Guardian can drive.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+pub struct FanInfo {
+    /// `amdgpu/pwm1`, `nct6798/pwm2`.
+    pub id: String,
+    pub label: String,
+    /// NaN / 0 when unreported.
+    pub rpm: u32,
+    pub pct: f64,
+    /// The temperature it follows, NaN when unknown.
+    pub temp_c: f64,
+    /// `auto` (driver or firmware) or `curve` (Unix Guardian).
+    pub mode: String,
+    /// (°C, %) points when `curve`.
+    pub curve: Vec<(f64, f64)>,
+}
+
+/// Fans and the firmware's own fan modes.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct CoolingState {
+    pub fans: Vec<FanInfo>,
+    /// The laptop firmware's fan mode (Lenovo IdeaPad `fan_mode`), -1 when
+    /// there is none.
+    pub fan_mode: i32,
+    /// (value, name) pairs it accepts.
+    pub fan_modes: Vec<(i32, String)>,
+    /// Why there is nothing to drive, in words for the user.
+    pub notes: Vec<String>,
+    pub simulated: bool,
+}

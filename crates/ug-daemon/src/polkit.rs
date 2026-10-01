@@ -31,11 +31,13 @@ pub mod action {
     pub const NET: &str = "org.unixguardian.net.control";
     /// Change a GPU's power limit or clock offsets.
     pub const GPU_TUNE: &str = "org.unixguardian.gpu.tune";
+    /// Fan curves and the firmware's fan modes.
+    pub const COOLING: &str = "org.unixguardian.cooling";
 
     /// Every action, for the test that keeps this list and the shipped
     /// policy file in step.
     #[cfg(test)]
-    pub const ALL: &[&str] = &[DAEMON_DEBUG, GAMEMODE, POWER, NET, GPU_TUNE];
+    pub const ALL: &[&str] = &[DAEMON_DEBUG, GAMEMODE, POWER, NET, GPU_TUNE, COOLING];
 }
 
 /// Bit 0 of CheckAuthorization's flags: allow polkit to prompt the user.

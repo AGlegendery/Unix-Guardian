@@ -17,6 +17,7 @@
 
 pub mod cpu;
 pub mod extra;
+pub mod fans;
 pub mod gpu_use;
 pub mod hwmon;
 pub mod mem;

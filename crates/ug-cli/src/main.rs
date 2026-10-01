@@ -11,7 +11,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy};
-use ug_proto::daemon::{DaemonProxy, GpuProxy, NetProxy, PowerProxy};
+use ug_proto::daemon::{CoolingProxy, DaemonProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{GpuCapabilities, Inventory, PowerWatch, Snapshot};
 
 #[derive(Parser)]
@@ -67,6 +67,18 @@ enum Command {
         /// Include apps that have not used the internet.
         #[arg(long)]
         all: bool,
+    },
+    /// Fans: what can be driven, fan curves, and the laptop's fan modes.
+    Fans {
+        /// Drive a fan by a curve, e.g. --curve amdgpu/pwm1=40:25,70:60,85:100
+        #[arg(long, value_name = "ID=T:P,...")]
+        curve: Option<String>,
+        /// Hand a fan back to automatic control.
+        #[arg(long, value_name = "ID")]
+        auto: Option<String>,
+        /// The laptop firmware's fan mode: quiet, standard or cooling.
+        #[arg(long)]
+        mode: Option<String>,
     },
     /// Shut down, restart or sleep, now or on a schedule.
     Power {
@@ -439,6 +451,7 @@ async fn run() -> Result<()> {
         Command::Power { command } => power(&conn, command, cli.json).await,
         Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
         Command::Net { command, all } => net(&conn, command, all, cli.json).await,
+        Command::Fans { curve, auto, mode } => fans(&conn, curve, auto, mode, cli.json).await,
         Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Fps { .. } | Command::Run { .. } | Command::Tui => {
             unreachable!("handled above")
         }
@@ -1099,6 +1112,58 @@ fn parse_rate(s: &str) -> Result<f64> {
         _ => (s, 1.0),
     };
     num.parse::<f64>().map(|n| n * mult).map_err(|_| anyhow::anyhow!("cannot read {s:?} as a rate; e.g. 50k or 2M"))
+}
+
+async fn fans(conn: &zbus::Connection, curve: Option<String>, auto: Option<String>, mode: Option<String>, json: bool) -> Result<()> {
+    let c = CoolingProxy::new(conn).await?;
+    if let Some(spec) = curve {
+        let (id, pts) = spec.split_once('=').ok_or_else(|| anyhow::anyhow!("write it as ID=T:P,T:P (e.g. amdgpu/pwm1=40:25,85:100)"))?;
+        let points: Vec<(f64, f64)> = pts
+            .split(',')
+            .map(|p| {
+                let (t, d) = p.split_once(':').ok_or_else(|| anyhow::anyhow!("{p:?} is not T:P"))?;
+                Ok((t.trim().parse()?, d.trim().parse()?))
+            })
+            .collect::<Result<_>>()?;
+        c.set_curve(id, &points).await.map_err(daemon_error)?;
+    }
+    if let Some(id) = auto {
+        c.set_auto(&id).await.map_err(daemon_error)?;
+    }
+    let st = c.state().await.map_err(daemon_error)?;
+    if let Some(m) = mode {
+        let v = st.fan_modes.iter().find(|(_, n)| n == &m).map(|(v, _)| *v).ok_or_else(|| {
+            let names: Vec<&str> = st.fan_modes.iter().map(|(_, n)| n.as_str()).collect();
+            anyhow::anyhow!("unknown fan mode {m:?}; this machine has: {}", if names.is_empty() { "none".into() } else { names.join(", ") })
+        })?;
+        c.set_fan_mode(v).await.map_err(daemon_error)?;
+    }
+    let st = c.state().await.map_err(daemon_error)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&st)?);
+        return Ok(());
+    }
+    for f in &st.fans {
+        let curve: Vec<String> = f.curve.iter().map(|(t, p)| format!("{t:.0}°C→{p:.0}%")).collect();
+        println!(
+            "{:<18} {:<24} {:>5} rpm {:>4.0} %  {:>4.0} °C  {}",
+            f.id,
+            f.label,
+            f.rpm,
+            f.pct,
+            f.temp_c,
+            if f.mode == "curve" { curve.join(" ") } else { "automatic".into() }
+        );
+    }
+    if st.fan_mode >= 0 {
+        let now = st.fan_modes.iter().find(|(v, _)| *v == st.fan_mode).map(|(_, n)| n.as_str()).unwrap_or("other");
+        let all: Vec<&str> = st.fan_modes.iter().map(|(_, n)| n.as_str()).collect();
+        println!("Firmware fan mode: {now} (choices: {})", all.join(", "));
+    }
+    for n in &st.notes {
+        println!("{n}");
+    }
+    Ok(())
 }
 
 async fn net(conn: &zbus::Connection, command: Option<NetCommand>, all: bool, json: bool) -> Result<()> {

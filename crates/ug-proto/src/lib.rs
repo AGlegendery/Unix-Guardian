@@ -267,6 +267,23 @@ pub mod daemon {
         fn set_active_gpu(&self, pci: &str) -> zbus::Result<()>;
     }
 
+    /// Fan curves and the laptop firmware's fan modes. Changes need the
+    /// `org.unixguardian.cooling` polkit action.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Daemon1.Cooling",
+        default_service = "org.unixguardian.Daemon1",
+        default_path = "/org/unixguardian/Daemon1"
+    )]
+    pub trait Cooling {
+        fn state(&self) -> zbus::Result<CoolingState>;
+        /// Drives a fan by (°C, %) points.
+        fn set_curve(&self, id: &str, points: &[(f64, f64)]) -> zbus::Result<()>;
+        /// Hands a fan back to automatic control.
+        fn set_auto(&self, id: &str) -> zbus::Result<()>;
+        /// The laptop firmware's fan mode.
+        fn set_fan_mode(&self, mode: i32) -> zbus::Result<()>;
+    }
+
     /// Internet control: traffic per app (and, next, blocking and limits).
     /// Counting happens in Unix Guardian's own nftables table; other
     /// firewall rules are never touched.

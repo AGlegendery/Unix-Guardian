@@ -79,6 +79,18 @@
     </defaults>
   </action>
 
+  <action id="org.unixguardian.cooling">
+    <description>Change fan curves or the laptop's fan mode</description>
+    <description xml:lang="fa">تغییر کرو فن یا حالت فن لپ‌تاپ</description>
+    <message>Authentication is required to change how the fans run.</message>
+    <message xml:lang="fa">برای تغییر نحوه‌ی کار فن‌ها احراز هویت لازم است.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
   <action id="org.unixguardian.daemon.debug">
     <description>Change Unix Guardian diagnostic settings</description>
     <description xml:lang="fa">تغییر تنظیمات عیب‌یابی Unix Guardian</description>

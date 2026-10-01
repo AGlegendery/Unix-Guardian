@@ -19,6 +19,7 @@
 
 mod battery;
 mod conditions;
+mod cooling;
 mod energy;
 mod gamemode;
 mod gputune;
@@ -252,6 +253,17 @@ async fn main() -> Result<()> {
         .context("serving the net interface")?;
     tokio::spawn(net::run(Arc::clone(&net_state)));
     tokio::spawn(gputune::run(Arc::clone(&gpu_tuner)));
+    // Development runs on the real machine show the fans but never drive them.
+    let cooling = Arc::new(std::sync::Mutex::new(cooling::Cooling::new(
+        root.clone(),
+        args.session && args.sysroot.is_none(),
+        &state_dir,
+    )));
+    conn.object_server()
+        .at(DAEMON_OBJECT_PATH, cooling::CoolingIface { cooling: Arc::clone(&cooling), gate: gate.clone() })
+        .await
+        .context("serving the cooling interface")?;
+    tokio::spawn(cooling::run(Arc::clone(&cooling)));
     let backend_for_battery = Arc::clone(&backend);
     tokio::spawn(power::run(conn.clone(), schedule, Arc::clone(&backend), schedule_changed));
     tokio::spawn(power::watch(watches, observer, backend, watches_changed));
@@ -299,6 +311,8 @@ async fn main() -> Result<()> {
         tracing::warn!(%l, "could not restore on shutdown; will retry on next start");
     }
     tokio::task::spawn_blocking(move || net_state.lock().unwrap_or_else(|e| e.into_inner()).shutdown()).await?;
+    // Fans back to automatic control before leaving.
+    tokio::task::spawn_blocking(move || cooling.lock().unwrap_or_else(|e| e.into_inner()).restore_all()).await?;
     Ok(())
 }
 
