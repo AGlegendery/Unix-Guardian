@@ -21,6 +21,7 @@ mod battery;
 mod conditions;
 mod energy;
 mod gamemode;
+mod gputune;
 mod iface;
 mod net;
 mod polkit;
@@ -111,9 +112,20 @@ async fn main() -> Result<()> {
         reload: ug_core::logging::reload_handle(),
         gate: gate.clone(),
     };
+    let state_dir_early = args.state_dir.clone().unwrap_or_else(ug_core::paths::system_state);
+    // A development daemon tunes a simulated GPU; only the real one, as root,
+    // touches the card.
+    let control: Box<dyn gputune::Control> = if args.session || args.sysroot.is_some() || !privileged {
+        Box::new(gputune::Simulated::new(&gpus.iter().filter(|g| !g.boot_vga).map(|g| g.pci.clone()).collect::<Vec<_>>()))
+    } else {
+        Box::new(gputune::Real { sampler: Arc::clone(&sampler), root: root.clone() })
+    };
+    let gpu_tuner = Arc::new(std::sync::Mutex::new(gputune::Tuner::new(control, &state_dir_early)));
     let gpu = GpuIface {
         sampler: Arc::clone(&sampler),
         active: std::sync::Mutex::new(active_gpu),
+        tuner: Arc::clone(&gpu_tuner),
+        gate: gate.clone(),
     };
 
     let builder = if args.session {
@@ -239,6 +251,7 @@ async fn main() -> Result<()> {
         .await
         .context("serving the net interface")?;
     tokio::spawn(net::run(Arc::clone(&net_state)));
+    tokio::spawn(gputune::run(Arc::clone(&gpu_tuner)));
     let backend_for_battery = Arc::clone(&backend);
     tokio::spawn(power::run(conn.clone(), schedule, Arc::clone(&backend), schedule_changed));
     tokio::spawn(power::watch(watches, observer, backend, watches_changed));

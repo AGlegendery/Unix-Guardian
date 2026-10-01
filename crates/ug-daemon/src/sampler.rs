@@ -107,6 +107,13 @@ impl Sampler {
     ///
     /// This is the one call that may wake a sleeping GPU: answering it needs
     /// the vendor library, and it only runs when the user asks.
+    /// Runs `f` with the backend of the GPU at `pci`.
+    pub fn gpu_backend<T>(&self, pci: &str, f: impl FnOnce(&dyn ug_gpu::GpuBackend) -> T) -> Option<T> {
+        let r = self.gpus.backend(pci).map(f);
+        self.gpu_activity.notify_one();
+        r
+    }
+
     pub fn gpu_capabilities(&self, pci: &str) -> Option<ug_proto::GpuCapabilities> {
         let caps = match self.gpus.backend(pci) {
             Some(b) => b.capabilities(),

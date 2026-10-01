@@ -29,12 +29,13 @@ pub mod nvidia;
 pub mod pci;
 
 use ug_hw::SysRoot;
-use ug_proto::{GpuCapabilities, GpuInfo, GpuSample, Vendor};
+use ug_proto::{GpuCapabilities, GpuInfo, GpuSample, GpuTune, GpuTuneState, Vendor};
 
 /// Vendor-specific access to one GPU.
 ///
-/// Read-only for now; the tuning methods land in P5 alongside the stability
-/// test that gates them.
+/// Tuning methods default to "not possible here"; a backend overrides what
+/// its hardware and driver allow. They may wake a sleeping GPU, so they run
+/// only when the user asks.
 pub trait GpuBackend: Send + Sync {
     /// PCI address this backend is bound to.
     fn pci(&self) -> &str;
@@ -49,6 +50,55 @@ pub trait GpuBackend: Send + Sync {
     /// Improves `info` with anything the backend has learned since discovery,
     /// such as the vendor's own name for the card. Must not touch the hardware.
     fn enrich(&self, _info: &mut GpuInfo) {}
+
+    /// Limits and current values of what can be tuned.
+    fn tune_state(&self) -> GpuTuneState {
+        GpuTuneState {
+            pci: self.pci().to_string(),
+            notes: vec!["Tuning this GPU is not supported.".into()],
+            ..Default::default()
+        }
+    }
+
+    /// Applies a tuning request; values outside the card's limits are
+    /// refused, never clamped silently.
+    fn apply_tune(&self, _t: &GpuTune) -> Result<(), String> {
+        Err("Tuning this GPU is not supported.".into())
+    }
+
+    /// Puts the card back to its own defaults.
+    fn reset_tune(&self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// Checks a request against a card's limits, with a sentence per problem.
+pub fn check_tune(t: &GpuTune, s: &GpuTuneState) -> Result<(), String> {
+    let mut problems = Vec::new();
+    if t.power_limit_w != 0.0 {
+        if !s.power_limit {
+            problems.push("the power limit cannot be changed on this GPU".to_string());
+        } else if t.power_limit_w < s.power_min_w || t.power_limit_w > s.power_max_w {
+            problems.push(format!("the power limit must be {:.0}–{:.0} W", s.power_min_w, s.power_max_w));
+        }
+    }
+    for (what, v, ok, lo, hi) in [
+        ("core clock offset", t.core_offset_mhz, s.core_offset, s.core_min_mhz, s.core_max_mhz),
+        ("memory clock offset", t.mem_offset_mhz, s.mem_offset, s.mem_min_mhz, s.mem_max_mhz),
+    ] {
+        if v != 0 {
+            if !ok {
+                problems.push(format!("the {what} cannot be changed on this GPU"));
+            } else if v < lo || v > hi {
+                problems.push(format!("the {what} must be {lo:+}–{hi:+} MHz"));
+            }
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("Not applied: {}.", problems.join("; ")))
+    }
 }
 
 /// Discovers every GPU and binds a backend to each.

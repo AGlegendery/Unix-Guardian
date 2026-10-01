@@ -37,7 +37,7 @@ use nvml_wrapper::{Device, Nvml as NvmlLib};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use ug_hw::SysRoot;
-use ug_proto::{GpuCapabilities, GpuInfo, GpuSample};
+use ug_proto::{GpuCapabilities, GpuInfo, GpuSample, GpuTune, GpuTuneState};
 
 /// After a failed load, how long before trying again. A broken driver does not
 /// fix itself in a second, and a retry costs a library load each time.
@@ -306,6 +306,113 @@ impl GpuBackend for NvidiaGpu {
             ];
         }
         caps
+    }
+
+    fn tune_state(&self) -> GpuTuneState {
+        self.tune_state_impl()
+    }
+
+    fn apply_tune(&self, t: &GpuTune) -> Result<(), String> {
+        self.apply_tune_impl(t)
+    }
+
+    fn reset_tune(&self) -> Result<(), String> {
+        self.apply_tune_impl(&GpuTune::default())
+    }
+}
+
+/// The driver's own bounds for a clock offset, read through the raw
+/// library: nvml-wrapper has no call for them, and the symbol is missing on
+/// drivers before 520 (checked, never assumed: a missing symbol would abort).
+fn offset_bounds(dev: &Device<'_>, mem: bool) -> Option<(i32, i32)> {
+    let lib = dev.nvml().lib();
+    let present = if mem { lib.nvmlDeviceGetMemClkMinMaxVfOffset.is_ok() } else { lib.nvmlDeviceGetGpcClkMinMaxVfOffset.is_ok() };
+    if !present {
+        return None;
+    }
+    let (mut lo, mut hi): (std::os::raw::c_int, std::os::raw::c_int) = (0, 0);
+    // SAFETY: the handle is valid for `dev`'s lifetime and the pointers are to
+    // locals; the symbol's presence was checked above.
+    let rc = unsafe {
+        if mem {
+            lib.nvmlDeviceGetMemClkMinMaxVfOffset(dev.handle(), &mut lo, &mut hi)
+        } else {
+            lib.nvmlDeviceGetGpcClkMinMaxVfOffset(dev.handle(), &mut lo, &mut hi)
+        }
+    };
+    (rc == 0 && lo < hi).then_some((lo, hi))
+}
+
+impl NvidiaGpu {
+    /// Everything `tune_state` reports, from an open device.
+    fn read_tune(&self, dev: &Device<'_>) -> GpuTuneState {
+        let mut st = GpuTuneState { pci: self.pci.clone(), ..Default::default() };
+        match (dev.power_management_limit_constraints(), dev.power_management_limit_default(), dev.power_management_limit()) {
+            (Ok(c), Ok(def), Ok(cur)) => {
+                st.power_limit = true;
+                st.power_min_w = c.min_limit as f64 / 1000.0;
+                st.power_max_w = c.max_limit as f64 / 1000.0;
+                st.power_default_w = def as f64 / 1000.0;
+                st.power_limit_w = cur as f64 / 1000.0;
+            }
+            (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
+                st.notes.push(format!("The power limit cannot be read or changed here ({e})."));
+            }
+        }
+        for mem in [false, true] {
+            let cur = if mem { dev.mem_clock_vf_offset() } else { dev.gpc_clock_vf_offset() };
+            match (cur, offset_bounds(dev, mem)) {
+                (Ok(v), Some((lo, hi))) => {
+                    if mem {
+                        (st.mem_offset, st.mem_offset_mhz, st.mem_min_mhz, st.mem_max_mhz) = (true, v, lo, hi);
+                    } else {
+                        (st.core_offset, st.core_offset_mhz, st.core_min_mhz, st.core_max_mhz) = (true, v, lo, hi);
+                    }
+                }
+                (Err(e), _) => st.notes.push(format!(
+                    "The {} clock offset is unavailable ({e}); it needs driver 520 or newer.",
+                    if mem { "memory" } else { "core" }
+                )),
+                (Ok(_), None) => st.notes.push(format!(
+                    "The driver reports no allowed range for the {} clock offset.",
+                    if mem { "memory" } else { "core" }
+                )),
+            }
+        }
+        st.notes.push(
+            "NVIDIA's Linux driver has no voltage curve: a lower power limit with a higher \
+             clock offset is how to get cooler and quieter at the same speed."
+                .into(),
+        );
+        st
+    }
+}
+
+impl NvidiaGpu {
+    pub fn tune_state_impl(&self) -> GpuTuneState {
+        self.with_device(|dev| self.read_tune(dev)).unwrap_or_else(|| GpuTuneState {
+            pci: self.pci.clone(),
+            notes: vec!["The NVIDIA management library (NVML) is not responding, so this GPU cannot be tuned.".into()],
+            ..Default::default()
+        })
+    }
+
+    pub fn apply_tune_impl(&self, t: &GpuTune) -> Result<(), String> {
+        let lib = self.slot.acquire().ok_or("the NVIDIA management library (NVML) is not available")?;
+        let mut dev = device_for_pci(&lib, &self.pci).ok_or("the GPU was not found by NVML")?;
+        let st = self.read_tune(&dev);
+        crate::check_tune(t, &st)?;
+        let pl = if t.power_limit_w == 0.0 { st.power_default_w } else { t.power_limit_w };
+        if st.power_limit && (pl - st.power_limit_w).abs() > 0.5 {
+            dev.set_power_management_limit((pl * 1000.0).round() as u32).map_err(|e| format!("power limit: {e}"))?;
+        }
+        if st.core_offset && t.core_offset_mhz != st.core_offset_mhz {
+            dev.set_gpc_clock_vf_offset(t.core_offset_mhz).map_err(|e| format!("core clock offset: {e}"))?;
+        }
+        if st.mem_offset && t.mem_offset_mhz != st.mem_offset_mhz {
+            dev.set_mem_clock_vf_offset(t.mem_offset_mhz).map_err(|e| format!("memory clock offset: {e}"))?;
+        }
+        Ok(())
     }
 }
 

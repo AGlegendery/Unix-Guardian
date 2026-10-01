@@ -176,6 +176,8 @@ fn sender(hdr: &zbus::message::Header<'_>) -> zbus::fdo::Result<String> {
 /// `org.unixguardian.Daemon1.Gpu`.
 pub struct GpuIface {
     pub sampler: Arc<Sampler>,
+    pub tuner: crate::gputune::SharedTuner,
+    pub gate: Gate,
     /// PCI address of the GPU tuning acts on. Chosen at start-up as the first
     /// discrete card, which is the right default on a hybrid laptop where the
     /// firmware-posted GPU is the integrated one.
@@ -194,6 +196,61 @@ impl GpuIface {
         self.sampler
             .gpu_capabilities(pci)
             .ok_or_else(|| zbus::fdo::Error::FileNotFound(format!("no GPU at {pci}")))
+    }
+
+    /// Limits and current values of the power limit and clock offsets, and
+    /// what Unix Guardian keeps applied. May wake a sleeping discrete GPU.
+    async fn tune_state(&self, pci: &str) -> zbus::fdo::Result<ug_proto::GpuTuneState> {
+        let t = Arc::clone(&self.tuner);
+        let pci = pci.to_string();
+        tokio::task::spawn_blocking(move || t.lock().unwrap_or_else(|e| e.into_inner()).state(&pci))
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+            .ok_or_else(|| zbus::fdo::Error::FileNotFound("no tunable GPU at that address".into()))
+    }
+
+    /// Applies a setting on trial: undone after 30 seconds unless
+    /// `KeepTune` is called. Needs `org.unixguardian.gpu.tune`.
+    async fn try_tune(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, pci: &str, tune: ug_proto::GpuTune) -> zbus::fdo::Result<()> {
+        self.gate.authorize(&hdr, action::GPU_TUNE).await?;
+        let t = Arc::clone(&self.tuner);
+        let pci = pci.to_string();
+        tokio::task::spawn_blocking(move || t.lock().unwrap_or_else(|e| e.into_inner()).try_tune(&pci, tune, std::time::Instant::now()))
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+            .map_err(zbus::fdo::Error::Failed)
+    }
+
+    /// Keeps the setting on trial (and applies it again after every wake).
+    async fn keep_tune(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, pci: &str) -> zbus::fdo::Result<()> {
+        self.gate.authorize(&hdr, action::GPU_TUNE).await?;
+        let t = Arc::clone(&self.tuner);
+        let pci = pci.to_string();
+        tokio::task::spawn_blocking(move || t.lock().unwrap_or_else(|e| e.into_inner()).confirm(&pci))
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+            .map_err(zbus::fdo::Error::Failed)
+    }
+
+    /// Undoes the setting on trial now.
+    async fn cancel_tune(&self, pci: &str) -> zbus::fdo::Result<()> {
+        let t = Arc::clone(&self.tuner);
+        let pci = pci.to_string();
+        tokio::task::spawn_blocking(move || t.lock().unwrap_or_else(|e| e.into_inner()).cancel(&pci))
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+            .map_err(zbus::fdo::Error::Failed)
+    }
+
+    /// The card's own defaults, now and from now on.
+    async fn reset_tune(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, pci: &str) -> zbus::fdo::Result<()> {
+        self.gate.authorize(&hdr, action::GPU_TUNE).await?;
+        let t = Arc::clone(&self.tuner);
+        let pci = pci.to_string();
+        tokio::task::spawn_blocking(move || t.lock().unwrap_or_else(|e| e.into_inner()).reset(&pci))
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+            .map_err(zbus::fdo::Error::Failed)
     }
 
     #[zbus(property)]

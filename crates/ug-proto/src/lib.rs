@@ -243,6 +243,23 @@ pub mod daemon {
         /// [`GpuCapabilities::notes`] as the explanation.
         fn capabilities(&self, pci: &str) -> zbus::Result<GpuCapabilities>;
 
+        /// Power limit and clock offsets: limits, current values, what is
+        /// kept, and a setting that crashed. May wake a sleeping GPU.
+        fn tune_state(&self, pci: &str) -> zbus::Result<GpuTuneState>;
+
+        /// Applies a setting on trial; undone after 30 s unless kept.
+        fn try_tune(&self, pci: &str, tune: &GpuTune) -> zbus::Result<()>;
+
+        /// Keeps the setting on trial.
+        fn keep_tune(&self, pci: &str) -> zbus::Result<()>;
+
+        /// Undoes the setting on trial now (no authorisation: undoing is
+        /// always allowed).
+        fn cancel_tune(&self, pci: &str) -> zbus::Result<()>;
+
+        /// Back to the card's own defaults, now and from now on.
+        fn reset_tune(&self, pci: &str) -> zbus::Result<()>;
+
         /// The GPU that tuning and monitoring act on by default.
         #[zbus(property)]
         fn active_gpu(&self) -> zbus::Result<String>;

@@ -760,3 +760,45 @@ pub struct FpsSession {
     /// Frames that took more than twice the median frame time.
     pub stutters: u64,
 }
+
+/// What can be tuned on one GPU right now, and where it stands. Reading it
+/// may wake a sleeping discrete GPU, so it is only asked for on request.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct GpuTuneState {
+    pub pci: String,
+    pub power_limit: bool,
+    pub power_limit_w: f64,
+    pub power_default_w: f64,
+    pub power_min_w: f64,
+    pub power_max_w: f64,
+    pub core_offset: bool,
+    pub core_offset_mhz: i32,
+    pub core_min_mhz: i32,
+    pub core_max_mhz: i32,
+    pub mem_offset: bool,
+    pub mem_offset_mhz: i32,
+    pub mem_min_mhz: i32,
+    pub mem_max_mhz: i32,
+    /// Why anything above is unavailable, in words for the user.
+    pub notes: Vec<String>,
+    /// What Unix Guardian has applied (and keeps applying), if anything.
+    pub applied: GpuTune,
+    /// The last setting was being tried when the machine or the service
+    /// stopped unexpectedly, so it was not applied again.
+    pub crashed: GpuTune,
+}
+
+/// A tuning request. `power_limit_w` 0 keeps the card's default; offsets 0
+/// are none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct GpuTune {
+    pub power_limit_w: f64,
+    pub core_offset_mhz: i32,
+    pub mem_offset_mhz: i32,
+}
+
+impl GpuTune {
+    pub fn is_default(&self) -> bool {
+        self.power_limit_w == 0.0 && self.core_offset_mhz == 0 && self.mem_offset_mhz == 0
+    }
+}

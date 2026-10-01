@@ -62,6 +62,23 @@
     </defaults>
   </action>
 
+  <!--
+    GPU tuning can make a machine unstable, so it asks for the administrator
+    password once and remembers it for a few minutes. Every change is a
+    30-second trial that undoes itself unless kept.
+  -->
+  <action id="org.unixguardian.gpu.tune">
+    <description>Change a graphics card's power limit or clock offsets</description>
+    <description xml:lang="fa">تغییر سقف توان یا آفست کلاک کارت گرافیک</description>
+    <message>Authentication is required to tune the graphics card.</message>
+    <message xml:lang="fa">برای تنظیم کارت گرافیک احراز هویت لازم است.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
   <action id="org.unixguardian.daemon.debug">
     <description>Change Unix Guardian diagnostic settings</description>
     <description xml:lang="fa">تغییر تنظیمات عیب‌یابی Unix Guardian</description>

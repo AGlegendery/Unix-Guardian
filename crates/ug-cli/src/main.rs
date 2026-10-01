@@ -344,6 +344,32 @@ enum GpuCommand {
         /// PCI address to switch to; omit to print the current one.
         pci: Option<String>,
     },
+    /// Power limit and clock offsets: show them, or try new values. A new
+    /// setting is undone by itself after 30 seconds unless you keep it.
+    Tune {
+        /// PCI address; defaults to the active GPU.
+        #[arg(long)]
+        pci: Option<String>,
+        /// Power limit in watts (0 = the card's default).
+        #[arg(long)]
+        power: Option<f64>,
+        /// Core clock offset in MHz, e.g. 100 or -50.
+        #[arg(long, allow_hyphen_values = true)]
+        core: Option<i32>,
+        /// Memory clock offset in MHz.
+        #[arg(long, allow_hyphen_values = true)]
+        mem: Option<i32>,
+    },
+    /// Keep the setting being tried.
+    Keep {
+        #[arg(long)]
+        pci: Option<String>,
+    },
+    /// Back to the card's own defaults, now and from now on.
+    Reset {
+        #[arg(long)]
+        pci: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -1332,6 +1358,80 @@ async fn gpu(
             }
             Ok(())
         }
+        GpuCommand::Keep { pci } => {
+            let pci = match pci { Some(p) => p, None => gpu.active_gpu().await? };
+            gpu.keep_tune(&pci).await.map_err(daemon_error)?;
+            println!("Kept. It is applied again whenever the card wakes; `ug gpu reset` undoes it.");
+            Ok(())
+        }
+        GpuCommand::Reset { pci } => {
+            let pci = match pci { Some(p) => p, None => gpu.active_gpu().await? };
+            gpu.reset_tune(&pci).await.map_err(daemon_error)?;
+            println!("Back to the card's own defaults.");
+            Ok(())
+        }
+        GpuCommand::Tune { pci, power, core, mem } => {
+            let pci = match pci { Some(p) => p, None => gpu.active_gpu().await? };
+            let st = gpu.tune_state(&pci).await.map_err(daemon_error)?;
+            if power.is_none() && core.is_none() && mem.is_none() {
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&st)?);
+                    return Ok(());
+                }
+                print_tune(&st);
+                return Ok(());
+            }
+            let mut t = st.applied;
+            if let Some(p) = power { t.power_limit_w = p; }
+            if let Some(c) = core { t.core_offset_mhz = c; }
+            if let Some(m) = mem { t.mem_offset_mhz = m; }
+            gpu.try_tune(&pci, &t).await.map_err(daemon_error)?;
+            println!(
+                "Trying: power {}, core {:+} MHz, memory {:+} MHz.",
+                if t.power_limit_w == 0.0 { "default".to_string() } else { format!("{:.0} W", t.power_limit_w) },
+                t.core_offset_mhz,
+                t.mem_offset_mhz
+            );
+            eprint!("Keep it? Type y and Enter within 30 seconds (anything else, or nothing, undoes it): ");
+            let answer = tokio::time::timeout(std::time::Duration::from_secs(28), tokio::task::spawn_blocking(|| {
+                let mut s = String::new();
+                let _ = std::io::stdin().read_line(&mut s);
+                s
+            }))
+            .await;
+            match answer {
+                Ok(Ok(s)) if s.trim().eq_ignore_ascii_case("y") => {
+                    gpu.keep_tune(&pci).await.map_err(daemon_error)?;
+                    println!("Kept.");
+                }
+                _ => {
+                    gpu.cancel_tune(&pci).await.ok();
+                    println!("\nUndone.");
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+fn print_tune(st: &ug_proto::GpuTuneState) {
+    if st.power_limit {
+        println!("power limit   {:.0} W (default {:.0}, allowed {:.0}–{:.0} W)", st.power_limit_w, st.power_default_w, st.power_min_w, st.power_max_w);
+    }
+    if st.core_offset {
+        println!("core offset   {:+} MHz (allowed {:+}…{:+})", st.core_offset_mhz, st.core_min_mhz, st.core_max_mhz);
+    }
+    if st.mem_offset {
+        println!("memory offset {:+} MHz (allowed {:+}…{:+})", st.mem_offset_mhz, st.mem_min_mhz, st.mem_max_mhz);
+    }
+    if !st.applied.is_default() {
+        println!("kept by Unix Guardian: {:.0} W, core {:+}, memory {:+}", st.applied.power_limit_w, st.applied.core_offset_mhz, st.applied.mem_offset_mhz);
+    }
+    if !st.crashed.is_default() {
+        println!("NOT applied again: the setting being tried when the machine stopped ({:.0} W, core {:+}, memory {:+})", st.crashed.power_limit_w, st.crashed.core_offset_mhz, st.crashed.mem_offset_mhz);
+    }
+    for n in &st.notes {
+        println!("note: {n}");
     }
 }
 
