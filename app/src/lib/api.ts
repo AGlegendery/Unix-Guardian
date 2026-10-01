@@ -255,6 +255,7 @@ export interface Profile {
   memory_tuning: boolean;
   pause_services: boolean;
   network_tuning: boolean;
+  power_profile: boolean;
   pause_apps: string[];
   games: string[];
 }

@@ -18,6 +18,7 @@ mod notify;
 mod overlay;
 mod ping;
 mod playtime;
+mod ppd;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -272,6 +273,10 @@ async fn main() -> Result<()> {
         ));
     }
     let mut offered = std::collections::HashSet::new();
+    let mut holder = ppd::Holder::new();
+    // power-profiles-daemon lives on the system bus even when the Unix
+    // Guardian daemon is a development one on the session bus.
+    let system_bus = if args.daemon_session { None } else { zbus::Connection::system().await.ok() };
 
     let mut ticker = tokio::time::interval(Duration::from_secs(args.scan_interval.max(1)));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -301,6 +306,8 @@ async fn main() -> Result<()> {
                 }
                 follow_game(&core, &pinger).await;
                 overlay.follow(!lock(&core).running().is_empty());
+                let (wanted, game) = lock(&core).power_profile_wanted();
+                holder.sync(system_bus.as_ref(), wanted, &game).await;
             }
             Some(o) = announce_rx.recv() => announce(&conn, o, !args.quiet, &pending_dismissals).await,
             _ = heartbeat.tick() => {

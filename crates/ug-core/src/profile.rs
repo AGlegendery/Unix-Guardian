@@ -38,6 +38,10 @@ pub struct Profile {
     /// Network settings for low latency while playing: Wi-Fi power saving
     /// off, TCP Fast Open and a smaller send queue, BBR congestion control.
     pub network_tuning: bool,
+    /// Ask the system's power profile service (power-profiles-daemon) for
+    /// its performance profile while playing: on laptops that also means the
+    /// firmware's performance fan and power mode.
+    pub power_profile: bool,
     /// Applications to pause (SIGSTOP) while playing, by executable name, e.g.
     /// `["discord", "steamwebhelper"]`. Resumed exactly as they were after.
     pub pause_apps: Vec<String>,
@@ -56,6 +60,7 @@ impl Default for Profile {
             memory_tuning: true,
             pause_services: true,
             network_tuning: true,
+            power_profile: true,
             pause_apps: Vec::new(),
         }
     }
@@ -79,6 +84,7 @@ pub fn builtin() -> Vec<Profile> {
             cpu_no_idle_states: false,
             memory_tuning: false,
             network_tuning: false,
+            power_profile: false,
             ..Profile::default()
         },
     ]
@@ -175,7 +181,7 @@ pub fn is_builtin(id: &str) -> bool {
 }
 
 /// The on/off settings a profile has, by their file and wire names.
-pub const OPTIONS: [&str; 7] = [
+pub const OPTIONS: [&str; 8] = [
     "cpu_performance",
     "cpu_no_idle_states",
     "cpu_preferred_cores",
@@ -183,6 +189,7 @@ pub const OPTIONS: [&str; 7] = [
     "memory_tuning",
     "pause_services",
     "network_tuning",
+    "power_profile",
 ];
 
 /// Turns one setting of a profile on or off by writing it into the user's

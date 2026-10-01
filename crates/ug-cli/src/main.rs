@@ -223,7 +223,7 @@ enum ProfileCommand {
     Option {
         profile: String,
         /// cpu_performance, cpu_no_idle_states, cpu_preferred_cores,
-        /// cpu_priority, memory_tuning, pause_services or network_tuning.
+        /// cpu_priority, memory_tuning, pause_services, network_tuning or power_profile.
         setting: String,
         #[arg(value_parser = ["on", "off"])]
         value: String,
@@ -785,6 +785,7 @@ async fn profile(command: ProfileCommand, json: bool) -> Result<()> {
                 println!("    memory tuning          {}", on(p.memory_tuning));
                 println!("    pause update services  {}", on(p.pause_services));
                 println!("    network tuning         {}", on(p.network_tuning));
+                println!("    performance profile    {}", on(p.power_profile));
                 if !p.pause_apps.is_empty() {
                     println!("    pause apps             {}", p.pause_apps.join(", "));
                 }

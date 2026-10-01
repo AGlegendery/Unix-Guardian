@@ -379,6 +379,7 @@ pub struct ProfileInfo {
     pub memory_tuning: bool,
     pub pause_services: bool,
     pub network_tuning: bool,
+    pub power_profile: bool,
     pub pause_apps: Vec<String>,
     /// Game keys the user chose this profile for. Games that use it because
     /// the database suggests it are not listed.

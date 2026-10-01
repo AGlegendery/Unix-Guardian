@@ -160,7 +160,8 @@
    "pause_services": true,
    "pause_apps": [],
    "games": [],
-   "network_tuning": true
+   "network_tuning": true,
+   "power_profile": true
   },
   {
    "id": "balanced",
@@ -173,7 +174,8 @@
    "pause_services": true,
    "pause_apps": [],
    "games": [],
-   "network_tuning": true
+   "network_tuning": true,
+   "power_profile": true
   },
   {
    "id": "quiet",
@@ -186,7 +188,8 @@
    "pause_services": true,
    "pause_apps": [],
    "games": [],
-   "network_tuning": false
+   "network_tuning": false,
+   "power_profile": false
   }
  ],
  "installed": [

@@ -233,6 +233,7 @@ impl AgentCore {
                 memory_tuning: p.memory_tuning,
                 pause_services: p.pause_services,
                 network_tuning: p.network_tuning,
+                power_profile: p.power_profile,
                 pause_apps: p.pause_apps.clone(),
                 games: self.profiles.per_game().iter().filter(|(_, id)| **id == p.id).map(|(k, _)| k.clone()).collect(),
             })
@@ -315,6 +316,16 @@ impl AgentCore {
             w.pids.dedup();
         }
         want
+    }
+
+    /// Whether a running game's profile asks for the performance power
+    /// profile, and that game's name.
+    pub fn power_profile_wanted(&self) -> (bool, String) {
+        self.running
+            .values()
+            .find(|r| self.profiles.get(&r.info.profile).is_some_and(|p| p.power_profile))
+            .map(|r| (true, r.info.name.clone()))
+            .unwrap_or_default()
     }
 
     pub fn is_running_pid(&self, pid: i32) -> bool {
