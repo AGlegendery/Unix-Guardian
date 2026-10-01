@@ -157,6 +157,8 @@ export interface GpuTuneState {
 export interface FanInfo { id: string; label: string; rpm: number; pct: number | null; temp_c: number | null; mode: "auto" | "curve"; curve: [number, number][] }
 export interface CoolingState { fans: FanInfo[]; fan_mode: number; fan_modes: [number, string][]; notes: string[]; simulated: boolean }
 
+export interface AutoTuneStatus { running: boolean; step: number; steps: number; message: string; summary: string; ok: boolean }
+
 export interface GpuOffload { pci: string; vendor: string; boot_vga: boolean; launch_options: string }
 
 export interface OverlaySettings {
@@ -390,6 +392,9 @@ const tauriApi = {
   gpuTuneState: (pci: string) => invoke<GpuTuneState>("gpu_tune_state", { pci }),
   gpuTryTune: (pci: string, tune: GpuTune) => invoke<void>("gpu_try_tune", { pci, tune }),
   gpuKeepTune: (pci: string) => invoke<void>("gpu_keep_tune", { pci }),
+  gpuAutoTune: (pci: string, goal: "faster" | "cooler") => invoke<void>("gpu_auto_tune", { pci, goal }),
+  gpuAutoTuneStatus: () => invoke<AutoTuneStatus>("gpu_auto_tune_status"),
+  gpuStopAutoTune: () => invoke<void>("gpu_stop_auto_tune"),
   gpuTestTune: (pci: string, seconds: number) => invoke<[boolean, string]>("gpu_test_tune", { pci, seconds }),
   gpuCancelTune: (pci: string) => invoke<void>("gpu_cancel_tune", { pci }),
   gpuResetTune: (pci: string) => invoke<void>("gpu_reset_tune", { pci }),

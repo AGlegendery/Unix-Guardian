@@ -17,6 +17,7 @@
 //! $ cargo run -p ug-cli -- --session status
 //! ```
 
+mod autotune;
 mod battery;
 mod conditions;
 mod cooling;
@@ -116,7 +117,8 @@ async fn main() -> Result<()> {
     let state_dir_early = args.state_dir.clone().unwrap_or_else(ug_core::paths::system_state);
     // A development daemon tunes a simulated GPU; only the real one, as root,
     // touches the card.
-    let control: Box<dyn gputune::Control> = if args.session || args.sysroot.is_some() || !privileged {
+    let simulated_gpu = args.session || args.sysroot.is_some() || !privileged;
+    let control: Box<dyn gputune::Control> = if simulated_gpu {
         Box::new(gputune::Simulated::new(&gpus.iter().filter(|g| !g.boot_vga).map(|g| g.pci.clone()).collect::<Vec<_>>()))
     } else {
         Box::new(gputune::Real { sampler: Arc::clone(&sampler), root: root.clone() })
@@ -127,6 +129,9 @@ async fn main() -> Result<()> {
         active: std::sync::Mutex::new(active_gpu),
         tuner: Arc::clone(&gpu_tuner),
         gate: gate.clone(),
+        auto: Arc::default(),
+        auto_cancel: Arc::default(),
+        simulated: simulated_gpu,
     };
 
     let builder = if args.session {

@@ -36,6 +36,12 @@ check "and the kept one is still in force" "until_ 5 'ug gpu tune | grep -q \"po
 ug gpu reset >/dev/null
 check "reset goes back to the card's defaults" "ug gpu tune | grep -q 'power limit   60 W' && ! ug gpu tune | grep -q 'kept by'"
 
+out="$(echo y | ug gpu autotune --goal faster 2>&1)"
+check "auto-tune finds the highest stable offset and reports before/after" "grep -q 'Stable at +120 MHz' <<<\"\$out\" && grep -q 'MHz clock' <<<\"\$out\" && ug gpu tune | grep -q 'core +120'"
+ug gpu reset >/dev/null
+out="$(echo n | ug gpu autotune --goal cooler 2>&1)"
+check "auto-tune cooler finds a lower power limit at the same clock, and no undoes it" "grep -q ' W keeps the same speed' <<<\"\$out\" && ug gpu tune | grep -q 'power limit   60 W'"
+
 if [ "$fails" -gt 0 ]; then echo "--- daemon log"; cat "$W/daemon.log"; fi
 echo "$fails failure(s)"
 exit $((fails > 0))

@@ -4,7 +4,7 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { CoolingState, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { AutoTuneStatus, CoolingState, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -20,6 +20,7 @@ const fanCurves: Record<string, [number, number][]> = {};
 const zeroTune: GpuTune = { power_limit_w: 0, core_offset_mhz: 0, mem_offset_mhz: 0 };
 let tuneKept: GpuTune = { ...zeroTune };
 let tuneTrial: GpuTune | null = null;
+let autoStatus: AutoTuneStatus = { running: false, step: 0, steps: 0, message: "", summary: "", ok: false };
 let overlay: OverlaySettings = { show: "gaming", layout: "card", position: "top-left", size: "medium", opacity_pct: 50, toggle_key: "Alt_L+o", every_game: false };
 let fpsLog: FpsSession[] = [
   { game: "cs2", started_unix_ms: Date.now() - 3 * 3600e3, duration_s: 3120, frames: 440000, avg_fps: 141, low_1pct_fps: 96, low_01pct_fps: 71, p99_frametime_ms: 10.4, stutters: 4 },
@@ -271,6 +272,24 @@ export const mockApi = {
     if (tuneTrial) tuneKept = tuneTrial;
     tuneTrial = null;
   },
+  gpuAutoTune: async (_pci: string, goal: "faster" | "cooler") => {
+    const steps = 5;
+    autoStatus = { running: true, step: 1, steps, message: "Measuring the card as it is…", summary: "", ok: false };
+    let s = 1;
+    const id = setInterval(() => {
+      s += 1;
+      if (s > steps) {
+        clearInterval(id);
+        tuneTrial = goal === "faster" ? { ...zeroTune, core_offset_mhz: 120 } : { ...zeroTune, power_limit_w: 49 };
+        autoStatus = { running: false, step: steps, steps, message: "Done. Keep the result within two minutes, or it is undone.", ok: true,
+          summary: goal === "faster" ? "Stable at +120 MHz. Under the same load: +2 °C, +1 W, +118 MHz clock." : "49 W keeps the same speed. Under the same load: -6 °C, -11 W, -3 MHz clock." };
+      } else {
+        autoStatus = { ...autoStatus, step: s, message: goal === "faster" ? `Testing +${30 * (s - 1)} MHz…` : `Testing ${60 - 3 * s} W…` };
+      }
+    }, 900);
+  },
+  gpuAutoTuneStatus: async () => ({ ...autoStatus }),
+  gpuStopAutoTune: async () => {},
   gpuTestTune: async (): Promise<[boolean, string]> => {
     await new Promise((r) => setTimeout(r, 2000));
     return [true, "Stable: 312 rounds, 159744 results checked, none wrong."];

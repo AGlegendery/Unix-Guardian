@@ -18,6 +18,38 @@
   let testing = $state(false);
   let verdict = $state<{ stable: boolean; text: string } | null>(null);
 
+  let auto = $state<{ running: boolean; step: number; steps: number; message: string; summary: string; ok: boolean } | null>(null);
+  async function autoTune(goal: "faster" | "cooler") {
+    try {
+      await api.gpuAutoTune(pci, goal);
+      auto = await api.gpuAutoTuneStatus();
+      const id = setInterval(async () => {
+        try {
+          auto = await api.gpuAutoTuneStatus();
+          if (!auto.running) {
+            clearInterval(id);
+            await load();
+            if (auto.ok) {
+              left = 120;
+              timer = setInterval(() => {
+                left = (left ?? 0) - 1;
+                if (left <= 0) {
+                  stopTimer();
+                  load();
+                }
+              }, 1000);
+            }
+          }
+        } catch (e) {
+          clearInterval(id);
+          error = errorText(e);
+        }
+      }, 1000);
+    } catch (e) {
+      error = errorText(e);
+    }
+  }
+
   async function test() {
     testing = true;
     verdict = null;
@@ -165,7 +197,12 @@
       </label>
     {/if}
 
-    {#if testing}
+    {#if auto?.running}
+      <div class="trial" role="status">
+        <span>{auto.message} <span dir="ltr">({auto.step}/{auto.steps})</span></span>
+        <button class="btn" onclick={() => api.gpuStopAutoTune()}>{t().tune.stop}</button>
+      </div>
+    {:else if testing}
       <div class="trial" role="status"><span>{t().tune.testing}</span></div>
     {:else if left !== null}
       <div class="trial" role="status">
@@ -178,8 +215,11 @@
       <div class="actions">
         <button class="btn primary" disabled={busy || !changed} onclick={tryIt}>{t().tune.try}</button>
         <button class="btn" disabled={busy} onclick={() => act(() => api.gpuResetTune(pci))}>{t().tune.reset}</button>
+        <button class="btn" disabled={busy} onclick={() => autoTune("faster")}>{t().tune.autoFaster}</button>
+        <button class="btn" disabled={busy} onclick={() => autoTune("cooler")}>{t().tune.autoCooler}</button>
       </div>
     {/if}
+    {#if auto && !auto.running && auto.summary}<p class="verdict" class:bad={!auto.ok}>{auto.summary}</p>{/if}
     {#if verdict}<p class="verdict" class:bad={!verdict.stable}>{verdict.text}</p>{/if}
     <p class="row-hint">{t().tune.safety}</p>
     {#each st.notes as n}<p class="row-hint">{n}</p>{/each}

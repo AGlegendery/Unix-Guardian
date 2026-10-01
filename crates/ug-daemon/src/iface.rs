@@ -176,6 +176,10 @@ fn sender(hdr: &zbus::message::Header<'_>) -> zbus::fdo::Result<String> {
 /// `org.unixguardian.Daemon1.Gpu`.
 pub struct GpuIface {
     pub sampler: Arc<Sampler>,
+    /// The auto-tune in progress or last finished, and its cancel switch.
+    pub auto: Arc<Mutex<ug_proto::AutoTuneStatus>>,
+    pub auto_cancel: Arc<std::sync::atomic::AtomicBool>,
+    pub simulated: bool,
     pub tuner: crate::gputune::SharedTuner,
     pub gate: Gate,
     /// PCI address of the GPU tuning acts on. Chosen at start-up as the first
@@ -238,6 +242,63 @@ impl GpuIface {
     async fn test_tune(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, pci: &str, seconds: u32) -> zbus::fdo::Result<(bool, String)> {
         self.gate.authorize(&hdr, action::GPU_TUNE).await?;
         crate::gputune::test_trial(Arc::clone(&self.tuner), pci.to_string(), seconds).await.map_err(zbus::fdo::Error::Failed)
+    }
+
+    /// Searches for a setting by measuring (`faster`: highest stable core
+    /// offset; `cooler`: lowest power limit at the same clock). Runs in the
+    /// background (minutes); watch AutoTuneStatus. The result is left on
+    /// trial for two minutes for the user to keep.
+    async fn auto_tune(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, pci: &str, goal: &str) -> zbus::fdo::Result<()> {
+        self.gate.authorize(&hdr, action::GPU_TUNE).await?;
+        if !matches!(goal, "faster" | "cooler") {
+            return Err(zbus::fdo::Error::InvalidArgs("goal is faster or cooler".into()));
+        }
+        {
+            let mut s = self.auto.lock().unwrap_or_else(|e| e.into_inner());
+            if s.running {
+                return Err(zbus::fdo::Error::Failed("an auto-tune is already running".into()));
+            }
+            *s = ug_proto::AutoTuneStatus { running: true, message: "Starting…".into(), ..Default::default() };
+        }
+        self.auto_cancel.store(false, std::sync::atomic::Ordering::SeqCst);
+        let mut env = crate::autotune::Real {
+            tuner: Arc::clone(&self.tuner),
+            sampler: Arc::clone(&self.sampler),
+            pci: pci.to_string(),
+            status: Arc::clone(&self.auto),
+            cancel: Arc::clone(&self.auto_cancel),
+            simulated: self.simulated,
+        };
+        let (status, tuner, pci, goal) = (Arc::clone(&self.auto), Arc::clone(&self.tuner), pci.to_string(), goal.to_string());
+        tokio::task::spawn_blocking(move || {
+            let r = crate::autotune::run(&mut env, &goal);
+            let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
+            s.running = false;
+            match r {
+                Ok(o) => {
+                    tuner.lock().unwrap_or_else(|e| e.into_inner()).extend(&pci, std::time::Duration::from_secs(120));
+                    s.ok = true;
+                    s.summary = o.summary;
+                    s.message = "Done. Keep the result within two minutes, or it is undone.".into();
+                }
+                Err(e) => {
+                    let _ = tuner.lock().unwrap_or_else(|e| e.into_inner()).cancel(&pci);
+                    s.ok = false;
+                    s.summary = e;
+                    s.message = "Stopped; the card is back as it was.".into();
+                }
+            }
+        });
+        Ok(())
+    }
+
+    async fn auto_tune_status(&self) -> ug_proto::AutoTuneStatus {
+        self.auto.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Stops a running auto-tune; the card goes back as it was.
+    async fn stop_auto_tune(&self) {
+        self.auto_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Undoes the setting on trial now.

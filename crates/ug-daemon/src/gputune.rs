@@ -338,7 +338,7 @@ impl Tuner {
 }
 
 /// Where the stability test is, next to the daemon or on PATH.
-fn stress_binary() -> Option<std::path::PathBuf> {
+pub fn stress_binary() -> Option<std::path::PathBuf> {
     let beside = std::env::current_exe().ok()?.with_file_name("ug-stress");
     if beside.exists() {
         return Some(beside);

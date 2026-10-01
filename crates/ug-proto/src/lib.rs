@@ -257,6 +257,11 @@ pub mod daemon {
         /// one is undone at once. Returns (stable, what happened).
         fn test_tune(&self, pci: &str, seconds: u32) -> zbus::Result<(bool, String)>;
 
+        /// Searches for a setting by measuring: `faster` or `cooler`.
+        fn auto_tune(&self, pci: &str, goal: &str) -> zbus::Result<()>;
+        fn auto_tune_status(&self) -> zbus::Result<AutoTuneStatus>;
+        fn stop_auto_tune(&self) -> zbus::Result<()>;
+
         /// Undoes the setting on trial now (no authorisation: undoing is
         /// always allowed).
         fn cancel_tune(&self, pci: &str) -> zbus::Result<()>;

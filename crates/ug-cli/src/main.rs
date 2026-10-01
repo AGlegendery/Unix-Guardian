@@ -376,6 +376,14 @@ enum GpuCommand {
         #[arg(long, value_name = "SECONDS")]
         test: Option<u32>,
     },
+    /// Find a setting by measuring: `faster` (highest stable core clock)
+    /// or `cooler` (lowest power limit at the same clock). Takes minutes.
+    Autotune {
+        #[arg(long)]
+        pci: Option<String>,
+        #[arg(long, value_parser = ["faster", "cooler"])]
+        goal: String,
+    },
     /// Keep the setting being tried.
     Keep {
         #[arg(long)]
@@ -1425,6 +1433,41 @@ async fn gpu(
                     println!("Tuning now acts on {p}.");
                 }
                 None => println!("{}", gpu.active_gpu().await?),
+            }
+            Ok(())
+        }
+        GpuCommand::Autotune { pci, goal } => {
+            let pci = match pci { Some(p) => p, None => gpu.active_gpu().await? };
+            gpu.auto_tune(&pci, &goal).await.map_err(daemon_error)?;
+            let mut last = String::new();
+            let st = loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let s = gpu.auto_tune_status().await.map_err(daemon_error)?;
+                if s.message != last {
+                    eprintln!("[{}/{}] {}", s.step, s.steps, s.message);
+                    last = s.message.clone();
+                }
+                if !s.running {
+                    break s;
+                }
+            };
+            println!("{}", st.summary);
+            if !st.ok {
+                return Ok(());
+            }
+            eprint!("Keep it? Type y and Enter within two minutes: ");
+            let answer = tokio::time::timeout(std::time::Duration::from_secs(115), tokio::task::spawn_blocking(|| {
+                let mut s = String::new();
+                let _ = std::io::stdin().read_line(&mut s);
+                s
+            }))
+            .await;
+            if matches!(answer, Ok(Ok(ref s)) if s.trim().eq_ignore_ascii_case("y")) {
+                gpu.keep_tune(&pci).await.map_err(daemon_error)?;
+                println!("Kept.");
+            } else {
+                gpu.cancel_tune(&pci).await.ok();
+                println!("\nUndone.");
             }
             Ok(())
         }

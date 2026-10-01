@@ -834,3 +834,16 @@ pub struct CoolingState {
     pub notes: Vec<String>,
     pub simulated: bool,
 }
+
+/// Where an auto-tune stands.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct AutoTuneStatus {
+    pub running: bool,
+    pub step: u32,
+    pub steps: u32,
+    pub message: String,
+    /// When finished: what was found and how it compares (empty before).
+    pub summary: String,
+    /// Finished with a result now on trial (keep it to make it stay).
+    pub ok: bool,
+}
