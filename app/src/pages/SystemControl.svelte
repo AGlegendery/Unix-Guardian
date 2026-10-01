@@ -2,13 +2,13 @@
   import Problem from "../lib/ui/Problem.svelte";
   import { AlarmClock, Cpu, Moon, Power, RotateCcw, Snowflake, Trash2 } from "@lucide/svelte";
   import type { Component } from "svelte";
-  import { api, errorText, type BatteryCare, type PowerUsage, type PowerAction, type PowerCapability, type PowerJob, type PowerWatch, type WatchKind } from "../lib/api";
+  import { api, errorText, type BatteryCare, type CoolingState, type PowerUsage, type PowerAction, type PowerCapability, type PowerJob, type PowerWatch, type WatchKind } from "../lib/api";
   import { num } from "../lib/format";
   import { locale, t } from "../lib/i18n.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
 
-  type Tab = "command" | "conditional" | "usage" | "battery" | "sleep" | "alarm";
-  const tabs: Tab[] = ["command", "conditional", "usage", "battery", "sleep", "alarm"];
+  type Tab = "command" | "conditional" | "usage" | "battery" | "cooling" | "sleep" | "alarm";
+  const tabs: Tab[] = ["command", "conditional", "usage", "battery", "cooling", "sleep", "alarm"];
   const hashTab = location.hash.split("/")[1] as Tab;
   let tab = $state<Tab>(tabs.includes(hashTab) ? hashTab : "command");
   let caps = $state<PowerCapability[]>([]);
@@ -42,6 +42,26 @@
     const id = setInterval(load, 15000);
     return () => clearInterval(id);
   });
+  // Cooling: the power profile, the firmware's fan modes and fan curves.
+  let cool = $state<CoolingState | null>(null);
+  let ppd = $state("");
+  $effect(() => {
+    if (tab !== "cooling") return;
+    const load = () => {
+      if (document.hidden) return;
+      api.coolingState().then((c) => (cool = c)).catch((e) => (error = errorText(e)));
+      api.powerProfile().then((p) => (ppd = p)).catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 3000);
+    return () => clearInterval(id);
+  });
+  const FAN_PRESETS: Record<string, [number, number][]> = {
+    quiet: [[40, 20], [60, 35], [75, 60], [85, 100]],
+    balanced: [[40, 25], [60, 45], [75, 70], [85, 100]],
+    cool: [[40, 35], [55, 55], [70, 85], [80, 100]],
+  };
+  const coolRun = (f: () => Promise<void>) => run(async () => { await f(); cool = await api.coolingState(); ppd = await api.powerProfile(); });
   const setBat = (mode: string) => run(async () => { await api.setBatteryCare(mode, batLimit); bat = await api.battery(); });
   let tariff = $state(readTariff());
 
@@ -427,6 +447,56 @@
       {/if}
     {/if}
   </section>
+{:else if tab === "cooling"}
+  <section class="card">
+    <h2>{t().sys.cool.profile}</h2>
+    {#if ppd}
+      <Segmented
+        label={t().sys.cool.profile}
+        value={ppd}
+        options={(["power-saver", "balanced", "performance"] as const).map((p) => ({ value: p, label: t().sys.cool.profiles[p] }))}
+        onchange={(p) => coolRun(() => api.setPowerProfile(p))}
+      />
+      <p class="small">{t().sys.cool.profileHint}</p>
+    {:else}
+      <p class="muted">{t().sys.cool.noPpd}</p>
+    {/if}
+  </section>
+  {#if cool && cool.fan_mode >= 0}
+    <section class="card">
+      <h2>{t().sys.cool.fanMode}</h2>
+      <Segmented
+        label={t().sys.cool.fanMode}
+        value={String(cool.fan_mode)}
+        options={cool.fan_modes.map(([v, n]) => ({ value: String(v), label: t().sys.cool.fanModes[n] ?? n }))}
+        onchange={(v) => coolRun(() => api.setFanMode(Number(v)))}
+      />
+      <p class="small">{t().sys.cool.fanModeHint}</p>
+    </section>
+  {/if}
+  <section class="card">
+    <h2>{t().sys.cool.fans}</h2>
+    {#each cool?.fans ?? [] as f (f.id)}
+      <div class="fan">
+        <div class="fan-top">
+          <b>{f.id.startsWith("amdgpu/") ? t().sys.cool.gpuFan : f.label}</b>
+          <span class="muted" dir="ltr">{num(f.rpm)} rpm · {num(f.pct)}% · {num(f.temp_c)}°C</span>
+          <span class="chip">{f.mode === "curve" ? t().sys.cool.curve : t().sys.cool.auto}</span>
+        </div>
+        <div class="line">
+          {#each ["quiet", "balanced", "cool"] as const as p}
+            <button class="btn" disabled={busy} onclick={() => coolRun(() => api.setFanCurve(f.id, FAN_PRESETS[p]))}>{t().sys.cool.presets[p]}</button>
+          {/each}
+          <button class="btn" disabled={busy || f.mode === "auto"} onclick={() => coolRun(() => api.setFanAuto(f.id))}>{t().sys.cool.auto}</button>
+        </div>
+        {#if f.curve.length}
+          <p class="small" dir="ltr">{f.curve.map(([c, p]) => `${c}°C → ${p}%`).join("   ")}</p>
+        {/if}
+      </div>
+    {/each}
+    {#each cool?.notes ?? [] as n}<p class="muted">{n}</p>{/each}
+    <p class="small">{t().sys.cool.safety}</p>
+  </section>
 {:else if tab === "usage"}
   <section class="card">
     <h2>{t().sys.use.now}</h2>
@@ -676,4 +746,7 @@
   .secondary.armed { border-color: var(--danger); color: var(--danger); }
   .secondary:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .small { margin: 12px 0 0; color: var(--text-3); font-size: 0.8rem; max-width: 80ch; }
+  .fan { display: grid; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .fan:last-of-type { border-bottom: 0; }
+  .fan-top { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
 </style>

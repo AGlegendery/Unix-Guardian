@@ -10,7 +10,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, OnceCell};
 use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy};
-use ug_proto::daemon::{DaemonProxy, GameModeProxy, GpuProxy, NetProxy, PowerProxy};
+use ug_proto::daemon::{CoolingProxy, DaemonProxy, GameModeProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{BatteryCare, DayTraffic, HistoryPoint, Inventory, InstalledGameInfo, PlaytimeEntry, PowerCapability, PowerJob, PowerUsage, PowerWatch, ProfileInfo, RunningGameInfo, Snapshot};
 
 pub struct Bus {
@@ -445,6 +445,58 @@ pub async fn gpu_cancel_tune(bus: State<'_, Bus>, pci: String) -> Res<()> {
 pub async fn gpu_reset_tune(bus: State<'_, Bus>, pci: String) -> Res<()> {
     let g = GpuProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
     g.reset_tune(&pci).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn cooling_state(bus: State<'_, Bus>) -> Res<ug_proto::CoolingState> {
+    let c = CoolingProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    c.state().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn set_fan_curve(bus: State<'_, Bus>, id: String, points: Vec<(f64, f64)>) -> Res<()> {
+    let c = CoolingProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    c.set_curve(&id, &points).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn set_fan_auto(bus: State<'_, Bus>, id: String) -> Res<()> {
+    let c = CoolingProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    c.set_auto(&id).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn set_fan_mode(bus: State<'_, Bus>, mode: i32) -> Res<()> {
+    let c = CoolingProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    c.set_fan_mode(mode).await.map_err(daemon_err)
+}
+
+#[zbus::proxy(
+    interface = "org.freedesktop.UPower.PowerProfiles",
+    default_service = "org.freedesktop.UPower.PowerProfiles",
+    default_path = "/org/freedesktop/UPower/PowerProfiles"
+)]
+trait PowerProfiles {
+    #[zbus(property)]
+    fn active_profile(&self) -> zbus::Result<String>;
+    #[zbus(property)]
+    fn set_active_profile(&self, p: &str) -> zbus::Result<()>;
+}
+
+/// The system's power profile (power-profiles-daemon), "" when it is not
+/// running.
+#[tauri::command]
+pub async fn power_profile() -> Res<String> {
+    let Ok(c) = zbus::Connection::system().await else { return Ok(String::new()) };
+    let Ok(p) = PowerProfilesProxy::new(&c).await else { return Ok(String::new()) };
+    Ok(p.active_profile().await.unwrap_or_default())
+}
+
+#[tauri::command]
+pub async fn set_power_profile(profile: String) -> Res<()> {
+    let c = zbus::Connection::system().await.map_err(|e| e.to_string())?;
+    let p = PowerProfilesProxy::new(&c).await.map_err(|e| e.to_string())?;
+    p.set_active_profile(&profile).await.map_err(|e| e.to_string())
 }
 
 /// How to run a program on each GPU: the Steam launch options and the

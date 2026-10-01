@@ -154,6 +154,9 @@ export interface GpuTuneState {
   crashed: GpuTune;
 }
 
+export interface FanInfo { id: string; label: string; rpm: number; pct: number | null; temp_c: number | null; mode: "auto" | "curve"; curve: [number, number][] }
+export interface CoolingState { fans: FanInfo[]; fan_mode: number; fan_modes: [number, string][]; notes: string[]; simulated: boolean }
+
 export interface GpuOffload { pci: string; vendor: string; boot_vga: boolean; launch_options: string }
 
 export interface OverlaySettings {
@@ -378,6 +381,12 @@ const tauriApi = {
   fpsSessions: (sinceUnixMs: number) => invoke<FpsSession[]>("fps_sessions", { sinceUnixMs }),
   forgetFpsSessions: () => invoke<number>("forget_fps_sessions"),
   gpuOffload: () => invoke<GpuOffload[]>("gpu_offload"),
+  coolingState: () => invoke<CoolingState>("cooling_state"),
+  setFanCurve: (id: string, points: [number, number][]) => invoke<void>("set_fan_curve", { id, points }),
+  setFanAuto: (id: string) => invoke<void>("set_fan_auto", { id }),
+  setFanMode: (mode: number) => invoke<void>("set_fan_mode", { mode }),
+  powerProfile: () => invoke<string>("power_profile"),
+  setPowerProfile: (profile: string) => invoke<void>("set_power_profile", { profile }),
   gpuTuneState: (pci: string) => invoke<GpuTuneState>("gpu_tune_state", { pci }),
   gpuTryTune: (pci: string, tune: GpuTune) => invoke<void>("gpu_try_tune", { pci, tune }),
   gpuKeepTune: (pci: string) => invoke<void>("gpu_keep_tune", { pci }),

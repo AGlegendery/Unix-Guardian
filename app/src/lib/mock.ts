@@ -4,7 +4,7 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { CoolingState, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -14,6 +14,9 @@ const bat: BatteryCare = { supported: true, method: "vendor-long-life", adjustab
 const watches: PowerWatch[] = [];
 let t = 0;
 let fpsSetUp = false;
+let fanMode = 1;
+let ppdProfile = "balanced";
+const fanCurves: Record<string, [number, number][]> = {};
 const zeroTune: GpuTune = { power_limit_w: 0, core_offset_mhz: 0, mem_offset_mhz: 0 };
 let tuneKept: GpuTune = { ...zeroTune };
 let tuneTrial: GpuTune | null = null;
@@ -274,6 +277,26 @@ export const mockApi = {
   gpuResetTune: async () => {
     tuneTrial = null;
     tuneKept = { ...zeroTune };
+  },
+  coolingState: async (): Promise<CoolingState> => ({
+    fans: [{ id: "amdgpu/pwm1", label: "Graphics card fan", rpm: 1450, pct: 40, temp_c: 64, mode: fanCurves["amdgpu/pwm1"] ? "curve" : "auto", curve: fanCurves["amdgpu/pwm1"] ?? [] }],
+    fan_mode: fanMode,
+    fan_modes: [[0, "quiet"], [1, "standard"], [4, "cooling"]],
+    notes: [],
+    simulated: false,
+  }),
+  setFanCurve: async (id: string, points: [number, number][]) => {
+    fanCurves[id] = points;
+  },
+  setFanAuto: async (id: string) => {
+    delete fanCurves[id];
+  },
+  setFanMode: async (m: number) => {
+    fanMode = m;
+  },
+  powerProfile: async () => ppdProfile,
+  setPowerProfile: async (p: string) => {
+    ppdProfile = p;
   },
   openTerminal: async () => {
     throw "The preview cannot open a terminal. In the app this opens ug tui.";

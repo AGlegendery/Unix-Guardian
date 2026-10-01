@@ -113,6 +113,12 @@ fn main() {
             bus::gpu_keep_tune,
             bus::gpu_cancel_tune,
             bus::gpu_reset_tune,
+            bus::cooling_state,
+            bus::set_fan_curve,
+            bus::set_fan_auto,
+            bus::set_fan_mode,
+            bus::power_profile,
+            bus::set_power_profile,
             open_terminal_interface,
             report_bug,
         ])
