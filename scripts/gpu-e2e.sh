@@ -28,7 +28,8 @@ check "answering yes keeps it" "grep -q Kept <<<\"\$out\" && ug gpu tune | grep 
 kill "$daemon"; wait "$daemon" 2>/dev/null; start
 check "a kept setting survives a restart" "until_ 5 'ug gpu tune | grep -q \"power limit   45 W\"'"
 # A trial in progress when the service dies is not applied again.
-( sleep 60 | ug gpu tune --power 90 --core 250 >/dev/null 2>&1 & ); sleep 2
+( sleep 60 | ug gpu tune --power 90 --core 250 >/dev/null 2>&1 & )
+until_ 10 "[ -s '$W/state/gpu-pending.json' ]"
 kill -9 "$daemon"; wait "$daemon" 2>/dev/null; start
 check "a setting tried during a crash is not applied again" "ug gpu tune | grep -q 'NOT applied again: .*90 W, core +250'"
 check "and the kept one is still in force" "until_ 5 'ug gpu tune | grep -q \"power limit   45 W\"'"
