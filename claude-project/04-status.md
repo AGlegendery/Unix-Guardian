@@ -91,6 +91,35 @@ P3 done (see git log); P4 in progress (above). ⬜ Not started: P5 GPU tuning & 
 overlay & FPS, P7 recording & Telegram, P8 driver troubleshooter, P9 Linux
 extras, P10 packaging & 1.0.
 
+## P5 GPU (branch `p5-gpu`) — built, not merged, 2026-10-01
+
+P6 is merged into `main` (`fc9a5a4`). On `p5-gpu`:
+- ✅ 5.0 `ug_hw::gpu_use` (GPU a process really uses: /dev/nvidiaN or DRM
+  fdinfo engine time), `ug run --gpu …` / `--steam`, running game's GPU in
+  the agent and UIs. Verified: vkcube on NVIDIA (nvidia-smi), on Intel the
+  dGPU stayed suspended (Mesa ICDs only + MESA_VK_DEVICE_SELECT). Mode
+  switching (iGPU-only/dGPU-only) not offered: eDP is on the Intel card,
+  Wayland, no MUX known.
+- ✅ 5.1 AMD (power1_cap, pp_od_clk_voltage RDNA1-3) — fixtures only.
+- ✅ 5.2 NVIDIA via NVML (power limit, GPC/MEM VF offsets with driver bounds).
+  **Never written on the real RTX 3050 yet**: the user allowed a first test
+  (60 → 50 W, no offset) and must run dev-install first.
+- ✅ 5.3 `ug-stress` (wgpu/Vulkan compute, self-checking; exit 0/2/1) and
+  Daemon1.Gpu.TestTune.
+- ✅ 5.4 auto-tune faster/cooler (`autotune.rs`), before/after report.
+- ✅ 5.5 presets (cooler / less power / stronger) in the window tuner.
+- ✅ 5.6 `gputune.rs`: 30 s trial, gpu-pending.json crash watchdog,
+  re-apply on wake (never wakes), 88 °C guard; polkit gpu.tune
+  (auth_admin_keep). gpu-e2e 10 checks.
+- ✅ 5.7 `cooling.rs`: hwmon pwm curves with three failsafes, IdeaPad
+  fan_mode; Daemon1.Cooling; `ug fans`; Cooling tab (window + TUI). The
+  laptop has no driveable fan.
+- ✅ Agent holds power-profiles-daemon "performance" while gaming
+  (profile option `power_profile`); verified on the laptop (platform
+  profile balanced → performance → back, no prompt).
+- ✅ 5.9 window tuner (Game mode → Graphics), TUI Graphics card tab.
+- ⬜ 5.8 fan calibration ("learn from my system"): needs a driveable fan.
+
 ## P6 overlay (branch `p6-overlay`) — built, not merged, 2026-10-01
 
 P4 is merged into `main` (`dc1fdfa`). On `p6-overlay`:
