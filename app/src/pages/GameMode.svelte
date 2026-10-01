@@ -1,4 +1,5 @@
 <script lang="ts">
+  import GpuTuner from "../lib/GpuTuner.svelte";
   import Problem from "../lib/ui/Problem.svelte";
   import { Cpu, Gamepad2, MonitorSmartphone, Settings2 } from "@lucide/svelte";
   import { api, errorText, type GpuOffload, type InstalledGame, type Overview, type Profile, type RunningGame } from "../lib/api";
@@ -205,7 +206,9 @@
               </div>
             {/each}
             <p class="row-hint">{t().gmp.gpuCli} <code dir="ltr">ug run --gpu nvidia -- program</code></p>
-            <p class="unbuilt">{t().gmp.graphicsUnbuilt}</p>
+            {#each offload.filter((g) => !g.boot_vga) as g (g.pci)}
+              <GpuTuner pci={g.pci} name={gpuName(g.pci)} />
+            {/each}
           </div>
         {/if}
       </div>
@@ -320,7 +323,6 @@
   .row-hint { margin: 3px 0 0; color: var(--text-2); font-size: 0.83rem; max-width: 62ch; }
   .apps { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
   .ltr { direction: ltr; }
-  .unbuilt { color: var(--text-2); font-size: 0.9rem; margin: 18px 0 4px; }
 
   .game-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
   .game-list li {

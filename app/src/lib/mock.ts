@@ -4,7 +4,7 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -14,6 +14,9 @@ const bat: BatteryCare = { supported: true, method: "vendor-long-life", adjustab
 const watches: PowerWatch[] = [];
 let t = 0;
 let fpsSetUp = false;
+const zeroTune: GpuTune = { power_limit_w: 0, core_offset_mhz: 0, mem_offset_mhz: 0 };
+let tuneKept: GpuTune = { ...zeroTune };
+let tuneTrial: GpuTune | null = null;
 let overlay: OverlaySettings = { show: "gaming", layout: "card", position: "top-left", size: "medium", opacity_pct: 50, toggle_key: "Alt_L+o", every_game: false };
 let fpsLog: FpsSession[] = [
   { game: "cs2", started_unix_ms: Date.now() - 3 * 3600e3, duration_s: 3120, frames: 440000, avg_fps: 141, low_1pct_fps: 96, low_01pct_fps: 71, p99_frametime_ms: 10.4, stutters: 4 },
@@ -248,6 +251,30 @@ export const mockApi = {
     { pci: "0000:00:02.0", vendor: "intel", boot_vga: true, launch_options: "DRI_PRIME=pci-0000_00_02_0 MESA_VK_DEVICE_SELECT=8086:468b! __GLX_VENDOR_LIBRARY_NAME=mesa %command%" },
     { pci: "0000:01:00.0", vendor: "nvidia", boot_vga: false, launch_options: "__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only %command%" },
   ],
+  gpuTuneState: async (pci: string): Promise<GpuTuneState> => {
+    const t = tuneTrial ?? tuneKept;
+    return {
+      pci, power_limit: true, power_limit_w: t.power_limit_w || 60, power_default_w: 60, power_min_w: 35, power_max_w: 95,
+      core_offset: true, core_offset_mhz: t.core_offset_mhz, core_min_mhz: -200, core_max_mhz: 300,
+      mem_offset: true, mem_offset_mhz: t.mem_offset_mhz, mem_min_mhz: -500, mem_max_mhz: 1000,
+      notes: ["NVIDIA's Linux driver has no voltage curve: a lower power limit with a higher clock offset is how to get cooler and quieter at the same speed."],
+      applied: { ...t }, crashed: { ...zeroTune },
+    };
+  },
+  gpuTryTune: async (_pci: string, t: GpuTune) => {
+    tuneTrial = { ...t };
+  },
+  gpuKeepTune: async () => {
+    if (tuneTrial) tuneKept = tuneTrial;
+    tuneTrial = null;
+  },
+  gpuCancelTune: async () => {
+    tuneTrial = null;
+  },
+  gpuResetTune: async () => {
+    tuneTrial = null;
+    tuneKept = { ...zeroTune };
+  },
   openTerminal: async () => {
     throw "The preview cannot open a terminal. In the app this opens ug tui.";
   },

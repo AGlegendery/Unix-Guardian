@@ -417,6 +417,36 @@ pub async fn forget_fps_sessions(bus: State<'_, Bus>) -> Res<u32> {
     m.forget_fps_sessions().await.map_err(agent_err)
 }
 
+#[tauri::command]
+pub async fn gpu_tune_state(bus: State<'_, Bus>, pci: String) -> Res<ug_proto::GpuTuneState> {
+    let g = GpuProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    g.tune_state(&pci).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn gpu_try_tune(bus: State<'_, Bus>, pci: String, tune: ug_proto::GpuTune) -> Res<()> {
+    let g = GpuProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    g.try_tune(&pci, &tune).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn gpu_keep_tune(bus: State<'_, Bus>, pci: String) -> Res<()> {
+    let g = GpuProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    g.keep_tune(&pci).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn gpu_cancel_tune(bus: State<'_, Bus>, pci: String) -> Res<()> {
+    let g = GpuProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    g.cancel_tune(&pci).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn gpu_reset_tune(bus: State<'_, Bus>, pci: String) -> Res<()> {
+    let g = GpuProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    g.reset_tune(&pci).await.map_err(daemon_err)
+}
+
 /// How to run a program on each GPU: the Steam launch options and the
 /// `ug run` form. Read from sysfs here; nothing asks the GPUs anything.
 #[derive(Serialize)]

@@ -133,6 +133,27 @@ export interface NetControlStatus {
   vpn_tun: boolean;
 }
 
+export interface GpuTune { power_limit_w: number; core_offset_mhz: number; mem_offset_mhz: number }
+export interface GpuTuneState {
+  pci: string;
+  power_limit: boolean;
+  power_limit_w: number;
+  power_default_w: number;
+  power_min_w: number;
+  power_max_w: number;
+  core_offset: boolean;
+  core_offset_mhz: number;
+  core_min_mhz: number;
+  core_max_mhz: number;
+  mem_offset: boolean;
+  mem_offset_mhz: number;
+  mem_min_mhz: number;
+  mem_max_mhz: number;
+  notes: string[];
+  applied: GpuTune;
+  crashed: GpuTune;
+}
+
 export interface GpuOffload { pci: string; vendor: string; boot_vga: boolean; launch_options: string }
 
 export interface OverlaySettings {
@@ -356,6 +377,11 @@ const tauriApi = {
   fpsSessions: (sinceUnixMs: number) => invoke<FpsSession[]>("fps_sessions", { sinceUnixMs }),
   forgetFpsSessions: () => invoke<number>("forget_fps_sessions"),
   gpuOffload: () => invoke<GpuOffload[]>("gpu_offload"),
+  gpuTuneState: (pci: string) => invoke<GpuTuneState>("gpu_tune_state", { pci }),
+  gpuTryTune: (pci: string, tune: GpuTune) => invoke<void>("gpu_try_tune", { pci, tune }),
+  gpuKeepTune: (pci: string) => invoke<void>("gpu_keep_tune", { pci }),
+  gpuCancelTune: (pci: string) => invoke<void>("gpu_cancel_tune", { pci }),
+  gpuResetTune: (pci: string) => invoke<void>("gpu_reset_tune", { pci }),
   openTerminal: () => invoke<void>("open_terminal_interface"),
   reportBug: (context: string) => invoke<void>("report_bug", { context }),
   battery: () => invoke<BatteryCare>("battery"),
