@@ -27,7 +27,7 @@
 use crate::{empty_sample, GpuBackend};
 use std::path::PathBuf;
 use ug_hw::{hwmon, SysRoot};
-use ug_proto::{GpuCapabilities, GpuInfo, GpuSample};
+use ug_proto::{GpuCapabilities, GpuInfo, GpuSample, GpuTune, GpuTuneState};
 
 /// One AMD GPU, bound to its sysfs device directory.
 pub struct AmdGpu {
@@ -38,6 +38,9 @@ pub struct AmdGpu {
     hwmon: Option<PathBuf>,
     /// True when `amdgpu.ppfeaturemask` enabled the overdrive attributes.
     overdrive: bool,
+    /// The stock top clock states, learned before the first change.
+    stock_sclk: std::sync::Mutex<Option<u32>>,
+    stock_mclk: std::sync::Mutex<Option<u32>>,
 }
 
 impl AmdGpu {
@@ -67,6 +70,8 @@ impl AmdGpu {
             device,
             hwmon,
             overdrive,
+            stock_sclk: std::sync::Mutex::new(None),
+            stock_mclk: std::sync::Mutex::new(None),
         })
     }
 
@@ -196,6 +201,155 @@ impl GpuBackend for AmdGpu {
         }
 
         caps
+    }
+
+    fn tune_state(&self) -> GpuTuneState {
+        self.read_state()
+    }
+
+    fn apply_tune(&self, t: &GpuTune) -> Result<(), String> {
+        let st = self.read_state();
+        crate::check_tune(t, &st)?;
+        if let Some(h) = &self.hwmon {
+            if st.power_limit {
+                let w = if t.power_limit_w == 0.0 { st.power_default_w } else { t.power_limit_w };
+                std::fs::write(h.join("power1_cap"), format!("{}", (w * 1_000_000.0).round() as i64))
+                    .map_err(|e| format!("power cap: {e}"))?;
+            }
+        }
+        if self.overdrive && (t.core_offset_mhz != 0 || t.mem_offset_mhz != 0 || st.core_offset_mhz != 0 || st.mem_offset_mhz != 0) {
+            let stock = self.stock()?;
+            *self.stock_sclk.lock().unwrap_or_else(|e| e.into_inner()) = stock.sclk_max;
+            *self.stock_mclk.lock().unwrap_or_else(|e| e.into_inner()) = stock.mclk_max;
+            self.write_od(&od_commands(&stock, t))?;
+        }
+        Ok(())
+    }
+
+    fn reset_tune(&self) -> Result<(), String> {
+        self.apply_tune(&GpuTune::default())
+    }
+}
+
+/// What `pp_od_clk_voltage` says: the highest core and memory clock states
+/// and the ranges the card allows (RDNA1-3 layouts).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct OdTable {
+    pub sclk_max: Option<u32>,
+    pub mclk_max: Option<u32>,
+    pub sclk_range: Option<(u32, u32)>,
+    pub mclk_range: Option<(u32, u32)>,
+}
+
+pub fn parse_od(text: &str) -> OdTable {
+    let mut t = OdTable::default();
+    let mut section = "";
+    let mhz = |w: &str| w.trim().trim_end_matches(|c: char| c.is_ascii_alphabetic()).parse::<u32>().ok();
+    for line in text.lines() {
+        let l = line.trim();
+        if l.ends_with(':') && !l.contains(' ') {
+            section = l.trim_end_matches(':');
+            continue;
+        }
+        match section {
+            "OD_SCLK" | "OD_MCLK" => {
+                if let Some((_, v)) = l.split_once(':') {
+                    if let Some(m) = v.split_whitespace().next().and_then(mhz) {
+                        let slot = if section == "OD_SCLK" { &mut t.sclk_max } else { &mut t.mclk_max };
+                        *slot = Some(slot.map_or(m, |x| x.max(m)));
+                    }
+                }
+            }
+            "OD_RANGE" => {
+                let f: Vec<&str> = l.split_whitespace().collect();
+                if f.len() >= 3 {
+                    let r = mhz(f[1]).zip(mhz(f[2]));
+                    match f[0].trim_end_matches(':') {
+                        "SCLK" => t.sclk_range = r,
+                        "MCLK" => t.mclk_range = r,
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    t
+}
+
+/// The overdrive commands for `t` on a card whose stock table is `stock`:
+/// back to stock, then the new top states, then commit. Offsets are relative
+/// to the stock top state, as on NVIDIA.
+pub fn od_commands(stock: &OdTable, t: &GpuTune) -> Vec<String> {
+    let mut c = vec!["r".to_string()];
+    if let (Some(s), true) = (stock.sclk_max, t.core_offset_mhz != 0) {
+        c.push(format!("s 1 {}", s as i64 + t.core_offset_mhz as i64));
+    }
+    if let (Some(m), true) = (stock.mclk_max, t.mem_offset_mhz != 0) {
+        c.push(format!("m 1 {}", m as i64 + t.mem_offset_mhz as i64));
+    }
+    c.push("c".into());
+    c
+}
+
+impl AmdGpu {
+    fn od_path(&self) -> PathBuf {
+        self.device.join("pp_od_clk_voltage")
+    }
+
+    fn write_od(&self, cmds: &[String]) -> Result<(), String> {
+        for cmd in cmds {
+            std::fs::write(self.od_path(), format!("{cmd}\n")).map_err(|e| format!("overdrive command {cmd:?}: {e}"))?;
+        }
+        Ok(())
+    }
+
+    /// The stock table: the card's own values, after a reset to them.
+    fn stock(&self) -> Result<OdTable, String> {
+        self.write_od(&["r".into(), "c".into()])?;
+        Ok(parse_od(&std::fs::read_to_string(self.od_path()).map_err(|e| e.to_string())?))
+    }
+
+    fn read_state(&self) -> GpuTuneState {
+        let mut st = GpuTuneState { pci: self.pci.clone(), ..Default::default() };
+        if let Some(h) = &self.hwmon {
+            let w = |n: &str| read_i64(h.join(n)).map(|v| v as f64 / 1_000_000.0);
+            if let (Some(min), Some(max), Some(cur)) = (w("power1_cap_min"), w("power1_cap_max"), w("power1_cap")) {
+                st.power_limit = true;
+                st.power_min_w = min.max(1.0);
+                st.power_max_w = max;
+                st.power_limit_w = cur;
+                st.power_default_w = w("power1_cap_default").unwrap_or(cur);
+            }
+        }
+        if !st.power_limit {
+            st.notes.push("This card does not expose a power cap.".into());
+        }
+        if !self.overdrive {
+            st.notes.push(
+                "Clock tuning needs the kernel to start with amdgpu.ppfeaturemask=0xffffffff; Unix Guardian can add it to your bootloader for you."
+                    .into(),
+            );
+            return st;
+        }
+        let od = parse_od(&std::fs::read_to_string(self.od_path()).unwrap_or_default());
+        // The offsets are relative to the stock top state; what is shown as
+        // "now" is the current top state against the range.
+        if let (Some(cur), Some((lo, hi))) = (od.sclk_max, od.sclk_range) {
+            st.core_offset = true;
+            let stock = self.stock_sclk.lock().unwrap_or_else(|e| e.into_inner()).unwrap_or(cur);
+            st.core_offset_mhz = cur as i32 - stock as i32;
+            st.core_min_mhz = lo as i32 - stock as i32;
+            st.core_max_mhz = hi as i32 - stock as i32;
+        }
+        if let (Some(cur), Some((lo, hi))) = (od.mclk_max, od.mclk_range) {
+            st.mem_offset = true;
+            let stock = self.stock_mclk.lock().unwrap_or_else(|e| e.into_inner()).unwrap_or(cur);
+            st.mem_offset_mhz = cur as i32 - stock as i32;
+            st.mem_min_mhz = lo as i32 - stock as i32;
+            st.mem_max_mhz = hi as i32 - stock as i32;
+        }
+        st
     }
 }
 
@@ -385,6 +539,40 @@ mod tests {
         assert_eq!(s.load(), Some(12.0));
         assert_eq!(s.temp(), None, "absent must not read as 0 degrees");
         assert_eq!(s.power(), None, "absent must not read as 0 watts");
+    }
+
+    #[test]
+    fn overdrive_tables_parse_for_rdna2_and_rdna3() {
+        let rdna2 = "OD_SCLK:\n0: 500Mhz\n1: 2424Mhz\nOD_MCLK:\n1: 1000MHz\nOD_VDDC_CURVE:\n0: 500MHz 750mV\nOD_RANGE:\nSCLK:     500Mhz        2800Mhz\nMCLK:     674Mhz        1075Mhz\n";
+        let t = parse_od(rdna2);
+        assert_eq!((t.sclk_max, t.mclk_max), (Some(2424), Some(1000)));
+        assert_eq!((t.sclk_range, t.mclk_range), (Some((500, 2800)), Some((674, 1075))));
+        let rdna3 = "OD_SCLK:\n0: 500Mhz\n1: 2500Mhz\nOD_MCLK:\n0: 97Mhz\n1: 1250MHz\nOD_VDDGFX_OFFSET:\n0mV\nOD_RANGE:\nSCLK:     500Mhz       3000Mhz\nMCLK:      97Mhz       1500Mhz\n";
+        let t = parse_od(rdna3);
+        assert_eq!((t.sclk_max, t.mclk_max, t.sclk_range), (Some(2500), Some(1250), Some((500, 3000))));
+    }
+
+    #[test]
+    fn overdrive_commands_reset_first_and_commit_last() {
+        let stock = parse_od("OD_SCLK:\n1: 2424Mhz\nOD_MCLK:\n1: 1000MHz\n");
+        let t = GpuTune { power_limit_w: 0.0, core_offset_mhz: -100, mem_offset_mhz: 50 };
+        assert_eq!(od_commands(&stock, &t), vec!["r", "s 1 2324", "m 1 1050", "c"]);
+        assert_eq!(od_commands(&stock, &GpuTune::default()), vec!["r", "c"]);
+    }
+
+    #[test]
+    fn tune_state_reports_the_power_cap_and_offset_ranges() {
+        let (fs, mut info) = rdna2_card();
+        fs.write(
+            "sys/class/drm/card0/device/pp_od_clk_voltage",
+            "OD_SCLK:\n0: 500Mhz\n1: 2424Mhz\nOD_MCLK:\n1: 1000MHz\nOD_RANGE:\nSCLK: 500Mhz 2800Mhz\nMCLK: 674Mhz 1075Mhz",
+        );
+        let g = AmdGpu::open(&SysRoot::at(fs.root()), &mut info).unwrap();
+        let st = g.tune_state();
+        assert!(st.power_limit && st.core_offset && st.mem_offset);
+        assert_eq!((st.power_limit_w, st.power_max_w), (203.0, 233.0));
+        assert_eq!((st.core_min_mhz, st.core_max_mhz), (500 - 2424, 2800 - 2424));
+        assert!(crate::check_tune(&GpuTune { core_offset_mhz: 500, ..Default::default() }, &st).is_err(), "beyond the 2800 MHz range");
     }
 
     #[test]
