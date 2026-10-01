@@ -46,6 +46,10 @@ bin="$here/target/release"
 install -Dm755 "$bin/ug-daemon" /usr/local/bin/ug-daemon
 install -Dm755 "$bin/ug-agent"  /usr/local/bin/ug-agent
 install -Dm755 "$bin/ug"        /usr/local/bin/ug
+# The GPU stability test, when built (cargo build --release -p ug-stress).
+if [ -x "$bin/ug-stress" ]; then
+  install -Dm755 "$bin/ug-stress" /usr/local/bin/ug-stress
+fi
 # The window, when it has been built (cd app && npx tauri build --no-bundle).
 # `ug tui` opens it with g, and it opens `ug tui` from its sidebar.
 if [ -x "$here/app/src-tauri/target/release/ug-app" ]; then

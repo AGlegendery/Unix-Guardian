@@ -396,6 +396,8 @@ export const en = {
     try: "Try",
     keep: "Keep",
     undo: "Undo",
+    test: "Test stability (2 min)",
+    testing: "Testing stability for 2 minutes: the card works hard and every result is checked. The setting stays on trial meanwhile.",
     reset: "Card's defaults",
     trying: "Trying it: keep it within {s} s, or it is undone by itself.",
     safety: "Every change is a 30-second trial. A setting that was being tried when the computer froze is never applied again, and a tuned card that reaches 88 °C gets its defaults back.",

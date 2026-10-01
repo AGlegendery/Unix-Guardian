@@ -430,6 +430,12 @@ pub async fn gpu_try_tune(bus: State<'_, Bus>, pci: String, tune: ug_proto::GpuT
 }
 
 #[tauri::command]
+pub async fn gpu_test_tune(bus: State<'_, Bus>, pci: String, seconds: u32) -> Res<(bool, String)> {
+    let g = GpuProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    g.test_tune(&pci, seconds).await.map_err(daemon_err)
+}
+
+#[tauri::command]
 pub async fn gpu_keep_tune(bus: State<'_, Bus>, pci: String) -> Res<()> {
     let g = GpuProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
     g.keep_tune(&pci).await.map_err(daemon_err)

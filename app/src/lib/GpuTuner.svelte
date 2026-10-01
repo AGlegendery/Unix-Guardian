@@ -15,6 +15,34 @@
   // Seconds left to keep a setting on trial; null when nothing is on trial.
   let left = $state<number | null>(null);
   let timer: ReturnType<typeof setInterval> | null = null;
+  let testing = $state(false);
+  let verdict = $state<{ stable: boolean; text: string } | null>(null);
+
+  async function test() {
+    testing = true;
+    verdict = null;
+    stopTimer();
+    try {
+      const [stable, text] = await api.gpuTestTune(pci, 120);
+      verdict = { stable, text };
+      if (stable) {
+        left = 30;
+        timer = setInterval(() => {
+          left = (left ?? 0) - 1;
+          if (left <= 0) {
+            stopTimer();
+            load();
+          }
+        }, 1000);
+      } else {
+        await load();
+      }
+    } catch (e) {
+      error = errorText(e);
+    } finally {
+      testing = false;
+    }
+  }
 
   async function load() {
     busy = true;
@@ -137,10 +165,13 @@
       </label>
     {/if}
 
-    {#if left !== null}
+    {#if testing}
+      <div class="trial" role="status"><span>{t().tune.testing}</span></div>
+    {:else if left !== null}
       <div class="trial" role="status">
         <span>{t().tune.trying.replace("{s}", num(left))}</span>
         <button class="btn primary" disabled={busy} onclick={() => act(() => api.gpuKeepTune(pci))}>{t().tune.keep}</button>
+        <button class="btn" disabled={busy} onclick={test}>{t().tune.test}</button>
         <button class="btn" disabled={busy} onclick={() => act(() => api.gpuCancelTune(pci))}>{t().tune.undo}</button>
       </div>
     {:else}
@@ -149,6 +180,7 @@
         <button class="btn" disabled={busy} onclick={() => act(() => api.gpuResetTune(pci))}>{t().tune.reset}</button>
       </div>
     {/if}
+    {#if verdict}<p class="verdict" class:bad={!verdict.stable}>{verdict.text}</p>{/if}
     <p class="row-hint">{t().tune.safety}</p>
     {#each st.notes as n}<p class="row-hint">{n}</p>{/each}
   {/if}
@@ -159,6 +191,8 @@
   .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   .row-title { margin: 0; }
   .row-hint { margin: 0; color: var(--text-3); font-size: 0.8rem; }
+  .verdict { margin: 0; font-size: 0.86rem; color: var(--ok, #34d399); }
+  .verdict.bad { color: var(--danger); }
   .warn { margin: 0; color: var(--warn, #fbbf24); font-size: 0.85rem; }
   .presets { display: flex; gap: 8px; flex-wrap: wrap; }
   .chip-btn { all: unset; padding: 5px 12px; border-radius: 999px; background: var(--card-2); font-size: 0.82rem; cursor: pointer; }

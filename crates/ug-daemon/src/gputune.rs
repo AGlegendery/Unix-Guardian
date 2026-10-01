@@ -253,6 +253,17 @@ impl Tuner {
         Ok(())
     }
 
+    /// Keeps the trial on `pci` alive for `extra` more (while it is tested).
+    pub fn extend(&mut self, pci: &str, extra: Duration) -> bool {
+        match self.trial.as_mut().filter(|t| t.pci == pci) {
+            Some(t) => {
+                t.until = Instant::now() + extra;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Undoes the setting on trial now, back to what was kept before.
     pub fn cancel(&mut self, pci: &str) -> Result<(), String> {
         let t = self.trial.take_if(|t| t.pci == pci).ok_or("nothing is being tried on this GPU")?;
@@ -324,6 +335,53 @@ impl Tuner {
     pub fn busy(&self) -> bool {
         self.trial.is_some() || !self.applied.is_empty()
     }
+}
+
+/// Where the stability test is, next to the daemon or on PATH.
+fn stress_binary() -> Option<std::path::PathBuf> {
+    let beside = std::env::current_exe().ok()?.with_file_name("ug-stress");
+    if beside.exists() {
+        return Some(beside);
+    }
+    ["/usr/local/bin/ug-stress", "/usr/bin/ug-stress"].iter().map(std::path::PathBuf::from).find(|p| p.exists())
+}
+
+/// Runs the stability test on `pci` for `seconds` while its trial is kept
+/// alive; an unstable result undoes the trial at once. Returns (stable,
+/// what happened).
+pub async fn test_trial(tuner: SharedTuner, pci: String, seconds: u32) -> Result<(bool, String), String> {
+    let bin = stress_binary().ok_or("the stability test (ug-stress) is not installed")?;
+    let secs = seconds.clamp(10, 1800);
+    {
+        let mut t = tuner.lock().unwrap_or_else(|e| e.into_inner());
+        if !t.extend(&pci, Duration::from_secs(secs as u64 + 60)) {
+            return Err("try a setting first; the test runs on the setting being tried".into());
+        }
+    }
+    let out = tokio::process::Command::new(bin)
+        .args(["--pci", &pci, "--seconds", &secs.to_string()])
+        .kill_on_drop(true)
+        .output()
+        .await
+        .map_err(|e| format!("could not start the stability test: {e}"))?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let last: serde_json::Value = text.lines().rev().find_map(|l| serde_json::from_str(l).ok()).unwrap_or_default();
+    let stable = out.status.code() == Some(0) && last["stable"] == true;
+    let what = if stable {
+        format!("Stable: {} rounds, {} results checked, none wrong.", last["rounds"], last["checked"])
+    } else if out.status.code() == Some(2) {
+        format!("Not stable: {}. The setting was undone.", last["reason"].as_str().unwrap_or("the test failed"))
+    } else {
+        format!("The test could not run: {}", last["message"].as_str().unwrap_or("unknown error"))
+    };
+    let mut t = tuner.lock().unwrap_or_else(|e| e.into_inner());
+    if stable {
+        // Back to the normal 30 s to decide.
+        t.extend(&pci, TRIAL);
+    } else if out.status.code() == Some(2) {
+        let _ = t.cancel(&pci);
+    }
+    Ok((stable, what))
 }
 
 /// Ticks once a second while anything is tuned, otherwise every 10 s.

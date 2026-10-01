@@ -390,6 +390,7 @@ const tauriApi = {
   gpuTuneState: (pci: string) => invoke<GpuTuneState>("gpu_tune_state", { pci }),
   gpuTryTune: (pci: string, tune: GpuTune) => invoke<void>("gpu_try_tune", { pci, tune }),
   gpuKeepTune: (pci: string) => invoke<void>("gpu_keep_tune", { pci }),
+  gpuTestTune: (pci: string, seconds: number) => invoke<[boolean, string]>("gpu_test_tune", { pci, seconds }),
   gpuCancelTune: (pci: string) => invoke<void>("gpu_cancel_tune", { pci }),
   gpuResetTune: (pci: string) => invoke<void>("gpu_reset_tune", { pci }),
   openTerminal: () => invoke<void>("open_terminal_interface"),

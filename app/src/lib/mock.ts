@@ -271,6 +271,10 @@ export const mockApi = {
     if (tuneTrial) tuneKept = tuneTrial;
     tuneTrial = null;
   },
+  gpuTestTune: async (): Promise<[boolean, string]> => {
+    await new Promise((r) => setTimeout(r, 2000));
+    return [true, "Stable: 312 rounds, 159744 results checked, none wrong."];
+  },
   gpuCancelTune: async () => {
     tuneTrial = null;
   },

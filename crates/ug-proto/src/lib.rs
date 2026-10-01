@@ -253,6 +253,10 @@ pub mod daemon {
         /// Keeps the setting on trial.
         fn keep_tune(&self, pci: &str) -> zbus::Result<()>;
 
+        /// Runs the stability test on the setting being tried; an unstable
+        /// one is undone at once. Returns (stable, what happened).
+        fn test_tune(&self, pci: &str, seconds: u32) -> zbus::Result<(bool, String)>;
+
         /// Undoes the setting on trial now (no authorisation: undoing is
         /// always allowed).
         fn cancel_tune(&self, pci: &str) -> zbus::Result<()>;

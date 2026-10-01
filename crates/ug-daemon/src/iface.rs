@@ -232,6 +232,14 @@ impl GpuIface {
             .map_err(zbus::fdo::Error::Failed)
     }
 
+    /// Runs the stability test (`seconds`, 10–1800) on the setting being
+    /// tried, keeping the trial alive meanwhile; an unstable setting is
+    /// undone at once. Returns (stable, what happened).
+    async fn test_tune(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, pci: &str, seconds: u32) -> zbus::fdo::Result<(bool, String)> {
+        self.gate.authorize(&hdr, action::GPU_TUNE).await?;
+        crate::gputune::test_trial(Arc::clone(&self.tuner), pci.to_string(), seconds).await.map_err(zbus::fdo::Error::Failed)
+    }
+
     /// Undoes the setting on trial now.
     async fn cancel_tune(&self, pci: &str) -> zbus::fdo::Result<()> {
         let t = Arc::clone(&self.tuner);

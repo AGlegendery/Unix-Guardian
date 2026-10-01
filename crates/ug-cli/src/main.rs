@@ -371,6 +371,10 @@ enum GpuCommand {
         /// Memory clock offset in MHz.
         #[arg(long, allow_hyphen_values = true)]
         mem: Option<i32>,
+        /// Run the stability test for this many seconds before asking to
+        /// keep it (an unstable setting is undone at once).
+        #[arg(long, value_name = "SECONDS")]
+        test: Option<u32>,
     },
     /// Keep the setting being tried.
     Keep {
@@ -1436,7 +1440,7 @@ async fn gpu(
             println!("Back to the card's own defaults.");
             Ok(())
         }
-        GpuCommand::Tune { pci, power, core, mem } => {
+        GpuCommand::Tune { pci, power, core, mem, test } => {
             let pci = match pci { Some(p) => p, None => gpu.active_gpu().await? };
             let st = gpu.tune_state(&pci).await.map_err(daemon_error)?;
             if power.is_none() && core.is_none() && mem.is_none() {
@@ -1458,6 +1462,14 @@ async fn gpu(
                 t.core_offset_mhz,
                 t.mem_offset_mhz
             );
+            if let Some(secs) = test {
+                eprintln!("Testing stability for {secs} s (the setting stays on trial meanwhile)…");
+                let (stable, what) = gpu.test_tune(&pci, secs).await.map_err(daemon_error)?;
+                println!("{what}");
+                if !stable {
+                    return Ok(());
+                }
+            }
             eprint!("Keep it? Type y and Enter within 30 seconds (anything else, or nothing, undoes it): ");
             let answer = tokio::time::timeout(std::time::Duration::from_secs(28), tokio::task::spawn_blocking(|| {
                 let mut s = String::new();

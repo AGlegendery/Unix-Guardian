@@ -111,6 +111,7 @@ fn main() {
             bus::gpu_tune_state,
             bus::gpu_try_tune,
             bus::gpu_keep_tune,
+            bus::gpu_test_tune,
             bus::gpu_cancel_tune,
             bus::gpu_reset_tune,
             bus::cooling_state,
