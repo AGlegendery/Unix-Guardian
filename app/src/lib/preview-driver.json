@@ -1,0 +1,152 @@
+{
+  "facts": [
+    {
+      "key": "distro.name",
+      "value": "Parrot Security 7.3 (echo)"
+    },
+    {
+      "key": "kernel.release",
+      "value": "7.0.13+parrot7-amd64"
+    },
+    {
+      "key": "session.type",
+      "value": "wayland"
+    },
+    {
+      "key": "gpu.names",
+      "value": "Intel UHD Graphics; NVIDIA GeForce RTX 3050 6GB Laptop GPU"
+    },
+    {
+      "key": "nvidia.kernel_version",
+      "value": "550.163.01"
+    },
+    {
+      "key": "nvidia.lib_version",
+      "value": "550.163.01"
+    },
+    {
+      "key": "dkms.nvidia_versions",
+      "value": "nvidia-current/550.163.01"
+    },
+    {
+      "key": "kernel.headers",
+      "value": "true"
+    },
+    {
+      "key": "module.nvidia",
+      "value": "true"
+    },
+    {
+      "key": "module.nouveau",
+      "value": "false"
+    },
+    {
+      "key": "nouveau.blacklisted",
+      "value": "true"
+    },
+    {
+      "key": "nvidia.drm_modeset",
+      "value": "true"
+    },
+    {
+      "key": "nvidia.drm_fbdev",
+      "value": "false"
+    },
+    {
+      "key": "nvidia.preserve_vram",
+      "value": "false"
+    },
+    {
+      "key": "nvidia.suspend_units_enabled",
+      "value": "true"
+    },
+    {
+      "key": "boot.secure_boot",
+      "value": "false"
+    },
+    {
+      "key": "kernel.lockdown",
+      "value": "none"
+    },
+    {
+      "key": "boot.initramfs_tool",
+      "value": "update-initramfs"
+    },
+    {
+      "key": "vulkan.icds",
+      "value": "asahi_icd.json, gfxstream_vk_icd.json, intel_hasvk_icd.json, intel_icd.json, lvp_icd.json, nouveau_icd.json, radeon_icd.json, virtio_icd.json, nvidia_icd.json"
+    },
+    {
+      "key": "flatpak.gl_nvidia",
+      "value": "org.freedesktop.Platform.GL.nvidia-550-163-01"
+    },
+    {
+      "key": "kernel.cmdline",
+      "value": "BOOT_IMAGE=/@/boot/vmlinuz-7.0.13+parrot7-amd64 root=UUID=xxxxxxxx ro rootflags=subvol=@ quiet splash noautomount quiet splash nvidia-drm.modeset=1"
+    }
+  ],
+  "findings": [
+    {
+      "id": "nvidia-suspend-vram",
+      "severity": "important",
+      "title_en": "Video memory is not kept across sleep",
+      "title_fa": "حافظه‌ی گرافیک هنگام sleep نگه داشته نمی‌شود",
+      "what_en": "NVIDIA's suspend helpers are installed, but the driver is not told to save video memory when the computer sleeps (NVreg_PreserveVideoMemoryAllocations=0).",
+      "what_fa": "ابزارهای suspend انویدیا نصب‌اند، ولی به درایور گفته نشده هنگام sleep حافظه‌ی گرافیک را ذخیره کند (NVreg_PreserveVideoMemoryAllocations=0).",
+      "why_en": "After waking up, the desktop or a game can show corrupted graphics, a black window, or crash.",
+      "why_fa": "بعد از بیدار شدن، دسکتاپ یا بازی ممکن است تصویر خراب یا پنجره‌ی سیاه نشان دهد یا کرش کند.",
+      "how_en": "Set NVreg_PreserveVideoMemoryAllocations=1 in modprobe.d, enable nvidia-suspend, nvidia-resume and nvidia-hibernate, rebuild the initramfs, restart.",
+      "how_fa": "در modprobe.d مقدار NVreg_PreserveVideoMemoryAllocations=1 را بگذارید، سرویس‌های nvidia-suspend و nvidia-resume و nvidia-hibernate را فعال کنید، initramfs را دوباره بسازید و ری‌استارت کنید.",
+      "fix_id": "nvidia-suspend",
+      "fix_auto": true,
+      "commands": [
+        "echo 'options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_TemporaryFilePath=/var/tmp' | sudo tee /etc/modprobe.d/unix-guardian-nvidia-power.conf",
+        "sudo systemctl enable nvidia-suspend.service nvidia-resume.service nvidia-hibernate.service",
+        "sudo update-initramfs -u -k all",
+        "systemctl reboot"
+      ],
+      "doc_url": ""
+    },
+    {
+      "id": "nvidia-wayland-old-driver",
+      "severity": "important",
+      "title_en": "Wayland with an NVIDIA driver older than 555",
+      "title_fa": "Wayland با درایور انویدیای قدیمی‌تر از ۵۵۵",
+      "what_en": "This is a Wayland session on NVIDIA driver older than 555, which lacks explicit sync.",
+      "what_fa": "این یک نشست Wayland روی درایور انویدیای قدیمی‌تر از ۵۵۵ است که explicit sync ندارد.",
+      "why_en": "Games and apps through XWayland can flicker, stutter or show frames out of order.",
+      "why_fa": "بازی‌ها و برنامه‌هایی که از XWayland رد می‌شوند ممکن است چشمک بزنند، لگ بزنند یا فریم‌ها را جابه‌جا نشان دهند.",
+      "how_en": "Update to driver 555 or newer when your distribution offers it, or use an X11 session for games meanwhile.",
+      "how_fa": "وقتی توزیعتان درایور ۵۵۵ یا جدیدتر را داد آپدیت کنید؛ تا آن موقع برای بازی از نشست X11 استفاده کنید.",
+      "fix_id": "update-driver",
+      "fix_auto": false,
+      "commands": [
+        "sudo apt update",
+        "apt policy nvidia-driver"
+      ],
+      "doc_url": ""
+    },
+    {
+      "id": "nvidia-drm-fbdev-off",
+      "severity": "advice",
+      "title_en": "nvidia-drm's own framebuffer is off",
+      "title_fa": "فریم‌بافر خود nvidia-drm خاموش است",
+      "what_en": "Driver 545 and newer can provide the text console's framebuffer itself (nvidia-drm.fbdev=1); here it does not.",
+      "what_fa": "درایور ۵۴۵ به بالا می‌تواند فریم‌بافر کنسول متنی را خودش فراهم کند (nvidia-drm.fbdev=1)؛ اینجا این کار را نمی‌کند.",
+      "why_en": "Without it the text console (Ctrl+Alt+F3) can be blank on the NVIDIA screen, and some Wayland compositors flicker at login.",
+      "why_fa": "بدون آن کنسول متنی (Ctrl+Alt+F3) روی صفحه‌ی انویدیا ممکن است خالی بماند و بعضی کامپوزیتورهای Wayland هنگام ورود چشمک بزنند.",
+      "how_en": "Set nvidia-drm fbdev=1 next to modeset=1 in modprobe.d, rebuild the initramfs, restart.",
+      "how_fa": "در modprobe.d کنار modeset=1 مقدار fbdev=1 را بگذارید، initramfs را دوباره بسازید و ری‌استارت کنید.",
+      "fix_id": "nvidia-drm-modeset",
+      "fix_auto": true,
+      "commands": [
+        "echo 'options nvidia-drm modeset=1 fbdev=1' | sudo tee /etc/modprobe.d/unix-guardian-nvidia-drm.conf",
+        "sudo update-initramfs -u -k all",
+        "systemctl reboot"
+      ],
+      "doc_url": ""
+    }
+  ],
+  "distro": "Parrot Security 7.3 (echo)",
+  "can_change": true
+}

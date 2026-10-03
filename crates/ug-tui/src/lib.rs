@@ -39,7 +39,7 @@ pub const PAGES: [(&str, &str, bool); 12] = [
     ("Overlay", "Overlay", true),
     ("Playtime", "Play", true),
     ("Recorder", "Rec", false),
-    ("Drivers", "Drivers", false),
+    ("Drivers", "Drivers", true),
     ("Bug report", "Bugs", false),
     ("Updates", "Updates", false),
     ("Settings", "Settings", true),
@@ -96,6 +96,11 @@ pub struct App {
     pub overlay: Cached<OverlayState>,
     pub shortcuts: Cached<ug_proto::ShortcutsState>,
     pub settings: Cached<ug_proto::SettingsState>,
+    /// The driver check (files only, run here) and the service's changes.
+    pub driver: Cached<ug_proto::DriverReport>,
+    pub driver_ops: Cached<Vec<ug_proto::DriverOp>>,
+    /// The fix being reviewed: its id and plan.
+    pub driver_review: Option<(String, Result<ug_proto::DriverPlan, String>)>,
     pub tray: Cached<bool>,
     pub daemon_version: Cached<String>,
     pub cooling: Cached<(ug_proto::CoolingState, String)>,
@@ -167,6 +172,9 @@ impl App {
             // Fast enough to follow the desktop's confirmation dialog.
             shortcuts: Cached::new(Duration::from_secs(1)),
             settings: Cached::new(SLOW),
+            driver: Cached::new(Duration::from_secs(3600)),
+            driver_ops: Cached::new(Duration::from_secs(1)),
+            driver_review: None,
             tray: Cached::new(SLOW),
             daemon_version: Cached::new(Duration::from_secs(3600)),
             gpu_switch: Cached::new(SLOW),
@@ -312,6 +320,22 @@ impl App {
                     self.shortcuts.store(r);
                 }
             }
+            8 => {
+                if self.driver.due() {
+                    let r = ug_driver::diagnose(&ug_hw::SysRoot::real(), &ug_driver::Env::from_process());
+                    self.driver.store(Ok(r));
+                }
+                if self.driver_ops.due() {
+                    let r = self.bus.driver_ops();
+                    // A change just finished: check again.
+                    let was_running = self.driver_ops.value.as_ref().is_some_and(|v| v.iter().any(|o| o.state == "running" || o.state == "undoing"));
+                    let running = r.as_ref().is_ok_and(|v| v.iter().any(|o| o.state == "running" || o.state == "undoing"));
+                    self.driver_ops.store(r);
+                    if was_running && !running {
+                        self.driver.invalidate();
+                    }
+                }
+            }
             11 => {
                 if self.settings.due() {
                     let r = self.bus.settings();
@@ -420,6 +444,7 @@ impl App {
             3 => 3,
             4 => 2,
             5 => 2,
+            8 => 2,
             6 => 2,
             _ => 1,
         }
@@ -468,6 +493,10 @@ impl App {
                 KeyCode::Char('x') | KeyCode::Delete => pages::remove(self, self.row),
                 KeyCode::Char('b') => pages::block(self, self.row),
                 KeyCode::Char('e') if self.page == 6 => pages::export_playtime(self),
+                KeyCode::Char('r') if self.page == 8 => {
+                    self.driver.invalidate();
+                    self.driver_review = None;
+                }
                 KeyCode::Char('o') if (self.page, self.tab) == (1, 2) => pages::toggle_launch_overlay(self),
                 KeyCode::Char('u') if (self.page, self.tab) == (1, 2) => pages::undo_launch(self),
                 KeyCode::Char('n') if self.page == 6 => pages::not_a_game(self, self.row),
@@ -898,6 +927,49 @@ mod tests {
         app.tab = 1;
         let screen = render(&mut app, 130, 40);
         for want in ["firefox-esr", "Rules", "qbittorrent", "up 1.0 Mbit/s", "waits for a game"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+    }
+
+    #[test]
+    fn the_drivers_page_explains_findings_reviews_a_fix_and_lists_changes() {
+        let mut app = App::new(Bus::offline());
+        app.go(8);
+        let finding = |id: &str, sev: &str, auto: bool| ug_proto::DriverFinding {
+            id: id.into(),
+            severity: sev.into(),
+            title_en: format!("Title of {id}"),
+            what_en: "What it means".into(),
+            why_en: "Why it matters".into(),
+            how_en: "How it is fixed".into(),
+            fix_id: if auto { "nvidia-suspend".into() } else { "reboot".into() },
+            fix_auto: auto,
+            commands: vec!["sudo do-the-thing".into()],
+            ..Default::default()
+        };
+        app.driver.store(Ok(ug_proto::DriverReport {
+            distro: "Debian".into(),
+            findings: vec![finding("vram", "important", true), finding("mismatch", "critical", false)],
+            ..Default::default()
+        }));
+        let screen = render(&mut app, 130, 40);
+        for want in ["Check", "Changes made", "IMPORTANT", "Title of vram", "fixable here", "Why it matters", "Enter: review the fix", "sudo do-the-thing"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        app.driver_review = Some(("nvidia-suspend".into(), Ok(ug_proto::DriverPlan {
+            fix_id: "nvidia-suspend".into(),
+            steps: vec![ug_proto::DriverStep { kind: "write-file".into(), target: "/etc/modprobe.d/x.conf".into(), detail: "options nvidia X=1".into(), undo: "put back".into() }],
+            needs_reboot: true,
+            ..Default::default()
+        })));
+        let screen = render(&mut app, 130, 40);
+        for want in ["Exactly this will happen", "write-file /etc/modprobe.d/x.conf", "| options nvidia X=1", "Enter again applies it"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        app.tab = 1;
+        app.driver_ops.store(Ok(vec![ug_proto::DriverOp { id: "d1".into(), title: "Keep video memory".into(), state: "done".into(), log: vec!["Wrote /etc/modprobe.d/x.conf".into()], needs_reboot: true, ..Default::default() }]));
+        let screen = render(&mut app, 130, 40);
+        for want in ["done", "Keep video memory", "Wrote /etc/modprobe.d/x.conf", "Enter twice undoes"] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
     }

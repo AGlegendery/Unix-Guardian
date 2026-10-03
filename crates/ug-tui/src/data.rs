@@ -126,6 +126,26 @@ impl Bus {
         self.rt.block_on(async { OverlayProxy::new(c).await?.set_up(on).await }).map_err(|e| msg(e, "agent"))
     }
 
+    pub fn driver_plan(&self, fix_id: &str) -> Result<ug_proto::DriverPlan, String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { ug_proto::daemon::DriverProxy::new(c).await?.plan(fix_id).await }).map_err(|e| msg(e, "service"))
+    }
+
+    pub fn driver_apply(&self, fix_id: &str) -> Result<String, String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { ug_proto::daemon::DriverProxy::new(c).await?.apply(fix_id).await }).map_err(|e| msg(e, "service"))
+    }
+
+    pub fn driver_ops(&self) -> Result<Vec<ug_proto::DriverOp>, String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { ug_proto::daemon::DriverProxy::new(c).await?.ops().await }).map_err(|e| msg(e, "service"))
+    }
+
+    pub fn driver_rollback(&self, op_id: &str) -> Result<(), String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { ug_proto::daemon::DriverProxy::new(c).await?.rollback(op_id).await }).map_err(|e| msg(e, "service"))
+    }
+
     pub fn settings(&self) -> Result<ug_proto::SettingsState, String> {
         let c = self.agent()?;
         self.rt.block_on(async { SettingsProxy::new(c).await?.state().await }).map_err(|e| msg(e, "agent"))

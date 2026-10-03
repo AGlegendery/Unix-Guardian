@@ -19,6 +19,7 @@ tauri-build = { version = "2", features = [] }
 ug-core = { path = "../../crates/ug-core" }
 ug-hw = { path = "../../crates/ug-hw" }
 ug-proto = { path = "../../crates/ug-proto" }
+ug-driver = { path = "../../crates/ug-driver" }
 tauri = { version = "2", features = [] }
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }

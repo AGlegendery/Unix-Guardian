@@ -96,6 +96,18 @@ impl Gate {
             .ok_or_else(|| zbus::fdo::Error::AccessDenied("message has no sender".into()))?
             .to_string();
 
+        // Root may do all of this anyway, and needs to without a polkit
+        // agent: `sudo ug driver rollback` from a text console, after the
+        // graphics broke, is the way back.
+        if let Ok(dbus) = zbus::fdo::DBusProxy::new(conn).await {
+            if let Ok(name) = zbus::names::BusName::try_from(sender.as_str()) {
+                if dbus.get_connection_unix_user(name).await == Ok(0) {
+                    tracing::info!(action, caller = %sender, "authorised: root");
+                    return Ok(());
+                }
+            }
+        }
+
         let authority = AuthorityProxy::new(conn).await.map_err(|e| {
             tracing::error!(error = %e, "polkit authority unreachable; refusing");
             zbus::fdo::Error::AccessDenied(

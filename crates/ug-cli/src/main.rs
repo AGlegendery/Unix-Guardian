@@ -1190,8 +1190,41 @@ fn print_plan(p: &ug_proto::DriverPlan) {
     }
 }
 
+/// A text polkit agent for this command, used only when the desktop has
+/// none (a text console after the graphics broke), so the password can be
+/// typed here. Stopped when dropped.
+struct TtyAgent(Option<std::process::Child>);
+
+impl TtyAgent {
+    fn start() -> TtyAgent {
+        use std::io::IsTerminal;
+        // SAFETY: getuid cannot fail and has no preconditions.
+        if unsafe { libc::getuid() } == 0 || !std::io::stdin().is_terminal() {
+            return TtyAgent(None);
+        }
+        let child = std::process::Command::new("pkttyagent")
+            .args(["--process", &std::process::id().to_string(), "--fallback"])
+            .spawn()
+            .ok();
+        if child.is_some() {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+        TtyAgent(child)
+    }
+}
+
+impl Drop for TtyAgent {
+    fn drop(&mut self) {
+        if let Some(c) = &mut self.0 {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+    }
+}
+
 async fn driver(conn: &zbus::Connection, command: DriverCommand, json: bool) -> Result<()> {
     let d = ug_proto::daemon::DriverProxy::new(conn).await?;
+    let _agent = matches!(command, DriverCommand::Fix { .. } | DriverCommand::Rollback { .. }).then(TtyAgent::start);
     let follow = |id: String| {
         let d = d.clone();
         async move {

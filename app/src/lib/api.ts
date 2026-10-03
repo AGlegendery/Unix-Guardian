@@ -180,6 +180,28 @@ export interface OverlayState {
   every_game_active: boolean;
   game_running: boolean;
 }
+export interface DriverFact { key: string; value: string }
+export interface DriverFinding {
+  id: string;
+  severity: "critical" | "important" | "advice";
+  title_en: string; title_fa: string;
+  what_en: string; what_fa: string;
+  why_en: string; why_fa: string;
+  how_en: string; how_fa: string;
+  fix_id: string;
+  /** Unix Guardian can apply it itself, with a backup and undo. */
+  fix_auto: boolean;
+  commands: string[];
+  doc_url: string;
+}
+export interface DriverReport { facts: DriverFact[]; findings: DriverFinding[]; distro: string; can_change: boolean }
+export interface DriverStep { kind: "write-file" | "remove-file" | "run" | "enable-units"; target: string; detail: string; undo: string }
+export interface DriverPlan { fix_id: string; title: string; steps: DriverStep[]; needs_reboot: boolean; refused: string }
+export interface DriverOp {
+  id: string; fix_id: string; title: string; started_unix_ms: number;
+  state: "running" | "done" | "failed" | "undoing" | "undone" | "interrupted";
+  log: string[]; needs_reboot: boolean;
+}
 export interface AgentSettings {
   notifications: boolean;
   /** Seconds between looks for running games, 1 to 10. */
@@ -467,6 +489,11 @@ const tauriApi = {
   trayVisible: () => invoke<boolean | null>("tray_visible"),
   trayShow: () => invoke<void>("tray_show"),
   trayHide: () => invoke<void>("tray_hide"),
+  driverDiagnose: () => invoke<DriverReport>("driver_diagnose"),
+  driverPlan: (fixId: string) => invoke<DriverPlan>("driver_plan", { fixId }),
+  driverApply: (fixId: string) => invoke<string>("driver_apply", { fixId }),
+  driverOps: () => invoke<DriverOp[]>("driver_ops"),
+  driverRollback: (opId: string) => invoke<void>("driver_rollback", { opId }),
   settingsState: () => invoke<SettingsState>("settings_state"),
   settingsSet: (settings: AgentSettings) => invoke<void>("settings_set", { settings }),
   reportBug: (context: string) => invoke<void>("report_bug", { context }),

@@ -4,7 +4,8 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, ShortcutsState, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import driverReport from "./preview-driver.json";
+import type { AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, DriverReport, DriverPlan, DriverOp, ShortcutsState, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -13,6 +14,7 @@ let alarm = 0;
 const bat: BatteryCare = { supported: true, method: "vendor-long-life", adjustable: false, mode: "off", limit: 80, capacity: 100, status: "Full", reason: "" };
 const watches: PowerWatch[] = [];
 let t = 0;
+const driverOps: DriverOp[] = [];
 let agentSettings: AgentSettings = { notifications: true, scan_interval_s: 2, close_window_on_game: false };
 const shortcuts: ShortcutsState = {
   enabled: false,
@@ -377,6 +379,35 @@ export const mockApi = {
   },
   overlaySetUp: async (on: boolean) => {
     fpsSetUp = on;
+  },
+  driverDiagnose: async (): Promise<DriverReport> => structuredClone(driverReport) as DriverReport,
+  driverPlan: async (fixId: string): Promise<DriverPlan> => {
+    const files: Record<string, [string, string]> = {
+      "nvidia-suspend": ["/etc/modprobe.d/unix-guardian-nvidia-power.conf", "options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_TemporaryFilePath=/var/tmp"],
+      "nvidia-drm-modeset": ["/etc/modprobe.d/unix-guardian-nvidia-drm.conf", "options nvidia-drm modeset=1 fbdev=1"],
+      "nouveau-blacklist": ["/etc/modprobe.d/unix-guardian-blacklist-nouveau.conf", "blacklist nouveau\noptions nouveau modeset=0"],
+    };
+    const f = files[fixId];
+    if (!f) return { fix_id: fixId, title: fixId, steps: [], needs_reboot: false, refused: "Unix Guardian does not run this fix itself; its commands are shown to copy." };
+    const steps: DriverPlan["steps"] = [{ kind: "write-file", target: f[0], detail: "# Written by Unix Guardian's driver troubleshooter.\n" + f[1] + "\n", undo: "The previous file is put back (or this one removed if there was none)." }];
+    if (fixId === "nvidia-suspend")
+      steps.push({ kind: "enable-units", target: "systemctl enable nvidia-suspend.service nvidia-resume.service nvidia-hibernate.service", detail: "Starts these services at sleep, wake and hibernate.", undo: "systemctl disable (only those that were off before)" });
+    steps.push({ kind: "run", target: "update-initramfs -u -k all", detail: "Rebuilds the initramfs so the setting also applies early in boot. Takes up to a minute.", undo: "Run again after the files are put back." });
+    return { fix_id: fixId, title: fixId, steps, needs_reboot: true, refused: "" };
+  },
+  driverApply: async (fixId: string) => {
+    const op: DriverOp = { id: `d${Date.now()}`, fix_id: fixId, title: fixId, started_unix_ms: Date.now(), state: "running", log: ["Started (preview: nothing is changed)"], needs_reboot: true };
+    driverOps.unshift(op);
+    setTimeout(() => op.log.push("Wrote the file (preview)"), 600);
+    setTimeout(() => { op.log.push("Initramfs rebuilt (preview)", "Done. Restart for it to take effect."); op.state = "done"; }, 1800);
+    return op.id;
+  },
+  driverOps: async () => structuredClone(driverOps),
+  driverRollback: async (opId: string) => {
+    const op = driverOps.find((o) => o.id === opId || (!opId && o.state === "done"));
+    if (!op) throw "There is no driver change to undo.";
+    op.log.push("Removed the file (preview)");
+    op.state = "undone";
   },
   settingsState: async (): Promise<SettingsState> => ({
     settings: { ...agentSettings },

@@ -89,6 +89,15 @@ pub fn draw(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         }
         6 => playtime_page(app, f, inner),
         11 => settings_page(app, f, inner),
+        8 => {
+            tabs(app, f, Rect { height: 1, ..inner }, &["Check", "Changes made"]);
+            let body = Rect { y: inner.y + 2, height: inner.height.saturating_sub(2), ..inner };
+            if app.tab == 1 {
+                driver_ops_page(app, f, body);
+            } else {
+                driver_page(app, f, body);
+            }
+        }
         p => {
             let text = vec![
                 Line::from(Span::styled(PAGES[p].0, app.theme.title())),
@@ -1642,6 +1651,159 @@ fn activate_shortcut(app: &mut App, i: usize) {
     app.shortcuts.invalidate();
 }
 
+/// The driver check: findings as rows, the selected one explained below,
+/// and the review of its fix when asked for.
+fn driver_page(app: &mut App, f: &mut Frame, r: Rect) {
+    let t = app.theme;
+    let Some(rep) = app.driver.value.clone() else {
+        f.render_widget(Paragraph::new(Span::styled("Checking…", t.muted())), r);
+        return;
+    };
+    let line = |y: u16| Rect { x: r.x, y, width: r.width, height: 1 };
+    f.render_widget(
+        Paragraph::new(Span::styled(format!("Graphics driver check — {}. Reads files only; nothing changes until you review a fix.", rep.distro), t.faint())),
+        line(r.y),
+    );
+    if rep.findings.is_empty() {
+        app.rows = 0;
+        f.render_widget(Paragraph::new(Span::styled("No problems found. The graphics drivers are set up as they should be.", t.accent())), line(r.y + 2));
+        return;
+    }
+    app.rows = rep.findings.len();
+    let mut y = r.y + 2;
+    for (i, fd) in rep.findings.iter().enumerate() {
+        let (label, style) = match fd.severity.as_str() {
+            "critical" => ("CRITICAL ", Style::default().fg(t.danger)),
+            "important" => ("IMPORTANT", t.warn_style()),
+            _ => ("ADVICE   ", t.muted()),
+        };
+        let auto = if fd.fix_auto { "  · fixable here" } else { "" };
+        row(app, f, line(y), i, Line::from(vec![Span::styled(format!(" {label} "), style), Span::styled(fd.title_en.clone(), t.text()), Span::styled(auto, t.faint())]));
+        y += 1;
+    }
+    y += 1;
+    let Some(fd) = rep.findings.get(app.row).cloned() else { return };
+    let mut lines = vec![
+        Line::from(vec![Span::styled("What  ", t.muted()), Span::styled(fd.what_en.clone(), t.text())]),
+        Line::from(vec![Span::styled("Why   ", t.muted()), Span::styled(fd.why_en.clone(), t.text())]),
+        Line::from(vec![Span::styled("Fix   ", t.muted()), Span::styled(fd.how_en.clone(), t.text())]),
+    ];
+    let review = app.driver_review.as_ref().filter(|(id, _)| *id == fd.fix_id).map(|(_, p)| p.clone());
+    match review {
+        Some(Ok(p)) if p.refused.is_empty() => {
+            lines.push(Line::from(Span::styled("Exactly this will happen (each step is undone if a later one fails):", t.accent())));
+            for (n, s) in p.steps.iter().enumerate() {
+                lines.push(Line::from(Span::styled(format!(" {}. {} {}", n + 1, s.kind, s.target), t.text())));
+                if s.kind == "write-file" {
+                    for l in s.detail.lines() {
+                        lines.push(Line::from(Span::styled(format!("      | {l}"), t.muted())));
+                    }
+                }
+                lines.push(Line::from(Span::styled(format!("      undo: {}", s.undo), t.faint())));
+            }
+            lines.push(Line::from(Span::styled(
+                "Enter again applies it (your password is asked; a restart is needed after). From a text console: sudo ug driver fix ".to_string() + &fd.fix_id,
+                t.accent(),
+            )));
+        }
+        Some(Ok(p)) => lines.push(Line::from(Span::styled(format!("Not available here: {}", p.refused), t.warn_style()))),
+        Some(Err(e)) => lines.push(Line::from(Span::styled(e, Style::default().fg(t.danger)))),
+        None => {
+            if fd.fix_auto {
+                lines.push(Line::from(Span::styled("Enter: review the fix Unix Guardian can make (with a backup and undo).", t.accent())));
+            }
+            if !fd.commands.is_empty() {
+                lines.push(Line::from(Span::styled(if fd.fix_auto { "Or by hand:" } else { "Commands for this system:" }, t.muted())));
+                for c in &fd.commands {
+                    lines.push(Line::from(Span::styled(format!("  {c}"), t.text())));
+                }
+            }
+        }
+    }
+    if y < r.bottom() {
+        f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), Rect { y, height: r.bottom() - y, ..r });
+    }
+}
+
+/// Enter on a finding: the first press shows the plan, the second applies it.
+fn activate_driver(app: &mut App, i: usize) {
+    let Some(fd) = app.driver.value.as_ref().and_then(|r| r.findings.get(i)).cloned() else { return };
+    if !fd.fix_auto {
+        report(app, Err("Unix Guardian does not run this fix itself; the commands are shown below.".into()));
+        return;
+    }
+    let confirm = format!("apply {}", fd.fix_id);
+    let reviewed = app.driver_review.as_ref().is_some_and(|(id, p)| *id == fd.fix_id && p.as_ref().is_ok_and(|p| p.refused.is_empty()));
+    if reviewed && app.armed.as_ref().is_some_and(|(a, _)| *a == confirm) {
+        app.armed = None;
+        app.driver_review = None;
+        let r = app.bus.driver_apply(&fd.fix_id);
+        report(app, r.map(|id| format!("Started {id}; follow it under Changes made (Tab).")));
+        app.driver_ops.invalidate();
+    } else {
+        let p = app.bus.driver_plan(&fd.fix_id);
+        app.driver_review = Some((fd.fix_id.clone(), p));
+        app.armed = Some((confirm, std::time::Instant::now()));
+    }
+}
+
+fn driver_ops_page(app: &mut App, f: &mut Frame, r: Rect) {
+    let t = app.theme;
+    let line = |y: u16| Rect { x: r.x, y, width: r.width, height: 1 };
+    let ops = match (&app.driver_ops.value, &app.driver_ops.error) {
+        (Some(v), _) => v.clone(),
+        (None, Some(e)) => {
+            f.render_widget(Paragraph::new(Span::styled(e.clone(), t.muted())).wrap(Wrap { trim: true }), Rect { height: 3, ..r });
+            return;
+        }
+        _ => Vec::new(),
+    };
+    if ops.is_empty() {
+        app.rows = 0;
+        f.render_widget(Paragraph::new(Span::styled("No driver changes have been made.", t.muted())), line(r.y));
+        return;
+    }
+    app.rows = ops.len();
+    let mut y = r.y;
+    let list = (ops.len() as u16).min(r.height / 3).max(1);
+    let first = app.row.saturating_sub(list as usize - 1);
+    for (i, o) in ops.iter().enumerate().skip(first).take(list as usize) {
+        let style = match o.state.as_str() {
+            "failed" | "interrupted" => Style::default().fg(t.danger),
+            "running" | "undoing" => t.warn_style(),
+            _ => t.accent(),
+        };
+        row(app, f, line(y), i, Line::from(vec![Span::styled(format!(" {:<12}", o.state), style), Span::styled(format!("{}  ", o.title), t.text()), Span::styled(o.id.clone(), t.faint())]));
+        y += 1;
+    }
+    y += 1;
+    let Some(o) = ops.get(app.row) else { return };
+    let mut lines: Vec<Line> = o.log.iter().map(|l| Line::from(Span::styled(format!("  {l}"), t.text()))).collect();
+    if o.state == "done" || o.state == "interrupted" {
+        lines.push(Line::from(Span::styled("Enter twice undoes this change. From a text console: sudo ug driver rollback", t.accent())));
+    }
+    if y < r.bottom() {
+        f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), Rect { y, height: r.bottom() - y, ..r });
+    }
+}
+
+fn activate_driver_op(app: &mut App, i: usize) {
+    let Some(o) = app.driver_ops.value.as_ref().and_then(|v| v.get(i)).cloned() else { return };
+    if o.state != "done" && o.state != "interrupted" {
+        return;
+    }
+    let confirm = format!("undo {}", o.id);
+    if app.armed.as_ref().is_some_and(|(a, _)| *a == confirm) {
+        app.armed = None;
+        let r = app.bus.driver_rollback(&o.id);
+        report(app, r.map(|_| format!("{} undone. Restart for it to take effect.", o.title)));
+        app.driver_ops.invalidate();
+        app.driver.invalidate();
+    } else {
+        app.armed = Some((confirm, std::time::Instant::now()));
+    }
+}
+
 /// The agent's settings, the tray icon and global shortcuts, one row each,
 /// then what this installation is.
 const SETTINGS_ROWS: [&str; 5] =
@@ -2083,6 +2245,8 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (3, 1) => vec![("Tab", "FPS")],
         (3, _) => vec![("Tab", "temperature"), ("Enter", "set up / undo")],
         (4, _) => vec![("Tab", "next tab"), ("Enter", "limit while gaming"), ("b", "block"), ("x", "allow")],
+        (8, 1) => vec![("Tab", "check"), ("Enter ×2", "undo")],
+        (8, _) => vec![("Tab", "changes"), ("Enter", "review / apply"), ("r", "check again")],
         (11, _) => vec![("↑↓", "setting"), ("←→", "change"), ("Enter", "toggle")],
         (5, 1) => vec![("Tab", "overlay"), ("Enter", "on/off / run")],
         (5, _) => vec![("Tab", "shortcuts"), ("↑↓", "setting"), ("←→", "change"), ("Enter", "next / run")],
@@ -2173,6 +2337,8 @@ pub fn activate(app: &mut App, i: usize) {
         (6, _) => activate_playtime(app, i),
         (1, 1) => activate_tune(app, i),
         (5, 1) => activate_shortcut(app, i),
+        (8, 0) => activate_driver(app, i),
+        (8, _) => activate_driver_op(app, i),
         (11, _) => {
             let _ = i;
             step_settings(app, 1);

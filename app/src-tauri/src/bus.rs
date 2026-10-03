@@ -706,6 +706,38 @@ pub async fn tray_show(bus: State<'_, Bus>) -> Res<()> {
     t.show().await.map_err(agent_err)
 }
 
+/// Reads files only, in this process, so it works with the service down.
+#[tauri::command]
+pub async fn driver_diagnose() -> Res<ug_proto::DriverReport> {
+    tokio::task::spawn_blocking(|| ug_driver::diagnose(&ug_hw::SysRoot::real(), &ug_driver::Env::from_process()))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn driver_plan(bus: State<'_, Bus>, fix_id: String) -> Res<ug_proto::DriverPlan> {
+    let d = ug_proto::daemon::DriverProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    d.plan(&fix_id).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn driver_apply(bus: State<'_, Bus>, fix_id: String) -> Res<String> {
+    let d = ug_proto::daemon::DriverProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    d.apply(&fix_id).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn driver_ops(bus: State<'_, Bus>) -> Res<Vec<ug_proto::DriverOp>> {
+    let d = ug_proto::daemon::DriverProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    d.ops().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn driver_rollback(bus: State<'_, Bus>, op_id: String) -> Res<()> {
+    let d = ug_proto::daemon::DriverProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    d.rollback(&op_id).await.map_err(daemon_err)
+}
+
 #[tauri::command]
 pub async fn tray_hide(bus: State<'_, Bus>) -> Res<()> {
     let t = ug_proto::agent::TrayProxy::new(bus.agent().await?).await.map_err(agent_err)?;
