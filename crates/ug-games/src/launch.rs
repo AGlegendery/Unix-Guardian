@@ -177,7 +177,8 @@ impl Launch {
         let id = appid.to_string();
         let mut path: Vec<&str> = APPS.to_vec();
         path.push(id.as_str());
-        let new = vdf::set_string(&src, &path, KEY, &options)?;
+        // No options at all: no key, as Steam has it for a game never given any.
+        let new = if options.is_empty() { vdf::remove_key(&src, &path, KEY)? } else { vdf::set_string(&src, &path, KEY, &options)? };
 
         let backup = self.backup(&src)?;
         write_replacing(&self.steam.localconfig, new.as_bytes(), Some(&self.steam.localconfig))?;
@@ -209,6 +210,16 @@ impl Launch {
             return Err("These launch options were changed in Steam after Unix Guardian set them; change them there (the game's Properties → General).".into());
         }
         self.apply(appid, &Additions::default(), uid)
+    }
+
+    /// Steam is running (see [`steam_running`]).
+    pub fn steam_running(&self, uid: u32) -> bool {
+        steam_running(&self.root, uid)
+    }
+
+    /// Why the overlay cannot be added to this Steam's games, if it cannot.
+    pub fn overlay_problem(&self) -> Option<String> {
+        overlay_available(&self.root, &self.home, self.steam.flatpak).err()
     }
 
     /// Unix Guardian's variables and wrapper for `add`, for this Steam.
@@ -476,12 +487,18 @@ mod tests {
     }
 
     #[test]
-    fn a_game_without_options_gets_them_added() {
+    fn a_game_without_options_gets_them_added_and_undo_leaves_no_trace() {
         let s = setup(false);
+        let before = std::fs::read_to_string(&s.launch.steam.localconfig).unwrap();
         let a = s.launch.apply(413150, &Additions { gpu: String::new(), overlay: true }, 1000).unwrap();
         assert_eq!(a.options, "mangohud %command%");
         assert_eq!(s.launch.current(413150).unwrap(), "mangohud %command%");
         assert_eq!(s.launch.current(730).unwrap(), "-novid");
+        s.launch.undo(413150, 1000).unwrap();
+        let after = std::fs::read_to_string(&s.launch.steam.localconfig).unwrap();
+        assert!(after.contains("\"413150\""), "the game's block Steam would keep anyway stays");
+        assert!(!after.contains("mangohud"));
+        assert_eq!(after.lines().filter(|l| l.contains("LaunchOptions")).count(), before.lines().filter(|l| l.contains("LaunchOptions")).count());
     }
 
     #[test]

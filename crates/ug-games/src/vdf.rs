@@ -79,20 +79,23 @@ pub fn quote(value: &str) -> String {
     out
 }
 
-/// Sets `key` to `value` in the object at `path`, editing the text in place:
-/// everything else stays byte for byte, so a file another program owns (Steam's
-/// `localconfig.vdf`) changes in exactly one value. Objects missing from the
-/// end of the path are created inside the deepest one that exists; the first
-/// element of the path must exist. Keys match case-insensitively.
-pub fn set_string(src: &str, path: &[&str], key: &str, value: &str) -> Result<String, String> {
+/// Where a key of the object at `path` is in the source.
+struct Located {
+    /// The key's string value: (start of the key, start of the value, end
+    /// of the value). `None` when the object has no such string.
+    found: Option<(usize, usize, usize)>,
+    /// The deepest object on the path: (depth, position of its `}`).
+    deepest: Option<(usize, usize)>,
+}
+
+fn locate(src: &str, path: &[&str], key: &str) -> Result<Located, String> {
     let mut p = Parser { src: src.as_bytes(), pos: 0 };
     // Open objects: (key, whether it and every parent match the path so far).
     let mut stack: Vec<(String, bool)> = Vec::new();
     // Per depth: a block of the path's name there was already closed. Only
     // the first block of a name counts, as for `Vdf::get`.
     let mut done = vec![false; path.len() + 1];
-    let mut value_span: Option<(usize, usize)> = None;
-    // The deepest object on the path seen so far: (depth, position of its `}`).
+    let mut found = None;
     let mut deepest: Option<(usize, usize)> = None;
     let on_path = |stack: &[(String, bool)]| stack.last().is_none_or(|(_, m)| *m);
     loop {
@@ -121,9 +124,10 @@ pub fn set_string(src: &str, path: &[&str], key: &str, value: &str) -> Result<St
                 let vstart = p.pos;
                 match p.token().ok_or("a name without a value")? {
                     Tok::Str(_) => {
+                        let vend = value_end(src, vstart, p.pos);
                         p.skip_conditional();
-                        if stack.len() == path.len() && on_path(&stack) && k.eq_ignore_ascii_case(key) && value_span.is_none() {
-                            value_span = Some((vstart, p.pos));
+                        if stack.len() == path.len() && on_path(&stack) && k.eq_ignore_ascii_case(key) && found.is_none() {
+                            found = Some((start, vstart, vend));
                         }
                     }
                     Tok::Open => {
@@ -138,12 +142,20 @@ pub fn set_string(src: &str, path: &[&str], key: &str, value: &str) -> Result<St
             }
         }
     }
-    if let Some((s, e)) = value_span {
-        // Replace the quoted (or bare) value; a trailing conditional stays out.
-        let tok_end = value_end(src, s, e);
-        return Ok(format!("{}{}{}", &src[..s], quote(value), &src[tok_end..]));
+    Ok(Located { found, deepest })
+}
+
+/// Sets `key` to `value` in the object at `path`, editing the text in place:
+/// everything else stays byte for byte, so a file another program owns (Steam's
+/// `localconfig.vdf`) changes in exactly one value. Objects missing from the
+/// end of the path are created inside the deepest one that exists; the first
+/// element of the path must exist. Keys match case-insensitively.
+pub fn set_string(src: &str, path: &[&str], key: &str, value: &str) -> Result<String, String> {
+    let at = locate(src, path, key)?;
+    if let Some((_, s, e)) = at.found {
+        return Ok(format!("{}{}{}", &src[..s], quote(value), &src[e..]));
     }
-    let Some((depth, close)) = deepest else {
+    let Some((depth, close)) = at.deepest else {
         return Err(format!("the file has no {:?} block", path.first().copied().unwrap_or("")));
     };
     // Build the missing blocks and the value, indented with tabs like Steam.
@@ -163,6 +175,21 @@ pub fn set_string(src: &str, path: &[&str], key: &str, value: &str) -> Result<St
         Ok(format!("{}{}{}", &src[..line_start], add, &src[line_start..]))
     } else {
         Ok(format!("{}\n{}{}", &src[..close], add, &src[close..]))
+    }
+}
+
+/// Removes `key` from the object at `path`, in place: its whole line when it
+/// has one to itself. A missing key leaves the text as it is.
+pub fn remove_key(src: &str, path: &[&str], key: &str) -> Result<String, String> {
+    let Some((k, _, e)) = locate(src, path, key)?.found else {
+        return Ok(src.to_string());
+    };
+    let line_start = src[..k].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let line_end = src[e..].find('\n').map(|i| e + i + 1).unwrap_or(src.len());
+    if src[line_start..k].trim().is_empty() && src[e..line_end].trim().is_empty() {
+        Ok(format!("{}{}", &src[..line_start], &src[line_end..]))
+    } else {
+        Ok(format!("{}{}", &src[..k], src[e..].trim_start_matches([' ', '\t'])))
     }
 }
 
@@ -382,6 +409,16 @@ mod tests {
         let doc = Vdf::parse(&out).unwrap();
         assert_eq!(doc.path(&["UserLocalConfigStore", "Software", "Valve", "Steam", "PlayerLevel"]).and_then(Vdf::as_str), Some("0"));
         assert!(out.contains("\n\t\t\t\t\t\"413150\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"launchoptions\"\t\t\"y %command%\"\n\t\t\t\t\t}\n\t\t\t\t}"), "{out}");
+    }
+
+    #[test]
+    fn a_value_added_and_removed_leaves_the_file_as_it_was() {
+        let added = set_string(LOCALCONFIG, &with_app("760"), "LaunchOptions", "x %command%").unwrap();
+        assert_eq!(remove_key(&added, &with_app("760"), "LaunchOptions").unwrap(), LOCALCONFIG);
+        assert_eq!(remove_key(LOCALCONFIG, &with_app("760"), "LaunchOptions").unwrap(), LOCALCONFIG, "nothing to remove");
+        let gone = remove_key(LOCALCONFIG, &with_app("730"), "launchoptions").unwrap();
+        assert_eq!(launch(&gone, "730"), None);
+        assert!(Vdf::parse(&gone).is_some());
     }
 
     #[test]

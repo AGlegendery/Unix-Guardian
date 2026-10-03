@@ -346,6 +346,17 @@ pub mod agent {
         /// in future. Takes the executable name, e.g. `"Render.exe"`.
         fn ignore_executable(&self, name: &str) -> zbus::Result<()>;
 
+        /// A Steam game's launch options and what Unix Guardian added to them.
+        fn launch_options(&self, appid: u32) -> zbus::Result<LaunchInfo>;
+        /// The launch options this choice would give (nothing is written).
+        /// `gpu` is a PCI address or "" for the system's choice.
+        fn preview_launch_options(&self, appid: u32, gpu: &str, overlay: bool) -> zbus::Result<String>;
+        /// Writes them into Steam's settings (Steam must be closed; backed up
+        /// first). Returns (options, backup path).
+        fn set_launch_options(&self, appid: u32, gpu: &str, overlay: bool) -> zbus::Result<(String, String)>;
+        /// Puts the game's own launch options back.
+        fn undo_launch_options(&self, appid: u32) -> zbus::Result<(String, String)>;
+
         #[zbus(signal)]
         fn game_started(&self, game: RunningGameInfo) -> zbus::Result<()>;
 

@@ -266,6 +266,25 @@ enum GameCommand {
     Rescan,
     /// Stop treating an executable as a game, e.g. `ug game ignore Render.exe`.
     Ignore { executable: String },
+    /// A Steam game's launch options: which GPU it renders on and the
+    /// MangoHud overlay. Shows the change; --apply writes it (Steam closed),
+    /// --undo takes Unix Guardian's part back out.
+    Launch {
+        /// steam:730, 730, or part of the game's name.
+        game: String,
+        /// default, nvidia, amd, intel, discrete, integrated or a PCI address.
+        #[arg(long)]
+        gpu: Option<String>,
+        /// Load the MangoHud overlay.
+        #[arg(long, value_parser = ["on", "off"])]
+        overlay: Option<String>,
+        /// Write it into Steam's settings (backed up first).
+        #[arg(long, conflicts_with = "undo")]
+        apply: bool,
+        /// Put the game's own launch options back.
+        #[arg(long)]
+        undo: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -582,6 +601,9 @@ async fn game(command: GameCommand, json: bool) -> Result<()> {
             games.ignore_executable(&executable).await.map_err(agent_hint)?;
             println!("{executable} will no longer be treated as a game.");
         }
+        GameCommand::Launch { game, gpu, overlay, apply, undo } => {
+            return steam_launch(&games, &game, gpu.as_deref(), overlay.as_deref(), apply, undo, json).await;
+        }
     }
     Ok(())
 }
@@ -822,6 +844,85 @@ async fn ping(seconds: u32, json: bool) -> Result<()> {
             s.loss_pct
         );
     }
+    Ok(())
+}
+
+/// A Steam game's launch options, through the agent (which reads and writes
+/// Steam's settings): shows the change, writes it with --apply.
+async fn steam_launch(
+    games: &GamesProxy<'_>,
+    game: &str,
+    gpu: Option<&str>,
+    overlay: Option<&str>,
+    apply: bool,
+    undo: bool,
+    json: bool,
+) -> Result<()> {
+    let id = game.trim().strip_prefix("steam:").unwrap_or(game.trim());
+    let appid = match id.parse::<u32>() {
+        Ok(a) => a,
+        Err(_) => {
+            let q = game.to_lowercase();
+            let installed = games.installed().await.map_err(agent_hint)?;
+            let hits: Vec<_> = installed.iter().filter(|g| g.launcher == "steam" && g.name.to_lowercase().contains(&q)).collect();
+            match hits[..] {
+                [g] => g.id.trim_start_matches("steam:").parse().unwrap_or(0),
+                [] => anyhow::bail!("no installed Steam game matches {game:?}; give its App ID, e.g. ug game launch 730"),
+                _ => anyhow::bail!(
+                    "{game:?} matches {}; be more precise or give the App ID",
+                    hits.iter().map(|g| format!("{} ({})", g.name, g.id)).collect::<Vec<_>>().join(", ")
+                ),
+            }
+        }
+    };
+    let info = games.launch_options(appid).await.map_err(agent_hint)?;
+    if undo {
+        let (options, backup) = games.undo_launch_options(appid).await.map_err(agent_hint)?;
+        println!("{}: launch options back to {:?}. Steam's settings were backed up to {backup}", info.name, options);
+        return Ok(());
+    }
+    let mut want_gpu = info.gpu.clone();
+    if let Some(g) = gpu {
+        want_gpu = match g.trim().to_lowercase().as_str() {
+            "default" | "none" | "" => String::new(),
+            other => {
+                let gpus = ug_hw::gpu_use::gpus(&ug_hw::SysRoot::real());
+                ug_hw::gpu_use::pick(&gpus, other).map(|g| g.pci.clone()).ok_or_else(|| anyhow::anyhow!("no GPU matches {other:?}; see ug gpu list"))?
+            }
+        };
+    }
+    let want_overlay = overlay.map(|o| o == "on").unwrap_or(info.overlay);
+    let after = games.preview_launch_options(appid, &want_gpu, want_overlay).await.map_err(agent_hint)?;
+    let shown = |s: &str| if s.is_empty() { "(none)".to_string() } else { s.to_string() };
+    if json {
+        println!("{}", serde_json::json!({ "info": info, "after": after }));
+    } else {
+        println!("{} (steam:{appid})", info.name);
+        println!("  now:    {}", shown(&info.current));
+        println!("  after:  {}", shown(&after));
+        if info.changed_outside {
+            println!("  Changed in Steam since Unix Guardian set them: building on that.");
+        }
+        if !info.overlay_problem.is_empty() {
+            println!("  Overlay: {}", info.overlay_problem);
+        }
+    }
+    let unchanged = after == info.current && want_gpu == info.gpu && want_overlay == info.overlay;
+    if !apply {
+        if !unchanged && !json {
+            println!(
+                "Nothing written. Add --apply to write it{}.",
+                if info.steam_running { " once Steam is closed (it rewrites its settings when it exits)" } else { " (Steam's settings are backed up first)" }
+            );
+        }
+        return Ok(());
+    }
+    if unchanged {
+        println!("Already set; nothing to write.");
+        return Ok(());
+    }
+    let (_, backup) = games.set_launch_options(appid, &want_gpu, want_overlay).await.map_err(agent_hint)?;
+    println!("Written: Steam uses it the next time the game starts. Steam's settings were backed up to {backup}");
     Ok(())
 }
 

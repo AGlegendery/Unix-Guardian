@@ -355,6 +355,29 @@ pub struct PlaytimeEntry {
     pub last_played_unix_ms: u64,
 }
 
+/// A Steam game's launch options, and Unix Guardian's part in them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct LaunchInfo {
+    pub appid: u32,
+    pub name: String,
+    /// What Steam has now ("" for none).
+    pub current: String,
+    /// The game's own options, without what Unix Guardian added.
+    pub own: String,
+    /// PCI address of the GPU Unix Guardian set; "" for none.
+    pub gpu: String,
+    /// Unix Guardian added the MangoHud overlay.
+    pub overlay: bool,
+    /// Changed in Steam since Unix Guardian set them: the user's now.
+    pub changed_outside: bool,
+    /// Steam from Flathub (MangoHud then comes from its Flatpak layer).
+    pub flatpak: bool,
+    /// Steam is running: nothing can be written until it exits.
+    pub steam_running: bool,
+    /// Why the overlay cannot be added; "" when it can.
+    pub overlay_problem: String,
+}
+
 /// A program whose time is counted although it is not a game, or one that
 /// could be (a program open now).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

@@ -31,7 +31,8 @@ cp "$(command -v sleep)" "$W/bin/ugfakeeditor"
 # whose own count for CS2 is ten hours.
 mkdir -p "$W/home/.local/share/Steam/steamapps" "$W/home/.local/share/Steam/userdata/1/config"
 echo '"libraryfolders" {}' > "$W/home/.local/share/Steam/steamapps/libraryfolders.vdf"
-echo '"UserLocalConfigStore" { "Software" { "Valve" { "Steam" { "apps" { "730" { "LastPlayed" "1790000000" "Playtime" "600" } } } } } }' \
+# Laid out as Steam writes it: one key per line, tab-indented.
+printf '"UserLocalConfigStore"\n{\n\t"Software"\n\t{\n\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n\t\t\t\t"apps"\n\t\t\t\t{\n\t\t\t\t\t"730"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LastPlayed"\t\t"1790000000"\n\t\t\t\t\t\t"Playtime"\t\t"600"\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n' \
   > "$W/home/.local/share/Steam/userdata/1/config/localconfig.vdf"
 
 # Everything this script starts carries the token, so an installed agent
@@ -45,7 +46,7 @@ until_() { local d=$((SECONDS+$1)); shift; until eval "$@"; do (( SECONDS < d ))
 
 "$W/bin/ugfakechat" 300 & chat=$!
 HOME="$W/home" "$B/ug-agent" --quiet --log warn & agent=$!
-trap 'kill $agent $chat ${game:-} ${other:-} ${editor:-} 2>/dev/null; rm -rf "$W"' EXIT
+trap 'kill $agent $chat ${game:-} ${other:-} ${editor:-} ${fakesteam:-} 2>/dev/null; rm -rf "$W"' EXIT
 until_ 15 "'$B/ug' game running >/dev/null 2>&1" || { echo "FAIL  agent did not start"; exit 1; }
 
 # The user unit and the XDG autostart fallback may both start an agent; the
@@ -98,5 +99,24 @@ check "all time is Steam's count, not counted twice" "[ \"\$(pt_json)\" = 36000 
 check "a week has only what was recorded here" "[ \"\$(pt_json --week)\" -lt 100 ]"
 check "importing again does not add up" "'$B/ug' playtime import-steam >/dev/null && [ \"\$(pt_json)\" = 36000 ]"
 check "undo removes the import" "'$B/ug' playtime import-steam --undo >/dev/null && [ \"\$(pt_json)\" -lt 100 ]"
+# Steam launch options: shown first, refused while Steam runs, written with a
+# backup, and undone to the byte. The GPU part needs a GPU (not in CI).
+LC="$W/home/.local/share/Steam/userdata/1/config/localconfig.vdf"
+cp "$LC" "$W/localconfig.before"
+check "launch options are shown before anything is written" "'$B/ug' game launch 730 | grep -q 'now:    (none)' && cmp -s '$LC' '$W/localconfig.before'"
+if ls /sys/class/drm/ 2>/dev/null | grep -qE '^card[0-9]+$'; then
+  cp "$(command -v sleep)" "$W/bin/steam"
+  "$W/bin/steam" 60 & fakesteam=$!
+  check "nothing is written while Steam runs" "out=\$('$B/ug' game launch 730 --gpu discrete --apply 2>&1); grep -q 'Close Steam' <<<\"\$out\" && cmp -s '$LC' '$W/localconfig.before'"
+  kill $fakesteam; wait $fakesteam 2>/dev/null
+  if pgrep -u "$(id -u)" -x steam >/dev/null || pgrep -u "$(id -u)" -x steamwebhelper >/dev/null; then
+    echo "SKIP  writing launch options (the real Steam is running)"
+  else
+    check "the GPU choice is written, with a backup" "'$B/ug' game launch 730 --gpu discrete --apply | grep -q 'backed up' && grep -q 'LaunchOptions' '$LC' && ls '$XDG_DATA_HOME'/unix-guardian/backups/localconfig-1-*.vdf >/dev/null"
+    check "undo puts Steam's file back to the byte" "'$B/ug' game launch 730 --undo >/dev/null && cmp -s '$LC' '$W/localconfig.before'"
+  fi
+else
+  echo "SKIP  writing launch options (no GPU here)"
+fi
 
 echo; [ "$fails" -eq 0 ] && echo "agent-e2e: OK" || { echo "agent-e2e: $fails failed"; exit 1; }

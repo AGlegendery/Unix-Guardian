@@ -56,6 +56,55 @@ impl GamesIface {
         Ok(())
     }
 
+    async fn launch_options(&self, appid: u32) -> zbus::fdo::Result<ug_proto::LaunchInfo> {
+        let (launch, uid, name) = lock(&self.core).steam_launch(appid).map_err(zbus::fdo::Error::Failed)?;
+        tokio::task::spawn_blocking(move || -> Result<ug_proto::LaunchInfo, String> {
+            let st = launch.state(appid)?;
+            let flatpak = launch.steam.flatpak;
+            let overlay_problem = launch.overlay_problem().unwrap_or_default();
+            Ok(ug_proto::LaunchInfo {
+                appid,
+                name,
+                current: st.current,
+                own: st.own,
+                gpu: st.additions.gpu,
+                overlay: st.additions.overlay,
+                changed_outside: st.changed_outside,
+                flatpak,
+                steam_running: launch.steam_running(uid),
+                overlay_problem,
+            })
+        })
+        .await
+        .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+        .map_err(zbus::fdo::Error::Failed)
+    }
+
+    async fn preview_launch_options(&self, appid: u32, gpu: &str, overlay: bool) -> zbus::fdo::Result<String> {
+        let (launch, _, _) = lock(&self.core).steam_launch(appid).map_err(zbus::fdo::Error::Failed)?;
+        let add = ug_games::launch::Additions { gpu: gpu.to_string(), overlay };
+        launch.preview(appid, &add).map_err(zbus::fdo::Error::Failed)
+    }
+
+    async fn set_launch_options(&self, appid: u32, gpu: &str, overlay: bool) -> zbus::fdo::Result<(String, String)> {
+        let (launch, uid, _) = lock(&self.core).steam_launch(appid).map_err(zbus::fdo::Error::Failed)?;
+        let add = ug_games::launch::Additions { gpu: gpu.to_string(), overlay };
+        let a = tokio::task::spawn_blocking(move || launch.apply(appid, &add, uid))
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+            .map_err(zbus::fdo::Error::Failed)?;
+        Ok((a.options, a.backup.display().to_string()))
+    }
+
+    async fn undo_launch_options(&self, appid: u32) -> zbus::fdo::Result<(String, String)> {
+        let (launch, uid, _) = lock(&self.core).steam_launch(appid).map_err(zbus::fdo::Error::Failed)?;
+        let a = tokio::task::spawn_blocking(move || launch.undo(appid, uid))
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+            .map_err(zbus::fdo::Error::Failed)?;
+        Ok((a.options, a.backup.display().to_string()))
+    }
+
     #[zbus(signal)]
     pub async fn game_started(emitter: &SignalEmitter<'_>, game: RunningGameInfo) -> zbus::Result<()>;
 

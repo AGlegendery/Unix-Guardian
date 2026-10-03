@@ -401,6 +401,22 @@ impl AgentCore {
         Ok((moved, outcomes))
     }
 
+    /// Steam launch options for the account used last, with a name for each
+    /// game. Returns what the work needs, so files are read without the
+    /// agent's lock: (launch, uid, name of `appid`).
+    pub fn steam_launch(&self, appid: u32) -> Result<(ug_games::launch::Launch, u32, String), String> {
+        let steam = ug_games::launch::Steam::find(&self.home)?;
+        let name = self
+            .installed
+            .iter()
+            .find(|g| g.steam_appid == Some(appid))
+            .map(|g| g.name.clone())
+            .or_else(|| GameDb::bundled().by_steam_appid(appid).map(|k| k.name.clone()))
+            .unwrap_or_else(|| format!("Steam app {appid}"));
+        let launch = ug_games::launch::Launch::new(steam, self.root.clone(), &self.home, &self.config_dir, &ug_core::paths::user_data());
+        Ok((launch, self.uid, name))
+    }
+
     /// Programs open now that could be tracked. Returns the work to do, so
     /// it runs without holding the agent's lock.
     pub fn running_programs(&self) -> impl FnOnce() -> Vec<TrackedApp> + Send + 'static {
