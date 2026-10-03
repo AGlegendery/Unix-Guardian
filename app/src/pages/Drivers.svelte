@@ -76,6 +76,14 @@
     }
   }
 
+  // The boot-parameter editor reviews like a fix.
+  let param = $state("");
+  function openParam(action: "add" | "remove") {
+    const p = param.trim();
+    const blank = { title_en: "", title_fa: "", what_en: "", what_fa: "", why_en: "", why_fa: "", how_en: "", how_fa: "" };
+    openReview({ ...blank, id: "param", severity: "advice", category: "graphics", fix_id: `param-${action}:${p}`, fix_auto: true, commands: [], doc_url: "" });
+  }
+
   async function apply() {
     if (!review?.plan) return;
     review.busy = true;
@@ -103,6 +111,47 @@
 
   const when = (ms: number) => new Date(ms).toLocaleString(locale.current === "fa" ? "fa-IR" : "en-GB", { dateStyle: "medium", timeStyle: "short" });
 </script>
+
+{#snippet reviewPanel()}
+{#if review}
+        <div class="review" role="region" aria-label={t().drivers.review}>
+          <h3>{t().drivers.review}</h3>
+          {#if !review.plan}
+            <p class="small">…</p>
+          {:else if review.plan.refused}
+            <p><b>{t().drivers.refused}:</b> {review.plan.refused}</p>
+            <button class="btn" onclick={() => (review = null)}>{t().drivers.cancel}</button>
+          {:else}
+            <p class="small">{t().drivers.reviewIntro}</p>
+            <ol>
+              {#each review.plan.steps as s}
+                <li>
+                  <div><b>{t().drivers.kinds[s.kind] ?? s.kind}</b> <code dir="ltr">{s.target}</code></div>
+                  {#if s.kind === "write-file"}
+                    <pre dir="ltr">{s.detail}</pre>
+                  {:else}
+                    <p class="small" dir="ltr">{s.detail}</p>
+                  {/if}
+                  <p class="small" dir="ltr">{t().drivers.undo}: {s.undo}</p>
+                </li>
+              {/each}
+            </ol>
+            {#if review.plan.needs_reboot}
+              <label class="agree">
+                <input type="checkbox" bind:checked={review.agreed} />
+                {t().drivers.reboot}
+              </label>
+            {/if}
+            {#if review.plan.snapshot}<p><b>{t().drivers.safety}:</b> <span dir="ltr">{review.plan.snapshot}</span></p>{/if}
+            <p class="small">{t().drivers.password}</p>
+            <div class="actions">
+              <button class="btn primary" onclick={apply} disabled={review.busy || (review.plan.needs_reboot && !review.agreed)}>{t().drivers.apply}</button>
+              <button class="btn" onclick={() => (review = null)}>{t().drivers.cancel}</button>
+            </div>
+          {/if}
+        </div>
+{/if}
+{/snippet}
 
 <header class="head">
   <h1>{t().drivers.title}</h1>
@@ -160,46 +209,21 @@
       </div>
       {#if f.fix_auto && serviceDown}<p class="small">{t().drivers.serviceDown}</p>{/if}
 
-      {#if review?.finding.id === f.id}
-        <div class="review" role="region" aria-label={t().drivers.review}>
-          <h3>{t().drivers.review}</h3>
-          {#if !review.plan}
-            <p class="small">…</p>
-          {:else if review.plan.refused}
-            <p><b>{t().drivers.refused}:</b> {review.plan.refused}</p>
-            <button class="btn" onclick={() => (review = null)}>{t().drivers.cancel}</button>
-          {:else}
-            <p class="small">{t().drivers.reviewIntro}</p>
-            <ol>
-              {#each review.plan.steps as s}
-                <li>
-                  <div><b>{t().drivers.kinds[s.kind] ?? s.kind}</b> <code dir="ltr">{s.target}</code></div>
-                  {#if s.kind === "write-file"}
-                    <pre dir="ltr">{s.detail}</pre>
-                  {:else}
-                    <p class="small" dir="ltr">{s.detail}</p>
-                  {/if}
-                  <p class="small" dir="ltr">{t().drivers.undo}: {s.undo}</p>
-                </li>
-              {/each}
-            </ol>
-            {#if review.plan.needs_reboot}
-              <label class="agree">
-                <input type="checkbox" bind:checked={review.agreed} />
-                {t().drivers.reboot}
-              </label>
-            {/if}
-            {#if review.plan.snapshot}<p><b>{t().drivers.safety}:</b> <span dir="ltr">{review.plan.snapshot}</span></p>{/if}
-            <p class="small">{t().drivers.password}</p>
-            <div class="actions">
-              <button class="btn primary" onclick={apply} disabled={review.busy || (review.plan.needs_reboot && !review.agreed)}>{t().drivers.apply}</button>
-              <button class="btn" onclick={() => (review = null)}>{t().drivers.cancel}</button>
-            </div>
-          {/if}
-        </div>
-      {/if}
+      {#if review?.finding.id === f.id}{@render reviewPanel()}{/if}
     </section>
   {/each}
+
+  <section class="card">
+    <h2>{t().drivers.params}</h2>
+    <p class="small">{t().drivers.paramsNote}</p>
+    <pre dir="ltr">{report.facts.find((x) => x.key === "kernel.cmdline")?.value ?? ""}</pre>
+    <div class="actions">
+      <input class="param" dir="ltr" placeholder="mem_sleep_default=deep" bind:value={param} />
+      <button class="btn" disabled={!param.trim() || serviceDown} onclick={() => openParam("add")}>{t().drivers.paramAdd}</button>
+      <button class="btn" disabled={!param.trim() || serviceDown} onclick={() => openParam("remove")}>{t().drivers.paramRemove}</button>
+    </div>
+    {#if review?.finding.id === "param"}{@render reviewPanel()}{/if}
+  </section>
 
   <section class="card">
     <button class="fold" onclick={() => (showFacts = !showFacts)} aria-expanded={showFacts}>{t().drivers.found} {showFacts ? "▾" : "▸"}</button>
@@ -256,6 +280,7 @@
   .link { color: var(--accent-text); font-size: 0.88rem; align-self: center; }
   .top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .sev, .state { padding: 2px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; background: var(--card-2); color: var(--text-2); }
+  .param { flex: 1; min-width: 12rem; padding: 6px 10px; border-radius: 9px; border: 1px solid var(--card-2); background: var(--bg, var(--card-2)); color: var(--text); font: inherit; }
   .cat { padding: 2px 10px; border-radius: 999px; font-size: 0.78rem; color: var(--text-2); border: 1px solid var(--card-2); }
   .sev.critical, .state.failed, .state.interrupted { background: color-mix(in oklab, #e5484d 22%, transparent); color: #ff8f93; }
   .sev.important, .state.running, .state.undoing { background: color-mix(in oklab, #f5a524 22%, transparent); color: #ffc46b; }

@@ -213,6 +213,17 @@ enum DriverCommand {
     /// What protects package changes here: the snapshot tool found, or how
     /// to get one. Works without the service.
     Snapshot,
+    /// Add or remove a kernel boot parameter, the boot loader's way (GRUB,
+    /// systemd-boot, rEFInd, kernelstub), with a backup and undo.
+    Param {
+        /// add or remove
+        action: String,
+        /// e.g. mem_sleep_default=deep (remove: the name is enough)
+        param: String,
+        /// Do not ask first.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1274,6 +1285,13 @@ fn driver_snapshot() -> Result<()> {
 }
 
 async fn driver(conn: &zbus::Connection, command: DriverCommand, json: bool) -> Result<()> {
+    let command = match command {
+        DriverCommand::Param { action, param, yes } => match action.as_str() {
+            "add" | "remove" => DriverCommand::Fix { fix: format!("param-{action}:{param}"), yes },
+            other => anyhow::bail!("`{other}`: say add or remove, e.g. ug driver param add mem_sleep_default=deep"),
+        },
+        c => c,
+    };
     let d = ug_proto::daemon::DriverProxy::new(conn).await?;
     let _agent = matches!(command, DriverCommand::Fix { .. } | DriverCommand::Rollback { .. }).then(TtyAgent::start);
     let follow = |id: String| {
@@ -1296,7 +1314,7 @@ async fn driver(conn: &zbus::Connection, command: DriverCommand, json: bool) -> 
         }
     };
     match command {
-        DriverCommand::Snapshot => unreachable!("handled before connecting"),
+        DriverCommand::Snapshot | DriverCommand::Param { .. } => unreachable!("handled before"),
         DriverCommand::Plan { fix } => {
             let p = d.plan(&fix).await?;
             if json {

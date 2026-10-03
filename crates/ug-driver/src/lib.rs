@@ -10,6 +10,7 @@
 //!   from a text console. The daemon owns it; diagnosis runs anywhere.
 
 pub mod apply;
+pub mod bootparams;
 pub mod fixes;
 pub mod hardware;
 pub mod inventory;

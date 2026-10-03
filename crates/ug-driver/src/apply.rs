@@ -87,6 +87,10 @@ enum Undo {
     Unload { module: String },
     /// Remove the packages an install added.
     Remove { family: String, packages: Vec<String> },
+    /// Run again once the files are back (a boot menu generator).
+    Rerun { argv: Vec<String> },
+    /// Run this program (the opposite of one that ran).
+    Command { argv: Vec<String> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -292,6 +296,16 @@ impl Executor {
                 });
                 self.log(id, format!("Installed {}{}", added.join(", "), trail(&out)));
             }
+            Step::Regen { argv } => {
+                self.push_undo(id, Undo::Rerun { argv: argv.clone() });
+                let out = self.runner.run(argv)?;
+                self.log(id, format!("Ran {}{}", argv.join(" "), trail(&out)));
+            }
+            Step::Command { argv, undo } => {
+                self.push_undo(id, Undo::Command { argv: undo.clone() });
+                let out = self.runner.run(argv)?;
+                self.log(id, format!("Ran {}{}", argv.join(" "), trail(&out)));
+            }
             Step::Backup => {
                 let dir = self.dir.join(format!("backups/driver-{id}/config"));
                 let n = crate::snapshot::backup_config(&self.root, &dir).map_err(|e| format!("backing up the configuration: {e}"))?;
@@ -381,7 +395,7 @@ impl Executor {
     fn undo_all(&self, id: &str) -> bool {
         let undo: Vec<Undo> = self.lock().iter().find(|r| r.id == id).map(|r| r.undo.clone()).unwrap_or_default();
         let mut ok = true;
-        let mut initramfs = None;
+        let mut rerun: Vec<Vec<String>> = Vec::new();
         for u in undo.iter().rev() {
             let r: Result<String, String> = match u {
                 Undo::Restore { path, backup: Some(b) } => std::fs::read(b)
@@ -408,10 +422,11 @@ impl Executor {
                     .runner
                     .run(&crate::packages::remove_argv(family, packages))
                     .map(|_| format!("Removed {}", packages.join(", "))),
-                Undo::Initramfs { argv } => {
-                    initramfs = Some(argv.clone());
+                Undo::Initramfs { argv } | Undo::Rerun { argv } => {
+                    rerun.insert(0, argv.clone());
                     continue;
                 }
+                Undo::Command { argv } => self.runner.run(argv).map(|_| format!("Ran {}", argv.join(" "))),
             };
             match r {
                 Ok(m) => self.log(id, m),
@@ -421,13 +436,17 @@ impl Executor {
                 }
             }
         }
-        if let Some(argv) = initramfs {
+        // Generators run last, once every file is back, in their order.
+        for argv in rerun {
             self.log(id, format!("Running {}…", argv.join(" ")));
             match self.runner.run(&argv) {
-                Ok(out) => self.log(id, format!("Initramfs rebuilt{}", trail(&out))),
+                Ok(out) if argv.iter().any(|a| a.contains("initramfs") || a == "mkinitcpio" || a == "dracut") => {
+                    self.log(id, format!("Initramfs rebuilt{}", trail(&out)))
+                }
+                Ok(out) => self.log(id, format!("Ran {}{}", argv.join(" "), trail(&out))),
                 Err(e) => {
                     ok = false;
-                    self.log(id, format!("Could not rebuild the initramfs: {e}"));
+                    self.log(id, format!("Could not run {}: {e}", argv.join(" ")));
                 }
             }
         }
@@ -460,7 +479,7 @@ fn recovery_text(records: &[Record], _dir: &Path) -> String {
     }
     for r in open {
         t.push_str(&format!("# {} ({}, {})\n", r.title, r.id, r.state));
-        let mut initramfs = None;
+        let mut rerun: Vec<String> = Vec::new();
         for u in r.undo.iter().rev() {
             match u {
                 Undo::Restore { path, backup: Some(b) } => t.push_str(&format!("sudo cp '{b}' '{path}'\n")),
@@ -476,10 +495,11 @@ fn recovery_text(records: &[Record], _dir: &Path) -> String {
                     let argv: Vec<&str> = argv.iter().map(String::as_str).filter(|a| *a != "env" && !a.starts_with("DEBIAN_FRONTEND")).collect();
                     t.push_str(&format!("sudo {}\n", argv.join(" ")))
                 }
-                Undo::Initramfs { argv } => initramfs = Some(argv.join(" ")),
+                Undo::Initramfs { argv } | Undo::Rerun { argv } => rerun.insert(0, argv.join(" ")),
+                Undo::Command { argv } => t.push_str(&format!("sudo {}\n", argv.join(" "))),
             }
         }
-        if let Some(i) = initramfs {
+        for i in rerun {
             t.push_str(&format!("sudo {i}\n"));
         }
         if !r.restore.is_empty() {
@@ -709,5 +729,29 @@ mod tests {
         ex.rollback(None).unwrap();
         let r = ran.lock().unwrap().clone();
         assert_eq!(r.last().unwrap(), &["env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "remove", "-y", "bluez", "libbluetooth3"], "what it added, bash stays");
+    }
+
+    #[test]
+    fn a_boot_parameter_is_added_through_grub_and_undone_to_the_byte() {
+        let (fs, state, rec, ex) = machine();
+        let grub = "GRUB_DEFAULT=0\nGRUB_CMDLINE_LINUX_DEFAULT=\"quiet splash\"\n";
+        fs.write("etc/default/grub", grub).write("usr/sbin/update-grub", "");
+        let root = SysRoot::at(fs.root());
+        let facts = crate::inventory::facts(&root, &Default::default());
+        assert!(crate::fixes::can_run("mem-sleep-deep", &facts));
+        let before = snapshot(&fs);
+        let fix = auto("mem-sleep-deep", &root, &facts).unwrap();
+        let id = ex.start(&fix).unwrap();
+        ex.run(&id, &fix);
+        assert_eq!(ex.ops()[0].state, "done", "{:?}", ex.ops()[0].log);
+        assert!(std::fs::read_to_string(fs.root().join("etc/default/grub")).unwrap().contains("\"quiet splash mem_sleep_default=deep\""));
+        assert_eq!(rec.ran.lock().unwrap().clone(), [["update-grub"]]);
+        let again = crate::inventory::facts(&root, &Default::default());
+        assert!(auto("mem-sleep-deep", &root, &again).unwrap_err().contains("already that way"), "nothing to add twice");
+        let recovery = std::fs::read_to_string(state.path().join("driver-recovery.txt")).unwrap();
+        assert!(recovery.contains("sudo cp ") && recovery.trim_end().ends_with("sudo update-grub"), "{recovery}");
+        ex.rollback(None).unwrap();
+        assert_eq!(snapshot(&fs), before, "the file is back byte for byte");
+        assert_eq!(rec.ran.lock().unwrap().len(), 2, "the menu is written again without the parameter");
     }
 }

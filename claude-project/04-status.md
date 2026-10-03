@@ -341,3 +341,12 @@ the ping page against the real agent. Known limits:
   headers, NVIDIA on Debian/Arch. Ubuntu's NVIDIA (ubuntu-drivers),
   Fedora/openSUSE NVIDIA (repos first), MOK enrollment stay commands.
   `ug driver snapshot`; the review shows "Safety net".
+- ✅ Driver Fix M4 (2026-10-03): boot-parameter editor
+  (`ug-driver/src/bootparams.rs`): GRUB (`GRUB_CMDLINE_LINUX_DEFAULT` +
+  update-grub / grub(2)-mkconfig, rerun on undo), systemd-boot entries and
+  `/etc/kernel/cmdline`, rEFInd `refind_linux.conf`, kernelstub (-a/-d).
+  Same name replaces, add+remove gives the file back byte for byte. Fixes
+  remove-nomodeset, amd-ppfeaturemask, mem-sleep-deep, psmouse-intertouch
+  are automatic; `ug driver param add|remove <p>` (plain characters only)
+  and a "Kernel parameters" card in the window; the TUI shows the command
+  (no text input there yet).

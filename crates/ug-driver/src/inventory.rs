@@ -461,6 +461,14 @@ pub fn facts(root: &SysRoot, env: &Env) -> Facts {
         None => "",
     };
     f.insert("snapshot.tool".into(), Value::Str(tool.into()));
+    let loader = match crate::bootparams::detect(root) {
+        Some(crate::bootparams::Loader::Grub { .. }) => "grub",
+        Some(crate::bootparams::Loader::SystemdBoot { .. }) => "systemd-boot",
+        Some(crate::bootparams::Loader::Refind) => "refind",
+        Some(crate::bootparams::Loader::Kernelstub) => "kernelstub",
+        None => "",
+    };
+    f.insert("boot.loader".into(), Value::Str(loader.into()));
     f.insert("snapshot.summary".into(), Value::Str(snap.summary));
     f
 }

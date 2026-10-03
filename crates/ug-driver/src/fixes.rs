@@ -37,6 +37,11 @@ pub enum Step {
     /// refreshing its lists where that is safe); undo removes the packages
     /// it added, and only those.
     Install { family: String, packages: Vec<String> },
+    /// Regenerates the boot loader's configuration; run again on undo,
+    /// after the files are put back.
+    Regen { argv: Vec<String> },
+    /// A program with its exact opposite (kernelstub -a / -d).
+    Command { argv: Vec<String>, undo: Vec<String> },
     /// Rebuilds the initramfs so a module setting also holds at boot. Run
     /// again on undo.
     Initramfs { argv: Vec<String> },
@@ -78,6 +83,18 @@ impl Step {
                     None => "Needs the internet; takes a few minutes.".into(),
                 },
                 undo: format!("{} (only the packages this added)", crate::packages::remove_argv(family, &["…".to_string()]).join(" ")),
+            },
+            Step::Regen { argv } => DriverStep {
+                kind: "run".into(),
+                target: argv.join(" "),
+                detail: "Writes the boot menu from the settings above.".into(),
+                undo: "Run again after the settings file is put back.".into(),
+            },
+            Step::Command { argv, undo } => DriverStep {
+                kind: "run".into(),
+                target: argv.join(" "),
+                detail: "Changes the kernel parameters of every installed kernel.".into(),
+                undo: undo.join(" "),
             },
             Step::Backup => DriverStep {
                 kind: "backup".into(),
@@ -200,11 +217,99 @@ fn title(fix_id: &str) -> &'static str {
     }
 }
 
+/// Fixes that change the kernel's boot parameters: (added, removed).
+/// `param-add:<p>` and `param-remove:<p>` are the editor's own (`ug driver
+/// param`), for any parameter made of plain characters.
+fn boot_params(fix_id: &str) -> Option<(Vec<String>, Vec<String>)> {
+    let one = |p: &str| vec![p.to_string()];
+    let plain = |p: &str| !p.is_empty() && p.len() <= 200 && p.chars().all(|c| c.is_ascii_alphanumeric() || "._-=,:/+".contains(c));
+    Some(match fix_id {
+        "remove-nomodeset" => (vec![], one("nomodeset")),
+        "amd-ppfeaturemask" => (one("amdgpu.ppfeaturemask=0xffffffff"), vec![]),
+        "mem-sleep-deep" => (one("mem_sleep_default=deep"), vec![]),
+        "psmouse-intertouch" => (one("psmouse.synaptics_intertouch=1"), vec![]),
+        _ => {
+            if let Some(p) = fix_id.strip_prefix("param-add:").filter(|p| plain(p)) {
+                (one(p), vec![])
+            } else if let Some(p) = fix_id.strip_prefix("param-remove:").filter(|p| plain(p)) {
+                (vec![], one(p))
+            } else {
+                return None;
+            }
+        }
+    })
+}
+
+/// A boot-parameter fix, the boot loader's way.
+fn boot_fix(fix_id: &str, root: &SysRoot, facts: &Facts) -> Result<AutoFix, String> {
+    let (add, remove) = boot_params(fix_id).expect("a boot fix");
+    let add: Vec<&str> = add.iter().map(String::as_str).collect();
+    let remove: Vec<&str> = remove.iter().map(String::as_str).collect();
+    let (add, remove) = (&add[..], &remove[..]);
+    let title = match fix_id.split_once(':') {
+        Some(("param-add", p)) => format!("Add the kernel parameter {p}"),
+        Some(("param-remove", p)) => format!("Remove the kernel parameter {p}"),
+        _ => title(fix_id).to_string(),
+    };
+    if !facts.get("distro.can_change").is_some_and(Value::truthy) {
+        return Err(format!(
+            "{} is image-based (its kernel parameters are set with rpm-ostree kargs or similar); run the commands by hand instead.",
+            s(facts, "distro.name")
+        ));
+    }
+    let read = |p: &str| std::fs::read_to_string(root.join(p.trim_start_matches('/'))).map_err(|e| format!("reading {p}: {e}"));
+    let write = |path: &str, new: String, old: &str| (new != old).then(|| Step::Write { path: path.into(), content: new });
+    use crate::bootparams as bp;
+    let steps: Vec<Step> = match bp::detect(root) {
+        None => return Err("The boot loader (GRUB, systemd-boot, rEFInd or kernelstub) was not recognised, so the parameter has to be changed by hand.".into()),
+        Some(bp::Loader::Grub { regen }) => {
+            let old = read("/etc/default/grub")?;
+            match write("/etc/default/grub", bp::edit_grub(&old, add, remove), &old) {
+                Some(w) => vec![w, Step::Regen { argv: regen }],
+                None => vec![],
+            }
+        }
+        Some(bp::Loader::SystemdBoot { entries, kernel_cmdline }) => {
+            let mut v = Vec::new();
+            for e in &entries {
+                let old = read(e)?;
+                v.extend(write(e, bp::edit_entry(&old, add, remove), &old));
+            }
+            if kernel_cmdline {
+                let old = read("/etc/kernel/cmdline")?;
+                v.extend(write("/etc/kernel/cmdline", bp::edit_kernel_cmdline(&old, add, remove), &old));
+            }
+            v
+        }
+        Some(bp::Loader::Refind) => {
+            let old = read("/boot/refind_linux.conf")?;
+            write("/boot/refind_linux.conf", bp::edit_refind(&old, add, remove), &old).into_iter().collect()
+        }
+        Some(bp::Loader::Kernelstub) => {
+            let mut v = Vec::new();
+            for a in add {
+                v.push(Step::Command { argv: vec!["kernelstub".into(), "-a".into(), a.to_string()], undo: vec!["kernelstub".into(), "-d".into(), a.to_string()] });
+            }
+            for r in remove {
+                v.push(Step::Command { argv: vec!["kernelstub".into(), "-d".into(), r.to_string()], undo: vec!["kernelstub".into(), "-a".into(), r.to_string()] });
+            }
+            v
+        }
+    };
+    if steps.is_empty() {
+        return Err("The boot settings are already that way.".into());
+    }
+    Ok(AutoFix { fix_id: fix_id.into(), title, steps, needs_reboot: true })
+}
+
 /// Whether Unix Guardian can run a fix itself on this machine.
 pub fn can_run(fix_id: &str, facts: &Facts) -> bool {
     let yes = |k: &str| facts.get(k).is_some_and(Value::truthy);
     if LIVE.contains(&fix_id) {
         return true;
+    }
+    if boot_params(fix_id).is_some() {
+        return yes("distro.can_change") && yes("boot.loader");
     }
     if AUTO.contains(&fix_id) {
         return yes("distro.can_change");
@@ -247,6 +352,9 @@ fn package_fix(fix_id: &str, root: &SysRoot, facts: &Facts, packages: Vec<String
 pub fn auto(fix_id: &str, root: &SysRoot, facts: &Facts) -> Result<AutoFix, String> {
     if let Some(p) = crate::packages::for_fix(fix_id, &s(facts, "distro.family"), facts) {
         return package_fix(fix_id, root, facts, p);
+    }
+    if boot_params(fix_id).is_some() {
+        return boot_fix(fix_id, root, facts);
     }
     if !AUTO.contains(&fix_id) {
         return Err(if title(fix_id).is_empty() {
@@ -682,6 +790,21 @@ mod tests {
         assert!(path.starts_with("/etc/modules-load.d/unix-guardian-") && content.ends_with("uvcvideo\n"));
         for id in LIVE {
             assert!(!title(id).is_empty() && !commands(id, &f).is_empty(), "{id} has a title and commands");
+        }
+    }
+
+    #[test]
+    fn the_parameter_editor_takes_plain_parameters_only() {
+        let fs = TestFs::new();
+        let f = debian(&fs);
+        let root = SysRoot::at(fs.root());
+        fs.write("etc/default/grub", "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet\"\n").write("usr/sbin/update-grub", "");
+        let p = auto("param-add:split_lock_detect=off", &root, &f).unwrap();
+        assert_eq!(p.title, "Add the kernel parameter split_lock_detect=off");
+        assert!(matches!(&p.steps[0], Step::Write { content, .. } if content.contains("quiet split_lock_detect=off")));
+        assert!(auto("param-remove:absent", &root, &f).unwrap_err().contains("already"));
+        for bad in ["param-add:a b", "param-add:x;reboot", "param-add:", "param-add:$(id)"] {
+            assert!(auto(bad, &root, &f).unwrap_err().contains("Unknown fix"), "{bad}");
         }
     }
 }

@@ -71,7 +71,7 @@ Last updated: 2026-10-03 (shortcut recorder).
    - **M3 ✅** distro adapter + package installs (8.4), only with a snapshot
      (golden rule), argv only, live log; undo removes what was installed.
      Firmware, sof-firmware, bluez, cups, ipp-usb, sane-airscan, NVIDIA.
-   - M4 boot-parameter editor (8.7): GRUB, systemd-boot, kernelstub;
+   - **M4 ✅** boot-parameter editor (8.7): GRUB, systemd-boot, kernelstub;
      idempotent, backup, diff-empty round trip. Fixes: nomodeset,
      ppfeaturemask, mem_sleep_default=deep, psmouse.synaptics_intertouch.
    - M5 check after restart (8.6): pending-verify per boot id, re-diagnose,
@@ -87,7 +87,10 @@ need sudo, pushing, P7+).
 
 ## In progress
 
-Driver Fix M4, boot-parameter editor (see item 7 above). M2+M3 done:
+Driver Fix M5, check after restart (see item 7 above). M4 done:
+`bootparams.rs` (GRUB/systemd-boot/rEFInd/kernelstub, add+remove is
+diff-empty), fixes nomodeset/ppfeaturemask/mem_sleep_default/intertouch,
+`ug driver param add|remove`, window card; TUI shows the command. M2+M3 done:
 `snapshot.rs` (snapper > Timeshift > ZFS > plain read-only Btrfs snapshot
 into /var/lib/unix-guardian/snapshots; LVM never), light config backup
 always, `packages.rs` (apt/pacman/dnf/zypper argv, undo removes only what

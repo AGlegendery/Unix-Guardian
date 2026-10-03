@@ -1765,6 +1765,18 @@ fn driver_page(app: &mut App, f: &mut Frame, r: Rect) {
         Paragraph::new(Span::styled(format!("Hardware and driver check — {}. Reads files only; nothing changes until you review a fix.", rep.distro), t.faint())),
         line(r.y),
     );
+    // The boot-parameter editor needs typing, so it lives in the command.
+    let cmdline = rep.facts.iter().find(|x| x.key == "kernel.cmdline").map(|x| x.value.clone()).unwrap_or_default();
+    if r.height > 8 {
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled("Kernel parameters: ", t.muted()),
+                Span::styled(cmdline, t.text()),
+                Span::styled("  (change: ug driver param add|remove <param>)", t.faint()),
+            ])),
+            line(r.bottom() - 1),
+        );
+    }
     if rep.findings.is_empty() {
         app.rows = 0;
         f.render_widget(Paragraph::new(Span::styled("No problems found. The drivers are set up as they should be.", t.accent())), line(r.y + 2));

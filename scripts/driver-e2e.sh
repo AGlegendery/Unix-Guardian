@@ -77,6 +77,12 @@ check "with Timeshift the plan takes a snapshot before installing" "ug driver pl
 out="$(ug driver fix install-bluez --yes 2>&1)"
 check "the backup, the snapshot and the install run in that order" "grep -n 'Copied\\|timeshift --create\\|apt-get install' <<<\"\$out\" | cut -d: -f1 | sort -c -n && grep -q ': done' <<<\"\$out\""
 check "undo removes what was installed" "ug driver rollback | grep -q undone && ug driver history | grep -q 'Removed bluez'"
+mk etc/default/grub 'GRUB_DEFAULT=0\nGRUB_CMDLINE_LINUX_DEFAULT="quiet splash"\n'
+mk usr/sbin/update-grub
+cp "$R/etc/default/grub" "$W/grub.before"
+check "a boot parameter is added the boot loader's way" "ug driver param add mem_sleep_default=deep --yes | grep -q ': done' && grep -q 'quiet splash mem_sleep_default=deep' '$R/etc/default/grub'"
+check "and taken out again to the byte" "ug driver rollback | grep -q undone && cmp -s '$W/grub.before' '$R/etc/default/grub'"
+check "a parameter that is not plain text is refused" "! ug driver param add 'x;reboot' --yes >/dev/null 2>&1"
 check "the service hands out only firmware lines of the kernel log" "out=\$(busctl --user call org.unixguardian.Daemon1 /org/unixguardian/Daemon1 org.unixguardian.Daemon1.Driver FirmwareLog); [[ \"\$out\" == s* ]]"
 
 if [ "$fails" -gt 0 ]; then echo "--- daemon log"; cat "$W/daemon.log"; fi
