@@ -435,7 +435,7 @@ export const fa: typeof en = {
     removeWhy: "همه‌ی نوبت‌های ثبت‌شده‌ی این بازی، در همه‌ی بازه‌ها، حذف می‌شود.",
     removed: (name: string, n: number) => `${n.toLocaleString("fa-IR")} نوبت از ${name} حذف شد.`,
     export: "خروجی CSV",
-    exported: (path: string) => `ذخیره شد در ${path}`,
+    exported: "ذخیره شد در",
     empty: {
       today: "امروز بازی‌ای نکرده‌اید.",
       week: "این هفته بازی‌ای ثبت نشده.",

@@ -433,7 +433,7 @@ export const en = {
     removeWhy: "Deletes every recorded session of this game, in every period.",
     removed: (name: string, n: number) => `Deleted ${n} sessions of ${name}.`,
     export: "Export CSV",
-    exported: (path: string) => `Saved to ${path}`,
+    exported: "Saved to",
     empty: {
       today: "No games played today.",
       week: "No games played this week.",

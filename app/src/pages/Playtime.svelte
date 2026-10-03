@@ -15,6 +15,7 @@
   let sessions = $state<PlaytimeSession[]>([]);
   let error = $state<string | null>(null);
   let notice = $state<string | null>(null);
+  let savedTo = $state<string | null>(null);
   let armed = $state<string | null>(null);
   let busy = $state(false);
 
@@ -94,6 +95,7 @@
     try {
       const n = await api.playtimeForget(e.key);
       notice = t().play.removed(e.name, n);
+      savedTo = null;
       await load();
     } catch (err) {
       error = errorText(err);
@@ -105,7 +107,8 @@
   async function exportCsv() {
     busy = true;
     try {
-      notice = t().play.exported(await api.playtimeExport(since(range)));
+      savedTo = await api.playtimeExport(since(range));
+      notice = null;
     } catch (err) {
       error = errorText(err);
     } finally {
@@ -122,7 +125,7 @@
       label={t().play.rangeLabel}
       value={range}
       options={(["today", "week", "all"] as const).map((r) => ({ value: r, label: t().play.ranges[r] }))}
-      onchange={(r) => { range = r; notice = null; }}
+      onchange={(r) => { range = r; notice = null; savedTo = null; }}
     />
     <button class="btn" onclick={exportCsv} disabled={busy || !entries?.length}>
       <Download size={15} aria-hidden="true" />{t().play.export}
@@ -132,6 +135,7 @@
 
 {#if error}<Problem text={error} />{/if}
 {#if notice}<p class="note" role="status">{notice}</p>{/if}
+{#if savedTo}<p class="note" role="status">{t().play.exported} <bdi dir="ltr">{savedTo}</bdi></p>{/if}
 
 <section class="stats">
   <article class="card stat">
