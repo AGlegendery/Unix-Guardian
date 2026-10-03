@@ -146,6 +146,12 @@ P6 is merged into `main` (`fc9a5a4`). On `p5-gpu`:
   `ug run` without `--gpu` uses it at once; `ug gpu default`. The desktop
   stays on Intel (no MUX). Not yet tried across a real re-login.
 
+- ✅ Playtime page (2026-10-03, P2.9 UI): window + TUI page 7 — today /
+  week / all, tiles (time, games, most played), per-game share bars,
+  two-press delete (whole history), 7-day chart (window), CSV export to
+  Downloads (`ug_core::playtime`, shared with `ug playtime --csv`). Not
+  compared with Steam's hours yet (roadmap acceptance).
+
 ## P6 overlay (branch `p6-overlay`) — built, not merged, 2026-10-01
 
 P4 is merged into `main` (`dc1fdfa`). On `p6-overlay`:
