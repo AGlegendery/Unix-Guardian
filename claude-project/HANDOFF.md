@@ -49,6 +49,36 @@ Last updated: 2026-10-03 (shortcut recorder).
    agent (`3138f00`), because the user saw no troubleshooter page after
    reinstalling: the old window and agent were still running.
 
+7. ⏳ **Driver Fix** (asked 2026-10-03; the user's single most important
+   feature, and **not only for gamers**). Plan, highest impact first, one
+   commit per milestone:
+   - **M1 (in progress)** diagnosis beyond the GPU: a `category` on rules
+     and findings (graphics, wifi, bluetooth, audio, input, camera,
+     printing, sleep, firmware); new facts in `ug-driver` (`hardware.rs`:
+     PCI/USB devices without a driver, rfkill, `/proc/asound/cards`, SOF
+     firmware, i2c-HID touchpads (ACPI PNP0C50), UVC/IPU6 cameras, USB
+     printers (class 07, IPP-over-USB 07/01/04), CUPS/bluetooth/avahi
+     units, `/sys/power/mem_sleep`, swap vs RAM for hibernate, missing
+     firmware from the kernel log (`Env.kernel_log`, given by the caller)
+     plus file checks (iwlwifi loaded, no ucode), Debian non-free-firmware
+     component); rule files per category in `data/driver-rules/`; the
+     window and TUI group findings by category.
+     Automatic fixes in M1 only where undo is exact: rfkill unblock
+     (sysfs write, undo writes back), enable units `--now` (bluetooth,
+     cups), our own `modules-load.d`/`modprobe.d` files.
+   - M2 snapshot layer (8.5): snapper / timeshift / btrfs / LVM detection,
+     light config backup always, `ug driver snapshots`.
+   - M3 distro adapter + package installs (8.4), only with a snapshot
+     (golden rule), argv only, live log; undo removes what was installed.
+     Firmware, sof-firmware, bluez, cups, ipp-usb, sane-airscan, NVIDIA.
+   - M4 boot-parameter editor (8.7): GRUB, systemd-boot, kernelstub;
+     idempotent, backup, diff-empty round trip. Fixes: nomodeset,
+     ppfeaturemask, mem_sleep_default=deep, psmouse.synaptics_intertouch.
+   - M5 check after restart (8.6): pending-verify per boot id, re-diagnose,
+     Keep / Undo in window, TUI and `ug driver verify`; recovery kit.
+   Same rules as before: GUI + TUI + CLI for everything, plan shown in
+   full before running, polkit, backup, undo from a text console.
+
 **The queue is done.** Release binaries and `dist/` were rebuilt after the
 last commit; the user still has to reinstall (sudo) to try them for real.
 
@@ -57,7 +87,7 @@ need sudo, pushing, P7+).
 
 ## In progress
 
-Nothing. Next candidates (ask or follow `04-status.md` "Next steps"): the
+Driver Fix M1 (see item 7 above). Next candidates (ask or follow `04-status.md` "Next steps"): the
 real-desktop checks below, merging `p5-gpu` into `main`, P7 (recording).
 
 ## Done but not tried on the real desktop
