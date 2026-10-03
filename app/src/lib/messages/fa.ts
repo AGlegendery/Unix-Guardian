@@ -3,6 +3,7 @@ import type { en } from "./en";
 export const fa: typeof en = {
   app: "Unix Guardian",
   preview: "پیش‌نمایش: عددهای ضبط‌شده، نه زنده",
+  side: { collapse: "جمع کردن نوار کناری", expand: "باز کردن نوار کناری" },
   bug: {
     email: "unixguardian@atomicmail.io",
     link: "گزارش باگ",

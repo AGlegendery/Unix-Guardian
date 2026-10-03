@@ -210,6 +210,12 @@ impl Tray {
         conn.object_server().at(MENU_PATH, MenuIface { tray: tray.clone() }).await?;
         tokio::spawn(tray.clone().follow_watcher());
         tokio::spawn(tray.clone().live_preview());
+        // Fill the preview once, so a host that draws the menu before its
+        // AboutToShow answer arrives never shows it without usage rows.
+        let first = tray.clone();
+        tokio::spawn(async move {
+            first.refresh().await;
+        });
         tray.show().await;
         Ok(tray)
     }
@@ -400,20 +406,21 @@ impl Tray {
         p
     }
 
-    fn layout_of(&self, id: i32, with_children: bool) -> zbus::fdo::Result<Value<'static>> {
-        let children: Vec<Value<'static>> = if with_children && id == ID_ROOT {
-            MENU_ORDER.iter().map(|&c| self.layout_of(c, false)).collect::<zbus::fdo::Result<_>>()?
-        } else {
-            Vec::new()
-        };
-        let children: Vec<OwnedValue> = children.into_iter().map(ov).collect();
-        StructureBuilder::new()
-            .add_field(id)
-            .add_field(self.props(id))
-            .add_field(children)
-            .build()
-            .map(Value::from)
-            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
+    fn layout_of(&self, id: i32, with_children: bool) -> zbus::fdo::Result<Layout> {
+        let mut children = Vec::new();
+        if with_children && id == ID_ROOT {
+            for &c in &MENU_ORDER {
+                // Children travel as variants holding the same structure.
+                let child = StructureBuilder::new()
+                    .add_field(c)
+                    .add_field(self.props(c))
+                    .add_field(Vec::<OwnedValue>::new())
+                    .build()
+                    .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+                children.push(ov(child));
+            }
+        }
+        Ok(Layout(id, self.props(id), children))
     }
 
     fn clicked(&self, id: i32) {
@@ -517,6 +524,10 @@ impl ItemIface {
     fn scroll(&self, _delta: i32, _orientation: &str) {}
 }
 
+/// One menu item and its children, `(ia{sv}av)`.
+#[derive(Debug, serde::Serialize, zbus::zvariant::Type)]
+struct Layout(i32, HashMap<String, OwnedValue>, Vec<OwnedValue>);
+
 /// `com.canonical.dbusmenu`
 struct MenuIface {
     tray: Tray,
@@ -542,12 +553,16 @@ impl MenuIface {
     }
 
     /// The layout is fixed, so its revision is always 1.
+    ///
+    /// The reply must be `u(ia{sv}av)` or KDE shows no menu. The return type
+    /// is a literal tuple on purpose: zbus sends its fields as two arguments,
+    /// but behind a type alias it would send one structure.
     fn get_layout(
         &self,
         parent_id: i32,
         recursion_depth: i32,
         _property_names: Vec<String>,
-    ) -> zbus::fdo::Result<(u32, Value<'static>)> {
+    ) -> zbus::fdo::Result<(u32, Layout)> {
         if !(parent_id == ID_ROOT || MENU_ORDER.contains(&parent_id)) {
             return Err(zbus::fdo::Error::InvalidArgs(format!("no menu item {parent_id}")));
         }
@@ -846,6 +861,14 @@ mod tests {
         assert_eq!(row(&preview_rows(&charging), ID_BATTERY), "Battery  40 %  ·  charging 20.0 W");
         let full = Usage { battery: Some((100.0, f64::NAN, "Full".into(), true)), ..u };
         assert_eq!(row(&preview_rows(&full), ID_BATTERY), "Battery  100 %  ·  plugged in");
+    }
+
+    /// Qt's dbusmenu importer (KDE) only accepts `u(ia{sv}av)`; a reply typed
+    /// `uv` is dropped, and right-clicking the icon then shows nothing.
+    #[test]
+    fn layout_reply_has_the_dbusmenu_signature() {
+        use zbus::zvariant::Type;
+        assert_eq!(<Layout as Type>::SIGNATURE.to_string(), "(ia{sv}av)");
     }
 
     #[test]

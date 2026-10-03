@@ -1,7 +1,7 @@
 <script lang="ts">
   import Problem from "./lib/ui/Problem.svelte";
   import {
-    Activity, Bug, Clock, Gamepad2, Layers, LayoutDashboard, Power,
+    Activity, Bug, ChevronsLeft, ChevronsRight, Clock, Gamepad2, Layers, LayoutDashboard, Power,
     RefreshCw, Settings, SquareTerminal, Video, Wifi, Wrench,
   } from "@lucide/svelte";
   import type { Component } from "svelte";
@@ -38,6 +38,24 @@
   const fromHash = location.hash.slice(1).split("/")[0] as Page;
   let page = $state<Page>(pages.some(([p]) => p === fromHash) ? fromHash : "dashboard");
   let overview = $state<Overview | null>(null);
+
+  // A narrow sidebar with icons only; remembered on this computer.
+  let collapsed = $state(readCollapsed());
+  function readCollapsed() {
+    try {
+      return localStorage.getItem("ug.sidebar") === "collapsed";
+    } catch {
+      return false;
+    }
+  }
+  function toggleSide() {
+    collapsed = !collapsed;
+    try {
+      localStorage.setItem("ug.sidebar", collapsed ? "collapsed" : "open");
+    } catch {}
+  }
+  // The arrow points the way the sidebar will move, mirrored in Persian.
+  const pointRight = $derived(collapsed !== (locale.current === "fa"));
   let loadError = $state<string | null>(null);
 
   $effect(() => {
@@ -45,11 +63,20 @@
   });
 </script>
 
-<div class="shell">
+<div class="shell" class:collapsed>
   <nav class="side" aria-label={t().app}>
     <div class="brand">
       <span class="mark" aria-hidden="true"></span>
-      <span>{t().app}</span>
+      {#if !collapsed}<span>{t().app}</span>{/if}
+      <button
+        class="fold"
+        onclick={toggleSide}
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? t().side.expand : t().side.collapse}
+        title={collapsed ? t().side.expand : t().side.collapse}
+      >
+        {#if pointRight}<ChevronsRight size={16} aria-hidden="true" />{:else}<ChevronsLeft size={16} aria-hidden="true" />{/if}
+      </button>
     </div>
     <ul>
       {#each pages as [p, Icon]}
@@ -60,9 +87,11 @@
             class:unbuilt={!built.has(p)}
             aria-current={page === p ? "page" : undefined}
             onclick={() => (page = p)}
+            title={collapsed ? t().nav[p] : undefined}
+            aria-label={collapsed ? t().nav[p] : undefined}
           >
             <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
-            <span>{t().nav[p]}</span>
+            {#if !collapsed}<span>{t().nav[p]}</span>{/if}
           </button>
         </li>
       {/each}
@@ -70,11 +99,16 @@
     <div class="foot">
       {@render dot(t().status.service, overview ? !overview.daemon_error : null)}
       {@render dot(t().status.agent, overview ? !overview.agent_error : null)}
-      <button class="lang" onclick={() => api.openTerminal().catch((e) => (loadError = errorText(e)))}>
-        <SquareTerminal size={14} aria-hidden="true" /> {t().terminal}
+      <button
+        class="lang"
+        onclick={() => api.openTerminal().catch((e) => (loadError = errorText(e)))}
+        title={collapsed ? t().terminal : undefined}
+        aria-label={collapsed ? t().terminal : undefined}
+      >
+        <SquareTerminal size={14} aria-hidden="true" />{#if !collapsed}{" "}{t().terminal}{/if}
       </button>
       <button class="lang" onclick={() => setLocale(locale.current === "fa" ? "en" : "fa")}>
-        {locale.current === "fa" ? "English" : "فارسی"}
+        {#if collapsed}{locale.current === "fa" ? "EN" : "فا"}{:else}{locale.current === "fa" ? "English" : "فارسی"}{/if}
       </button>
     </div>
   </nav>
@@ -110,10 +144,15 @@
 </div>
 
 {#snippet dot(label: string, on: boolean | null)}
-  <div class="svc">
+  {@const state = on === null ? "…" : on ? t().status.running : t().status.stopped}
+  <div class="svc" title={collapsed ? `${label}: ${state}` : undefined}>
     <span class="lamp" class:ok={on === true} class:bad={on === false} aria-hidden="true"></span>
-    <span>{label}</span>
-    <span class="svc-state">{on === null ? "…" : on ? t().status.running : t().status.stopped}</span>
+    {#if collapsed}
+      <span class="sr">{label}: {state}</span>
+    {:else}
+      <span>{label}</span>
+      <span class="svc-state">{state}</span>
+    {/if}
   </div>
 {/snippet}
 
@@ -123,6 +162,27 @@
     grid-template-columns: 232px 1fr;
     height: 100%;
   }
+  .shell.collapsed { grid-template-columns: 64px 1fr; }
+  .collapsed .side { padding-inline: 10px; }
+  .collapsed .brand { flex-direction: column; padding-inline: 0; gap: 12px; }
+  .collapsed .item { justify-content: center; padding-inline: 0; }
+  .collapsed .foot { padding-inline: 0; justify-items: center; }
+  .collapsed .svc { justify-content: center; }
+  .fold {
+    all: unset;
+    display: inline-grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    margin-inline-start: auto;
+    border-radius: 8px;
+    color: var(--text-3);
+    cursor: pointer;
+  }
+  .collapsed .fold { margin-inline-start: 0; }
+  .fold:hover { color: var(--text); background: color-mix(in oklab, var(--text) 6%, transparent); }
+  .fold:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
   .side {
     background: var(--side);

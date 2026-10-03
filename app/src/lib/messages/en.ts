@@ -2,6 +2,7 @@ export const en = {
   app: "Unix Guardian",
   preview: "Preview: recorded readings, not live",
   terminal: "Terminal interface",
+  side: { collapse: "Collapse the sidebar", expand: "Expand the sidebar" },
   bug: {
     email: "unixguardian@atomicmail.io",
     link: "Report a bug",
