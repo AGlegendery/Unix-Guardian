@@ -277,6 +277,53 @@ impl OverlayIface {
     }
 }
 
+/// `org.unixguardian.Agent1.Recorder`
+pub struct RecorderIface {
+    pub recorder: Arc<crate::recorder::Recorder>,
+}
+
+impl RecorderIface {
+    /// Runs a recorder call off the async threads (they wait for processes).
+    async fn blocking<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&crate::recorder::Recorder) -> Result<T, String> + Send + 'static,
+    ) -> zbus::fdo::Result<T> {
+        let r = Arc::clone(&self.recorder);
+        tokio::task::spawn_blocking(move || f(&r)).await.map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?.map_err(zbus::fdo::Error::Failed)
+    }
+}
+
+#[zbus::interface(name = "org.unixguardian.Agent1.Recorder")]
+impl RecorderIface {
+    async fn state(&self) -> ug_proto::RecorderState {
+        self.blocking(|r| Ok(r.state())).await.unwrap_or_default()
+    }
+
+    async fn set(&self, settings: ug_proto::RecorderSettings) -> zbus::fdo::Result<()> {
+        self.recorder.set(settings).map_err(zbus::fdo::Error::InvalidArgs)
+    }
+
+    async fn start(&self) -> zbus::fdo::Result<String> {
+        self.blocking(|r| r.start()).await
+    }
+
+    async fn stop(&self) -> zbus::fdo::Result<String> {
+        self.blocking(|r| r.stop()).await
+    }
+
+    async fn start_replay(&self) -> zbus::fdo::Result<()> {
+        self.blocking(|r| r.start_replay()).await
+    }
+
+    async fn save_replay(&self) -> zbus::fdo::Result<String> {
+        self.blocking(|r| r.save_replay()).await
+    }
+
+    async fn set_up(&self, on: bool) -> zbus::fdo::Result<()> {
+        self.recorder.begin_set_up(on).map_err(zbus::fdo::Error::Failed)
+    }
+}
+
 /// `org.unixguardian.Agent1.Ping`
 pub struct PingIface {
     pub pinger: crate::ping::Pinger,

@@ -543,6 +543,30 @@ pub mod agent {
         fn set_up(&self, on: bool) -> zbus::Result<()>;
     }
 
+    /// Recording the screen and the game's sound (gpu-screen-recorder).
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Recorder",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Recorder {
+        fn state(&self) -> zbus::Result<RecorderState>;
+        /// Saves the settings (used from the next start).
+        fn set(&self, settings: &RecorderSettings) -> zbus::Result<()>;
+        /// Starts a recording; returns the file it goes to.
+        fn start(&self) -> zbus::Result<String>;
+        /// Stops a recording or the replay buffer; returns the file written
+        /// ("" for the buffer).
+        fn stop(&self) -> zbus::Result<String>;
+        /// Starts the replay buffer (the last `replay_seconds` in memory).
+        fn start_replay(&self) -> zbus::Result<()>;
+        /// Writes the replay buffer to a file; returns it.
+        fn save_replay(&self) -> zbus::Result<String>;
+        /// Installs gpu-screen-recorder for this user (Flatpak from Flathub);
+        /// `false` removes it again.
+        fn set_up(&self, on: bool) -> zbus::Result<()>;
+    }
+
     /// Game profiles and which game uses which.
     #[zbus::proxy(
         interface = "org.unixguardian.Agent1.Profiles",

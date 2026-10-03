@@ -167,6 +167,12 @@ enum Command {
         #[arg(long)]
         close_window_on_game: Option<String>,
     },
+    /// Record the screen and the game's sound (gpu-screen-recorder). Without
+    /// a command shows the recorder.
+    Record {
+        #[command(subcommand)]
+        command: Option<RecordCommand>,
+    },
     /// Global shortcuts (the desktop's GlobalShortcuts portal). Without an
     /// argument shows them; `on`/`off` binds or unbinds them (the desktop may
     /// ask to confirm the keys); `open-window`, `toggle-overlay` or
@@ -226,6 +232,49 @@ enum DriverCommand {
         /// Do not ask first.
         #[arg(long)]
         yes: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum RecordCommand {
+    /// Start recording; prints the file.
+    Start,
+    /// Stop recording (or the replay buffer).
+    Stop,
+    /// Keep the last seconds in memory, to save with `ug record save`.
+    Replay,
+    /// Save the replay buffer to a file.
+    Save,
+    /// Install gpu-screen-recorder for this user (Flatpak from Flathub).
+    Setup,
+    /// Remove the gpu-screen-recorder Flatpak installed by `setup`.
+    Remove,
+    /// Change settings; only the ones given change.
+    Set {
+        /// small, balanced or high
+        #[arg(long)]
+        quality: Option<String>,
+        /// 30, 60 or 120
+        #[arg(long)]
+        fps: Option<u32>,
+        /// portal, screen or a monitor name ("" for the default)
+        #[arg(long)]
+        capture: Option<String>,
+        /// auto, h264, hevc or av1
+        #[arg(long)]
+        codec: Option<String>,
+        /// The game's sound: on or off
+        #[arg(long)]
+        sound: Option<String>,
+        /// The microphone: on or off
+        #[arg(long)]
+        mic: Option<String>,
+        /// Seconds the replay buffer keeps: 15, 30, 60 or 120
+        #[arg(long)]
+        replay: Option<u32>,
+        /// Folder for recordings ("" for ~/Videos/Unix Guardian)
+        #[arg(long)]
+        folder: Option<String>,
     },
 }
 
@@ -574,6 +623,7 @@ async fn run() -> Result<()> {
         Command::Ping { seconds } => return ping(seconds, cli.json).await,
         Command::Overlay { command } => return overlay(command, cli.json).await,
         Command::Shortcut { action, args } => return shortcut(action, args, cli.json).await,
+        Command::Record { command } => return record(command, cli.json).await,
         Command::Settings { notifications, scan_interval, close_window_on_game } => {
             return settings(notifications, scan_interval, close_window_on_game, cli.json).await
         }
@@ -622,7 +672,7 @@ async fn run() -> Result<()> {
         Command::Fans { curve, auto, mode } => fans(&conn, curve, auto, mode, cli.json).await,
         Command::Driver { command } => driver(&conn, command, cli.json).await,
         Command::Diagnose => unreachable!("handled above"),
-        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Shortcut { .. } | Command::Settings { .. } | Command::Tray { .. } | Command::Quit | Command::Fps { .. } | Command::Run { .. } | Command::Tui => {
+        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Shortcut { .. } | Command::Record { .. } | Command::Settings { .. } | Command::Tray { .. } | Command::Quit | Command::Fps { .. } | Command::Run { .. } | Command::Tui => {
             unreachable!("handled above")
         }
     }
@@ -1389,6 +1439,90 @@ async fn driver(conn: &zbus::Connection, command: DriverCommand, json: bool) -> 
                 }
             }
         }
+    }
+    Ok(())
+}
+
+async fn record(command: Option<RecordCommand>, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let r = ug_proto::agent::RecorderProxy::new(&conn).await?;
+    let onoff = |v: &str| match v {
+        "on" | "yes" | "true" => Ok(true),
+        "off" | "no" | "false" => Ok(false),
+        other => Err(anyhow::anyhow!("`{other}`: say on or off")),
+    };
+    match command {
+        None => {}
+        Some(RecordCommand::Start) => {
+            println!("Recording to {}", r.start().await.map_err(agent_hint)?);
+            println!("Stop with: ug record stop");
+            return Ok(());
+        }
+        Some(RecordCommand::Stop) => {
+            let f = r.stop().await.map_err(agent_hint)?;
+            println!("{}", if f.is_empty() { "Replay buffer stopped.".to_string() } else { format!("Saved {f}") });
+            return Ok(());
+        }
+        Some(RecordCommand::Replay) => {
+            r.start_replay().await.map_err(agent_hint)?;
+        }
+        Some(RecordCommand::Save) => {
+            println!("Saved {}", r.save_replay().await.map_err(agent_hint)?);
+            return Ok(());
+        }
+        Some(RecordCommand::Setup) | Some(RecordCommand::Remove) => {
+            let on = matches!(command, Some(RecordCommand::Setup));
+            r.set_up(on).await.map_err(agent_hint)?;
+            println!("{} gpu-screen-recorder (Flatpak, for you only)…", if on { "Installing" } else { "Removing" });
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let st = r.state().await.map_err(agent_hint)?;
+                if st.mode != "installing" {
+                    if !st.problem.is_empty() {
+                        anyhow::bail!("{}", st.problem);
+                    }
+                    break;
+                }
+            }
+        }
+        Some(RecordCommand::Set { quality, fps, capture, codec, sound, mic, replay, folder }) => {
+            let mut s = r.state().await.map_err(agent_hint)?.settings;
+            if let Some(v) = quality { s.quality = v; }
+            if let Some(v) = fps { s.fps = v; }
+            if let Some(v) = capture { s.capture = v; }
+            if let Some(v) = codec { s.codec = v; }
+            if let Some(v) = sound { s.audio_output = onoff(&v)?; }
+            if let Some(v) = mic { s.audio_mic = onoff(&v)?; }
+            if let Some(v) = replay { s.replay_seconds = v; }
+            if let Some(v) = folder { s.folder = v; }
+            r.set(&s).await.map_err(agent_hint)?;
+        }
+    }
+    let st = r.state().await.map_err(agent_hint)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&st)?);
+        return Ok(());
+    }
+    let engine = match st.engine.as_str() {
+        "" if st.can_set_up => "not installed (ug record setup installs it for you)",
+        "" => "not installed (install gpu-screen-recorder with your package manager)",
+        "flatpak" => "gpu-screen-recorder (Flatpak)",
+        _ => "gpu-screen-recorder",
+    };
+    let s = &st.settings;
+    println!("Recorder      {engine}");
+    println!("Now           {}", match st.mode.as_str() { "recording" => format!("recording to {}", st.file), "replay" => format!("keeping the last {} s (ug record save)", s.replay_seconds), "installing" => "installing…".into(), _ => "idle".into() });
+    let capture = if s.capture.is_empty() { "default".to_string() } else { s.capture.clone() };
+    println!("Capture       {capture}   (offered: {})", st.captures.join(", "));
+    println!("Quality       {}, {} fps, codec {}  ≈ {} MB a minute", s.quality, s.fps, s.codec, st.mb_per_minute);
+    println!("Sound         game {}, microphone {}", if s.audio_output { "on" } else { "off" }, if s.audio_mic { "on" } else { "off" });
+    println!("Replay        last {} s ≈ {} MB in memory", s.replay_seconds, st.replay_mb);
+    println!("Folder        {}", st.folder);
+    if !st.last_saved.is_empty() {
+        println!("Last saved    {}", st.last_saved);
+    }
+    if !st.problem.is_empty() {
+        println!("Problem       {}", st.problem);
     }
     Ok(())
 }

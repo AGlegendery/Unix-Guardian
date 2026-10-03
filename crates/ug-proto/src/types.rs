@@ -842,6 +842,69 @@ pub struct OverlayState {
     pub game_running: bool,
 }
 
+/// How the recorder records (gpu-screen-recorder underneath).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct RecorderSettings {
+    /// `small`, `balanced` or `high`.
+    pub quality: String,
+    /// 30, 60 or 120.
+    pub fps: u32,
+    /// `portal` (Wayland: the desktop asks which screen or window), `screen`
+    /// (X11, all of it) or a monitor's name from `captures`.
+    pub capture: String,
+    /// `auto`, `h264`, `hevc` or `av1`.
+    pub codec: String,
+    /// The game's sound and the microphone, each its own track.
+    pub audio_output: bool,
+    pub audio_mic: bool,
+    /// The replay buffer: the last 15, 30, 60 or 120 seconds.
+    pub replay_seconds: u32,
+    /// Where recordings go; "" for ~/Videos/Unix Guardian.
+    pub folder: String,
+}
+
+/// The recorder: what it can do here and what it is doing.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct RecorderState {
+    /// `native`, `flatpak` or "" (gpu-screen-recorder is not installed).
+    pub engine: String,
+    /// The engine can be installed here (Flatpak, for this user only).
+    pub can_set_up: bool,
+    /// `idle`, `recording`, `replay` (the buffer is running), `installing`.
+    pub mode: String,
+    pub since_unix_ms: u64,
+    /// The file being recorded now.
+    pub file: String,
+    /// The last file written (a finished recording or a saved replay).
+    pub last_saved: String,
+    /// Why the last start failed, or what went wrong; "" when nothing did.
+    pub problem: String,
+    /// Capture choices offered here (`portal`, `screen`, monitor names).
+    pub captures: Vec<String>,
+    pub settings: RecorderSettings,
+    /// Roughly how big a minute is with these settings, and the replay
+    /// buffer in memory (megabytes).
+    pub mb_per_minute: f64,
+    pub replay_mb: f64,
+    /// The folder actually used.
+    pub folder: String,
+}
+
+impl Default for RecorderSettings {
+    fn default() -> Self {
+        RecorderSettings {
+            quality: "balanced".into(),
+            fps: 60,
+            capture: String::new(),
+            codec: "auto".into(),
+            audio_output: true,
+            audio_mic: false,
+            replay_seconds: 60,
+            folder: String::new(),
+        }
+    }
+}
+
 /// One game session's frame statistics, from MangoHud's per-frame log.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 pub struct FpsSession {

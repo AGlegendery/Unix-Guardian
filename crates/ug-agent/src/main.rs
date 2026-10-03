@@ -25,6 +25,7 @@ mod ppd;
 mod settings;
 mod shortcuts;
 mod programs;
+mod recorder;
 mod tray;
 
 use anyhow::{Context, Result};
@@ -242,6 +243,8 @@ async fn main() -> Result<()> {
     let settings = Arc::new(settings::Settings::load(&ug_core::paths::user_config(), args.scan_interval.map(|s| s.max(1))));
     let (pressed_tx, mut pressed_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let shortcuts = shortcuts::Shortcuts::new(&ug_core::paths::user_config(), pressed_tx);
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+    let recorder = Arc::new(recorder::Recorder::new(&ug_core::paths::user_config(), &home));
 
     let conn = zbus::connection::Builder::session()?
         .serve_at(AGENT_OBJECT_PATH, GamesIface { core: Arc::clone(&core), announce: announce_tx.clone() })?
@@ -249,6 +252,7 @@ async fn main() -> Result<()> {
         .serve_at(AGENT_OBJECT_PATH, ProfilesIface { core: Arc::clone(&core) })?
         .serve_at(AGENT_OBJECT_PATH, MonitorIface { history: Arc::clone(&history), overlay: Arc::clone(&overlay) })?
         .serve_at(AGENT_OBJECT_PATH, OverlayIface { overlay: Arc::clone(&overlay) })?
+        .serve_at(AGENT_OBJECT_PATH, iface::RecorderIface { recorder: Arc::clone(&recorder) })?
         .serve_at(AGENT_OBJECT_PATH, PingIface { pinger: pinger.clone() })?
         .serve_at(AGENT_OBJECT_PATH, SettingsIface { settings: Arc::clone(&settings) })?
         .serve_at(
@@ -401,6 +405,8 @@ async fn main() -> Result<()> {
     // Resume anything we paused and close open sessions before going. The
     // daemon also reverts game mode by itself once we drop off the bus.
     shortcuts.shutdown().await;
+    let r = Arc::clone(&recorder);
+    let _ = tokio::task::spawn_blocking(move || r.shutdown()).await;
     lock(&core).shutdown(now_ms());
     if daemon.applied.is_some() {
         daemon.backoff = 0;
