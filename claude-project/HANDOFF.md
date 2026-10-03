@@ -23,9 +23,8 @@ Last updated: 2026-10-03.
 ## Work queue (from the user, in order)
 
 1. ✅ Steam launch options (P6.1) — `299399d` … `f154e75`.
-2. ✱ **Global shortcuts through the XDG GlobalShortcuts portal (P6.3).**
-   See "In progress" below.
-3. ○ **Beta packaging (P6.6)** — build packages **locally only**
+2. ✅ Global shortcuts through the XDG GlobalShortcuts portal (P6.3) — `9ddb1c1`.
+3. ✱ **Beta packaging (P6.6)** — build packages **locally only**
    (PKGBUILD / .deb / install.sh). **Never publish or upload anything.**
 4. ○ **Settings page**, in the window **and** the TUI in the same change
    (project rule: every page exists in both).
@@ -33,34 +32,18 @@ Last updated: 2026-10-03.
 After the queue: see "Next steps" in `04-status.md` (real-install checks that
 need sudo, pushing, P7+).
 
-## In progress: global shortcuts (P6.3)
+## In progress: beta packaging (P6.6)
 
-Done (uncommitted at first, check `git log` for "shortcut"):
-- `crates/ug-agent/src/shortcuts.rs`: portal client (CreateSession,
-  BindShortcuts, Activated / ShortcutsChanged signals, Registry.Register with
-  app id `unix-guardian`), state in `~/.config/unix-guardian/shortcuts.json`
-  (off until the user turns it on, because KDE shows a dialog), fallback text
-  with `ug shortcut <id>` commands where there is no portal. Three actions:
-  `open-window` (LOGO+SHIFT+u), `toggle-overlay` (LOGO+SHIFT+o),
-  `toggle-gamemode` (LOGO+SHIFT+g).
-- `core.rs`: game mode by hand (`toggle_gamemode`, `by_hand`, uses the
-  `balanced` profile; "off by hand" lasts until no game runs). Test written.
-- `overlay.rs`: `Overlay::toggle()` (forced show/hide until the next game
-  start/stop). Test written.
-- `ug-proto`: `Agent1.Shortcuts` proxy (State / SetEnabled / Run),
-  `ShortcutsState`, `ShortcutInfo`.
+Nothing started yet. Plan: `packaging/` gets an Arch `PKGBUILD` and a
+Debian package built locally (`scripts/build-packages.sh` → `dist/`), from
+the same file list `scripts/dev-install.sh` installs. **Local only.**
 
-Remaining when this file was written:
-- agent: serve `org.unixguardian.Agent1.Shortcuts` in `iface.rs`, create
-  `Shortcuts` in `main.rs`, act on pressed ids in the main loop (open window
-  the way the tray does, overlay toggle, game mode toggle + reconcile now),
-  `shutdown()` on exit, fill `gamemode_by_hand`.
-- CLI: `ug shortcut [status|on|off|<id>]`.
-- window + TUI: a Shortcuts card (probably on the Overlay page, later the
-  Settings page) with on/off, status, keys, problem text.
-- agent-e2e checks (no portal on a private bus → status `unavailable`,
-  `ug shortcut toggle-gamemode` works).
-- Try on the real KDE session (installed agent must be rebuilt first).
+## Done but not tried on the real desktop
+
+- Global shortcuts (P6.3): KDE's portal answers `version 1`, but binding
+  (KDE shows a confirmation dialog) needs the installed agent rebuilt and
+  reinstalled. Check: `ug shortcut on`, confirm the dialog, press Meta+Shift+G,
+  `ug shortcut` shows the keys; `ug shortcut off`.
 
 ## Build, test, install
 

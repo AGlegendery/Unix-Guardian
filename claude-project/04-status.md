@@ -192,8 +192,16 @@ P4 is merged into `main` (`dc1fdfa`). On `p6-overlay`:
   launch`; window editor per Steam game (Game Mode → Your games); TUI Game
   mode → Steam launch options. Fixtures + private-bus e2e only: no Steam
   game on the laptop. ⬜ Lutris/Heroic wrappers not done.
-- 🟨 6.3 global shortcuts through the XDG GlobalShortcuts portal: in
-  progress on `p5-gpu` (see HANDOFF.md).
+- ✅ 6.3 global shortcuts (2026-10-03, `9ddb1c1`): agent `shortcuts.rs`
+  binds open-window / toggle-overlay / toggle-gamemode through the XDG
+  GlobalShortcuts portal (own connection, host Registry `unix-guardian`),
+  off until turned on (`shortcuts.json`; KDE shows a dialog), notification
+  on press; game mode by hand (balanced profile; "off" until the games
+  close); overlay forced show/hide until the next game start/stop. No
+  portal → "unavailable" + `ug shortcut <id>` to bind by hand.
+  `Agent1.Shortcuts`, `ug shortcut`, window card (Overlay page), TUI
+  Overlay → Global shortcuts. agent-e2e 41 checks. **Not tried on the real
+  KDE desktop yet** (portal version 1 is there).
 - ⬜ 6.6 beta packaging (local builds only).
 - **Not verified on the laptop:** MangoHud is not installed there; nothing
   of P6 has run against a real game. v2rayN in TUN mode not checked yet.
