@@ -202,7 +202,14 @@ P4 is merged into `main` (`dc1fdfa`). On `p6-overlay`:
   `Agent1.Shortcuts`, `ug shortcut`, window card (Overlay page), TUI
   Overlay → Global shortcuts. agent-e2e 41 checks. **Not tried on the real
   KDE desktop yet** (portal version 1 is there).
-- ⬜ 6.6 beta packaging (local builds only).
+- 🟨 6.6 beta packaging (2026-10-03, `f9aa5ac`): `scripts/stage.sh` (one
+  file list, prefix /usr or /usr/local), `scripts/build-packages.sh` →
+  `dist/`: .deb (dpkg-shlibdeps Depends, maintainer scripts, lintian
+  clean but for systemctl/man-page/libyaml notices), install.sh tarball
+  (/usr/local, --uninstall from a file list, refuses beside a package or
+  dev install), Arch PKGBUILD + .install. Checked in Debian/Arch
+  containers and a scratch root only. Not done: AppImage, `ug diagnose`,
+  GitHub page, announcements (never without the user).
 - **Not verified on the laptop:** MangoHud is not installed there; nothing
   of P6 has run against a real game. v2rayN in TUN mode not checked yet.
 

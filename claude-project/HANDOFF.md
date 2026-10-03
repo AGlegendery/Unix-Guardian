@@ -24,19 +24,18 @@ Last updated: 2026-10-03.
 
 1. ✅ Steam launch options (P6.1) — `299399d` … `f154e75`.
 2. ✅ Global shortcuts through the XDG GlobalShortcuts portal (P6.3) — `9ddb1c1`.
-3. ✱ **Beta packaging (P6.6)** — build packages **locally only**
-   (PKGBUILD / .deb / install.sh). **Never publish or upload anything.**
-4. ○ **Settings page**, in the window **and** the TUI in the same change
+3. ✅ Beta packaging, local only (P6.6) — `f9aa5ac`. `./scripts/build-packages.sh`
+   → `dist/` (.deb, install.sh tarball, arch/PKGBUILD + source). Not
+   published, and must not be without the user's word.
+4. ✱ **Settings page**, in the window **and** the TUI in the same change
    (project rule: every page exists in both).
 
 After the queue: see "Next steps" in `04-status.md` (real-install checks that
 need sudo, pushing, P7+).
 
-## In progress: beta packaging (P6.6)
+## In progress: Settings page
 
-Nothing started yet. Plan: `packaging/` gets an Arch `PKGBUILD` and a
-Debian package built locally (`scripts/build-packages.sh` → `dist/`), from
-the same file list `scripts/dev-install.sh` installs. **Local only.**
+Not started yet. Window page + TUI page in the same change.
 
 ## Done but not tried on the real desktop
 
@@ -44,6 +43,11 @@ the same file list `scripts/dev-install.sh` installs. **Local only.**
   (KDE shows a confirmation dialog) needs the installed agent rebuilt and
   reinstalled. Check: `ug shortcut on`, confirm the dialog, press Meta+Shift+G,
   `ug shortcut` shows the keys; `ug shortcut off`.
+- Packages (P6.6): the .deb was installed and purged in a Debian container
+  without network (`--force-depends`, no systemd there), install.sh into a
+  scratch root, the PKGBUILD's `package()` and `--printsrcinfo` in an Arch
+  container (no fakeroot there, so no real `makepkg`). Never installed on a
+  real system. AppImage (roadmap 6.6) not done; `ug diagnose` not done.
 
 ## Build, test, install
 
