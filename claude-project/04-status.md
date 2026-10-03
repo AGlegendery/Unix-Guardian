@@ -357,4 +357,4 @@ the ping page against the real agent. Known limits:
   login, `ug driver keep`. A change that can break the desktop (graphics,
   boot parameters) after which no logind session of type wayland/x11 (a
   greeter counts) exists 10 minutes after boot is undone by itself
-  (`UG_DRIVER_CHECK_GRACE_S` shortens it in tests). driver-e2e 29 checks.
+  (`UG_DRIVER_CHECK_GRACE_S` shortens it in tests). driver-e2e 27 checks.
