@@ -4,7 +4,7 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -17,6 +17,17 @@ let fpsSetUp = false;
 let fanMode = 1;
 let trayVisible = true;
 let tracked: TrackedApp[] = [];
+const launch = new Map<number, { own: string; gpu: string; overlay: boolean }>();
+/** Roughly what the agent composes (Flatpak Steam: MANGOHUD=1). */
+function composeMock(own: string, gpu: string, overlay: boolean): string {
+  const env = [
+    ...(gpu === "0000:01:00.0" ? ["__NV_PRIME_RENDER_OFFLOAD=1", "__GLX_VENDOR_LIBRARY_NAME=nvidia", "__VK_LAYER_NV_optimus=NVIDIA_only"] : []),
+    ...(gpu === "0000:00:02.0" ? ["DRI_PRIME=pci-0000_00_02_0", "MESA_VK_DEVICE_SELECT=8086:468b!", "__GLX_VENDOR_LIBRARY_NAME=mesa"] : []),
+    ...(overlay ? ["MANGOHUD=1"] : []),
+  ];
+  if (!env.length) return own;
+  return [...env, own.includes("%command%") ? own : `%command%${own ? " " + own : ""}`].join(" ");
+}
 let ptImported: PlaytimeEntry[] = [];
 let ptSessions: PlaytimeSession[] = (() => {
   const games: [string, string, number][] = [
@@ -134,7 +145,12 @@ export const mockApi = {
   },
   gamemodeActive: async () => false,
   gamesRunning: async (): Promise<RunningGame[]> => [],
-  gamesInstalled: async () => data.installed as InstalledGame[],
+  // The laptop has no Steam games; two made-up ones show the launch options.
+  gamesInstalled: async () => [
+    ...(data.installed as InstalledGame[]),
+    { id: "steam:730", name: "Counter-Strike 2", launcher: "steam" },
+    { id: "steam:1245620", name: "Elden Ring", launcher: "steam" },
+  ],
   profiles: async () => structuredClone(profiles),
   // The preview keeps changes in memory so the page can be tried out.
   setGameProfile: async (key: string, profile: string) => {
@@ -175,6 +191,22 @@ export const mockApi = {
   },
   playtimeExport: async () => "~/Downloads/unix-guardian-playtime-preview.csv",
   trackedApps: async (): Promise<TrackedApp[]> => structuredClone(tracked),
+  // Launch options in the preview: one made-up game with options of its own.
+  launchOptions: async (appid: number): Promise<LaunchInfo> => {
+    const l = launch.get(appid) ?? { own: appid === 730 ? "-novid" : "", gpu: "", overlay: false };
+    return { appid, name: "", current: composeMock(l.own, l.gpu, l.overlay), own: l.own, gpu: l.gpu, overlay: l.overlay, changed_outside: false, flatpak: true, steam_running: false, overlay_problem: "" };
+  },
+  previewLaunchOptions: async (appid: number, gpu: string, overlay: boolean) => composeMock((launch.get(appid)?.own) ?? (appid === 730 ? "-novid" : ""), gpu, overlay),
+  setLaunchOptions: async (appid: number, gpu: string, overlay: boolean): Promise<[string, string]> => {
+    const own = launch.get(appid)?.own ?? (appid === 730 ? "-novid" : "");
+    launch.set(appid, { own, gpu, overlay });
+    return [composeMock(own, gpu, overlay), "~/.local/share/unix-guardian/backups/localconfig-42-preview.vdf"];
+  },
+  undoLaunchOptions: async (appid: number): Promise<[string, string]> => {
+    const own = launch.get(appid)?.own ?? "";
+    launch.delete(appid);
+    return [own, "~/.local/share/unix-guardian/backups/localconfig-42-preview.vdf"];
+  },
   trackApp: async (exe: string, name: string) => {
     const e = exe.trim().toLowerCase().replace(/\.exe$/, "");
     if (!e) throw "give a program's executable name, e.g. firefox or Filmora.exe";

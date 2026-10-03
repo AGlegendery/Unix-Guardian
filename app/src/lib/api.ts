@@ -347,6 +347,22 @@ export interface PlaytimeSession {
   ended_unix_ms: number;
 }
 
+/** A Steam game's launch options and Unix Guardian's part in them. */
+export interface LaunchInfo {
+  appid: number;
+  name: string;
+  current: string;
+  own: string;
+  /** PCI address of the GPU Unix Guardian set; "" for none. */
+  gpu: string;
+  overlay: boolean;
+  changed_outside: boolean;
+  flatpak: boolean;
+  steam_running: boolean;
+  /** Why the overlay cannot be added; "" when it can. */
+  overlay_problem: string;
+}
+
 /** A program timed as an app (never a game), or one open now. */
 export interface TrackedApp {
   exe: string;
@@ -431,6 +447,11 @@ const tauriApi = {
   /** Writes a CSV into Downloads; returns its path. */
   playtimeExport: (sinceUnixMs: number) => invoke<string>("playtime_export", { sinceUnixMs }),
   trackedApps: () => invoke<TrackedApp[]>("playtime_tracked_apps"),
+  launchOptions: (appid: number) => invoke<LaunchInfo>("steam_launch_options", { appid }),
+  previewLaunchOptions: (appid: number, gpu: string, overlay: boolean) => invoke<string>("steam_preview_launch_options", { appid, gpu, overlay }),
+  /** Returns [options, backup path]. */
+  setLaunchOptions: (appid: number, gpu: string, overlay: boolean) => invoke<[string, string]>("steam_set_launch_options", { appid, gpu, overlay }),
+  undoLaunchOptions: (appid: number) => invoke<[string, string]>("steam_undo_launch_options", { appid }),
   trackApp: (exe: string, name: string) => invoke<void>("playtime_track_app", { exe, name }),
   untrackApp: (exe: string) => invoke<boolean>("playtime_untrack_app", { exe }),
   runningPrograms: () => invoke<TrackedApp[]>("playtime_running_programs"),

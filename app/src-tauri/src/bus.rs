@@ -243,6 +243,31 @@ pub async fn playtime_forget(bus: State<'_, Bus>, key: String) -> Res<u32> {
 }
 
 #[tauri::command]
+pub async fn steam_launch_options(bus: State<'_, Bus>, appid: u32) -> Res<ug_proto::LaunchInfo> {
+    let g = GamesProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    g.launch_options(appid).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn steam_preview_launch_options(bus: State<'_, Bus>, appid: u32, gpu: String, overlay: bool) -> Res<String> {
+    let g = GamesProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    g.preview_launch_options(appid, &gpu, overlay).await.map_err(agent_err)
+}
+
+/// Returns (options, backup path).
+#[tauri::command]
+pub async fn steam_set_launch_options(bus: State<'_, Bus>, appid: u32, gpu: String, overlay: bool) -> Res<(String, String)> {
+    let g = GamesProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    g.set_launch_options(appid, &gpu, overlay).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn steam_undo_launch_options(bus: State<'_, Bus>, appid: u32) -> Res<(String, String)> {
+    let g = GamesProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    g.undo_launch_options(appid).await.map_err(agent_err)
+}
+
+#[tauri::command]
 pub async fn playtime_tracked_apps(bus: State<'_, Bus>) -> Res<Vec<ug_proto::TrackedApp>> {
     let p = PlaytimeProxy::new(bus.agent().await?).await.map_err(agent_err)?;
     p.tracked_apps().await.map_err(agent_err)

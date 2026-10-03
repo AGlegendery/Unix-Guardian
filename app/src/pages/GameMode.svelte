@@ -1,5 +1,6 @@
 <script lang="ts">
   import GpuTuner from "../lib/GpuTuner.svelte";
+  import LaunchOptions from "../lib/LaunchOptions.svelte";
   import Problem from "../lib/ui/Problem.svelte";
   import { Cpu, Gamepad2, MonitorSmartphone, Settings2 } from "@lucide/svelte";
   import { api, errorText, type GpuOffload, type InstalledGame, type Overview, type Profile, type RunningGame } from "../lib/api";
@@ -82,6 +83,9 @@
   // Which GPU a game runs on: shown for the running game, and how to choose.
   let offload = $state<GpuOffload[]>([]);
   let copied = $state<string | null>(null);
+  // The Steam game whose launch options are open, by App ID.
+  let launchOpen = $state<number | null>(null);
+  const steamId = (id: string) => (id.startsWith("steam:") ? Number(id.slice(6)) : null);
   $effect(() => {
     api.gpuOffload().then((o) => (offload = o)).catch(() => {});
   });
@@ -223,8 +227,17 @@
     {#if installed && installed.length}
       <ul class="game-list">
         {#each installed as g (g.id)}
+          {@const appid = steamId(g.id)}
           <li>
             <span class="game-name">{g.name}<small class="ltr">{g.launcher}</small></span>
+            {#if appid !== null}
+              <button
+                class="launch-btn"
+                class:open={launchOpen === appid}
+                aria-expanded={launchOpen === appid}
+                onclick={() => (launchOpen = launchOpen === appid ? null : appid)}
+              >{t().gmp.launchButton}</button>
+            {/if}
             <select
               aria-label={`${g.name}: ${t().gmp.profilesTitle}`}
               value={profileOf(g.id)}
@@ -236,6 +249,9 @@
               {/each}
             </select>
           </li>
+          {#if appid !== null && launchOpen === appid}
+            <li class="launch-row"><LaunchOptions {appid} gpus={offload} {gpuName} /></li>
+          {/if}
         {/each}
       </ul>
     {:else if installed}
@@ -335,7 +351,7 @@
     border-radius: 12px;
     background: var(--card-2);
   }
-  .game-name { display: grid; font-size: 0.92rem; min-width: 0; }
+  .game-name { display: grid; font-size: 0.92rem; min-width: 0; flex: 1; }
   .game-name small { color: var(--text-3); font-size: 0.76rem; text-align: start; }
   select {
     font: inherit;
@@ -353,4 +369,11 @@
   .launch { font-size: 0.78rem; padding: 6px 8px; border-radius: 6px; background: var(--card-2); overflow-wrap: anywhere; user-select: all; }
   .copy { all: unset; justify-self: start; font-size: 0.82rem; color: var(--accent-text); cursor: pointer; }
   .copy:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 4px; }
+  .launch-btn {
+    all: unset; padding: 4px 10px; border-radius: 8px; font-size: 0.78rem; color: var(--text-2); background: var(--card-2); cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .launch-btn:hover, .launch-btn.open { color: var(--accent-text); background: var(--accent-soft); }
+  .launch-btn:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  .game-list li.launch-row { display: block; padding: 0; background: none; }
 </style>
