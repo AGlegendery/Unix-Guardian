@@ -1807,7 +1807,7 @@ fn driver_page(app: &mut App, f: &mut Frame, r: Rect) {
             lines.push(Line::from(Span::styled("Exactly this will happen (each step is undone if a later one fails):", t.accent())));
             for (n, s) in p.steps.iter().enumerate() {
                 lines.push(Line::from(Span::styled(format!(" {}. {} {}", n + 1, s.kind, s.target), t.text())));
-                if s.kind == "write-file" {
+                if s.kind == "write-file" || s.kind == "swap" {
                     for l in s.detail.lines() {
                         lines.push(Line::from(Span::styled(format!("      | {l}"), t.muted())));
                     }

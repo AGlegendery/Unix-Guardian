@@ -40,6 +40,9 @@ pub enum Step {
     /// Regenerates the boot loader's configuration; run again on undo,
     /// after the files are put back.
     Regen { argv: Vec<String> },
+    /// A swap file for hibernation, swapped on, in fstab, and the kernel
+    /// told to resume from it (several undoable actions; see `swap`).
+    HibernateSwap { plan: crate::swap::Plan },
     /// A program with its exact opposite (kernelstub -a / -d).
     Command { argv: Vec<String>, undo: Vec<String> },
     /// Rebuilds the initramfs so a module setting also holds at boot. Run
@@ -90,6 +93,18 @@ impl Step {
                 detail: "Writes the boot menu from the settings above.".into(),
                 undo: "Run again after the settings file is put back.".into(),
             },
+            Step::HibernateSwap { plan } => {
+                let mut what: Vec<String> = crate::swap::make_argv(plan).iter().map(|a| a.join(" ")).collect();
+                what.push(format!("swapon {}", plan.file));
+                what.push(format!("/etc/fstab gets: {}", crate::swap::fstab_line(plan)));
+                what.push(format!("kernel parameters get: resume=UUID=<this filesystem> resume_offset=<read with {}>", crate::swap::offset_argv(plan).join(" ")));
+                DriverStep {
+                    kind: "swap".into(),
+                    target: format!("{} ({} GB)", plan.file, plan.size_gib),
+                    detail: what.join("\n"),
+                    undo: "swapoff, the boot settings and fstab put back, the file (and a subvolume made for it) removed.".into(),
+                }
+            }
             Step::Command { argv, undo } => DriverStep {
                 kind: "run".into(),
                 target: argv.join(" "),
@@ -212,6 +227,7 @@ fn title(fix_id: &str) -> &'static str {
         "install-ipp-usb" => "Install driverless printing over USB",
         "install-hplip" => "Install HP's printer driver",
         "mem-sleep-deep" => "Use deep sleep",
+        "hibernate-swap" => "Make swap for hibernation",
         "enable-nonfree-firmware" => "Add Debian's firmware packages",
         _ => "",
     }
@@ -257,6 +273,15 @@ fn boot_fix(fix_id: &str, root: &SysRoot, facts: &Facts) -> Result<AutoFix, Stri
             s(facts, "distro.name")
         ));
     }
+    let steps = boot_steps(root, add, remove)?;
+    if steps.is_empty() {
+        return Err("The boot settings are already that way.".into());
+    }
+    Ok(AutoFix { fix_id: fix_id.into(), title, steps, needs_reboot: true })
+}
+
+/// The steps that change the kernel parameters, the boot loader's way.
+pub(crate) fn boot_steps(root: &SysRoot, add: &[&str], remove: &[&str]) -> Result<Vec<Step>, String> {
     let read = |p: &str| std::fs::read_to_string(root.join(p.trim_start_matches('/'))).map_err(|e| format!("reading {p}: {e}"));
     let write = |path: &str, new: String, old: &str| (new != old).then(|| Step::Write { path: path.into(), content: new });
     use crate::bootparams as bp;
@@ -296,10 +321,46 @@ fn boot_fix(fix_id: &str, root: &SysRoot, facts: &Facts) -> Result<AutoFix, Stri
             v
         }
     };
-    if steps.is_empty() {
-        return Err("The boot settings are already that way.".into());
+    Ok(steps)
+}
+
+/// Swap for hibernation: the checks, then backup, the swap file (with its
+/// resume parameters, which the executor reads once the file exists) and
+/// an initramfs rebuild.
+fn hibernate_fix(root: &SysRoot, facts: &Facts) -> Result<AutoFix, String> {
+    hibernate_fix_with(root, facts, |d| crate::swap::free_bytes(&root.join(d.trim_start_matches('/'))))
+}
+
+/// The same, with the free space given (tests).
+pub(crate) fn hibernate_fix_with(root: &SysRoot, facts: &Facts, free: impl Fn(&str) -> Option<u64>) -> Result<AutoFix, String> {
+    let lockdown = s(facts, "kernel.lockdown");
+    if !lockdown.is_empty() && lockdown != "none" {
+        return Err("The kernel is in lockdown (Secure Boot), which turns hibernation off; more swap would not help.".into());
     }
-    Ok(AutoFix { fix_id: fix_id.into(), title, steps, needs_reboot: true })
+    if !facts.get("distro.can_change").is_some_and(Value::truthy) {
+        return Err(format!("{} is image-based; set up the swap by hand instead.", s(facts, "distro.name")));
+    }
+    if crate::bootparams::detect(root).is_none() {
+        return Err("The boot loader was not recognised, so the kernel could not be told where to resume from.".into());
+    }
+    let Some((tool, argv)) = initramfs_tool(root) else {
+        return Err("No initramfs tool was found, so the early boot could not be told to resume.".into());
+    };
+    if tool == "mkinitcpio" {
+        let conf = std::fs::read_to_string(root.join("etc/mkinitcpio.conf")).unwrap_or_default();
+        let hooks = conf.lines().find(|l| l.trim_start().starts_with("HOOKS=")).unwrap_or("");
+        if !hooks.split(|c: char| !c.is_alphanumeric() && c != '-').any(|h| h == "resume" || h == "systemd") {
+            return Err("mkinitcpio's HOOKS have neither resume nor systemd, so the early boot would not resume; add the resume hook after filesystems first.".into());
+        }
+    }
+    let mem = std::fs::read_to_string(root.join("proc/meminfo"))
+        .unwrap_or_default()
+        .lines()
+        .find_map(|l| l.strip_prefix("MemTotal:").and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok()))
+        .unwrap_or(0u64);
+    let plan = crate::swap::plan(root, mem, free)?;
+    let steps = vec![Step::Backup, Step::HibernateSwap { plan }, Step::Initramfs { argv: argv.iter().map(|a| a.to_string()).collect() }];
+    Ok(AutoFix { fix_id: "hibernate-swap".into(), title: title("hibernate-swap").into(), steps, needs_reboot: true })
 }
 
 /// Whether Unix Guardian can run a fix itself on this machine.
@@ -308,7 +369,7 @@ pub fn can_run(fix_id: &str, facts: &Facts) -> bool {
     if LIVE.contains(&fix_id) {
         return true;
     }
-    if boot_params(fix_id).is_some() {
+    if boot_params(fix_id).is_some() || fix_id == "hibernate-swap" {
         return yes("distro.can_change") && yes("boot.loader");
     }
     if AUTO.contains(&fix_id) {
@@ -355,6 +416,9 @@ pub fn auto(fix_id: &str, root: &SysRoot, facts: &Facts) -> Result<AutoFix, Stri
     }
     if boot_params(fix_id).is_some() {
         return boot_fix(fix_id, root, facts);
+    }
+    if fix_id == "hibernate-swap" {
+        return hibernate_fix(root, facts);
     }
     if !AUTO.contains(&fix_id) {
         return Err(if title(fix_id).is_empty() {
@@ -697,6 +761,21 @@ pub fn commands(fix_id: &str, facts: &Facts) -> Vec<String> {
             }
             v.extend([format!("# GRUB: add {what} to GRUB_CMDLINE_LINUX_DEFAULT"), "sudoedit /etc/default/grub".into(), regen.into()]);
             v
+        }
+        "hibernate-swap" => {
+            let file = s(facts, "hibernate.plan_file");
+            if file.is_empty() {
+                crate::swap::guide(None, &s(facts, "hibernate.plan_problem"))
+            } else {
+                let sub = s(facts, "hibernate.plan_subvolume");
+                let p = crate::swap::Plan {
+                    file,
+                    size_gib: num(facts, "hibernate.plan_gib") as u64,
+                    fs: s(facts, "hibernate.plan_fs"),
+                    new_subvolume: (!sub.is_empty()).then_some(sub),
+                };
+                crate::swap::guide(Some(&p), "")
+            }
         }
         "remove-nomodeset" | "amd-ppfeaturemask" => {
             let (what, verb) = if fix_id == "amd-ppfeaturemask" {

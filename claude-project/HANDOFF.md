@@ -87,7 +87,8 @@ need sudo, pushing, P7+).
 
 ## In progress
 
-Nothing. Driver Fix M1–M5 are done and committed; release binaries built.
+The recorder (P7), asked 2026-10-03 after the hibernation swap setup
+(done, see 04-status). Driver Fix M1–M5 are done and committed; release binaries built.
 Next for Driver Fix: try it on the real laptop after reinstalling
 (`ug diagnose`, `ug driver snapshot`), more rules (roadmap wants 35+ for
 graphics alone), a TUI text field for kernel parameters, a driver-version

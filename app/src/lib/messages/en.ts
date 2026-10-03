@@ -425,7 +425,7 @@ export const en = {
     more: "More about this",
     review: "Review before anything changes",
     reviewIntro: "Exactly this will happen, in this order. Each step is undone by Unix Guardian if a later one fails, and all of it can be undone afterwards, also from a text console with: ug driver rollback",
-    kinds: { "write-file": "Write file", "remove-file": "Remove file", run: "Run", "enable-units": "Enable services", "write-switch": "Switch", backup: "Back up", snapshot: "Snapshot", install: "Install packages" } as Record<string, string>,
+    kinds: { "write-file": "Write file", "remove-file": "Remove file", run: "Run", "enable-units": "Enable services", "write-switch": "Switch", backup: "Back up", snapshot: "Snapshot", install: "Install packages", swap: "Swap file" } as Record<string, string>,
     undo: "Undo",
     reboot: "I know a restart is needed afterwards",
     apply: "Apply",

@@ -330,6 +330,41 @@ impl Executor {
                 let out = self.runner.run(argv)?;
                 self.log(id, format!("Ran {}{}", argv.join(" "), trail(&out)));
             }
+            Step::HibernateSwap { plan } => {
+                let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<String>>();
+                let mut make = crate::swap::make_argv(plan).into_iter();
+                if let Some(sv) = &plan.new_subvolume {
+                    // Written ahead, removed last (after the file in it).
+                    self.push_undo(id, Undo::Command { argv: v(&["btrfs", "subvolume", "delete", sv]) });
+                    let argv = make.next().expect("the subvolume first");
+                    self.runner.run(&argv)?;
+                    self.log(id, format!("Made the subvolume {sv}"));
+                }
+                self.push_undo(id, Undo::Restore { path: plan.file.clone(), backup: None });
+                self.log(id, format!("Making {} ({} GB)…", plan.file, plan.size_gib));
+                for argv in make {
+                    self.runner.run(&argv)?;
+                }
+                let fstab = std::fs::read_to_string(self.real("/etc/fstab")).unwrap_or_default();
+                let sep = if fstab.is_empty() || fstab.ends_with('\n') { "" } else { "\n" };
+                self.do_step(id, n * 100 + 1, &Step::Write { path: "/etc/fstab".into(), content: format!("{fstab}{sep}{}\n", crate::swap::fstab_line(plan)) })?;
+                self.push_undo(id, Undo::Command { argv: v(&["swapoff", &plan.file]) });
+                self.runner.run(&v(&["swapon", &plan.file]))?;
+                self.log(id, format!("Swapped on {}", plan.file));
+                let out = self.runner.run(&crate::swap::offset_argv(plan))?;
+                let offset = crate::swap::parse_offset(&plan.fs, &out).ok_or_else(|| format!("could not read the resume offset from: {}", out.trim()))?;
+                let uuid = self.runner.run(&v(&["findmnt", "-no", "UUID", "-T", &plan.file]))?.trim().to_string();
+                if uuid.is_empty() || uuid.contains(char::is_whitespace) {
+                    return Err(format!("could not read the filesystem's UUID (got `{uuid}`)"));
+                }
+                let resume = format!("resume=UUID={uuid}");
+                let offset = format!("resume_offset={offset}");
+                self.log(id, format!("Resume from {resume} {offset}"));
+                let steps = crate::fixes::boot_steps(&self.root, &[&resume, &offset], &[])?;
+                for (k, st) in steps.iter().enumerate() {
+                    self.do_step(id, n * 100 + 10 + k, st)?;
+                }
+            }
             Step::Command { argv, undo } => {
                 self.push_undo(id, Undo::Command { argv: undo.clone() });
                 let out = self.runner.run(argv)?;
@@ -864,5 +899,70 @@ mod tests {
         assert!(op.log.iter().any(|l| l.contains("No desktop came up")));
         fs.write("run/systemd/sessions/2", "UID=1000\nTYPE=wayland\nACTIVE=1\n");
         assert!(desktop_session(&root));
+    }
+
+    /// Plays the swap tools: makes the file, answers the offset and UUID.
+    struct FakeSwap {
+        root: PathBuf,
+        ran: Arc<Mutex<Vec<Vec<String>>>>,
+    }
+    impl Runner for FakeSwap {
+        fn run(&self, argv: &[String]) -> Result<String, String> {
+            self.ran.lock().unwrap().push(argv.to_vec());
+            Ok(match argv.iter().take(2).cloned().collect::<Vec<_>>().join(" ").as_str() {
+                "btrfs filesystem" => {
+                    std::fs::write(self.root.join(argv[5].trim_start_matches('/')), "swap").unwrap();
+                    String::new()
+                }
+                "btrfs inspect-internal" => "533760\n".into(),
+                "findmnt -no" => "ba83246d-75b4-4830-a77d-aa39e9cc26fa\n".into(),
+                _ => String::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn hibernation_swap_is_made_and_undone_completely() {
+        let fs = TestFs::new();
+        let grub = "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet splash\"\n";
+        // TestFs adds the final newline.
+        let fstab = "UUID=x /swap btrfs subvol=/@swap,defaults 0 0\n/swap/swapfile swap swap defaults 0 0";
+        fs.write("etc/os-release", "ID=parrot\nID_LIKE=debian\nPRETTY_NAME=Parrot\n")
+            .write("usr/sbin/update-initramfs", "")
+            .write("usr/sbin/update-grub", "")
+            .write("etc/default/grub", grub)
+            .write("etc/fstab", fstab)
+            .write("proc/meminfo", "MemTotal:       28440104 kB\n")
+            .write("proc/mounts", "/dev/nvme0n1p2 / btrfs rw,subvol=/@ 0 0\n/dev/nvme0n1p2 /swap btrfs rw,subvol=/@swap 0 0\n")
+            .write("sys/kernel/security/lockdown", "[none] integrity confidentiality\n")
+            .dir("swap");
+        let root = SysRoot::at(fs.root());
+        let facts = crate::inventory::facts(&root, &Default::default());
+        assert!(crate::fixes::can_run("hibernate-swap", &facts));
+        let fix = crate::fixes::hibernate_fix_with(&root, &facts, |_| Some(40 << 30)).unwrap();
+        let Step::HibernateSwap { plan } = &fix.steps[1] else { panic!("{:?}", fix.steps) };
+        assert_eq!((plan.file.as_str(), plan.size_gib), ("/swap/hibernate.swap", 28));
+        let before = snapshot(&fs);
+        let state = tempfile::tempdir().unwrap();
+        let ran = Arc::new(Mutex::new(Vec::new()));
+        let ex = Executor::new(root.clone(), state.path(), Box::new(FakeSwap { root: fs.root().to_path_buf(), ran: Arc::clone(&ran) }));
+        let id = ex.start(&fix).unwrap();
+        ex.run(&id, &fix);
+        assert_eq!(ex.ops()[0].state, "done", "{:?}", ex.ops()[0].log);
+        assert!(fs.root().join("swap/hibernate.swap").exists());
+        let new_fstab = std::fs::read_to_string(fs.root().join("etc/fstab")).unwrap();
+        assert_eq!(new_fstab, format!("{fstab}\n/swap/hibernate.swap none swap defaults,pri=-10 0 0\n"));
+        let g = std::fs::read_to_string(fs.root().join("etc/default/grub")).unwrap();
+        assert!(g.contains("quiet splash resume=UUID=ba83246d-75b4-4830-a77d-aa39e9cc26fa resume_offset=533760"), "{g}");
+        let r = ran.lock().unwrap().clone();
+        let firsts: Vec<String> = r.iter().map(|a| a.iter().take(2).cloned().collect::<Vec<_>>().join(" ")).collect();
+        assert_eq!(firsts, ["btrfs filesystem", "swapon /swap/hibernate.swap", "btrfs inspect-internal", "findmnt -no", "update-grub", "update-initramfs -u"]);
+
+        ex.rollback(None).unwrap();
+        let r = ran.lock().unwrap().clone();
+        let undo: Vec<String> = r[6..].iter().map(|a| a.join(" ")).collect();
+        assert_eq!(undo, ["swapoff /swap/hibernate.swap", "update-grub", "update-initramfs -u -k all"], "swap off before the file goes");
+        assert_eq!(snapshot(&fs), before, "fstab and grub back to the byte");
+        assert!(!fs.root().join("swap/hibernate.swap").exists());
     }
 }

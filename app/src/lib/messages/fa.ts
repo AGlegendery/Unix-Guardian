@@ -427,7 +427,7 @@ export const fa: typeof en = {
     more: "اطلاعات بیشتر",
     review: "مرور قبل از هر تغییری",
     reviewIntro: "دقیقاً همین کارها به همین ترتیب انجام می‌شود. اگر یک مرحله شکست بخورد، یونیکس گاردین مرحله‌های قبلی را برمی‌گرداند، و بعداً هم همه‌اش قابل برگشت است، حتی از کنسول متنی با: ug driver rollback",
-    kinds: { "write-file": "نوشتن فایل", "remove-file": "حذف فایل", run: "اجرا", "enable-units": "فعال کردن سرویس‌ها", "write-switch": "کلید", backup: "پشتیبان", snapshot: "snapshot", install: "نصب بسته" } as Record<string, string>,
+    kinds: { "write-file": "نوشتن فایل", "remove-file": "حذف فایل", run: "اجرا", "enable-units": "فعال کردن سرویس‌ها", "write-switch": "کلید", backup: "پشتیبان", snapshot: "snapshot", install: "نصب بسته", swap: "فایل swap" } as Record<string, string>,
     undo: "برگشت",
     reboot: "می‌دانم که بعدش ری‌استارت لازم است",
     apply: "اعمال",

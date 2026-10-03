@@ -443,18 +443,31 @@ pub fn facts(root: &SysRoot, env: &Env, modules: &[String], f: &mut Facts) {
     let states = read(&root.join("sys/power/state"));
     put("sleep.states", s(&states));
     put("hibernate.supported", b(states.split_whitespace().any(|w| w == "disk")));
+    // The image goes to one swap area, and never to zram (it is in RAM).
     let swap: f64 = std::fs::read_to_string(root.join("proc/swaps"))
         .unwrap_or_default()
         .lines()
         .skip(1)
+        .filter(|l| !l.starts_with("/dev/zram"))
         .filter_map(|l| l.split_whitespace().nth(2).and_then(|n| n.parse::<f64>().ok()))
-        .sum();
+        .fold(0.0, f64::max);
     let mem = kb(&std::fs::read_to_string(root.join("proc/meminfo")).unwrap_or_default(), "MemTotal:");
     put("hibernate.swap_mb", Value::Num((swap / 1024.0).round()));
     put("hibernate.mem_mb", Value::Num((mem / 1024.0).round()));
     // The image is compressed and the kernel trims caches first; about 60%
     // of RAM is the usual working minimum.
     put("hibernate.swap_enough", b(mem > 0.0 && swap >= mem * 0.6));
+    // Where a hibernation swap file would go, for the fix and its guide.
+    let plan = crate::swap::plan(root, mem as u64, |d| crate::swap::free_bytes(&root.join(d.trim_start_matches('/'))));
+    let (file, gib, fs, sub, problem) = match &plan {
+        Ok(p) => (p.file.clone(), p.size_gib as f64, p.fs.clone(), p.new_subvolume.clone().unwrap_or_default(), String::new()),
+        Err(e) => (String::new(), 0.0, String::new(), String::new(), e.clone()),
+    };
+    put("hibernate.plan_file", s(&file));
+    put("hibernate.plan_gib", Value::Num(gib));
+    put("hibernate.plan_fs", s(&fs));
+    put("hibernate.plan_subvolume", s(&sub));
+    put("hibernate.plan_problem", s(&problem));
 
     // Firmware.
     let mut missing = missing_firmware(&env.kernel_log);

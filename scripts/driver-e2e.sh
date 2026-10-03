@@ -85,6 +85,17 @@ check "and taken out again to the byte" "ug driver rollback | grep -q undone && 
 check "a parameter that is not plain text is refused" "! ug driver param add 'x;reboot' --yes >/dev/null 2>&1"
 check "the service hands out only firmware lines of the kernel log" "out=\$(busctl --user call org.unixguardian.Daemon1 /org/unixguardian/Daemon1 org.unixguardian.Daemon1.Driver FirmwareLog); [[ \"\$out\" == s* ]]"
 
+# Swap for hibernation: planned into the /swap subvolume; with the programs
+# only recorded the offset cannot be read, so it stops and puts fstab back.
+mk proc/meminfo 'MemTotal:        2000000 kB\n'
+mk proc/mounts '/dev/vda2 / btrfs rw,subvol=/@ 0 0\n/dev/vda2 /swap btrfs rw,subvol=/@swap 0 0\n'
+mk etc/fstab '/swap/swapfile none swap defaults 0 0\n'
+mkdir -p "$R/swap"
+cp "$R/etc/fstab" "$W/fstab.before"
+check "the hibernation swap plan shows the file, fstab and resume" "ug driver plan hibernate-swap | grep -q 'mkswapfile --size 2g /swap/hibernate.swap' && ug driver plan hibernate-swap | grep -q 'resume_offset'"
+out="$(ug driver fix hibernate-swap --yes 2>&1)"
+check "a step that fails puts fstab back and turns the swap off" "grep -q ': failed' <<<\"\$out\" && grep -q 'swapoff /swap/hibernate.swap' <<<\"\$out\" && cmp -s '$W/fstab.before' '$R/etc/fstab'"
+
 # The check after a restart: a graphics change after which no desktop came
 # up is undone by itself; one the user keeps stays.
 restart_daemon() {

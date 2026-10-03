@@ -1223,7 +1223,7 @@ fn print_plan(p: &ug_proto::DriverPlan) {
     }
     for (i, s) in p.steps.iter().enumerate() {
         println!("  {}. {} {}", i + 1, s.kind, s.target);
-        if s.kind == "write-file" {
+        if s.kind == "write-file" || s.kind == "swap" {
             for l in s.detail.lines() {
                 println!("       | {l}");
             }

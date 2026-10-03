@@ -26,8 +26,9 @@ what_en = "Hibernation writes memory to swap, and this computer's swap is smalle
 what_fa = "هایبرنیت حافظه را در swap می‌نویسد و swap این کامپیوتر از حدود ۶۰ درصد حافظه‌اش کوچک‌تر است."
 why_en = "Hibernate either refuses or fails half-way, and unsaved work can be lost."
 why_fa = "هایبرنیت یا انجام نمی‌شود یا وسط کار شکست می‌خورد و کار ذخیره‌نشده ممکن است از بین برود."
-how_en = "Use sleep instead, or make a swap file at least as large as the memory and set resume= to it."
-how_fa = "به‌جایش از sleep استفاده کنید، یا یک فایل swap حداقل هم‌اندازه‌ی حافظه بسازید و resume= را رویش تنظیم کنید."
+how_en = "Make a swap file for hibernation as large as the memory (or 60% of it when space is short) and tell the kernel to resume from it. Unix Guardian can do it, on Btrfs in a subvolume of its own so snapshots keep working; undo removes it all. The commands below are the same steps by hand."
+how_fa = "یک فایل swap برای هایبرنیت به اندازه‌ی حافظه (یا اگر جا کم است ۶۰ درصد آن) بسازید و به کرنل بگویید از آن resume کند. یونیکس گاردین می‌تواند این کار را بکند، روی Btrfs در یک subvolume جداگانه تا snapshotها خراب نشوند؛ بازگشت همه‌اش را حذف می‌کند. دستورهای زیر همان مراحل به‌صورت دستی‌اند."
+fix = "hibernate-swap"
 doc_url = "https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate#Hibernation"
 
 [[rule]]

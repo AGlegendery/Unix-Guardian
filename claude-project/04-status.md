@@ -358,3 +358,15 @@ the ping page against the real agent. Known limits:
   boot parameters) after which no logind session of type wayland/x11 (a
   greeter counts) exists 10 minutes after boot is undone by itself
   (`UG_DRIVER_CHECK_GRACE_S` shortens it in tests). driver-e2e 27 checks.
+- ✅ Hibernation swap setup (2026-10-03, asked by the user): fix
+  `hibernate-swap` next to the "not enough swap" finding. `ug-driver/src/swap.rs`
+  plans a swap file of the memory size (60% if space is short, 5 GB must
+  stay free): on Btrfs in an existing `/swap` subvolume or a new nested
+  subvolume `/swap` (so root snapshots keep working), made with `btrfs
+  filesystem mkswapfile`; ext4/XFS with fallocate + mkswap. The executor
+  makes it, adds fstab (pri=-10), swapon, reads the offset (`btrfs
+  inspect-internal map-swapfile -r` / filefrag) and UUID (findmnt), adds
+  `resume=UUID=… resume_offset=…` through the boot-parameter editor,
+  rebuilds the initramfs. Refused (with the step-by-step guide as the
+  commands) under lockdown, with mkinitcpio lacking resume/systemd hooks,
+  without space. Swap "enough" now looks at the largest non-zram area.

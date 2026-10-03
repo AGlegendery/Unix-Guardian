@@ -17,6 +17,7 @@ pub mod inventory;
 pub mod packages;
 pub mod rules;
 pub mod snapshot;
+pub mod swap;
 
 pub use inventory::{Env, Facts, Value};
 use ug_hw::SysRoot;

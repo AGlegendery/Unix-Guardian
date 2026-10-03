@@ -1000,7 +1000,7 @@ pub struct DriverReport {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct DriverStep {
     /// `write-file`, `remove-file`, `run`, `enable-units`, `write-switch`,
-    /// `backup`, `snapshot` or `install`.
+    /// `backup`, `snapshot`, `install` or `swap`.
     pub kind: String,
     /// The file, or the command line.
     pub target: String,

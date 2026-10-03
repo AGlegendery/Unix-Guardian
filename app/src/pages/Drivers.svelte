@@ -137,7 +137,7 @@
               {#each review.plan.steps as s}
                 <li>
                   <div><b>{t().drivers.kinds[s.kind] ?? s.kind}</b> <code dir="ltr">{s.target}</code></div>
-                  {#if s.kind === "write-file"}
+                  {#if s.kind === "write-file" || s.kind === "swap"}
                     <pre dir="ltr">{s.detail}</pre>
                   {:else}
                     <p class="small" dir="ltr">{s.detail}</p>
