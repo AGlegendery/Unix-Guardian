@@ -1,0 +1,45 @@
+# Touchpads and other input. Format: see nvidia.toml.
+
+category = "input"
+
+[[rule]]
+id = "touchpad-i2c-no-driver"
+severity = "critical"
+when = ["input.i2c_hid", "!input.i2c_hid_bound"]
+title_en = "The touchpad has no driver"
+title_fa = "تاچ‌پد درایور ندارد"
+what_en = "The firmware lists an I2C touch device (a touchpad or touchscreen), but no driver took it."
+what_fa = "firmware یک دستگاه لمسی I2C (تاچ‌پد یا صفحه‌ی لمسی) معرفی کرده ولی هیچ درایوری آن را نگرفته است."
+why_en = "The touchpad does not move the pointer at all. Usually the i2c_hid_acpi module was not loaded."
+why_fa = "تاچ‌پد اصلاً نشانگر را حرکت نمی‌دهد. معمولاً ماژول i2c_hid_acpi بارگذاری نشده است."
+how_en = "Load i2c_hid_acpi now and at every start. Unix Guardian can do it with a file of its own; undo removes it."
+how_fa = "ماژول i2c_hid_acpi را همین حالا و در هر بار روشن شدن بارگذاری کنید. یونیکس گاردین این کار را با یک فایل از خودش می‌کند و بازگشت آن را حذف می‌کند."
+fix = "load-i2c-hid"
+
+[[rule]]
+id = "touchpad-as-mouse"
+severity = "advice"
+when = ["machine.laptop", "!input.touchpad", "input.ps2_mouse_only"]
+title_en = "The touchpad works only as a basic mouse"
+title_fa = "تاچ‌پد فقط مثل یک ماوس ساده کار می‌کند"
+what_en = "This laptop's touchpad shows up as a plain PS/2 mouse, not as a touchpad."
+what_fa = "تاچ‌پد این لپ‌تاپ به‌شکل یک ماوس ساده‌ی PS/2 دیده می‌شود، نه تاچ‌پد."
+why_en = "Two-finger scrolling, gestures, tap-to-click and turning it off while typing do not work."
+why_fa = "اسکرول دوانگشتی، ژست‌ها، کلیک با ضربه و خاموش شدن هنگام تایپ کار نمی‌کنند."
+how_en = "Synaptics and Elan touchpads often need the kernel option psmouse.synaptics_intertouch=1 (or i8042.nopnp=1 on some models)."
+how_fa = "تاچ‌پدهای Synaptics و Elan اغلب گزینه‌ی کرنل psmouse.synaptics_intertouch=1 (یا روی بعضی مدل‌ها i8042.nopnp=1) لازم دارند."
+fix = "psmouse-intertouch"
+
+[[rule]]
+id = "touchpad-old-xorg-driver"
+severity = "advice"
+when = ["input.xorg_synaptics", "session.type == 'x11'"]
+title_en = "The old synaptics driver handles the touchpad"
+title_fa = "درایور قدیمی synaptics تاچ‌پد را می‌گرداند"
+what_en = "xserver's synaptics driver is installed and takes the touchpad instead of libinput."
+what_fa = "درایور synaptics مربوط به X نصب است و به‌جای libinput تاچ‌پد را می‌گیرد."
+why_en = "It is no longer maintained: the desktop's touchpad settings and gestures do not apply to it."
+why_fa = "دیگر نگهداری نمی‌شود: تنظیمات تاچ‌پد دسکتاپ و ژست‌ها رویش اعمال نمی‌شوند."
+how_en = "Remove the synaptics driver package and log in again."
+how_fa = "بسته‌ی درایور synaptics را حذف کنید و دوباره وارد شوید."
+fix = "remove-xorg-synaptics"

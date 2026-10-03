@@ -714,10 +714,17 @@ pub async fn tray_show(bus: State<'_, Bus>) -> Res<()> {
 
 /// Reads files only, in this process, so it works with the service down.
 #[tauri::command]
-pub async fn driver_diagnose() -> Res<ug_proto::DriverReport> {
-    tokio::task::spawn_blocking(|| ug_driver::diagnose(&ug_hw::SysRoot::real(), &ug_driver::Env::from_process()))
-        .await
-        .map_err(|e| e.to_string())
+pub async fn driver_diagnose(bus: State<'_, Bus>) -> Res<ug_proto::DriverReport> {
+    let mut env = tokio::task::spawn_blocking(ug_driver::Env::from_process).await.map_err(|e| e.to_string())?;
+    // Most users may not read the kernel log; the service may.
+    if env.kernel_log.is_empty() {
+        if let Ok(conn) = bus.daemon().await {
+            if let Ok(d) = ug_proto::daemon::DriverProxy::new(conn).await {
+                env.kernel_log = d.firmware_log().await.unwrap_or_default();
+            }
+        }
+    }
+    tokio::task::spawn_blocking(move || ug_driver::diagnose(&ug_hw::SysRoot::real(), &env)).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

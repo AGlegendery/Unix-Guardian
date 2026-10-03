@@ -105,7 +105,8 @@
         "sudo update-initramfs -u -k all",
         "systemctl reboot"
       ],
-      "doc_url": ""
+      "doc_url": "",
+      "category": "graphics"
     },
     {
       "id": "nvidia-wayland-old-driver",
@@ -124,7 +125,8 @@
         "sudo apt update",
         "apt policy nvidia-driver"
       ],
-      "doc_url": ""
+      "doc_url": "",
+      "category": "graphics"
     },
     {
       "id": "nvidia-drm-fbdev-off",
@@ -143,6 +145,26 @@
         "echo 'options nvidia-drm modeset=1 fbdev=1' | sudo tee /etc/modprobe.d/unix-guardian-nvidia-drm.conf",
         "sudo update-initramfs -u -k all",
         "systemctl reboot"
+      ],
+      "doc_url": "",
+      "category": "graphics"
+    },
+    {
+      "id": "wifi-blocked-soft",
+      "severity": "critical",
+      "category": "wifi",
+      "title_en": "Wi-Fi is turned off (airplane mode)",
+      "title_fa": "وای‌فای خاموش است (حالت پرواز)",
+      "what_en": "The Wi-Fi card works, but it is switched off in software (rfkill), as airplane mode does.",
+      "what_fa": "کارت وای‌فای سالم است ولی به‌صورت نرم‌افزاری (rfkill) خاموش شده، همان کاری که حالت پرواز می‌کند.",
+      "why_en": "No network can be found or joined until it is switched back on.",
+      "why_fa": "تا دوباره روشن نشود هیچ شبکه‌ای پیدا یا وصل نمی‌شود.",
+      "how_en": "Switch Wi-Fi back on. Unix Guardian can do it, and undo puts the switch back.",
+      "how_fa": "وای‌فای را دوباره روشن کنید. یونیکس گاردین می‌تواند این کار را بکند و با بازگشت، کلید به حالت قبل برمی‌گردد.",
+      "fix_id": "rfkill-unblock-wifi",
+      "fix_auto": true,
+      "commands": [
+        "rfkill unblock wifi"
       ],
       "doc_url": ""
     }

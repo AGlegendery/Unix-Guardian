@@ -23,12 +23,27 @@ use serde::Deserialize;
 pub const SHIPPED: &[(&str, &str)] = &[
     ("nvidia.toml", include_str!("../../../data/driver-rules/nvidia.toml")),
     ("common.toml", include_str!("../../../data/driver-rules/common.toml")),
+    ("wifi.toml", include_str!("../../../data/driver-rules/wifi.toml")),
+    ("bluetooth.toml", include_str!("../../../data/driver-rules/bluetooth.toml")),
+    ("audio.toml", include_str!("../../../data/driver-rules/audio.toml")),
+    ("input.toml", include_str!("../../../data/driver-rules/input.toml")),
+    ("camera.toml", include_str!("../../../data/driver-rules/camera.toml")),
+    ("printing.toml", include_str!("../../../data/driver-rules/printing.toml")),
+    ("sleep.toml", include_str!("../../../data/driver-rules/sleep.toml")),
+    ("firmware.toml", include_str!("../../../data/driver-rules/firmware.toml")),
 ];
+
+/// What a problem is about, for grouping on the page.
+pub const CATEGORIES: &[&str] =
+    &["graphics", "wifi", "bluetooth", "audio", "input", "camera", "printing", "sleep", "firmware"];
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Rule {
     pub id: String,
     pub severity: String,
+    /// One of [`CATEGORIES`]; a file says it once for all its rules.
+    #[serde(default)]
+    pub category: String,
     pub when: Vec<String>,
     pub title_en: String,
     pub title_fa: String,
@@ -46,6 +61,8 @@ pub struct Rule {
 
 #[derive(Deserialize)]
 struct File {
+    #[serde(default)]
+    category: String,
     rule: Vec<Rule>,
 }
 
@@ -53,8 +70,14 @@ struct File {
 pub fn load(files: &[(&str, &str)]) -> Result<Vec<Rule>, String> {
     let mut all = Vec::new();
     for (name, text) in files {
-        let f: File = toml::from_str(text).map_err(|e| format!("{name}: {e}"))?;
-        for r in &f.rule {
+        let mut f: File = toml::from_str(text).map_err(|e| format!("{name}: {e}"))?;
+        for r in &mut f.rule {
+            if r.category.is_empty() {
+                r.category = if f.category.is_empty() { "graphics".into() } else { f.category.clone() };
+            }
+            if !CATEGORIES.contains(&r.category.as_str()) {
+                return Err(format!("{name}: rule {}: unknown category `{}`", r.id, r.category));
+            }
             if !matches!(r.severity.as_str(), "critical" | "important" | "advice") {
                 return Err(format!("{name}: rule {}: severity must be critical, important or advice", r.id));
             }

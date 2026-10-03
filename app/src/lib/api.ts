@@ -184,6 +184,7 @@ export interface DriverFact { key: string; value: string }
 export interface DriverFinding {
   id: string;
   severity: "critical" | "important" | "advice";
+  category: "graphics" | "wifi" | "bluetooth" | "audio" | "input" | "camera" | "printing" | "sleep" | "firmware";
   title_en: string; title_fa: string;
   what_en: string; what_fa: string;
   why_en: string; why_fa: string;

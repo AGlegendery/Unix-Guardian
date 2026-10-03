@@ -3,6 +3,8 @@
 # condition syntax and inventory.rs for the facts), the text in English and
 # Persian, and the fix (crates/ug-driver/src/fixes.rs).
 
+category = "graphics"
+
 [[rule]]
 id = "nvidia-version-mismatch"
 severity = "critical"

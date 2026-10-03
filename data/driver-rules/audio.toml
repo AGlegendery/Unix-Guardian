@@ -1,0 +1,59 @@
+# Sound problems. Format: see nvidia.toml.
+
+category = "audio"
+
+[[rule]]
+id = "audio-sof-firmware-missing"
+severity = "critical"
+when = ["audio.sof", "!audio.sof_firmware"]
+title_en = "No sound: the sound chip's firmware is missing"
+title_fa = "صدا نیست: firmware چیپ صدا نصب نیست"
+what_en = "This laptop's sound goes through Intel's DSP (Sound Open Firmware), and its firmware is not installed."
+what_fa = "صدای این لپ‌تاپ از DSP اینتل (Sound Open Firmware) می‌گذرد و firmware آن نصب نیست."
+why_en = "The speakers and microphone do not work; the sound settings show only \"Dummy output\". This is the most common reason a new laptop has no sound on Linux."
+why_fa = "بلندگو و میکروفون کار نمی‌کنند و تنظیمات صدا فقط «Dummy output» نشان می‌دهد. این رایج‌ترین دلیل بی‌صدا بودن لپ‌تاپ نو روی لینوکس است."
+how_en = "Install the SOF firmware package, then restart."
+how_fa = "بسته‌ی firmware مربوط به SOF را نصب و بعد ری‌استارت کنید."
+fix = "install-sof-firmware"
+
+[[rule]]
+id = "audio-no-cards"
+severity = "critical"
+when = ["audio.pci > 0", "audio.cards == 0", "!audio.sof"]
+title_en = "No sound card was set up"
+title_fa = "هیچ کارت صدایی راه نیفتاد"
+what_en = "There is sound hardware on this computer, but the kernel created no sound card for it."
+what_fa = "روی این کامپیوتر سخت‌افزار صدا هست ولی کرنل هیچ کارت صدایی برایش نساخته است."
+why_en = "Nothing plays or records. Usually a driver or its firmware is missing, or the kernel is too old for the chip."
+why_fa = "هیچ صدایی پخش یا ضبط نمی‌شود. معمولاً درایور یا firmware آن نیست، یا کرنل برای این چیپ قدیمی است."
+how_en = "Install the firmware packages and the newest kernel your distribution offers, then restart."
+how_fa = "بسته‌های firmware و جدیدترین کرنلی که توزیع می‌دهد را نصب و ری‌استارت کنید."
+fix = "install-firmware"
+
+[[rule]]
+id = "audio-no-server"
+severity = "important"
+when = ["audio.cards > 0", "audio.server == 'none'"]
+title_en = "No sound server is running"
+title_fa = "هیچ سرور صدایی اجرا نمی‌شود"
+what_en = "The sound card is there, but neither PipeWire nor PulseAudio is running in your session."
+what_fa = "کارت صدا هست ولی نه PipeWire و نه PulseAudio در نشست شما اجرا نمی‌شود."
+why_en = "Programs find no sound device, so browsers, games and calls are silent."
+why_fa = "برنامه‌ها هیچ دستگاه صدایی پیدا نمی‌کنند، پس مرورگر، بازی و تماس بی‌صدا می‌مانند."
+how_en = "Start PipeWire for your user (and install it if it is missing)."
+how_fa = "PipeWire را برای کاربر خودتان راه بیندازید (و اگر نصب نیست نصبش کنید)."
+fix = "start-pipewire"
+
+[[rule]]
+id = "audio-two-servers"
+severity = "advice"
+when = ["audio.pulseaudio", "audio.pipewire_pulse", "audio.server == 'pulseaudio'"]
+title_en = "PulseAudio is running although PipeWire is installed"
+title_fa = "PulseAudio اجرا می‌شود با اینکه PipeWire نصب است"
+what_en = "Both PulseAudio and PipeWire's PulseAudio replacement are installed, and the old PulseAudio won."
+what_fa = "هم PulseAudio و هم جایگزین PulseAudio در PipeWire نصب‌اند و PulseAudio قدیمی برنده شده است."
+why_en = "Bluetooth headphones, screen sharing with sound and low-latency audio work better with PipeWire; two servers also fight over the card."
+why_fa = "هدفون بلوتوث، اشتراک صفحه با صدا و صدای کم‌تأخیر با PipeWire بهتر کار می‌کنند؛ دو سرور هم سر کارت صدا دعوا می‌کنند."
+how_en = "Turn PulseAudio off for your user and start PipeWire's replacement."
+how_fa = "PulseAudio را برای کاربر خودتان خاموش و جایگزین PipeWire را روشن کنید."
+fix = "switch-to-pipewire"

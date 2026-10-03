@@ -52,7 +52,7 @@ Last updated: 2026-10-03 (shortcut recorder).
 7. ⏳ **Driver Fix** (asked 2026-10-03; the user's single most important
    feature, and **not only for gamers**). Plan, highest impact first, one
    commit per milestone:
-   - **M1 (in progress)** diagnosis beyond the GPU: a `category` on rules
+   - **M1 ✅** (`see git log`) diagnosis beyond the GPU: a `category` on rules
      and findings (graphics, wifi, bluetooth, audio, input, camera,
      printing, sleep, firmware); new facts in `ug-driver` (`hardware.rs`:
      PCI/USB devices without a driver, rfkill, `/proc/asound/cards`, SOF
@@ -87,7 +87,11 @@ need sudo, pushing, P7+).
 
 ## In progress
 
-Driver Fix M1 (see item 7 above). Next candidates (ask or follow `04-status.md` "Next steps"): the
+Driver Fix M2, snapshot layer (see item 7 above). M1 done: 30 new rules
+(`data/driver-rules/{wifi,bluetooth,audio,input,camera,printing,sleep,firmware}.toml`),
+`ug-driver/src/hardware.rs`, live fixes (rfkill, units --now, modules-load.d +
+modprobe), `Daemon1.Driver.FirmwareLog`, category chips in window and TUI.
+On the laptop it found one new real thing: 512 MB swap vs 28 GB RAM (hibernate). Next candidates (ask or follow `04-status.md` "Next steps"): the
 real-desktop checks below, merging `p5-gpu` into `main`, P7 (recording).
 
 ## Done but not tried on the real desktop

@@ -1,0 +1,73 @@
+# Printers and scanners. Format: see nvidia.toml.
+
+category = "printing"
+
+[[rule]]
+id = "print-no-cups"
+severity = "important"
+when = ["print.usb_printer", "!print.cups"]
+title_en = "A printer is connected, but there is no printing system"
+title_fa = "پرینتر وصل است ولی سیستم چاپ نصب نیست"
+what_en = "A USB printer is plugged in, and CUPS (Linux's printing service) is not installed."
+what_fa = "یک پرینتر USB وصل است و CUPS (سرویس چاپ لینوکس) نصب نیست."
+why_en = "Nothing can print without it."
+why_fa = "بدون آن هیچ چیزی چاپ نمی‌شود."
+how_en = "Install CUPS; most printers made since 2015 then work without a driver."
+how_fa = "CUPS را نصب کنید؛ بیشتر پرینترهای ساخت بعد از ۲۰۱۵ بعد از آن بدون درایور کار می‌کنند."
+fix = "install-cups"
+
+[[rule]]
+id = "print-cups-off"
+severity = "important"
+when = ["print.cups", "!print.cups_enabled"]
+title_en = "The printing service is not started"
+title_fa = "سرویس چاپ راه‌اندازی نمی‌شود"
+what_en = "CUPS is installed, but its service is not enabled."
+what_fa = "CUPS نصب است ولی سرویس آن فعال نیست."
+why_en = "Printers do not show up and print jobs never leave."
+why_fa = "پرینترها نشان داده نمی‌شوند و کارهای چاپ هیچ‌وقت ارسال نمی‌شوند."
+how_en = "Enable and start CUPS. Unix Guardian can do it; undo disables it again."
+how_fa = "CUPS را فعال و روشن کنید. یونیکس گاردین می‌تواند این کار را بکند؛ بازگشت دوباره غیرفعالش می‌کند."
+fix = "enable-cups"
+
+[[rule]]
+id = "print-ipp-usb-missing"
+severity = "important"
+when = ["print.ipp_usb_device", "!print.ipp_usb"]
+title_en = "The printer could work without a driver, but ipp-usb is missing"
+title_fa = "پرینتر بدون درایور هم کار می‌کند ولی ipp-usb نصب نیست"
+what_en = "The connected printer speaks IPP over USB (driverless printing and scanning), and the ipp-usb service that makes this work is not installed."
+what_fa = "پرینتر وصل‌شده IPP روی USB را پشتیبانی می‌کند (چاپ و اسکن بدون درایور) ولی سرویس ipp-usb که این را راه می‌اندازد نصب نیست."
+why_en = "Without it the printer needs a vendor driver, and its scanner is often not found at all."
+why_fa = "بدون آن پرینتر درایور سازنده را لازم دارد و اسکنر آن هم اغلب اصلاً پیدا نمی‌شود."
+how_en = "Install ipp-usb (and sane-airscan for the scanner), then plug the printer in again."
+how_fa = "ipp-usb (و sane-airscan برای اسکنر) را نصب کنید و پرینتر را دوباره وصل کنید."
+fix = "install-ipp-usb"
+
+[[rule]]
+id = "print-hp-no-hplip"
+severity = "advice"
+when = ["print.hp", "!print.hplip", "!print.ipp_usb_device"]
+title_en = "HP printer without HP's driver"
+title_fa = "پرینتر HP بدون درایور HP"
+what_en = "An HP printer is connected that does not support driverless printing, and HPLIP (HP's Linux driver) is not installed."
+what_fa = "یک پرینتر HP وصل است که چاپ بدون درایور را پشتیبانی نمی‌کند و HPLIP (درایور لینوکس HP) نصب نیست."
+why_en = "Older HP printers and most HP scanners need it."
+why_fa = "پرینترهای قدیمی‌تر HP و بیشتر اسکنرهای HP آن را لازم دارند."
+how_en = "Install HPLIP, then add the printer with hp-setup or the desktop's printer settings."
+how_fa = "HPLIP را نصب کنید و بعد پرینتر را با hp-setup یا تنظیمات پرینتر دسکتاپ اضافه کنید."
+fix = "install-hplip"
+
+[[rule]]
+id = "print-network-discovery-off"
+severity = "advice"
+when = ["print.cups", "net.avahi", "!net.avahi_enabled"]
+title_en = "Network printers will not be found"
+title_fa = "پرینترهای شبکه پیدا نمی‌شوند"
+what_en = "Avahi, the service that finds printers and scanners on the network, is installed but not enabled."
+what_fa = "Avahi، سرویسی که پرینترها و اسکنرهای شبکه را پیدا می‌کند، نصب است ولی فعال نیست."
+why_en = "Wi-Fi printers and scanners do not appear by themselves; each has to be added by its address."
+why_fa = "پرینترها و اسکنرهای وای‌فای خودشان ظاهر نمی‌شوند و باید هرکدام را با آدرسش اضافه کرد."
+how_en = "Enable and start avahi-daemon. Unix Guardian can do it; undo disables it again."
+how_fa = "avahi-daemon را فعال و روشن کنید. یونیکس گاردین می‌تواند این کار را بکند؛ بازگشت دوباره غیرفعالش می‌کند."
+fix = "enable-avahi"

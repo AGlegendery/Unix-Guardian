@@ -130,6 +130,7 @@
     <section class="card finding {f.severity}">
       <div class="top">
         <span class="sev {f.severity}">{t().drivers.severity[f.severity]}</span>
+        <span class="cat">{t().drivers.categories[f.category] ?? f.category}</span>
         <h2>{tx(f, "title")}</h2>
       </div>
       <dl>
@@ -254,6 +255,7 @@
   .link { color: var(--accent-text); font-size: 0.88rem; align-self: center; }
   .top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .sev, .state { padding: 2px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; background: var(--card-2); color: var(--text-2); }
+  .cat { padding: 2px 10px; border-radius: 999px; font-size: 0.78rem; color: var(--text-2); border: 1px solid var(--card-2); }
   .sev.critical, .state.failed, .state.interrupted { background: color-mix(in oklab, #e5484d 22%, transparent); color: #ff8f93; }
   .sev.important, .state.running, .state.undoing { background: color-mix(in oklab, #f5a524 22%, transparent); color: #ffc46b; }
   .sev.advice { background: color-mix(in oklab, var(--accent) 22%, transparent); color: var(--accent-text); }

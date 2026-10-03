@@ -74,8 +74,17 @@ impl Runner for Recorder {
 enum Undo {
     /// Put `backup` back at `path`, or remove `path` when there was no file.
     Restore { path: String, backup: Option<String> },
-    Disable { units: Vec<String> },
+    Disable {
+        units: Vec<String>,
+        /// Also stop them (they were started with `--now`).
+        #[serde(default)]
+        now: bool,
+    },
     Initramfs { argv: Vec<String> },
+    /// Write `value` back to a sysfs switch.
+    Switch { path: String, value: String },
+    /// Unload a module that was not loaded before.
+    Unload { module: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,7 +183,11 @@ impl Executor {
         if all.iter().any(|r| r.state == "running" || r.state == "undoing") {
             return Err("Another driver change is still running; wait for it to finish.".into());
         }
-        let id = format!("d{}", now_ms());
+        // Two changes in the same millisecond must not share an id.
+        let mut id = format!("d{}", now_ms());
+        while all.iter().any(|r| r.id == id) {
+            id.push('x');
+        }
         all.push(Record {
             id: id.clone(),
             fix_id: fix.fix_id.clone(),
@@ -215,7 +228,7 @@ impl Executor {
                     None => format!("Wrote {path}"),
                 });
             }
-            Step::EnableUnits { units } => {
+            Step::EnableUnits { units, now } => {
                 let off: Vec<String> = units
                     .iter()
                     .filter(|u| crate::inventory::unit_exists(&self.root, u) && !crate::inventory::unit_enabled(&self.root, u))
@@ -225,10 +238,35 @@ impl Executor {
                     self.log(id, format!("Already enabled: {}", units.join(", ")));
                     return Ok(());
                 }
-                self.push_undo(id, Undo::Disable { units: off.clone() });
-                let argv: Vec<String> = ["systemctl", "enable"].iter().map(|s| s.to_string()).chain(off.iter().cloned()).collect();
+                self.push_undo(id, Undo::Disable { units: off.clone(), now: *now });
+                let flags: &[&str] = if *now { &["systemctl", "enable", "--now"] } else { &["systemctl", "enable"] };
+                let argv: Vec<String> = flags.iter().map(|s| s.to_string()).chain(off.iter().cloned()).collect();
                 let out = self.runner.run(&argv)?;
                 self.log(id, format!("Enabled {}{}", off.join(", "), trail(&out)));
+            }
+            Step::SysWrite { path, value } => {
+                let target = self.real(path);
+                let old = std::fs::read_to_string(&target).map_err(|e| format!("reading {path}: {e}"))?.trim().to_string();
+                if old == *value {
+                    self.log(id, format!("{path} is already {value}"));
+                    return Ok(());
+                }
+                self.push_undo(id, Undo::Switch { path: path.clone(), value: old.clone() });
+                std::fs::write(&target, value).map_err(|e| format!("writing {path}: {e}"))?;
+                self.log(id, format!("Set {path} to {value} (was {old})"));
+            }
+            Step::Modprobe { module } => {
+                let loaded = std::fs::read_to_string(self.root.join("proc/modules"))
+                    .unwrap_or_default()
+                    .lines()
+                    .any(|l| l.split_whitespace().next() == Some(module.as_str()));
+                if loaded {
+                    self.log(id, format!("{module} is already loaded"));
+                    return Ok(());
+                }
+                self.push_undo(id, Undo::Unload { module: module.clone() });
+                let out = self.runner.run(&["modprobe".to_string(), module.clone()])?;
+                self.log(id, format!("Loaded {module}{}", trail(&out)));
             }
             Step::Initramfs { argv } => {
                 self.log(id, format!("Running {} (up to a minute)…", argv.join(" ")));
@@ -299,9 +337,16 @@ impl Executor {
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(format!("{path} was not there")),
                     Err(e) => Err(format!("removing {path}: {e}")),
                 },
-                Undo::Disable { units } => {
-                    let argv: Vec<String> = ["systemctl", "disable"].iter().map(|s| s.to_string()).chain(units.iter().cloned()).collect();
+                Undo::Disable { units, now } => {
+                    let flags: &[&str] = if *now { &["systemctl", "disable", "--now"] } else { &["systemctl", "disable"] };
+                    let argv: Vec<String> = flags.iter().map(|s| s.to_string()).chain(units.iter().cloned()).collect();
                     self.runner.run(&argv).map(|_| format!("Disabled {}", units.join(", ")))
+                }
+                Undo::Switch { path, value } => std::fs::write(self.real(path), value)
+                    .map(|_| format!("Set {path} back to {value}"))
+                    .map_err(|e| format!("writing {path}: {e}")),
+                Undo::Unload { module } => {
+                    self.runner.run(&["modprobe".to_string(), "-r".to_string(), module.clone()]).map(|_| format!("Unloaded {module}"))
                 }
                 Undo::Initramfs { argv } => {
                     initramfs = Some(argv.clone());
@@ -360,7 +405,12 @@ fn recovery_text(records: &[Record], _dir: &Path) -> String {
             match u {
                 Undo::Restore { path, backup: Some(b) } => t.push_str(&format!("sudo cp '{b}' '{path}'\n")),
                 Undo::Restore { path, backup: None } => t.push_str(&format!("sudo rm -f '{path}'\n")),
-                Undo::Disable { units } => t.push_str(&format!("sudo systemctl disable {}\n", units.join(" "))),
+                Undo::Disable { units, now } => {
+                    let flag = if *now { " --now" } else { "" };
+                    t.push_str(&format!("sudo systemctl disable{flag} {}\n", units.join(" ")))
+                }
+                Undo::Switch { path, value } => t.push_str(&format!("echo {value} | sudo tee '{path}'\n")),
+                Undo::Unload { module } => t.push_str(&format!("sudo modprobe -r {module}\n")),
                 Undo::Initramfs { argv } => initramfs = Some(argv.join(" ")),
             }
         }
@@ -491,5 +541,37 @@ mod tests {
         assert_eq!(ex.ops()[0].state, "interrupted");
         ex.rollback(None).unwrap();
         assert_eq!(snapshot(&fs), before);
+    }
+
+    #[test]
+    fn live_fixes_flip_switches_start_units_and_load_modules_and_undo_them() {
+        let (fs, state, rec, ex) = machine();
+        fs.write("sys/class/rfkill/rfkill0/type", "wlan\n").write("sys/class/rfkill/rfkill0/soft", "1\n").write("sys/class/rfkill/rfkill0/hard", "0\n");
+        fs.write("usr/lib/systemd/system/cups.socket", "").write("usr/lib/systemd/system/cups.service", "");
+        fs.write("proc/modules", "i915 1 0 - Live 0x0\n");
+        let root = SysRoot::at(fs.root());
+        let facts = crate::inventory::facts(&root, &Default::default());
+        let before = snapshot(&fs);
+        for id in ["rfkill-unblock-wifi", "enable-cups", "load-uvcvideo"] {
+            let fix = auto(id, &root, &facts).unwrap();
+            let op = ex.start(&fix).unwrap();
+            ex.run(&op, &fix);
+            assert_eq!(ex.ops()[0].state, "done", "{id}: {:?}", ex.ops()[0].log);
+        }
+        assert_eq!(std::fs::read_to_string(fs.root().join("sys/class/rfkill/rfkill0/soft")).unwrap(), "0");
+        let ran = rec.ran.lock().unwrap().clone();
+        assert_eq!(ran[0], ["systemctl", "enable", "--now", "cups.socket", "cups.service"]);
+        assert_eq!(ran[1], ["modprobe", "uvcvideo"]);
+        let recovery = std::fs::read_to_string(state.path().join("driver-recovery.txt")).unwrap();
+        assert!(recovery.contains("echo 1 | sudo tee '/sys/class/rfkill/rfkill0/soft'") && recovery.contains("sudo modprobe -r uvcvideo"));
+        for _ in 0..3 {
+            ex.rollback(None).unwrap();
+        }
+        let ran = rec.ran.lock().unwrap().clone();
+        assert_eq!(ran[2], ["modprobe", "-r", "uvcvideo"]);
+        assert_eq!(ran[3], ["systemctl", "disable", "--now", "cups.socket", "cups.service"]);
+        assert_eq!(std::fs::read_to_string(fs.root().join("sys/class/rfkill/rfkill0/soft")).unwrap(), "1");
+        assert_eq!(snapshot(&fs), before, "the modules-load.d file is gone again");
+        assert!(ex.rollback(None).is_err());
     }
 }

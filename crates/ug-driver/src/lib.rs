@@ -1,4 +1,5 @@
-//! The graphics driver troubleshooter (roadmap P8).
+//! The driver troubleshooter (roadmap P8): graphics first, and every other
+//! device a Linux user fights with (`hardware`).
 //!
 //! - [`inventory`] reads the machine into facts, from files only.
 //! - [`rules`] turns facts into findings; the problems are data in
@@ -10,6 +11,7 @@
 
 pub mod apply;
 pub mod fixes;
+pub mod hardware;
 pub mod inventory;
 pub mod rules;
 
@@ -39,6 +41,13 @@ const SHOWN: &[&str] = &[
     "boot.initramfs_tool",
     "vulkan.icds",
     "flatpak.gl_nvidia",
+    "wifi.drivers",
+    "bt.adapters",
+    "audio.cards",
+    "audio.server",
+    "camera.video_devices",
+    "sleep.mem_sleep",
+    "firmware.missing",
     "kernel.cmdline",
 ];
 
@@ -56,6 +65,7 @@ pub fn report(facts: &Facts) -> DriverReport {
                 findings.push(DriverFinding {
                     id: r.id.clone(),
                     severity: r.severity.clone(),
+                    category: r.category.clone(),
                     title_en: r.title_en.clone(),
                     title_fa: r.title_fa.clone(),
                     what_en: r.what_en.clone(),

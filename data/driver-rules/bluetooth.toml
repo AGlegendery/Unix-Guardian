@@ -1,0 +1,59 @@
+# Bluetooth problems. Format: see nvidia.toml.
+
+category = "bluetooth"
+
+[[rule]]
+id = "bt-blocked-soft"
+severity = "important"
+when = ["bt.present", "rfkill.bt_soft", "!rfkill.bt_hard"]
+title_en = "Bluetooth is turned off"
+title_fa = "بلوتوث خاموش است"
+what_en = "The Bluetooth adapter is switched off in software (rfkill)."
+what_fa = "آداپتور بلوتوث به‌صورت نرم‌افزاری (rfkill) خاموش شده است."
+why_en = "Headphones, controllers and mice cannot connect until it is switched on."
+why_fa = "تا روشن نشود هدفون، دسته‌ی بازی و ماوس وصل نمی‌شوند."
+how_en = "Switch Bluetooth back on. Unix Guardian can do it, and undo switches it off again."
+how_fa = "بلوتوث را دوباره روشن کنید. یونیکس گاردین می‌تواند این کار را بکند و با بازگشت، دوباره خاموش می‌شود."
+fix = "rfkill-unblock-bt"
+
+[[rule]]
+id = "bt-service-off"
+severity = "important"
+when = ["bt.present", "bt.bluez", "bt.service_exists", "!bt.service_enabled"]
+title_en = "The Bluetooth service is not started"
+title_fa = "سرویس بلوتوث راه‌اندازی نمی‌شود"
+what_en = "The adapter is there and BlueZ is installed, but the bluetooth service is not enabled."
+what_fa = "آداپتور هست و BlueZ نصب است، ولی سرویس bluetooth فعال نیست."
+why_en = "Without the service the desktop shows no Bluetooth at all, or says no adapter was found."
+why_fa = "بدون این سرویس، دسکتاپ اصلاً بلوتوث نشان نمی‌دهد یا می‌گوید آداپتوری پیدا نشد."
+how_en = "Enable and start bluetooth.service. Unix Guardian can do it; undo disables it again."
+how_fa = "سرویس bluetooth.service را فعال و روشن کنید. یونیکس گاردین می‌تواند این کار را بکند؛ بازگشت دوباره غیرفعالش می‌کند."
+fix = "enable-bluetooth"
+
+[[rule]]
+id = "bt-no-bluez"
+severity = "important"
+when = ["bt.present", "!bt.bluez"]
+title_en = "Bluetooth adapter, but no Bluetooth software"
+title_fa = "آداپتور بلوتوث هست ولی نرم‌افزار بلوتوث نه"
+what_en = "This computer has a Bluetooth adapter, but BlueZ (Linux's Bluetooth service) is not installed."
+what_fa = "این کامپیوتر آداپتور بلوتوث دارد ولی BlueZ (سرویس بلوتوث لینوکس) نصب نیست."
+why_en = "Nothing can pair or connect without it."
+why_fa = "بدون آن هیچ دستگاهی جفت یا وصل نمی‌شود."
+how_en = "Install BlueZ, then enable the bluetooth service."
+how_fa = "BlueZ را نصب و بعد سرویس bluetooth را فعال کنید."
+fix = "install-bluez"
+
+[[rule]]
+id = "bt-adapter-not-ready"
+severity = "important"
+when = ["bt.usb", "bt.adapters == 0", "!rfkill.bt_hard"]
+title_en = "The Bluetooth adapter did not start"
+title_fa = "آداپتور بلوتوث راه نیفتاد"
+what_en = "A Bluetooth adapter is connected, but the system has no Bluetooth controller (hci0) for it."
+what_fa = "یک آداپتور بلوتوث وصل است ولی سیستم هیچ کنترلر بلوتوثی (hci0) برایش ندارد."
+why_en = "Usually its firmware is missing (Intel and Realtek adapters need one), so it never starts."
+why_fa = "معمولاً firmware آن نیست (آداپتورهای Intel و Realtek لازمش دارند)، پس هیچ‌وقت راه نمی‌افتد."
+how_en = "Install the firmware packages and restart."
+how_fa = "بسته‌های firmware را نصب و ری‌استارت کنید."
+fix = "install-firmware"

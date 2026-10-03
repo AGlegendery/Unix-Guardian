@@ -326,7 +326,11 @@ impl App {
             }
             8 => {
                 if self.driver.due() {
-                    let r = ug_driver::diagnose(&ug_hw::SysRoot::real(), &ug_driver::Env::from_process());
+                    let mut env = ug_driver::Env::from_process();
+                    if env.kernel_log.is_empty() {
+                        env.kernel_log = self.bus.firmware_log();
+                    }
+                    let r = ug_driver::diagnose(&ug_hw::SysRoot::real(), &env);
                     self.driver.store(Ok(r));
                 }
                 if self.driver_ops.due() {

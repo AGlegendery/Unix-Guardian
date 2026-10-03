@@ -136,6 +136,12 @@ impl Bus {
         self.rt.block_on(async { ug_proto::daemon::DriverProxy::new(c).await?.apply(fix_id).await }).map_err(|e| msg(e, "service"))
     }
 
+    /// This boot's kernel log lines about firmware, from the service.
+    pub fn firmware_log(&self) -> String {
+        let Ok(c) = self.daemon() else { return String::new() };
+        self.rt.block_on(async { ug_proto::daemon::DriverProxy::new(c).await?.firmware_log().await }).unwrap_or_default()
+    }
+
     pub fn driver_ops(&self) -> Result<Vec<ug_proto::DriverOp>, String> {
         let c = self.daemon()?;
         self.rt.block_on(async { ug_proto::daemon::DriverProxy::new(c).await?.ops().await }).map_err(|e| msg(e, "service"))

@@ -1,0 +1,32 @@
+# Cameras. Format: see nvidia.toml.
+
+category = "camera"
+
+[[rule]]
+id = "camera-uvc-no-driver"
+severity = "important"
+when = ["camera.uvc_unbound"]
+title_en = "The webcam has no driver"
+title_fa = "وب‌کم درایور ندارد"
+what_en = "A USB camera is connected, but the uvcvideo driver did not take it."
+what_fa = "یک دوربین USB وصل است ولی درایور uvcvideo آن را نگرفته است."
+why_en = "Video calls and the camera app find no camera."
+why_fa = "تماس تصویری و برنامه‌ی دوربین هیچ دوربینی پیدا نمی‌کنند."
+how_en = "Load uvcvideo now and at every start. Unix Guardian can do it with a file of its own; undo removes it."
+how_fa = "uvcvideo را همین حالا و در هر بار روشن شدن بارگذاری کنید. یونیکس گاردین این کار را با یک فایل از خودش می‌کند و بازگشت آن را حذف می‌کند."
+fix = "load-uvcvideo"
+
+[[rule]]
+id = "camera-ipu6"
+severity = "important"
+when = ["camera.ipu6", "!camera.libcamera"]
+title_en = "The built-in camera needs Intel's IPU6 support"
+title_fa = "دوربین داخلی پشتیبانی IPU6 اینتل را لازم دارد"
+what_en = "This laptop's camera is behind Intel's image processor (IPU6), not a USB webcam, and the software that drives it (libcamera) is missing."
+what_fa = "دوربین این لپ‌تاپ پشت پردازنده‌ی تصویر اینتل (IPU6) است، نه یک وب‌کم USB، و نرم‌افزاری که آن را می‌گرداند (libcamera) نصب نیست."
+why_en = "Browsers and video-call apps see no camera, or a black picture. Support is new: it needs a recent kernel, libcamera and PipeWire's camera support."
+why_fa = "مرورگر و برنامه‌های تماس تصویری دوربینی نمی‌بینند یا تصویر سیاه نشان می‌دهند. پشتیبانی تازه است: کرنل جدید، libcamera و پشتیبانی دوربین PipeWire لازم است."
+how_en = "Install libcamera and PipeWire's libcamera plug-in on a kernel 6.10 or newer; some models still need the vendor's out-of-tree driver."
+how_fa = "libcamera و افزونه‌ی libcamera در PipeWire را روی کرنل ۶٫۱۰ یا جدیدتر نصب کنید؛ بعضی مدل‌ها هنوز درایور جداگانه‌ی سازنده را لازم دارند."
+fix = "install-libcamera"
+doc_url = "https://wiki.archlinux.org/title/Webcam_setup#Intel_IPU6"

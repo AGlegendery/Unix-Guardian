@@ -3,7 +3,8 @@
 //!
 //! The roadmap's rule for this phase: nothing runs unless the way back
 //! exists and is tested. So only fixes made of *our own files* in
-//! `modprobe.d`, units we enable, and an initramfs rebuild run automatically:
+//! `modprobe.d` and `modules-load.d`, units we enable, a module we load, a
+//! switch in sysfs we flip, and an initramfs rebuild run automatically:
 //! each step records how it is undone, the previous file is backed up, and
 //! `ug driver rollback` undoes it from a text console. Installing or
 //! removing packages needs a filesystem snapshot to roll back to; until that
@@ -18,8 +19,14 @@ use ug_proto::{DriverPlan, DriverStep};
 pub enum Step {
     /// Writes a whole file (absolute path); the old one is backed up first.
     Write { path: String, content: String },
-    /// Enables systemd units; undo disables the ones that were not enabled.
-    EnableUnits { units: Vec<String> },
+    /// Enables systemd units (and starts them with `now`); undo disables
+    /// (and stops) the ones that were not enabled.
+    EnableUnits { units: Vec<String>, now: bool },
+    /// Writes a value to a kernel switch (absolute sysfs path); undo writes
+    /// the old value back.
+    SysWrite { path: String, value: String },
+    /// Loads a kernel module now; undo unloads it if it was not loaded.
+    Modprobe { module: String },
     /// Rebuilds the initramfs so a module setting also holds at boot. Run
     /// again on undo.
     Initramfs { argv: Vec<String> },
@@ -34,11 +41,30 @@ impl Step {
                 detail: content.clone(),
                 undo: "The previous file is put back (or this one removed if there was none).".into(),
             },
-            Step::EnableUnits { units } => DriverStep {
-                kind: "enable-units".into(),
-                target: format!("systemctl enable {}", units.join(" ")),
-                detail: "Starts these services at sleep, wake and hibernate.".into(),
-                undo: format!("systemctl disable {} (only those that were off before)", units.join(" ")),
+            Step::EnableUnits { units, now } => {
+                let flag = if *now { " --now" } else { "" };
+                DriverStep {
+                    kind: "enable-units".into(),
+                    target: format!("systemctl enable{flag} {}", units.join(" ")),
+                    detail: if *now {
+                        "Starts these services now and at every start.".into()
+                    } else {
+                        "Starts these services at sleep, wake and hibernate.".into()
+                    },
+                    undo: format!("systemctl disable{flag} {} (only those that were off before)", units.join(" ")),
+                }
+            }
+            Step::SysWrite { path, value } => DriverStep {
+                kind: "write-switch".into(),
+                target: path.clone(),
+                detail: format!("Writes {value} (takes effect at once)."),
+                undo: "The value it had is written back.".into(),
+            },
+            Step::Modprobe { module } => DriverStep {
+                kind: "run".into(),
+                target: format!("modprobe {module}"),
+                detail: "Loads the driver now, so there is no need to restart.".into(),
+                undo: format!("modprobe -r {module}, if it was not loaded before"),
             },
             Step::Initramfs { argv } => DriverStep {
                 kind: "run".into(),
@@ -59,12 +85,32 @@ pub struct AutoFix {
     pub needs_reboot: bool,
 }
 
-/// Fixes that are files and units only, so they can be undone.
-pub const AUTO: &[&str] = &["nouveau-blacklist", "nvidia-drm-modeset", "nvidia-suspend"];
+/// Fixes that are files, units, modules and switches only, so they can be
+/// undone.
+pub const AUTO: &[&str] = &[
+    "nouveau-blacklist",
+    "nvidia-drm-modeset",
+    "nvidia-suspend",
+    "rfkill-unblock-wifi",
+    "rfkill-unblock-bt",
+    "enable-bluetooth",
+    "enable-cups",
+    "enable-avahi",
+    "load-i2c-hid",
+    "load-uvcvideo",
+];
+
+/// Automatic fixes that change nothing at boot, so no initramfs rebuild and
+/// no restart; they also work on image-based systems (`/etc` and sysfs
+/// stay writable there).
+const LIVE: &[&str] =
+    &["rfkill-unblock-wifi", "rfkill-unblock-bt", "enable-bluetooth", "enable-cups", "enable-avahi", "load-i2c-hid", "load-uvcvideo"];
 
 pub const FILE_NOUVEAU: &str = "/etc/modprobe.d/unix-guardian-blacklist-nouveau.conf";
 pub const FILE_DRM: &str = "/etc/modprobe.d/unix-guardian-nvidia-drm.conf";
 pub const FILE_POWER: &str = "/etc/modprobe.d/unix-guardian-nvidia-power.conf";
+
+const HEADER_LIVE: &str = "# Written by Unix Guardian's driver troubleshooter. Undo with\n# `ug driver rollback` (or delete this file).\n";
 
 const HEADER: &str = "# Written by Unix Guardian's driver troubleshooter. Undo with\n# `ug driver rollback` (or delete this file and rebuild the initramfs).\n";
 
@@ -98,6 +144,27 @@ fn title(fix_id: &str) -> &'static str {
         "install-vulkan" => "Install Vulkan",
         "remove-nomodeset" => "Remove nomodeset",
         "amd-ppfeaturemask" => "Unlock AMD tuning",
+        "rfkill-unblock-wifi" => "Switch Wi-Fi on",
+        "rfkill-unblock-bt" => "Switch Bluetooth on",
+        "enable-bluetooth" => "Start the Bluetooth service",
+        "enable-cups" => "Start the printing service",
+        "enable-avahi" => "Find printers on the network",
+        "load-i2c-hid" => "Load the touchpad driver",
+        "load-uvcvideo" => "Load the webcam driver",
+        "broadcom-wl" => "Install the Broadcom Wi-Fi driver",
+        "install-firmware" => "Install the missing firmware",
+        "install-sof-firmware" => "Install the sound firmware",
+        "start-pipewire" => "Start PipeWire",
+        "switch-to-pipewire" => "Switch from PulseAudio to PipeWire",
+        "install-bluez" => "Install BlueZ",
+        "psmouse-intertouch" => "Turn on the touchpad's full mode",
+        "remove-xorg-synaptics" => "Remove the old touchpad driver",
+        "install-libcamera" => "Install libcamera",
+        "install-cups" => "Install CUPS",
+        "install-ipp-usb" => "Install driverless printing over USB",
+        "install-hplip" => "Install HP's printer driver",
+        "mem-sleep-deep" => "Use deep sleep",
+        "enable-nonfree-firmware" => "Add Debian's firmware packages",
         _ => "",
     }
 }
@@ -110,6 +177,9 @@ pub fn auto(fix_id: &str, root: &SysRoot, facts: &Facts) -> Result<AutoFix, Stri
         } else {
             "Unix Guardian does not run this fix itself (it installs or removes packages, or needs you at boot); its commands are shown to copy.".into()
         });
+    }
+    if LIVE.contains(&fix_id) {
+        return live(fix_id, root);
     }
     if !facts.get("distro.can_change").is_some_and(Value::truthy) {
         return Err(format!(
@@ -139,12 +209,81 @@ pub fn auto(fix_id: &str, root: &SysRoot, facts: &Facts) -> Result<AutoFix, Stri
             }];
             steps.push(Step::EnableUnits {
                 units: ["nvidia-suspend.service", "nvidia-resume.service", "nvidia-hibernate.service"].map(String::from).to_vec(),
+                now: false,
             });
             steps.push(initramfs);
             steps
         }
     };
     Ok(AutoFix { fix_id: fix_id.into(), title: title(fix_id).into(), steps, needs_reboot: true })
+}
+
+pub const FILE_I2C_HID: &str = "/etc/modules-load.d/unix-guardian-i2c-hid.conf";
+pub const FILE_UVC: &str = "/etc/modules-load.d/unix-guardian-uvcvideo.conf";
+
+/// The fixes that take effect at once.
+fn live(fix_id: &str, root: &SysRoot) -> Result<AutoFix, String> {
+    let units = |u: &[&str]| -> Result<Vec<Step>, String> {
+        let missing: Vec<&&str> = u.iter().filter(|u| !crate::inventory::unit_exists(root, u)).collect();
+        if missing.len() == u.len() {
+            return Err(format!("{} is not installed.", u.join(" / ")));
+        }
+        let have = u.iter().filter(|u| crate::inventory::unit_exists(root, u)).map(|u| u.to_string()).collect();
+        Ok(vec![Step::EnableUnits { units: have, now: true }])
+    };
+    let unblock = |kind: &str| -> Result<Vec<Step>, String> {
+        let (_, hard, files) = crate::hardware::rfkill(root, kind);
+        if files.is_empty() {
+            return Err(if hard {
+                "It is switched off by a hardware switch or key, which no program can turn on.".into()
+            } else {
+                "It is not switched off.".into()
+            });
+        }
+        Ok(files.into_iter().map(|path| Step::SysWrite { path, value: "0".into() }).collect())
+    };
+    let load = |module: &str, file: &str| {
+        vec![
+            Step::Write { path: file.into(), content: format!("{HEADER_LIVE}{module}\n") },
+            Step::Modprobe { module: module.into() },
+        ]
+    };
+    let steps = match fix_id {
+        "rfkill-unblock-wifi" => unblock("wlan")?,
+        "rfkill-unblock-bt" => unblock("bluetooth")?,
+        "enable-bluetooth" => units(&["bluetooth.service"])?,
+        "enable-cups" => units(&["cups.socket", "cups.service"])?,
+        "enable-avahi" => units(&["avahi-daemon.socket", "avahi-daemon.service"])?,
+        "load-i2c-hid" => load("i2c_hid_acpi", FILE_I2C_HID),
+        _ => load("uvcvideo", FILE_UVC),
+    };
+    Ok(AutoFix { fix_id: fix_id.into(), title: title(fix_id).into(), steps, needs_reboot: false })
+}
+
+/// The packages that carry the firmware this machine misses: from the
+/// kernel log when it was read, else from what the file checks found.
+fn firmware_packages(facts: &Facts) -> Vec<String> {
+    let mut files: Vec<String> =
+        s(facts, "firmware.missing").split(", ").filter(|f| !f.is_empty()).map(str::to_string).collect();
+    let yes = |k: &str| facts.get(k).is_some_and(Value::truthy);
+    for (k, f) in [("firmware.iwlwifi_missing", "iwlwifi-"), ("firmware.amdgpu_missing", "amdgpu/"), ("firmware.i915_missing", "i915/")] {
+        if yes(k) {
+            files.push(f.into());
+        }
+    }
+    if s(facts, "wifi.drivers").contains("rtw") || s(facts, "wifi.pci").contains(" 10ec:") {
+        files.push("rtw89/".into());
+    }
+    let fam = s(facts, "distro.family");
+    let mut pkgs = crate::hardware::firmware_packages(&files, &fam);
+    if pkgs.is_empty() {
+        pkgs.push(match fam.as_str() {
+            "apt" => "firmware-linux-nonfree".into(),
+            "zypper" => "kernel-firmware-all".into(),
+            _ => "linux-firmware".into(),
+        });
+    }
+    pkgs
 }
 
 /// The plan as the user reviews it.
@@ -271,6 +410,100 @@ pub fn commands(fix_id: &str, facts: &Facts) -> Vec<String> {
             &["sudo dnf install vulkan-loader vulkan-tools mesa-vulkan-drivers"],
             &["sudo zypper install libvulkan1 vulkan-tools"],
         ),
+        "rfkill-unblock-wifi" => vec!["rfkill unblock wifi".into()],
+        "rfkill-unblock-bt" => vec!["rfkill unblock bluetooth".into()],
+        "enable-bluetooth" => vec!["sudo systemctl enable --now bluetooth.service".into()],
+        "enable-cups" => vec!["sudo systemctl enable --now cups.socket cups.service".into()],
+        "enable-avahi" => vec!["sudo systemctl enable --now avahi-daemon.socket avahi-daemon.service".into()],
+        "load-i2c-hid" => vec![format!("echo i2c_hid_acpi | sudo tee {FILE_I2C_HID}"), "sudo modprobe i2c_hid_acpi".into()],
+        "load-uvcvideo" => vec![format!("echo uvcvideo | sudo tee {FILE_UVC}"), "sudo modprobe uvcvideo".into()],
+        "install-firmware" => {
+            let pkgs = firmware_packages(facts);
+            let mut v = match fam.as_str() {
+                "apt" => vec!["sudo apt update".to_string(), format!("sudo apt install {}", pkgs.join(" "))],
+                "pacman" => vec![format!("sudo pacman -S --needed {}", pkgs.join(" "))],
+                "dnf" => vec![format!("sudo dnf install {}", pkgs.join(" "))],
+                "zypper" => vec![format!("sudo zypper install {}", pkgs.join(" "))],
+                _ => vec![],
+            };
+            if !v.is_empty() {
+                v.push("systemctl reboot".into());
+            }
+            v
+        }
+        "install-sof-firmware" => by(
+            &["sudo apt install firmware-sof-signed", "systemctl reboot"],
+            &["sudo pacman -S --needed sof-firmware alsa-ucm-conf", "systemctl reboot"],
+            &["sudo dnf install alsa-sof-firmware", "systemctl reboot"],
+            &["sudo zypper install sof-firmware", "systemctl reboot"],
+        ),
+        "broadcom-wl" => by(
+            &["sudo apt install broadcom-sta-dkms", "systemctl reboot"],
+            &["sudo pacman -S --needed broadcom-wl-dkms", "systemctl reboot"],
+            &["# needs RPM Fusion (nonfree) enabled", "sudo dnf install broadcom-wl", "systemctl reboot"],
+            &["sudo zypper install broadcom-wl", "systemctl reboot"],
+        ),
+        "start-pipewire" => vec!["systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service".into()],
+        "switch-to-pipewire" => vec![
+            "systemctl --user disable --now pulseaudio.service pulseaudio.socket".into(),
+            "systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service".into(),
+        ],
+        "install-bluez" => by(
+            &["sudo apt install bluez", "sudo systemctl enable --now bluetooth.service"],
+            &["sudo pacman -S --needed bluez bluez-utils", "sudo systemctl enable --now bluetooth.service"],
+            &["sudo dnf install bluez", "sudo systemctl enable --now bluetooth.service"],
+            &["sudo zypper install bluez", "sudo systemctl enable --now bluetooth.service"],
+        ),
+        "remove-xorg-synaptics" => by(
+            &["sudo apt remove xserver-xorg-input-synaptics"],
+            &["sudo pacman -R xf86-input-synaptics"],
+            &["sudo dnf remove xorg-x11-drv-synaptics"],
+            &["sudo zypper remove xf86-input-synaptics"],
+        ),
+        "install-libcamera" => by(
+            &["sudo apt install libcamera-tools pipewire-libcamera"],
+            &["sudo pacman -S --needed libcamera pipewire-libcamera"],
+            &["sudo dnf install libcamera pipewire-plugin-libcamera"],
+            &["sudo zypper install libcamera-tools pipewire-libcamera"],
+        ),
+        "install-cups" => by(
+            &["sudo apt install cups ipp-usb", "sudo systemctl enable --now cups.socket"],
+            &["sudo pacman -S --needed cups ipp-usb", "sudo systemctl enable --now cups.socket"],
+            &["sudo dnf install cups ipp-usb", "sudo systemctl enable --now cups.socket"],
+            &["sudo zypper install cups ipp-usb", "sudo systemctl enable --now cups.socket"],
+        ),
+        "install-ipp-usb" => by(
+            &["sudo apt install ipp-usb sane-airscan"],
+            &["sudo pacman -S --needed ipp-usb sane-airscan"],
+            &["sudo dnf install ipp-usb sane-airscan"],
+            &["sudo zypper install ipp-usb sane-airscan"],
+        ),
+        "install-hplip" => by(
+            &["sudo apt install hplip", "hp-setup -i"],
+            &["sudo pacman -S --needed hplip", "hp-setup -i"],
+            &["sudo dnf install hplip", "hp-setup -i"],
+            &["sudo zypper install hplip", "hp-setup -i"],
+        ),
+        "enable-nonfree-firmware" => vec![
+            "# add non-free-firmware after main on each Debian line".into(),
+            "sudoedit /etc/apt/sources.list".into(),
+            "sudo apt update".into(),
+            "sudo apt install firmware-linux-nonfree".into(),
+        ],
+        "mem-sleep-deep" | "psmouse-intertouch" => {
+            let what = if fix_id == "mem-sleep-deep" { "mem_sleep_default=deep" } else { "psmouse.synaptics_intertouch=1" };
+            let regen = match fam.as_str() {
+                "apt" => "sudo update-grub",
+                "dnf" => "sudo grub2-mkconfig -o /boot/grub2/grub.cfg",
+                _ => "sudo grub-mkconfig -o /boot/grub/grub.cfg",
+            };
+            let mut v = Vec::new();
+            if fix_id == "mem-sleep-deep" {
+                v.push("echo deep | sudo tee /sys/power/mem_sleep   # try it once first".to_string());
+            }
+            v.extend([format!("# GRUB: add {what} to GRUB_CMDLINE_LINUX_DEFAULT"), "sudoedit /etc/default/grub".into(), regen.into()]);
+            v
+        }
         "remove-nomodeset" | "amd-ppfeaturemask" => {
             let (what, verb) = if fix_id == "amd-ppfeaturemask" {
                 ("amdgpu.ppfeaturemask=0xffffffff", "add")
@@ -321,7 +554,7 @@ mod tests {
         f.insert("nvidia.lib_major".into(), Value::Num(535.0));
         let Step::Write { content, .. } = &auto("nvidia-drm-modeset", &root, &f).unwrap().steps[0] else { panic!() };
         assert!(!content.contains("fbdev"), "fbdev=1 only exists from 545");
-        for id in AUTO {
+        for id in AUTO.iter().filter(|i| !LIVE.contains(i)) {
             for step in auto(id, &root, &f).unwrap().steps {
                 if let Step::Write { path, .. } = step {
                     assert!(path.starts_with("/etc/modprobe.d/unix-guardian-"), "only files of our own: {path}");
@@ -342,5 +575,27 @@ mod tests {
         assert!(auto("nouveau-blacklist", &root, &immutable).is_err());
         assert!(plan("nouveau-blacklist", &root, &immutable).refused.contains("by hand"));
         assert!(plan("teleport", &root, &f).refused.contains("Unknown fix"));
+    }
+
+    #[test]
+    fn live_fixes_need_no_restart_and_say_when_there_is_nothing_to_do() {
+        let fs = TestFs::new();
+        let f = debian(&fs);
+        let root = SysRoot::at(fs.root());
+        assert!(auto("rfkill-unblock-wifi", &root, &f).unwrap_err().contains("not switched off"));
+        fs.write("sys/class/rfkill/rfkill1/type", "wlan\n").write("sys/class/rfkill/rfkill1/soft", "1\n").write("sys/class/rfkill/rfkill1/hard", "0\n");
+        let p = auto("rfkill-unblock-wifi", &root, &f).unwrap();
+        assert_eq!(p.steps, [Step::SysWrite { path: "/sys/class/rfkill/rfkill1/soft".into(), value: "0".into() }]);
+        assert!(!p.needs_reboot);
+        fs.write("sys/class/rfkill/rfkill1/hard", "1\n").write("sys/class/rfkill/rfkill1/soft", "0\n");
+        assert!(auto("rfkill-unblock-wifi", &root, &f).unwrap_err().contains("hardware switch"));
+        assert!(auto("enable-cups", &root, &f).unwrap_err().contains("not installed"));
+        fs.write("usr/lib/systemd/system/cups.socket", "");
+        assert_eq!(auto("enable-cups", &root, &f).unwrap().steps, [Step::EnableUnits { units: vec!["cups.socket".into()], now: true }]);
+        let Step::Write { path, content } = &auto("load-uvcvideo", &root, &f).unwrap().steps[0] else { panic!() };
+        assert!(path.starts_with("/etc/modules-load.d/unix-guardian-") && content.ends_with("uvcvideo\n"));
+        for id in LIVE {
+            assert!(!title(id).is_empty() && !commands(id, &f).is_empty(), "{id} has a title and commands");
+        }
     }
 }

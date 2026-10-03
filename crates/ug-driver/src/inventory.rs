@@ -41,13 +41,18 @@ impl Value {
 
 pub type Facts = BTreeMap<String, Value>;
 
-/// What the caller knows that files do not: the desktop session and the
-/// user's home (for Flatpak installed per user). The daemon has neither.
+/// What the caller knows that files do not: the desktop session, the
+/// user's home (for Flatpak installed per user) and runtime directory (the
+/// sound server's sockets), and the kernel log if it could read it. The
+/// daemon has only the log.
 #[derive(Debug, Clone, Default)]
 pub struct Env {
     /// `XDG_SESSION_TYPE`: `wayland`, `x11`, `tty` or "".
     pub session_type: String,
     pub home: Option<PathBuf>,
+    pub runtime_dir: Option<PathBuf>,
+    /// This boot's kernel messages; "" when they could not be read.
+    pub kernel_log: String,
 }
 
 impl Env {
@@ -55,6 +60,8 @@ impl Env {
         Env {
             session_type: std::env::var("XDG_SESSION_TYPE").unwrap_or_default(),
             home: std::env::var_os("HOME").map(PathBuf::from),
+            runtime_dir: std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from),
+            kernel_log: crate::hardware::read_kernel_log(),
         }
     }
 }
@@ -444,5 +451,6 @@ pub fn facts(root: &SysRoot, env: &Env) -> Facts {
         Value::Bool(["usr/bin/steam", "usr/games/steam"].iter().any(|p| root.join(p).exists())),
     );
     put("amd.ppfeaturemask", Value::Bool(cmdline.contains("amdgpu.ppfeaturemask=")));
+    crate::hardware::facts(root, env, &modules, &mut f);
     f
 }

@@ -316,3 +316,14 @@ the ping page against the real agent. Known limits:
 5. P2 leftovers: manual "mark as game", close/limit apps, session indexers,
    a real notification check, a test with an actual Steam game.
 6. Then **P3 (system control)**.
+
+- ✅ Driver Fix M1 (2026-10-03): the troubleshooter covers Wi-Fi, Bluetooth,
+  sound, touchpad/input, camera, printing/scanning, sleep/hibernate and
+  firmware, not only graphics. `ug-driver/src/hardware.rs` (files only; the
+  kernel log comes from the caller, or `Daemon1.Driver.FirmwareLog`, which
+  returns only lines about firmware), a `category` on rules and findings,
+  51 rules. Live automatic fixes (no restart, exact undo): rfkill unblock
+  (sysfs write), `systemctl enable --now` bluetooth/cups/avahi, our own
+  `modules-load.d` file + modprobe (i2c_hid_acpi, uvcvideo). Package and
+  boot-parameter fixes are commands until M2–M4. Fixed: two driver changes
+  in the same millisecond shared an id; `ug diagnose | head` panicked.

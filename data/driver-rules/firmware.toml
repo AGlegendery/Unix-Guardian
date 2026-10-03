@@ -1,0 +1,73 @@
+# Missing firmware. Format: see nvidia.toml.
+
+category = "firmware"
+
+[[rule]]
+id = "firmware-debian-nonfree-off"
+severity = "critical"
+when = ["distro.id == 'debian'", "!apt.nonfree_firmware"]
+title_en = "Debian's firmware packages are not available"
+title_fa = "بسته‌های firmware دبیان در دسترس نیستند"
+what_en = "Debian keeps most device firmware in the non-free-firmware component, and it is not in the package sources."
+what_fa = "دبیان بیشتر firmware دستگاه‌ها را در بخش non-free-firmware نگه می‌دارد و این بخش در منابع بسته‌ها نیست."
+why_en = "Wi-Fi, Bluetooth, sound and AMD or Intel graphics firmware cannot be installed until it is added."
+why_fa = "تا اضافه نشود، firmware وای‌فای، بلوتوث، صدا و گرافیک AMD یا Intel نصب نمی‌شود."
+how_en = "Add non-free-firmware to each Debian line in the package sources, then update the package lists."
+how_fa = "non-free-firmware را به هر خط دبیان در منابع بسته‌ها اضافه کنید و بعد فهرست بسته‌ها را به‌روز کنید."
+fix = "enable-nonfree-firmware"
+
+[[rule]]
+id = "firmware-missing-from-log"
+severity = "important"
+when = ["firmware.missing_count > 0"]
+title_en = "Devices asked for firmware that is not installed"
+title_fa = "دستگاه‌ها firmware خواسته‌اند که نصب نیست"
+what_en = "During this start the kernel looked for firmware files and did not find them."
+what_fa = "در همین بار روشن شدن، کرنل دنبال فایل‌های firmware گشته و پیدایشان نکرده است."
+why_en = "The device that asked works badly or not at all: Wi-Fi that drops, no Bluetooth, no sound, or graphics without power saving."
+why_fa = "دستگاهی که آن را خواسته بد کار می‌کند یا اصلاً کار نمی‌کند: وای‌فایی که قطع می‌شود، بلوتوث نیست، صدا نیست یا گرافیک بدون صرفه‌جویی انرژی."
+how_en = "Install the firmware packages that carry these files, then restart."
+how_fa = "بسته‌های firmware که این فایل‌ها را دارند نصب کنید و بعد ری‌استارت کنید."
+fix = "install-firmware"
+
+[[rule]]
+id = "firmware-iwlwifi-missing"
+severity = "critical"
+when = ["firmware.iwlwifi_missing"]
+title_en = "Intel Wi-Fi firmware is missing"
+title_fa = "firmware وای‌فای اینتل نصب نیست"
+what_en = "The Intel Wi-Fi driver is loaded, but none of its firmware files are installed."
+what_fa = "درایور وای‌فای اینتل بارگذاری شده ولی هیچ‌کدام از فایل‌های firmware آن نصب نیست."
+why_en = "There is no Wi-Fi (and on most Intel cards no Bluetooth either)."
+why_fa = "وای‌فای نیست (و روی بیشتر کارت‌های اینتل بلوتوث هم نیست)."
+how_en = "Install the Intel Wi-Fi firmware package (on another connection), then restart."
+how_fa = "بسته‌ی firmware وای‌فای اینتل را (با یک اتصال دیگر) نصب و بعد ری‌استارت کنید."
+fix = "install-firmware"
+
+[[rule]]
+id = "firmware-amdgpu-missing"
+severity = "critical"
+when = ["firmware.amdgpu_missing"]
+title_en = "AMD graphics firmware is missing"
+title_fa = "firmware گرافیک AMD نصب نیست"
+what_en = "The amdgpu driver is loaded, but its firmware folder is missing."
+what_fa = "درایور amdgpu بارگذاری شده ولی پوشه‌ی firmware آن نیست."
+why_en = "The screen falls back to a slow basic mode, with no acceleration and often a low resolution."
+why_fa = "صفحه به یک حالت پایه‌ی کند برمی‌گردد، بدون شتاب‌دهی و اغلب با رزولوشن پایین."
+how_en = "Install the AMD graphics firmware package, then restart."
+how_fa = "بسته‌ی firmware گرافیک AMD را نصب و بعد ری‌استارت کنید."
+fix = "install-firmware"
+
+[[rule]]
+id = "firmware-i915-missing"
+severity = "advice"
+when = ["firmware.i915_missing"]
+title_en = "Intel graphics firmware is missing"
+title_fa = "firmware گرافیک اینتل نصب نیست"
+what_en = "The Intel graphics driver is loaded, but its firmware (GuC, HuC, DMC) is not installed."
+what_fa = "درایور گرافیک اینتل بارگذاری شده ولی firmware آن (GuC، HuC، DMC) نصب نیست."
+why_en = "The screen works, but power saving, hardware video encoding and some newer chips need it."
+why_fa = "صفحه کار می‌کند ولی صرفه‌جویی انرژی، انکود سخت‌افزاری ویدیو و بعضی چیپ‌های جدیدتر آن را لازم دارند."
+how_en = "Install the firmware package, then restart."
+how_fa = "بسته‌ی firmware را نصب و بعد ری‌استارت کنید."
+fix = "install-firmware"

@@ -40,6 +40,7 @@ cp -r "$R/etc" "$W/etc.before"
 trap 'kill $daemon 2>/dev/null; rm -rf "$W"' EXIT
 until_ 20 "ug driver history >/dev/null 2>&1" || { echo "FAIL  daemon did not start"; cat "$W/daemon.log"; exit 1; }
 
+check "ug diagnose | head ends quietly" "'$B/ug' diagnose 2>'$W/pipe.err' | head -1 >/dev/null; ! grep -q panicked '$W/pipe.err'"
 check "ug diagnose works without the service and as JSON" "'$B/ug' diagnose --json | python3 -c 'import json,sys; r=json.load(sys.stdin); assert \"facts\" in r'"
 check "the plan shows the file, the units and the rebuild before anything runs" \
   "ug driver plan nvidia-suspend | grep -q '| options nvidia NVreg_PreserveVideoMemoryAllocations=1' && ug driver plan nvidia-suspend | grep -q 'update-initramfs -u -k all' && [ ! -e '$R/etc/modprobe.d/unix-guardian-nvidia-power.conf' ]"
@@ -56,6 +57,19 @@ until_ 20 "ug driver history >/dev/null 2>&1"
 check "the change is remembered after a restart" "ug driver history | grep -q 'done  Keep video memory across sleep'"
 check "rollback undoes it to the byte" "ug driver rollback | grep -q undone && diff -r '$W/etc.before' '$R/etc' >/dev/null"
 check "and there is nothing left to undo" "! ug driver rollback >/dev/null 2>&1"
+
+# Beyond graphics: Wi-Fi switched off and printing not started are fixed at
+# once (no restart), and undone.
+mk sys/class/rfkill/rfkill0/type 'wlan\n'
+mk sys/class/rfkill/rfkill0/soft '1\n'
+mk sys/class/rfkill/rfkill0/hard '0\n'
+mk usr/lib/systemd/system/cups.socket
+mk usr/lib/systemd/system/cups.service
+check "a Wi-Fi switch is flipped without a restart" "ug driver fix rfkill-unblock-wifi --yes | grep -q ': done' && [ \"\$(cat '$R/sys/class/rfkill/rfkill0/soft')\" = 0 ]"
+out="$(ug driver fix enable-cups --yes 2>&1)"
+check "the printing service is enabled and started" "grep -q 'Enabled cups.socket, cups.service' <<<\"\$out\" && grep -q 'recorded, not run' <<<\"\$out\""
+check "both are undone, newest first" "ug driver rollback | grep -q undone && ug driver rollback | grep -q undone && [ \"\$(cat '$R/sys/class/rfkill/rfkill0/soft')\" = 1 ]"
+check "the service hands out only firmware lines of the kernel log" "out=\$(busctl --user call org.unixguardian.Daemon1 /org/unixguardian/Daemon1 org.unixguardian.Daemon1.Driver FirmwareLog); [[ \"\$out\" == s* ]]"
 
 if [ "$fails" -gt 0 ]; then echo "--- daemon log"; cat "$W/daemon.log"; fi
 echo; [ "$fails" -eq 0 ] && echo "driver-e2e: OK" || { echo "driver-e2e: $fails failed"; exit 1; }

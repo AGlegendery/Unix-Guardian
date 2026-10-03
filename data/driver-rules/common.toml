@@ -1,5 +1,7 @@
 # Problems that are not NVIDIA's alone. Format: see nvidia.toml.
 
+category = "graphics"
+
 [[rule]]
 id = "kernel-nomodeset"
 severity = "critical"

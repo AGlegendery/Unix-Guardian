@@ -1736,6 +1736,22 @@ fn activate_shortcut(app: &mut App, i: usize) {
     app.shortcuts.invalidate();
 }
 
+/// A finding's category as a short label.
+fn category(c: &str) -> &str {
+    match c {
+        "graphics" => "Graphics",
+        "wifi" => "Wi-Fi",
+        "bluetooth" => "Bluetooth",
+        "audio" => "Sound",
+        "input" => "Input",
+        "camera" => "Camera",
+        "printing" => "Printing",
+        "sleep" => "Sleep",
+        "firmware" => "Firmware",
+        other => other,
+    }
+}
+
 /// The driver check: findings as rows, the selected one explained below,
 /// and the review of its fix when asked for.
 fn driver_page(app: &mut App, f: &mut Frame, r: Rect) {
@@ -1746,12 +1762,12 @@ fn driver_page(app: &mut App, f: &mut Frame, r: Rect) {
     };
     let line = |y: u16| Rect { x: r.x, y, width: r.width, height: 1 };
     f.render_widget(
-        Paragraph::new(Span::styled(format!("Graphics driver check — {}. Reads files only; nothing changes until you review a fix.", rep.distro), t.faint())),
+        Paragraph::new(Span::styled(format!("Hardware and driver check — {}. Reads files only; nothing changes until you review a fix.", rep.distro), t.faint())),
         line(r.y),
     );
     if rep.findings.is_empty() {
         app.rows = 0;
-        f.render_widget(Paragraph::new(Span::styled("No problems found. The graphics drivers are set up as they should be.", t.accent())), line(r.y + 2));
+        f.render_widget(Paragraph::new(Span::styled("No problems found. The drivers are set up as they should be.", t.accent())), line(r.y + 2));
         return;
     }
     app.rows = rep.findings.len();
@@ -1763,7 +1779,7 @@ fn driver_page(app: &mut App, f: &mut Frame, r: Rect) {
             _ => ("ADVICE   ", t.muted()),
         };
         let auto = if fd.fix_auto { "  · fixable here" } else { "" };
-        row(app, f, line(y), i, Line::from(vec![Span::styled(format!(" {label} "), style), Span::styled(fd.title_en.clone(), t.text()), Span::styled(auto, t.faint())]));
+        row(app, f, line(y), i, Line::from(vec![Span::styled(format!(" {label} "), style), Span::styled(format!("{:<10}", category(&fd.category)), t.muted()), Span::styled(fd.title_en.clone(), t.text()), Span::styled(auto, t.faint())]));
         y += 1;
     }
     y += 1;

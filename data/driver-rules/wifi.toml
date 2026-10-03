@@ -1,0 +1,72 @@
+# Wi-Fi problems. Format: see nvidia.toml.
+
+category = "wifi"
+
+[[rule]]
+id = "wifi-blocked-soft"
+severity = "critical"
+when = ["wifi.present", "rfkill.wifi_soft", "!rfkill.wifi_hard"]
+title_en = "Wi-Fi is turned off (airplane mode)"
+title_fa = "وای‌فای خاموش است (حالت پرواز)"
+what_en = "The Wi-Fi card works, but it is switched off in software (rfkill), as airplane mode does."
+what_fa = "کارت وای‌فای سالم است ولی به‌صورت نرم‌افزاری (rfkill) خاموش شده، همان کاری که حالت پرواز می‌کند."
+why_en = "No network can be found or joined until it is switched back on. It often stays off after a key press or a sleep."
+why_fa = "تا دوباره روشن نشود هیچ شبکه‌ای پیدا یا وصل نمی‌شود. اغلب بعد از زدن یک کلید یا بعد از sleep خاموش می‌ماند."
+how_en = "Switch Wi-Fi back on. Unix Guardian can do it, and undo puts the switch back."
+how_fa = "وای‌فای را دوباره روشن کنید. یونیکس گاردین می‌تواند این کار را بکند و با بازگشت، کلید به حالت قبل برمی‌گردد."
+fix = "rfkill-unblock-wifi"
+
+[[rule]]
+id = "wifi-blocked-hard"
+severity = "critical"
+when = ["wifi.present", "rfkill.wifi_hard"]
+title_en = "Wi-Fi is switched off by a hardware switch or key"
+title_fa = "وای‌فای با کلید سخت‌افزاری خاموش شده"
+what_en = "The computer reports Wi-Fi blocked in hardware: a switch on the side, an Fn key, or a setting in the firmware (BIOS)."
+what_fa = "کامپیوتر می‌گوید وای‌فای در سطح سخت‌افزار مسدود است: یک کلید کنار لپ‌تاپ، یک کلید Fn، یا تنظیمی در بایوس."
+why_en = "No program can turn it on; only the switch can."
+why_fa = "هیچ برنامه‌ای نمی‌تواند روشنش کند؛ فقط همان کلید."
+how_en = "Look for a wireless switch or the Fn key with an antenna or plane icon, and check the BIOS for a wireless setting."
+how_fa = "دنبال کلید بی‌سیم یا کلید Fn با آیکون آنتن یا هواپیما بگردید و در بایوس هم تنظیم بی‌سیم را ببینید."
+
+[[rule]]
+id = "wifi-broadcom-no-driver"
+severity = "critical"
+when = ["wifi.broadcom_unbound"]
+title_en = "Broadcom Wi-Fi card without a driver"
+title_fa = "کارت وای‌فای Broadcom بدون درایور"
+what_en = "This computer has a Broadcom Wi-Fi card and no driver has taken it."
+what_fa = "این کامپیوتر کارت وای‌فای Broadcom دارد و هیچ درایوری آن را نگرفته است."
+why_en = "Most Broadcom cards need a driver that distributions do not install by default (broadcom-wl, or b43 with its firmware). Without it there is no Wi-Fi at all."
+why_fa = "بیشتر کارت‌های Broadcom درایوری لازم دارند که توزیع‌ها به‌طور پیش‌فرض نصب نمی‌کنند (broadcom-wl، یا b43 با firmware خودش). بدون آن اصلاً وای‌فای ندارید."
+how_en = "Install your distribution's Broadcom driver (needs a wired connection or a USB phone tether once), then restart."
+how_fa = "درایور Broadcom توزیع خودتان را نصب کنید (یک بار اینترنت با کابل یا اشتراک‌گذاری USB گوشی لازم است) و بعد ری‌استارت کنید."
+fix = "broadcom-wl"
+
+[[rule]]
+id = "wifi-no-driver"
+severity = "critical"
+when = ["wifi.unbound != ''", "!wifi.broadcom_unbound"]
+title_en = "Wi-Fi card without a driver"
+title_fa = "کارت وای‌فای بدون درایور"
+what_en = "There is a Wi-Fi card on this computer that no driver has taken."
+what_fa = "یک کارت وای‌فای روی این کامپیوتر هست که هیچ درایوری آن را نگرفته است."
+why_en = "There is no Wi-Fi until a driver takes it. Usually the card is newer than the kernel, or its firmware is missing."
+why_fa = "تا درایوری آن را نگیرد وای‌فای ندارید. معمولاً کارت از کرنل جدیدتر است یا firmware آن نیست."
+how_en = "Install the firmware packages and update the kernel to the newest your distribution offers; then restart."
+how_fa = "بسته‌های firmware را نصب کنید و کرنل را به جدیدترین نسخه‌ای که توزیع می‌دهد آپدیت کنید؛ بعد ری‌استارت کنید."
+fix = "install-firmware"
+
+[[rule]]
+id = "wifi-driver-no-interface"
+severity = "critical"
+when = ["wifi.bound_no_interface", "!rfkill.wifi_hard"]
+title_en = "The Wi-Fi driver loaded, but there is no Wi-Fi"
+title_fa = "درایور وای‌فای بارگذاری شده ولی وای‌فای نیست"
+what_en = "A driver took the Wi-Fi card, but no wireless network interface appeared."
+what_fa = "درایوری کارت وای‌فای را گرفته ولی هیچ رابط شبکه‌ی بی‌سیمی ساخته نشده است."
+why_en = "This is what a missing firmware file looks like: the driver starts, cannot load the card's firmware, and gives up."
+why_fa = "این همان شکل نبودن فایل firmware است: درایور شروع می‌کند، نمی‌تواند firmware کارت را بارگذاری کند و کنار می‌کشد."
+how_en = "Install the firmware packages, then restart."
+how_fa = "بسته‌های firmware را نصب کنید و بعد ری‌استارت کنید."
+fix = "install-firmware"

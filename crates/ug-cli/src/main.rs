@@ -539,7 +539,7 @@ async fn run() -> Result<()> {
         return default_gpu(gpu.as_deref(), cli.json);
     }
     if let Command::Diagnose = cli.command {
-        return diagnose(cli.json);
+        return diagnose(cli.json, cli.session).await;
     }
 
     // The agent always lives on the session bus, so game and playtime commands
@@ -1128,13 +1128,36 @@ async fn settings(notifications: Option<String>, scan: Option<u32>, close: Optio
     Ok(())
 }
 
-fn diagnose(json: bool) -> Result<()> {
-    let r = ug_driver::diagnose(&ug_hw::SysRoot::real(), &ug_driver::Env::from_process());
-    if json {
-        println!("{}", serde_json::to_string_pretty(&r)?);
-        return Ok(());
+async fn diagnose(json: bool, session: bool) -> Result<()> {
+    let mut env = ug_driver::Env::from_process();
+    if env.kernel_log.is_empty() {
+        // Most users may not read the kernel log; the service may.
+        let conn = if session { zbus::Connection::session().await } else { zbus::Connection::system().await };
+        if let Ok(conn) = conn {
+            if let Ok(d) = ug_proto::daemon::DriverProxy::new(&conn).await {
+                env.kernel_log = d.firmware_log().await.unwrap_or_default();
+            }
+        }
     }
-    println!("Graphics driver check — {}", r.distro);
+    let r = ug_driver::diagnose(&ug_hw::SysRoot::real(), &env);
+    let text = if json { serde_json::to_string_pretty(&r)? + "\n" } else { diagnosis_text(&r) };
+    // `ug diagnose | head` closes the pipe early: a clean end, not an error.
+    use std::io::Write;
+    match std::io::stdout().write_all(text.as_bytes()) {
+        Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => Err(e.into()),
+        _ => Ok(()),
+    }
+}
+
+/// The report as text, for a terminal.
+fn diagnosis_text(r: &ug_proto::DriverReport) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    macro_rules! println {
+        () => { out.push('\n') };
+        ($($a:tt)*) => { let _ = writeln!(out, $($a)*); };
+    }
+    println!("Hardware and driver check — {}", r.distro);
     for f in &r.facts {
         if !f.value.is_empty() && f.key != "kernel.cmdline" {
             println!("  {:<30} {}", f.key, f.value);
@@ -1143,7 +1166,7 @@ fn diagnose(json: bool) -> Result<()> {
     println!();
     if r.findings.is_empty() {
         println!("No problems found.");
-        return Ok(());
+        return out;
     }
     for f in &r.findings {
         let mark = match f.severity.as_str() {
@@ -1151,7 +1174,7 @@ fn diagnose(json: bool) -> Result<()> {
             "important" => "IMPORTANT",
             _ => "ADVICE   ",
         };
-        println!("{mark} {}", f.title_en);
+        println!("{mark} {} ({})", f.title_en, f.category);
         println!("          {}", f.what_en);
         println!("          Why: {}", f.why_en);
         println!("          Fix: {}", f.how_en);
@@ -1169,7 +1192,7 @@ fn diagnose(json: bool) -> Result<()> {
         }
         println!();
     }
-    Ok(())
+    out
 }
 
 fn print_plan(p: &ug_proto::DriverPlan) {

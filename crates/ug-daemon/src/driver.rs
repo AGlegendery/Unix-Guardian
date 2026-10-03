@@ -54,6 +54,10 @@ impl DriverIface {
         self.exec.ops()
     }
 
+    async fn firmware_log(&self) -> String {
+        tokio::task::spawn_blocking(ug_driver::hardware::read_kernel_log).await.unwrap_or_default()
+    }
+
     /// An empty id undoes the newest change still in place.
     async fn rollback(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, op_id: &str) -> zbus::fdo::Result<()> {
         if let Some(r) = &self.refused {

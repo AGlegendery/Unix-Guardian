@@ -961,6 +961,9 @@ pub struct DriverFinding {
     pub id: String,
     /// `critical`, `important` or `advice`.
     pub severity: String,
+    /// `graphics`, `wifi`, `bluetooth`, `audio`, `input`, `camera`,
+    /// `printing`, `sleep` or `firmware`.
+    pub category: String,
     pub title_en: String,
     pub title_fa: String,
     /// What this means.

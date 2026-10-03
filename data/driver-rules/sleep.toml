@@ -1,0 +1,44 @@
+# Sleep and hibernation. Format: see nvidia.toml.
+
+category = "sleep"
+
+[[rule]]
+id = "sleep-s2idle-with-deep"
+severity = "advice"
+when = ["machine.laptop", "sleep.mem_sleep == 's2idle'", "sleep.deep_available"]
+title_en = "The laptop sleeps lightly and drains its battery"
+title_fa = "لپ‌تاپ سبک می‌خوابد و باتری را خالی می‌کند"
+what_en = "Sleep uses s2idle (a light sleep) although this laptop also offers deep sleep (S3)."
+what_fa = "حالت sleep از s2idle (خواب سبک) استفاده می‌کند در حالی که این لپ‌تاپ خواب عمیق (S3) را هم دارد."
+why_en = "In s2idle many laptops lose 1–3% of battery an hour and can wake warm in a bag. Deep sleep loses far less. On some models deep sleep does not wake properly, so it has to be tried."
+why_fa = "در s2idle خیلی از لپ‌تاپ‌ها ساعتی ۱ تا ۳ درصد باتری از دست می‌دهند و ممکن است داخل کیف داغ شوند. خواب عمیق خیلی کمتر مصرف می‌کند. روی بعضی مدل‌ها خواب عمیق درست بیدار نمی‌شود، پس باید امتحانش کرد."
+how_en = "Try it once now: echo deep | sudo tee /sys/power/mem_sleep, then sleep and wake the laptop. If it wakes fine, make it stay with the kernel option mem_sleep_default=deep."
+how_fa = "یک بار همین حالا امتحان کنید: echo deep | sudo tee /sys/power/mem_sleep، بعد لپ‌تاپ را بخوابانید و بیدار کنید. اگر درست بیدار شد، با گزینه‌ی کرنل mem_sleep_default=deep دائمی‌اش کنید."
+fix = "mem-sleep-deep"
+
+[[rule]]
+id = "hibernate-swap-too-small"
+severity = "advice"
+when = ["hibernate.supported", "!hibernate.swap_enough", "hibernate.mem_mb > 0"]
+title_en = "Hibernation will fail: not enough swap"
+title_fa = "هایبرنیت شکست می‌خورد: swap کافی نیست"
+what_en = "Hibernation writes memory to swap, and this computer's swap is smaller than about 60% of its memory."
+what_fa = "هایبرنیت حافظه را در swap می‌نویسد و swap این کامپیوتر از حدود ۶۰ درصد حافظه‌اش کوچک‌تر است."
+why_en = "Hibernate either refuses or fails half-way, and unsaved work can be lost."
+why_fa = "هایبرنیت یا انجام نمی‌شود یا وسط کار شکست می‌خورد و کار ذخیره‌نشده ممکن است از بین برود."
+how_en = "Use sleep instead, or make a swap file at least as large as the memory and set resume= to it."
+how_fa = "به‌جایش از sleep استفاده کنید، یا یک فایل swap حداقل هم‌اندازه‌ی حافظه بسازید و resume= را رویش تنظیم کنید."
+doc_url = "https://wiki.archlinux.org/title/Power_management/Suspend_and_hibernate#Hibernation"
+
+[[rule]]
+id = "hibernate-lockdown"
+severity = "advice"
+when = ["kernel.lockdown != ''", "kernel.lockdown != 'none'"]
+title_en = "Hibernation is turned off by kernel lockdown"
+title_fa = "هایبرنیت به‌خاطر lockdown کرنل خاموش است"
+what_en = "The kernel runs in lockdown mode (usually because Secure Boot is on), which disables hibernation."
+what_fa = "کرنل در حالت lockdown اجرا می‌شود (معمولاً چون Secure Boot روشن است) و این حالت هایبرنیت را خاموش می‌کند."
+why_en = "The hibernate option is missing or does nothing. This is a deliberate security choice, not a fault."
+why_fa = "گزینه‌ی هایبرنیت نیست یا کاری نمی‌کند. این یک انتخاب امنیتی عمدی است، نه خرابی."
+how_en = "Use sleep. Hibernation needs Secure Boot off, or a kernel built to allow signed hibernation images."
+how_fa = "از sleep استفاده کنید. هایبرنیت یا خاموش بودن Secure Boot را لازم دارد یا کرنلی که اجازه‌ی تصویر هایبرنیت امضاشده را بدهد."
