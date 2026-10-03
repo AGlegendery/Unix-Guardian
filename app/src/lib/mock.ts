@@ -15,6 +15,7 @@ const watches: PowerWatch[] = [];
 let t = 0;
 let fpsSetUp = false;
 let fanMode = 1;
+let trayVisible = true;
 let gpuDefault: GpuDefault = { chosen: "0000:00:02.0", active: "0000:00:02.0", pending: false };
 let ppdProfile = "balanced";
 const fanCurves: Record<string, [number, number][]> = {};
@@ -326,6 +327,10 @@ export const mockApi = {
   powerProfile: async () => ppdProfile,
   setPowerProfile: async (p: string) => {
     ppdProfile = p;
+  },
+  trayVisible: async () => trayVisible,
+  trayShow: async () => {
+    trayVisible = true;
   },
   openTerminal: async () => {
     throw "The preview cannot open a terminal. In the app this opens ug tui.";

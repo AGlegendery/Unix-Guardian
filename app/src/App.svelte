@@ -4,7 +4,7 @@
   import Mark from "./lib/ui/Mark.svelte";
   import {
     Activity, Bug, ChevronsLeft, ChevronsRight, Clock, Gamepad2, Layers, LayoutDashboard, Power,
-    RefreshCw, Settings, SquareTerminal, Video, Wifi, Wrench,
+    Eye, RefreshCw, Settings, SquareTerminal, Video, Wifi, Wrench,
   } from "@lucide/svelte";
   import type { Component } from "svelte";
   import { api, errorText, type Overview } from "./lib/api";
@@ -68,6 +68,20 @@
     const loaded = api.overview().then((o) => (overview = o)).catch((e) => (loadError = errorText(e)));
     Promise.all([drawn, loaded]).then(() => (splash = false));
   });
+
+  // After "Quit tray icon" the window is the place to bring it back. Read
+  // when the window opens or comes back into view; no polling.
+  let trayHidden = $state(false);
+  $effect(() => {
+    const check = () => api.trayVisible().then((v) => (trayHidden = v === false)).catch(() => {});
+    const onVis = () => { if (!document.hidden) check(); };
+    check();
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  });
+  function showTray() {
+    api.trayShow().then(() => (trayHidden = false)).catch((e) => (loadError = errorText(e)));
+  }
 </script>
 
 {#if splash}
@@ -121,6 +135,16 @@
       >
         <SquareTerminal size={14} aria-hidden="true" />{#if !collapsed}{" "}{t().terminal}{/if}
       </button>
+      {#if trayHidden}
+        <button
+          class="lang"
+          onclick={showTray}
+          title={collapsed ? t().showTray : undefined}
+          aria-label={collapsed ? t().showTray : undefined}
+        >
+          <Eye size={14} aria-hidden="true" />{#if !collapsed}{" "}{t().showTray}{/if}
+        </button>
+      {/if}
       <button class="lang" onclick={() => setLocale(locale.current === "fa" ? "en" : "fa")}>
         {#if collapsed}{locale.current === "fa" ? "EN" : "فا"}{:else}{locale.current === "fa" ? "English" : "فارسی"}{/if}
       </button>

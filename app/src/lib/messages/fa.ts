@@ -16,6 +16,7 @@ export const fa: typeof en = {
     inError: "به نظر باگ است؟",
   },
   terminal: "رابط ترمینالی",
+  showTray: "نمایش آیکون سینی",
   live: "زنده",
   nav: {
     dashboard: "داشبورد",

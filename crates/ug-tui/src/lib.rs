@@ -630,10 +630,26 @@ pub enum Exit {
     OpenWindow,
 }
 
+/// Set by SIGTERM (the tray's "Quit Unix Guardian"): the loop then leaves
+/// normally, so the terminal is restored. SIGHUP keeps its default (end at
+/// once): the terminal is gone, there is nothing to restore, and crossterm
+/// spins reading a hung-up tty instead of returning to the loop.
+static TERMINATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+extern "C" fn on_terminate(_: libc::c_int) {
+    TERMINATED.store(true, std::sync::atomic::Ordering::Relaxed);
+    // If the loop cannot get back to the flag (the same spin, if the
+    // terminal went away too), SIGALRM's default action ends the process.
+    // SAFETY: alarm(2) is async-signal-safe.
+    unsafe { libc::alarm(3) };
+}
+
 /// Runs the terminal interface until the user quits.
 pub fn run(daemon_session: bool) -> anyhow::Result<Exit> {
     let bus = Bus::connect(daemon_session)?;
     let mut app = App::new(bus);
+    // SAFETY: the handler only stores to an atomic and calls alarm(2).
+    unsafe { libc::signal(libc::SIGTERM, on_terminate as *const () as libc::sighandler_t) };
 
     terminal::enable_raw_mode()?;
     let mut out = std::io::stdout();
@@ -650,7 +666,7 @@ pub fn run(daemon_session: bool) -> anyhow::Result<Exit> {
     let result = (|| -> anyhow::Result<()> {
         let mut dirty = true;
         let mut last_tick = Instant::now() - LIVE;
-        while !app.quit {
+        while !app.quit && !TERMINATED.load(std::sync::atomic::Ordering::Relaxed) {
             if last_tick.elapsed() >= Duration::from_millis(500) {
                 app.refresh();
                 last_tick = Instant::now();

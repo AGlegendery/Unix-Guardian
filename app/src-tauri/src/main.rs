@@ -121,6 +121,8 @@ fn main() {
             bus::forget_fps_sessions,
             bus::gpu_offload,
             bus::gpu_default,
+            bus::tray_visible,
+            bus::tray_show,
             bus::set_gpu_default,
             bus::gpu_tune_state,
             bus::gpu_try_tune,

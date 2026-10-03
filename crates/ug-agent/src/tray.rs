@@ -8,9 +8,19 @@
 //! while the menu is closed: usage is only read while it is open.
 //!
 //! Left click opens the window. The menu has the usage preview, "Open
-//! terminal UI" and "Quit". Quit closes the window and hides the icon; the
-//! agent keeps running, because game mode, playtime and the overlay depend on
-//! it. `ug tray` (or the next login) brings the icon back.
+//! terminal UI", "Quit tray icon" and "Quit Unix Guardian".
+//!
+//! "Quit tray icon" only removes the icon, for people it bothers; everything
+//! else keeps running, and the choice is remembered (`tray-hidden` in the
+//! config directory) so the icon does not come back at the next login until
+//! `ug tray` or the window's "Show tray icon" brings it back.
+//!
+//! "Quit Unix Guardian" closes the windows and terminal UIs and stops the
+//! agent: game detection, game mode, playtime and the overlay's FPS log stop
+//! with it (the daemon reverts any game-mode change when the agent goes).
+//! The root daemon keeps running, parked and idle, because stopping a system
+//! service needs an administrator. The agent comes back at the next login,
+//! or as soon as the window or `ug` asks for it (D-Bus activation).
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -42,15 +52,16 @@ const ID_SEP2: i32 = 3;
 const ID_TERMINAL: i32 = 4;
 const ID_SEP3: i32 = 5;
 const ID_QUIT: i32 = 6;
+const ID_HIDE: i32 = 7;
 const ID_CPU: i32 = 10;
 const ID_RAM: i32 = 11;
 const ID_GPU0: i32 = 12;
 const ID_BATTERY: i32 = ID_GPU0 + MAX_GPUS as i32;
 
 const PREVIEW_IDS: [i32; 3 + MAX_GPUS] = [ID_CPU, ID_RAM, ID_GPU0, ID_GPU0 + 1, ID_GPU0 + 2, ID_GPU0 + 3, ID_BATTERY];
-const MENU_ORDER: [i32; 6 + 3 + MAX_GPUS] = [
+const MENU_ORDER: [i32; 7 + 3 + MAX_GPUS] = [
     ID_OPEN, ID_SEP1, ID_CPU, ID_RAM, ID_GPU0, ID_GPU0 + 1, ID_GPU0 + 2, ID_GPU0 + 3, ID_BATTERY, ID_SEP2, ID_TERMINAL,
-    ID_SEP3, ID_QUIT,
+    ID_SEP3, ID_HIDE, ID_QUIT,
 ];
 
 /// One read of everything the preview shows. NaN where unknown.
@@ -193,6 +204,8 @@ pub struct Tray {
     /// The status icons are installed in the icon theme, so they can be
     /// loaded by name and follow the panel's colours.
     themed: bool,
+    /// Present while the user has chosen "Quit tray icon".
+    hidden_flag: PathBuf,
 }
 
 impl Tray {
@@ -222,12 +235,17 @@ impl Tray {
             })),
             core,
             themed: icons_installed(),
+            hidden_flag: ug_core::paths::user_config().join("tray-hidden"),
         };
         conn.object_server().at(ITEM_PATH, ItemIface { tray: tray.clone() }).await?;
         conn.object_server().at(MENU_PATH, MenuIface { tray: tray.clone() }).await?;
         tokio::spawn(tray.clone().follow_watcher());
         tokio::spawn(tray.clone().watch());
-        tray.show().await;
+        if tray.hidden_flag.exists() {
+            tracing::info!("the tray icon was hidden by the user; `ug tray` shows it");
+        } else {
+            tray.show().await;
+        }
         Ok(tray)
     }
 
@@ -235,8 +253,14 @@ impl Tray {
         self.st().visible
     }
 
-    /// Puts the icon in the panel (again).
+    /// Puts the icon in the panel (again), and forgets an earlier "Quit
+    /// tray icon".
     pub async fn show(&self) {
+        if let Err(e) = std::fs::remove_file(&self.hidden_flag) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(error = %e, "could not forget that the tray icon was hidden");
+            }
+        }
         if self.visible() {
             return;
         }
@@ -251,8 +275,12 @@ impl Tray {
         self.register().await;
     }
 
-    /// Takes the icon out of the panel. The watcher notices the name going.
+    /// Takes the icon out of the panel, and keeps it out across logins.
+    /// The watcher notices the name going.
     pub async fn hide(&self) {
+        if let Err(e) = ug_core::paths::write_atomic(&self.hidden_flag, b"The tray icon stays hidden until `ug tray` shows it.\n") {
+            tracing::warn!(error = %e, "could not remember that the tray icon is hidden");
+        }
         if !self.visible() {
             return;
         }
@@ -482,8 +510,12 @@ impl Tray {
                 label(&mut p, "Open terminal UI");
                 p.insert("icon-name".into(), ov("utilities-terminal"));
             }
+            ID_HIDE => {
+                label(&mut p, "Quit tray icon");
+                p.insert("icon-name".into(), ov("view-hidden"));
+            }
             ID_QUIT => {
-                label(&mut p, "Quit");
+                label(&mut p, "Quit Unix Guardian");
                 p.insert("icon-name".into(), ov("application-exit"));
             }
             ID_SEP1 | ID_SEP2 | ID_SEP3 => {
@@ -523,9 +555,12 @@ impl Tray {
             let result = match id {
                 ID_OPEN => open_window().await,
                 ID_TERMINAL => open_terminal().await,
-                ID_QUIT => {
-                    close_windows();
+                ID_HIDE => {
                     tray.hide().await;
+                    Ok(())
+                }
+                ID_QUIT => {
+                    quit_everything();
                     Ok(())
                 }
                 _ => Ok(()),
@@ -788,7 +823,7 @@ impl MenuIface {
     }
 }
 
-/// `org.unixguardian.Agent1.Tray`: brings the icon back after Quit.
+/// `org.unixguardian.Agent1.Tray`: shows or hides the icon, and quits.
 pub struct TrayControl {
     pub tray: Option<Tray>,
 }
@@ -809,6 +844,15 @@ impl TrayControl {
         if let Some(t) = &self.tray {
             t.hide().await;
         }
+    }
+
+    /// Same as the menu's "Quit Unix Guardian" (`ug quit`).
+    async fn quit(&self) {
+        // After the reply has gone out.
+        tokio::spawn(async {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            quit_everything();
+        });
     }
 
     #[zbus(property)]
@@ -910,8 +954,19 @@ async fn open_terminal() -> Result<(), String> {
     Err("No terminal program was found. Open a terminal and run: ug tui".into())
 }
 
-/// Closes this user's Unix Guardian windows.
-fn close_windows() {
+/// "Quit Unix Guardian": closes the windows and terminal UIs, then stops
+/// this agent the way systemd would, through SIGTERM, so it shuts down in
+/// order (game mode ends, playtime is saved) and exits 0. The unit is
+/// `Restart=on-failure`, so a clean exit stays stopped.
+pub fn quit_everything() {
+    close_uis();
+    tracing::info!("quitting at the user's request");
+    // SAFETY: kill(2) on our own pid; the SIGTERM handler in main ends the loop.
+    unsafe { libc::kill(libc::getpid(), libc::SIGTERM) };
+}
+
+/// Closes this user's Unix Guardian windows and terminal UIs.
+fn close_uis() {
     if std::env::var_os("UG_TEST_RUN").is_some_and(|t| !t.is_empty()) {
         // A test agent must not close the developer's real window.
         tracing::info!("test run: not closing windows");
@@ -919,14 +974,15 @@ fn close_windows() {
     }
     // SAFETY: getuid cannot fail and has no preconditions.
     let uid = unsafe { libc::getuid() };
-    for pid in window_pids(&SysRoot::real(), uid) {
+    for pid in ui_pids(&SysRoot::real(), uid) {
         // SAFETY: plain kill(2) on a pid just read from /proc.
         unsafe { libc::kill(pid, libc::SIGTERM) };
     }
 }
 
-/// Processes named `ug-app` owned by `uid`.
-fn window_pids(root: &SysRoot, uid: u32) -> Vec<i32> {
+/// Processes owned by `uid` that are a Unix Guardian window (`ug-app`) or
+/// terminal UI (`ug tui`). Other `ug` commands are left alone.
+fn ui_pids(root: &SysRoot, uid: u32) -> Vec<i32> {
     let mut pids = Vec::new();
     for e in std::fs::read_dir(root.join("proc")).into_iter().flatten().flatten() {
         let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<i32>().ok()) else { continue };
@@ -937,7 +993,12 @@ fn window_pids(root: &SysRoot, uid: u32) -> Vec<i32> {
             .find_map(|l| l.strip_prefix("Uid:"))
             .and_then(|l| l.split_whitespace().next())
             .and_then(|u| u.parse::<u32>().ok());
-        if name == Some("ug-app") && owner == Some(uid) {
+        if owner != Some(uid) {
+            continue;
+        }
+        let tui = name == Some("ug")
+            && std::fs::read(e.path().join("cmdline")).is_ok_and(|c| c.split(|&b| b == 0).skip(1).any(|a| a == b"tui"));
+        if name == Some("ug-app") || tui {
             pids.push(pid);
         }
     }
@@ -1046,6 +1107,20 @@ mod tests {
             .write("proc/101/status", "Name:\tug-app\nUid:\t1001\t1001\t1001\t1001\n")
             .write("proc/102/status", "Name:\tkonsole\nUid:\t1000\t1000\t1000\t1000\n")
             .write("proc/self/status", "Name:\tug-app\nUid:\t1000\n");
-        assert_eq!(window_pids(&SysRoot::at(fs.root()), 1000), vec![100]);
+        assert_eq!(ui_pids(&SysRoot::at(fs.root()), 1000), vec![100]);
+    }
+
+    #[test]
+    fn terminal_uis_are_closed_but_other_ug_commands_are_not() {
+        let fs = TestFs::new();
+        fs.write("proc/200/status", "Name:\tug\nUid:\t1000\t1000\t1000\t1000\n")
+            .write("proc/200/cmdline", "/usr/bin/ug\0tui\0")
+            .write("proc/201/status", "Name:\tug\nUid:\t1000\t1000\t1000\t1000\n")
+            .write("proc/201/cmdline", "ug\0monitor\0")
+            .write("proc/202/status", "Name:\tug\nUid:\t1000\t1000\t1000\t1000\n")
+            .write("proc/202/cmdline", "ug\0--session\0tui\0");
+        let mut pids = ui_pids(&SysRoot::at(fs.root()), 1000);
+        pids.sort();
+        assert_eq!(pids, vec![200, 202]);
     }
 }

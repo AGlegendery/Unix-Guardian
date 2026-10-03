@@ -572,6 +572,21 @@ pub fn set_gpu_default(pci: String) -> Res<GpuDefault> {
     Ok(gpu_default())
 }
 
+/// Whether the agent shows its tray icon; `None` when there is no agent
+/// or it runs without a tray.
+#[tauri::command]
+pub async fn tray_visible(bus: State<'_, Bus>) -> Res<Option<bool>> {
+    let Ok(conn) = bus.agent().await else { return Ok(None) };
+    let Ok(t) = ug_proto::agent::TrayProxy::new(conn).await else { return Ok(None) };
+    Ok(t.visible().await.ok())
+}
+
+#[tauri::command]
+pub async fn tray_show(bus: State<'_, Bus>) -> Res<()> {
+    let t = ug_proto::agent::TrayProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    t.show().await.map_err(agent_err)
+}
+
 #[tauri::command]
 pub async fn traffic(bus: State<'_, Bus>, since_unix_ms: u64) -> Res<Vec<DayTraffic>> {
     let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;

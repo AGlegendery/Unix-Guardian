@@ -423,9 +423,12 @@ pub mod agent {
         default_path = "/org/unixguardian/Agent1"
     )]
     pub trait Tray {
-        /// Puts the icon back in the panel (after Quit).
+        /// Puts the icon back in the panel (after "Quit tray icon").
         fn show(&self) -> zbus::Result<()>;
+        /// Hides the icon until `show`, across logins.
         fn hide(&self) -> zbus::Result<()>;
+        /// Closes the windows and terminal UIs and stops the agent.
+        fn quit(&self) -> zbus::Result<()>;
         #[zbus(property)]
         fn visible(&self) -> zbus::Result<bool>;
     }

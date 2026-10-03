@@ -403,6 +403,9 @@ const tauriApi = {
   gpuCancelTune: (pci: string) => invoke<void>("gpu_cancel_tune", { pci }),
   gpuResetTune: (pci: string) => invoke<void>("gpu_reset_tune", { pci }),
   openTerminal: () => invoke<void>("open_terminal_interface"),
+  /** null: no agent, or no tray. */
+  trayVisible: () => invoke<boolean | null>("tray_visible"),
+  trayShow: () => invoke<void>("tray_show"),
   reportBug: (context: string) => invoke<void>("report_bug", { context }),
   battery: () => invoke<BatteryCare>("battery"),
   setBatteryCare: (mode: string, limit: number) => invoke<void>("set_battery_care", { mode, limit }),
