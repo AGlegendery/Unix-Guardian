@@ -416,6 +416,20 @@ pub mod agent {
         fn compare(&self, target: &str, mark_unix_ms: u64, window_s: u32) -> zbus::Result<PingComparison>;
     }
 
+    /// The tray icon the agent shows.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Tray",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Tray {
+        /// Puts the icon back in the panel (after Quit).
+        fn show(&self) -> zbus::Result<()>;
+        fn hide(&self) -> zbus::Result<()>;
+        #[zbus(property)]
+        fn visible(&self) -> zbus::Result<bool>;
+    }
+
     /// The in-game overlay (MangoHud), set up and styled by Unix Guardian.
     #[zbus::proxy(
         interface = "org.unixguardian.Agent1.Overlay",

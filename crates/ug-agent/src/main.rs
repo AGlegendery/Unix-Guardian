@@ -19,6 +19,7 @@ mod overlay;
 mod ping;
 mod playtime;
 mod ppd;
+mod tray;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -54,6 +55,10 @@ struct Args {
     /// `ug-daemon --session` during development).
     #[arg(long)]
     daemon_session: bool,
+
+    /// Do not show the tray icon.
+    #[arg(long)]
+    no_tray: bool,
 
     #[arg(long, default_value = "info")]
     log: String,
@@ -256,6 +261,18 @@ async fn main() -> Result<()> {
     if !args.no_gamemode {
         claim_gamemode(&conn, &core).await;
     }
+    let tray = if args.no_tray {
+        None
+    } else {
+        match tray::Tray::start(&conn, args.daemon_session).await {
+            Ok(t) => Some(t),
+            Err(e) => {
+                tracing::warn!(error = %e, "could not set up the tray icon");
+                None
+            }
+        }
+    };
+    conn.object_server().at(AGENT_OBJECT_PATH, tray::TrayControl { tray }).await.context("serving the tray control")?;
     tracing::info!("agent ready");
 
     // Notification id → executable, for the "not a game" button, and

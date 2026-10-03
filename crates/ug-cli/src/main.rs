@@ -126,6 +126,11 @@ enum Command {
         #[arg(long, default_value_t = 10)]
         seconds: u32,
     },
+    /// Show the tray icon again after "Quit" (or hide it with --hide).
+    Tray {
+        #[arg(long)]
+        hide: bool,
+    },
     /// The in-game overlay (MangoHud): show its settings, set it up, change it.
     Overlay {
         #[command(subcommand)]
@@ -428,6 +433,7 @@ async fn run() -> Result<()> {
         Command::Traffic { days } => return traffic(days, cli.json).await,
         Command::Ping { seconds } => return ping(seconds, cli.json).await,
         Command::Overlay { command } => return overlay(command, cli.json).await,
+        Command::Tray { hide } => return tray(hide).await,
         Command::Fps { week, forget } => return fps_sessions(week, forget, cli.json).await,
         _ => {}
     }
@@ -464,7 +470,7 @@ async fn run() -> Result<()> {
         Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
         Command::Net { command, all } => net(&conn, command, all, cli.json).await,
         Command::Fans { curve, auto, mode } => fans(&conn, curve, auto, mode, cli.json).await,
-        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Fps { .. } | Command::Run { .. } | Command::Tui => {
+        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Tray { .. } | Command::Fps { .. } | Command::Run { .. } | Command::Tui => {
             unreachable!("handled above")
         }
     }
@@ -651,6 +657,19 @@ async fn traffic(days: u32, json: bool) -> Result<()> {
     let mb = |b: u64| b as f64 / 1e6;
     for d in t {
         println!("{}  down {:>9.1} MB  up {:>9.1} MB", d.date, mb(d.rx_bytes), mb(d.tx_bytes));
+    }
+    Ok(())
+}
+
+async fn tray(hide: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let t = ug_proto::agent::TrayProxy::new(&conn).await?;
+    if hide {
+        t.hide().await.map_err(agent_hint)?;
+        println!("Tray icon hidden. `ug tray` shows it again.");
+    } else {
+        t.show().await.map_err(agent_hint)?;
+        println!("Tray icon shown.");
     }
     Ok(())
 }

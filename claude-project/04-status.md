@@ -119,6 +119,14 @@ P6 is merged into `main` (`fc9a5a4`). On `p5-gpu`:
   profile balanced → performance → back, no prompt).
 - ✅ 5.9 window tuner (Game mode → Graphics), TUI Graphics card tab.
 - ⬜ 5.8 fan calibration ("learn from my system"): needs a driveable fan.
+- ✅ Tray icon in the agent (`tray.rs`): StatusNotifierItem + dbusmenu on the
+  agent's session connection, no GTK. Left click opens ug-app; menu has a
+  usage preview (CPU, RAM, GPUs via the daemon, battery; read only while the
+  menu is open), "Open terminal UI" (`ug tui` in $TERMINAL/konsole/…) and
+  "Quit" (closes windows, hides the icon; agent and daemon keep running;
+  `ug tray` shows it again). Programs start via `systemd-run --user` so they
+  escape the agent unit's NoNewPrivileges. `--no-tray` disables it.
+  Verified on KDE Wayland (registered, menu read, click, terminal, Quit).
 
 ## P6 overlay (branch `p6-overlay`) — built, not merged, 2026-10-01
 

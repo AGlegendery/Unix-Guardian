@@ -211,7 +211,7 @@ impl GpuSample {
 }
 
 /// One read of system memory.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Default)]
 pub struct MemSample {
     pub total_kb: u64,
     /// `MemAvailable` — what a new allocation can actually get, which is the

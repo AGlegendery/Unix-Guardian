@@ -94,7 +94,7 @@ fn per_core_mhz(root: &SysRoot) -> Vec<u32> {
 }
 
 /// (percent, watts draining, status, on AC) for the first battery.
-fn battery(root: &SysRoot) -> (f64, f64, String, bool) {
+pub fn battery(root: &SysRoot) -> (f64, f64, String, bool) {
     let base = root.join("sys/class/power_supply");
     let mut on_ac = false;
     let mut bat = None;
