@@ -1,4 +1,8 @@
-# 04 — Status (as of 2026-09-30)
+# 04 — Status (as of 2026-10-03)
+
+> Start with `HANDOFF.md` (current branch, work queue, where the last
+> session stopped). The sections below are newest-first per phase; the
+> table further down is from 2026-09-30.
 
 ## Where the code is
 
@@ -188,9 +192,9 @@ P4 is merged into `main` (`dc1fdfa`). On `p6-overlay`:
   launch`; window editor per Steam game (Game Mode → Your games); TUI Game
   mode → Steam launch options. Fixtures + private-bus e2e only: no Steam
   game on the laptop. ⬜ Lutris/Heroic wrappers not done.
-- ⬜ Not done: 6.3
-  global shortcuts through the portal (MangoHud's in-game key is used),
-  6.6 beta packaging.
+- 🟨 6.3 global shortcuts through the XDG GlobalShortcuts portal: in
+  progress on `p5-gpu` (see HANDOFF.md).
+- ⬜ 6.6 beta packaging (local builds only).
 - **Not verified on the laptop:** MangoHud is not installed there; nothing
   of P6 has run against a real game. v2rayN in TUN mode not checked yet.
 

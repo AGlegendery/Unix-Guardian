@@ -5,7 +5,9 @@ daemon (`ug-daemon`, system bus), a per-user agent (`ug-agent`, session bus),
 a CLI (`ug`) and, later, a Tauri UI. Solo developer; the user writes in Persian
 (answer in Persian; code, comments and commits in English).
 
-**Read `claude-project/` first** — especially `04-status.md` (what exists and
+**Read `claude-project/HANDOFF.md` first** (current branch, work queue,
+exactly where the last session stopped; update it after every finished item).
+Then read `claude-project/` — especially `04-status.md` (what exists and
 what's next), `02-decisions.md`, `05-findings.md` and `07-conventions.md`.
 
 ## Commands
