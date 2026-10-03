@@ -6,7 +6,7 @@ in minutes. **Update this file after every finished item and commit it.**
 Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 `05-findings.md`, `07-conventions.md`, `03-architecture.md`.
 
-Last updated: 2026-10-03 (queue finished, `17ea6ec`).
+Last updated: 2026-10-03 (driver troubleshooter first cut, `5b5d55b`).
 
 ## Where we are
 
@@ -30,6 +30,13 @@ Last updated: 2026-10-03 (queue finished, `17ea6ec`).
 4. ✅ Settings page, window + TUI (P1.7) — `17ea6ec`. Agent1.Settings
    (`settings.json`: notifications, scan interval, close window on game),
    `ug settings`; window page with language, tray, shortcuts, About; TUI page 12.
+
+5. ✅ Driver troubleshooter, first cut (P8) — `7d18b5a`, `fdc602a`, `5b5d55b`.
+   The user calls it one of the most important features. Crate `ug-driver`
+   (inventory from files, 21 TOML rules in `data/driver-rules/`, fixes,
+   undoable executor), `Daemon1.Driver` (polkit `org.unixguardian.driver.fix`,
+   password every time; root passes), `ug diagnose`, `ug driver
+   plan|fix|history|rollback`, window page, TUI page 9, `scripts/driver-e2e.sh`.
 
 **The queue is done.** Release binaries and `dist/` were rebuilt after the
 last commit; the user still has to reinstall (sudo) to try them for real.
@@ -56,6 +63,16 @@ real-desktop checks below, merging `p5-gpu` into `main`, P7 (recording).
 - Settings: only tests, e2e and the browser preview. Theme and "start at
   login" from roadmap 1.7 are deliberately not offered (one theme; turning
   the agent off at login would break D-Bus activation).
+
+- Driver troubleshooter: `ug diagnose` ran on the laptop (3 real findings:
+  video memory not kept across sleep, fbdev off, Wayland on driver 550).
+  No fix has been applied on the real machine. Automatic fixes are only our
+  own `/etc/modprobe.d/unix-guardian-*.conf` files + units + initramfs
+  rebuild via `systemd-run`; package installs are commands only until the
+  snapshot layer (8.5) exists — the roadmap's golden rule. Not built yet:
+  8.4 distro adapter (package installs), 8.5 snapshots, 8.7 boot-parameter
+  editor, pending-verify after reboot with auto-undo, a driver-version
+  picker; rules number 21 of the 35 the roadmap wants for release.
 
 ## For the user to run (needs sudo, at the device)
 

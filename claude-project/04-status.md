@@ -173,6 +173,26 @@ P6 is merged into `main` (`fc9a5a4`). On `p5-gpu`:
   global shortcuts card, About) and TUI page 12. No theme or start-at-login
   control (see HANDOFF.md). agent-e2e 46 checks.
 
+## P8 driver troubleshooter — first cut on `p5-gpu` (2026-10-03)
+
+- ✅ 8.1 inventory (`ug-driver/inventory.rs`, files only, works without
+  the service and unprivileged; root-only parameters fall back to
+  cmdline/modprobe.d). Not read yet: compositor, outputs, boot loader.
+- ✅ 8.2 rule engine (TOML, condition language, test that every named
+  fact exists). No signed rule updates (10.6).
+- 🟨 8.3 catalog: 21 rules (roadmap: ≥ 35), each with a fixture scenario
+  test; the laptop's real state is a fixture.
+- ⬜ 8.4 distro adapter: package installs are commands to copy, per
+  apt/pacman/dnf/zypper.
+- ⬜ 8.5 snapshots (snapper/timeshift/LVM/ZFS). Light backups of our own
+  files exist.
+- 🟨 8.6 safe executor: steps with saved undo, auto-undo on failure,
+  interrupted ops undoable after restart, `driver-recovery.txt`, `ug
+  driver rollback` (works from a TTY: root passes polkit, pkttyagent
+  otherwise). Not done: pending-verify after reboot with auto-undo.
+- ⬜ 8.7 boot parameter editor (nomodeset / ppfeaturemask are commands).
+- ✅ 8.9 UI: window page + TUI page 9 + CLI. No driver-version picker.
+
 ## P6 overlay (branch `p6-overlay`) — built, not merged, 2026-10-01
 
 P4 is merged into `main` (`dc1fdfa`). On `p6-overlay`:
