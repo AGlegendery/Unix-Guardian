@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowDown, ArrowUp, Cpu, Gamepad2, MemoryStick, MonitorSmartphone, Network } from "@lucide/svelte";
+  import { ArrowDown, ArrowLeftRight, ArrowUp, Check, Cpu, Gamepad2, MemoryStick, MonitorSmartphone, Network } from "@lucide/svelte";
   import { api, type GpuDefault, type GpuInfo, type Overview, type PlaytimeEntry, type Profile, type RunningGame, type Snapshot } from "../lib/api";
   import { duration, gib, num, rate } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
@@ -18,6 +18,25 @@
   let gpuDef = $state<GpuDefault | null>(null);
   let gpuBusy = $state(false);
   let gpuErr = $state("");
+  let gpuMenu = $state(false);
+  let gpuPicker = $state<HTMLElement | null>(null);
+
+  // The picker closes on a click elsewhere or Escape.
+  $effect(() => {
+    if (!gpuMenu) return;
+    const away = (e: PointerEvent) => {
+      if (gpuPicker && !gpuPicker.contains(e.target as Node)) gpuMenu = false;
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") gpuMenu = false;
+    };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  });
 
   const inv = $derived(overview?.inventory ?? null);
   const dGpu = $derived(inv?.gpus.find((g) => g.pci === overview?.active_gpu) ?? inv?.gpus.find((g) => !g.boot_vga) ?? null);
@@ -62,6 +81,8 @@
       api.gpuDefault().then((d) => (gpuDef = d)).catch(() => {});
     };
     load();
+    // Once even when opened hidden, so the card switch is usable at once.
+    if (document.hidden) api.gpuDefault().then((d) => (gpuDef = d)).catch(() => {});
     api.playtime(Date.now() - 7 * 24 * 3600 * 1000).then((w) => (week = w)).catch(() => (week = []));
     const id = setInterval(load, 3000);
     return () => clearInterval(id);
@@ -94,6 +115,7 @@
   }
   async function chooseGpu(pci: string) {
     if (gpuBusy || gpuDef?.chosen === pci) return;
+    gpuMenu = false;
     gpuBusy = true;
     gpuErr = "";
     try {
@@ -146,17 +168,39 @@
       <!-- The card switch: which GPU programs start on. Only with two cards;
            the desktop itself stays on the card the panel is wired to. -->
       {#if iGpu && dGpu}
-        <div class="gpu-switch" role="radiogroup" aria-label={t().gpu.switchLabel} title={t().gpu.switchWhy}>
-          {#each [iGpu, dGpu] as g (g.pci)}
-            <button
-              type="button"
-              role="radio"
-              aria-checked={activeGpu === g}
-              class:on={activeGpu === g}
-              disabled={gpuBusy || !gpuDef}
-              onclick={() => chooseGpu(g.pci)}
-            >{shortName(g)}</button>
-          {/each}
+        <div class="gpu-picker" bind:this={gpuPicker}>
+          <button
+            type="button"
+            class="gpu-toggle"
+            class:open={gpuMenu}
+            aria-haspopup="true"
+            aria-expanded={gpuMenu}
+            aria-label={t().gpu.switchLabel}
+            title={t().gpu.switchLabel}
+            disabled={gpuBusy || !gpuDef}
+            onclick={() => (gpuMenu = !gpuMenu)}
+          ><ArrowLeftRight size={14} aria-hidden="true" /></button>
+          {#if gpuMenu}
+            <div class="gpu-menu" role="radiogroup" aria-label={t().gpu.switchLabel}>
+              <p class="gpu-menu-title">{t().gpu.switchLabel}</p>
+              {#each [iGpu, dGpu] as g (g.pci)}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={activeGpu === g}
+                  class:on={activeGpu === g}
+                  onclick={() => chooseGpu(g.pci)}
+                >
+                  <span class="tick" aria-hidden="true">{#if activeGpu === g}<Check size={14} />{/if}</span>
+                  <span class="gpu-name">
+                    <b>{shortName(g)}</b>
+                    <small class="ltr-inline">{g.name}</small>
+                  </span>
+                </button>
+              {/each}
+              <p class="gpu-menu-why">{t().gpu.switchWhy}</p>
+            </div>
+          {/if}
         </div>
       {/if}
     </div>
@@ -389,16 +433,42 @@
   .temp.warm { color: var(--warn); }
   .temp.hot { color: var(--danger); }
   .hw { margin: 0; color: var(--text-3); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .gpu-switch { margin-inline-start: auto; flex: none; display: inline-flex; gap: 2px; padding: 2px; border-radius: 999px; background: var(--card-2); }
-  .gpu-switch button {
-    font: inherit; font-size: 0.72rem; padding: 2px 9px; border: 0; border-radius: 999px;
-    background: transparent; color: var(--text-2); cursor: pointer;
+  .tile:has(.gpu-picker) { position: relative; }
+  .gpu-picker { margin-inline-start: auto; flex: none; position: relative; }
+  .gpu-toggle {
+    all: unset; box-sizing: border-box; display: grid; place-items: center;
+    width: 26px; height: 26px; border-radius: 8px; cursor: pointer;
+    color: var(--text-2); background: var(--card-2);
     transition: background-color 0.15s ease, color 0.15s ease;
   }
-  .gpu-switch button:hover:not(.on):not(:disabled) { color: var(--text); }
-  .gpu-switch button.on { background: var(--accent-soft); color: var(--accent-text); cursor: default; }
-  .gpu-switch button:disabled:not(.on) { cursor: progress; }
-  .gpu-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .gpu-toggle:hover:not(:disabled), .gpu-toggle.open { color: var(--accent-text); background: var(--accent-soft); }
+  .gpu-toggle:disabled { cursor: progress; opacity: 0.6; }
+  .gpu-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* Opens toward the neighbouring tile, away from the window edge. */
+  .gpu-menu {
+    position: absolute; top: calc(100% + 6px); inset-inline-start: 0; z-index: 20;
+    width: 250px; padding: 6px; border-radius: 12px;
+    background: var(--card); border: 1px solid var(--line);
+    box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
+    transform-origin: top left;
+    animation: menu-in 0.14s ease-out;
+  }
+  :global([dir="rtl"]) .gpu-menu { transform-origin: top right; }
+  @keyframes menu-in { from { opacity: 0; transform: scale(0.96) translateY(-4px); } }
+  @media (prefers-reduced-motion: reduce) { .gpu-menu { animation: none; } }
+  .gpu-menu-title { margin: 4px 8px 6px; font-size: 0.72rem; color: var(--text-3); }
+  .gpu-menu button {
+    all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 8px;
+    padding: 7px 8px; border-radius: 8px; cursor: pointer; color: var(--text-2);
+  }
+  .gpu-menu button:hover { background: var(--card-2); color: var(--text); }
+  .gpu-menu button.on { color: var(--accent-text); }
+  .gpu-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .gpu-menu .tick { width: 14px; flex: none; display: grid; place-items: center; }
+  .gpu-name { display: flex; flex-direction: column; min-width: 0; }
+  .gpu-name b { font-weight: 600; font-size: 0.82rem; }
+  .gpu-name small { direction: ltr; unicode-bidi: isolate; text-align: start; font-size: 0.72rem; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gpu-menu-why { margin: 6px 8px 4px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 0.72rem; line-height: 1.5; color: var(--text-3); }
   .hint.err { color: var(--danger); }
   .other { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; font-size: 0.78rem; color: var(--text-3); }
   .other .ltr-inline { direction: ltr; unicode-bidi: isolate; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

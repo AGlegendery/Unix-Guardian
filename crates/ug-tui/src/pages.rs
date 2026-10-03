@@ -183,11 +183,8 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
             Line::from(Span::styled(format!("{}: {state}", name(&other.pci)), t.faint()))
         };
         let mut l = vec![reading, Line::from(Span::styled(name(pci), t.faint())), note];
-        if wide {
-            // The first line is left for the switch, drawn over it below.
-            l.insert(0, Line::from(""));
-        } else {
-            l[0].spans.push(Span::styled(format!("  [{}]", names[*chosen]), Style::default().fg(t.accent)));
+        if !wide {
+            l[0].spans.push(Span::styled(format!("  ⇄ {}", names[*chosen]), Style::default().fg(t.accent)));
         }
         l
     } else {
@@ -232,10 +229,21 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         for (i, (title, lines)) in tiles.into_iter().enumerate() {
             f.render_widget(Paragraph::new(lines).block(card(app, title)), cols[i]);
         }
+        // The switch sits in the tile's top border, like the window's
+        // icon: "⇄ Intel"; a click (or ←/→) switches to the other card.
         if let Some((names, chosen, _)) = &switch {
             let c = cols[0];
-            let line = Rect { x: c.x + 2, y: c.y + 1, width: c.width.saturating_sub(4), height: 1 };
-            choices(app, f, line, "Programs on", names, *chosen);
+            let text = format!(" ⇄ {} ", names[*chosen]);
+            let w = text.chars().count() as u16;
+            let title = "Graphics card".len() as u16 + 4;
+            // Too narrow for both: on the tile's free last line instead.
+            let rect = if c.width > w + title + 2 {
+                Rect { x: c.right() - w - 2, y: c.y, width: w, height: 1 }
+            } else {
+                Rect { x: c.x + 1, y: c.bottom().saturating_sub(2), width: w.min(c.width.saturating_sub(2)), height: 1 }
+            };
+            f.render_widget(Paragraph::new(Span::styled(text, app.theme.selected())), rect);
+            app.hits.push((rect, Hit::Choice(1 - *chosen)));
         }
     } else {
         let mut lines = Vec::new();
