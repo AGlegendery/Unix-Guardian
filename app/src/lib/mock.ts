@@ -4,7 +4,7 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -16,6 +16,23 @@ let t = 0;
 let fpsSetUp = false;
 let fanMode = 1;
 let trayVisible = true;
+let ptSessions: PlaytimeSession[] = (() => {
+  const games: [string, string, number][] = [
+    ["steam:730", "Counter-Strike 2", 95], ["steam:1245620", "Elden Ring", 70],
+    ["steam:1091500", "Cyberpunk 2077", 45], ["lutris:osu", "osu!", 20],
+  ];
+  const out: PlaytimeSession[] = [];
+  const now = Date.now();
+  for (let d = 9; d >= 0; d--) {
+    games.forEach(([key, name, mins], i) => {
+      if ((d + i) % 3 === 2) return;
+      const start = now - d * 86_400_000 - (i + 1) * 3 * 3_600_000;
+      const len = mins * (0.5 + ((d * 7 + i * 3) % 10) / 10) * 60_000;
+      out.push({ key, name, started_unix_ms: start, ended_unix_ms: Math.min(now - 60_000, start + len) });
+    });
+  }
+  return out;
+})();
 let gpuDefault: GpuDefault = { chosen: "0000:00:02.0", active: "0000:00:02.0", pending: false };
 let ppdProfile = "balanced";
 const fanCurves: Record<string, [number, number][]> = {};
@@ -124,7 +141,28 @@ export const mockApi = {
     const p = profiles.find((x) => x.id === profile) as unknown as Record<string, unknown> | undefined;
     if (p) p[option] = value;
   },
-  playtime: async (): Promise<PlaytimeEntry[]> => [],
+  // Made-up sessions over the last ten days, so the Playtime page has
+  // something to show; summaries are computed from them like the agent does.
+  playtime: async (since: number): Promise<PlaytimeEntry[]> => {
+    const by = new Map<string, PlaytimeEntry>();
+    for (const s of ptSessions) {
+      if (s.ended_unix_ms <= since) continue;
+      const secs = (s.ended_unix_ms - Math.max(s.started_unix_ms, since)) / 1000;
+      const e = by.get(s.key) ?? { key: s.key, name: s.name, seconds: 0, sessions: 0, last_played_unix_ms: 0 };
+      e.seconds += Math.round(secs);
+      e.sessions += 1;
+      e.last_played_unix_ms = Math.max(e.last_played_unix_ms, s.ended_unix_ms);
+      by.set(s.key, e);
+    }
+    return [...by.values()].sort((a, b) => b.seconds - a.seconds);
+  },
+  playtimeSessions: async (since: number): Promise<PlaytimeSession[]> => ptSessions.filter((s) => s.ended_unix_ms > since),
+  playtimeForget: async (key: string) => {
+    const n = ptSessions.filter((s) => s.key === key).length;
+    ptSessions = ptSessions.filter((s) => s.key !== key);
+    return n;
+  },
+  playtimeExport: async () => "~/Downloads/unix-guardian-playtime-preview.csv",
   // Power in the preview: nothing is ever done; the queue lives in memory.
   powerCaps: async () =>
     (["power-off", "reboot", "suspend", "hibernate", "hybrid-sleep", "suspend-then-hibernate", "reboot-firmware"] as PowerAction[]).map((action) => ({

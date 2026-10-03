@@ -580,15 +580,7 @@ async fn playtime(today: bool, week: bool, forget: Option<String>, csv: bool, js
         let mut out = std::io::BufWriter::new(std::io::stdout().lock());
         let written = writeln!(out, "game,key,started,ended,minutes").and_then(|()| {
             for s in &sessions {
-                let minutes = s.ended_unix_ms.saturating_sub(s.started_unix_ms) as f64 / 60_000.0;
-                writeln!(
-                    out,
-                    "{},{},{},{},{minutes:.1}",
-                    csv_field(&s.name),
-                    csv_field(&s.key),
-                    local_time(s.started_unix_ms),
-                    local_time(s.ended_unix_ms)
-                )?;
+                writeln!(out, "{}", ug_core::playtime::csv_row(s))?;
             }
             out.flush()
         });
@@ -924,15 +916,6 @@ fn agent_error(e: zbus::Error) -> anyhow::Error {
     }
 }
 
-/// Quotes a CSV field when it needs it (RFC 4180): game names do contain
-/// commas ("Warhammer 40,000") and quotes.
-fn csv_field(s: &str) -> String {
-    if s.contains([',', '"', '\n', '\r']) {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
-    }
-}
 
 /// `2026-09-30 21:04:05` in local time, which spreadsheets read as a date.
 fn local_time(unix_ms: u64) -> String {
@@ -1798,13 +1781,6 @@ mod tests {
         assert!(t > now && t - now <= 24 * 3_600_000);
         assert!(super::next_local_time_ms("25:00").is_err());
         assert!(super::next_local_time_ms("noon").is_err());
-    }
-
-    #[test]
-    fn csv_fields_are_quoted_only_when_needed() {
-        assert_eq!(super::csv_field("Counter-Strike 2"), "Counter-Strike 2");
-        assert_eq!(super::csv_field("Warhammer 40,000"), "\"Warhammer 40,000\"");
-        assert_eq!(super::csv_field("The \"Game\""), "\"The \"\"Game\"\"\"");
     }
 
     #[test]

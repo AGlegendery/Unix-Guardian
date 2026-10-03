@@ -1,0 +1,142 @@
+//! Playtime helpers shared by the CLI, the TUI and the window: the ranges
+//! the pages offer, local dates, and the CSV export.
+//!
+//! The sessions themselves are recorded by the agent (`Agent1.Playtime`);
+//! everything here only shapes what it returns.
+
+use std::path::{Path, PathBuf};
+use ug_proto::PlaytimeSession;
+
+/// The ranges the Playtime pages offer: today (since local midnight), the
+/// last seven days, everything.
+pub const RANGES: [&str; 3] = ["today", "week", "all"];
+
+/// Where a range starts, as Unix milliseconds.
+pub fn since(range: &str, now_ms: u64) -> u64 {
+    match range {
+        "today" => local_midnight_ms(),
+        "week" => now_ms.saturating_sub(7 * 24 * 3_600_000),
+        _ => 0,
+    }
+}
+
+/// Start of today in local time, as Unix milliseconds.
+pub fn local_midnight_ms() -> u64 {
+    // SAFETY: localtime_r writes only into the struct we pass.
+    unsafe {
+        let now = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&now, &mut tm);
+        tm.tm_hour = 0;
+        tm.tm_min = 0;
+        tm.tm_sec = 0;
+        (libc::mktime(&mut tm).max(0) as u64) * 1000
+    }
+}
+
+/// `2026-09-30 21:04:05` in local time, which spreadsheets read as a date.
+pub fn local_time(unix_ms: u64) -> String {
+    // SAFETY: localtime_r writes only into the struct we pass.
+    let tm = unsafe {
+        let t = (unix_ms / 1000) as libc::time_t;
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&t, &mut tm);
+        tm
+    };
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday,
+        tm.tm_hour,
+        tm.tm_min,
+        tm.tm_sec
+    )
+}
+
+/// A CSV field, quoted only when it has to be.
+pub fn csv_field(s: &str) -> String {
+    if s.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+/// The export: one row per session.
+pub fn csv(sessions: &[PlaytimeSession]) -> String {
+    let mut out = String::from("game,key,started,ended,minutes\n");
+    for s in sessions {
+        out.push_str(&csv_row(s));
+        out.push('\n');
+    }
+    out
+}
+
+pub fn csv_row(s: &PlaytimeSession) -> String {
+    let minutes = s.ended_unix_ms.saturating_sub(s.started_unix_ms) as f64 / 60_000.0;
+    format!(
+        "{},{},{},{},{minutes:.1}",
+        csv_field(&s.name),
+        csv_field(&s.key),
+        local_time(s.started_unix_ms),
+        local_time(s.ended_unix_ms)
+    )
+}
+
+/// The user's Downloads folder (from `user-dirs.dirs`), else their home.
+pub fn downloads_dir() -> PathBuf {
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"));
+    let dirs = crate::gpu_default::config_home().join("user-dirs.dirs");
+    std::fs::read_to_string(dirs)
+        .ok()
+        .and_then(|t| downloads_from(&t, &home))
+        .filter(|p| p.is_dir())
+        .unwrap_or(home)
+}
+
+fn downloads_from(user_dirs: &str, home: &Path) -> Option<PathBuf> {
+    let v = user_dirs.lines().find_map(|l| l.trim().strip_prefix("XDG_DOWNLOAD_DIR="))?;
+    let v = v.trim().trim_matches('"');
+    Some(match v.strip_prefix("$HOME") {
+        Some(rest) => home.join(rest.trim_start_matches('/')),
+        None => PathBuf::from(v),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn csv_fields_are_quoted_only_when_needed() {
+        assert_eq!(csv_field("Counter-Strike 2"), "Counter-Strike 2");
+        assert_eq!(csv_field("Warhammer 40,000"), "\"Warhammer 40,000\"");
+        assert_eq!(csv_field("The \"Game\""), "\"The \"\"Game\"\"\"");
+    }
+
+    #[test]
+    fn the_export_has_a_header_and_a_row_per_session() {
+        let s = PlaytimeSession { key: "steam:730".into(), name: "Counter-Strike 2".into(), started_unix_ms: 0, ended_unix_ms: 90_000 };
+        let text = csv(&[s.clone(), s]);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "game,key,started,ended,minutes");
+        assert_eq!(lines.len(), 3);
+        assert!(lines[1].starts_with("Counter-Strike 2,steam:730,") && lines[1].ends_with(",1.5"));
+    }
+
+    #[test]
+    fn downloads_come_from_user_dirs() {
+        let home = Path::new("/home/u");
+        assert_eq!(downloads_from("XDG_DOWNLOAD_DIR=\"$HOME/Downloads\"\n", home), Some(PathBuf::from("/home/u/Downloads")));
+        assert_eq!(downloads_from("XDG_DOWNLOAD_DIR=\"/data/dl\"", home), Some(PathBuf::from("/data/dl")));
+        assert_eq!(downloads_from("# nothing", home), None);
+    }
+
+    #[test]
+    fn ranges_start_where_they_say() {
+        assert_eq!(since("all", 1_000_000_000), 0);
+        assert_eq!(since("week", 1_000_000_000), 1_000_000_000 - 604_800_000);
+        assert!(since("today", 0) <= local_midnight_ms());
+    }
+}

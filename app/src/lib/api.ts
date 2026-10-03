@@ -340,6 +340,13 @@ export interface PlaytimeEntry {
   last_played_unix_ms: number;
 }
 
+export interface PlaytimeSession {
+  key: string;
+  name: string;
+  started_unix_ms: number;
+  ended_unix_ms: number;
+}
+
 const tauriApi = {
   preview: false as boolean,
   overview: () => invoke<Overview>("overview"),
@@ -413,6 +420,10 @@ const tauriApi = {
   setWakeAlarm: (atUnixMs: number) => invoke<void>("set_wake_alarm", { atUnixMs }),
   clearWakeAlarm: () => invoke<void>("clear_wake_alarm"),
   playtime: (sinceUnixMs: number) => invoke<PlaytimeEntry[]>("playtime", { sinceUnixMs }),
+  playtimeSessions: (sinceUnixMs: number) => invoke<PlaytimeSession[]>("playtime_sessions", { sinceUnixMs }),
+  playtimeForget: (key: string) => invoke<number>("playtime_forget", { key }),
+  /** Writes a CSV into Downloads; returns its path. */
+  playtimeExport: (sinceUnixMs: number) => invoke<string>("playtime_export", { sinceUnixMs }),
   onSample: (f: (s: Snapshot) => void): Promise<UnlistenFn> => listen<Snapshot>("sample", (e) => f(e.payload)),
 };
 

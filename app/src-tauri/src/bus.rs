@@ -230,6 +230,33 @@ pub async fn playtime(bus: State<'_, Bus>, since_unix_ms: u64) -> Res<Vec<Playti
 }
 
 #[tauri::command]
+pub async fn playtime_sessions(bus: State<'_, Bus>, since_unix_ms: u64) -> Res<Vec<ug_proto::PlaytimeSession>> {
+    let p = PlaytimeProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.sessions(since_unix_ms).await.map_err(agent_err)
+}
+
+/// Deletes every recorded session of one game; returns how many.
+#[tauri::command]
+pub async fn playtime_forget(bus: State<'_, Bus>, key: String) -> Res<u32> {
+    let p = PlaytimeProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.forget(&key).await.map_err(agent_err)
+}
+
+/// Writes the sessions since `since_unix_ms` as CSV into the user's
+/// Downloads folder and returns the file's path. A file, not a save dialog:
+/// the window has no dialog plugin, and the path is shown to the user.
+#[tauri::command]
+pub async fn playtime_export(bus: State<'_, Bus>, since_unix_ms: u64) -> Res<String> {
+    let p = PlaytimeProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    let sessions = p.sessions(since_unix_ms).await.map_err(agent_err)?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    let stamp = ug_core::playtime::local_time(now).replace([' ', ':'], "-");
+    let path = ug_core::playtime::downloads_dir().join(format!("unix-guardian-playtime-{stamp}.csv"));
+    std::fs::write(&path, ug_core::playtime::csv(&sessions)).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(path.display().to_string())
+}
+
+#[tauri::command]
 pub async fn power_caps(bus: State<'_, Bus>) -> Res<Vec<PowerCapability>> {
     let p = PowerProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
     p.capabilities().await.map_err(daemon_err)
