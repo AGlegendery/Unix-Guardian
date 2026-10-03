@@ -151,6 +151,16 @@ P6 is merged into `main` (`fc9a5a4`). On `p5-gpu`:
   two-press delete (whole history), 7-day chart (window), CSV export to
   Downloads (`ug_core::playtime`, shared with `ug playtime --csv`). Not
   compared with Steam's hours yet (roadmap acceptance).
+- ✅ Tracked apps / not a game / Steam import (2026-10-03): any program can
+  be timed as an app (`app:<exe>`, never tuned; Apps tab, picker of
+  programs open now from desktop entries + Wine programs); a guessed game
+  (`exe:`) moves to Apps with its time; "not a game" now survives a
+  restart (`playtime.json`); Steam's own totals import into All time
+  (only what UG did not count; re-import replaces). CLI `ug playtime
+  apps|track|untrack|not-a-game|import-steam`; agent-e2e 27 checks. Real
+  Steam import not tried with played games (the laptop's Flatpak Steam
+  account has none yet). The user's real Filmora entry is still `exe:` until
+  they press "Not a game".
 
 ## P6 overlay (branch `p6-overlay`) — built, not merged, 2026-10-01
 

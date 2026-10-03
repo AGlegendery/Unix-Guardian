@@ -137,6 +137,24 @@ one is encoded in code and tests now; keep them in mind when extending nearby.
     tun interface, no policy rules; apps use HTTP(S)_PROXY. Unix Guardian
     correctly reported proxy mode.
 
+27. **Steam keeps per-game playtime in `localconfig.vdf`** (2026-10-03):
+    `userdata/<account>/config/localconfig.vdf`, under
+    `UserLocalConfigStore/Software/Valve/Steam/apps/<appid>`: `Playtime`
+    (total minutes, all computers) and `LastPlayed` (Unix seconds), written
+    only for played apps. The key path was read on the laptop's Flatpak Steam
+    (its apps had only `cloud`/`BadgeData`, nothing played yet); the two keys
+    come from projects that read them (Playnite issue 1016,
+    Steam-Deck-HA-MQTT-Playtime's `get_localconfig_playtime`).
+28. **Desktop entries separate apps from the desktop's own processes**
+    (2026-10-03): of 70 processes of the user holding a Wayland/X11
+    connection on KDE, plasmashell, kded6, ksmserver, the portals, Xwayland,
+    kwalletd6 etc. have no visible desktop entry; Firefox, Dolphin, Konsole,
+    Telegram, Spectacle, Claude, XDM did (by `Exec` basename), and Chrome by
+    its own install directory (`/opt/google/chrome`, the entry runs a
+    wrapper there). Helpers in the same directory (crashpad handler, Firefox
+    `crashhelper`) lose to the program matched by its own name or with the
+    most processes.
+
 ## Bugs that only running the code revealed (all fixed, all with tests)
 
 | Bug | Cause | Fix |
@@ -156,3 +174,4 @@ one is encoded in code and tests now; keep them in mind when extending nearby.
 | After the first real install the daemon would be gone after a reboot | `dev-install.sh` started the unit but never enabled it, and did not install the system-bus activation file | both added (checked in a container) |
 | `ug playtime --csv \| head` would panic | `println!` on a closed pipe (same as the monitor bug) | explicit writer, `BrokenPipe` = clean end |
 | Fixture leaked the root filesystem UUID | `/proc/cmdline` copied verbatim | UUIDs zeroed; gateway zeroed; no serials/MACs/UUIDs collected |
+| **"Not a game" was forgotten at the next login** | the detector's ignore list lived in memory only (its test said "now and forever" within one detector) | choices saved in `playtime.json` and loaded at start; the agent test fails without the load |
