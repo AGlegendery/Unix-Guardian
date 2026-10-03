@@ -160,6 +160,8 @@ export interface CoolingState { fans: FanInfo[]; fan_mode: number; fan_modes: [n
 export interface AutoTuneStatus { running: boolean; step: number; steps: number; message: string; summary: string; ok: boolean }
 
 export interface GpuOffload { pci: string; vendor: string; boot_vga: boolean; launch_options: string }
+/** The GPU programs start on; `pending` until the next login. */
+export interface GpuDefault { chosen: string; active: string; pending: boolean }
 
 export interface OverlaySettings {
   show: "gaming" | "always" | "off";
@@ -383,6 +385,8 @@ const tauriApi = {
   fpsSessions: (sinceUnixMs: number) => invoke<FpsSession[]>("fps_sessions", { sinceUnixMs }),
   forgetFpsSessions: () => invoke<number>("forget_fps_sessions"),
   gpuOffload: () => invoke<GpuOffload[]>("gpu_offload"),
+  gpuDefault: () => invoke<GpuDefault>("gpu_default"),
+  setGpuDefault: (pci: string) => invoke<GpuDefault>("set_gpu_default", { pci }),
   coolingState: () => invoke<CoolingState>("cooling_state"),
   setFanCurve: (id: string, points: [number, number][]) => invoke<void>("set_fan_curve", { id, points }),
   setFanAuto: (id: string) => invoke<void>("set_fan_auto", { id }),

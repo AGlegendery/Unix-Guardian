@@ -108,6 +108,8 @@ fn main() {
             bus::fps_sessions,
             bus::forget_fps_sessions,
             bus::gpu_offload,
+            bus::gpu_default,
+            bus::set_gpu_default,
             bus::gpu_tune_state,
             bus::gpu_try_tune,
             bus::gpu_keep_tune,

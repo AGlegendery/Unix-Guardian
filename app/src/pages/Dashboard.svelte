@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ArrowDown, ArrowUp, Cpu, Gamepad2, MemoryStick, MonitorSmartphone, Network } from "@lucide/svelte";
-  import { api, type Overview, type PlaytimeEntry, type Profile, type RunningGame, type Snapshot } from "../lib/api";
+  import { api, type GpuDefault, type GpuInfo, type Overview, type PlaytimeEntry, type Profile, type RunningGame, type Snapshot } from "../lib/api";
   import { duration, gib, num, rate } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import LineChart from "../lib/LineChart.svelte";
@@ -15,6 +15,9 @@
   let running = $state<RunningGame[]>([]);
   let profiles = $state<Profile[]>([]);
   let week = $state<PlaytimeEntry[] | null>(null);
+  let gpuDef = $state<GpuDefault | null>(null);
+  let gpuBusy = $state(false);
+  let gpuErr = $state("");
 
   const inv = $derived(overview?.inventory ?? null);
   const dGpu = $derived(inv?.gpus.find((g) => g.pci === overview?.active_gpu) ?? inv?.gpus.find((g) => !g.boot_vga) ?? null);
@@ -56,6 +59,7 @@
       if (document.hidden) return;
       api.gamesRunning().then((r) => (running = r)).catch(() => {});
       api.profiles().then((p) => (profiles = p)).catch(() => {});
+      api.gpuDefault().then((d) => (gpuDef = d)).catch(() => {});
     };
     load();
     api.playtime(Date.now() - 7 * 24 * 3600 * 1000).then((w) => (week = w)).catch(() => (week = []));
@@ -77,8 +81,29 @@
   // Which GPU is working now: the discrete one only while it is awake.
   const sampleFor = (pci: string) => snap?.gpus.find((g) => g.pci === pci) ?? null;
   const dAwake = $derived(!!dGpu && !!snap && !(sampleFor(dGpu.pci)?.asleep ?? true));
-  const activeGpu = $derived(dAwake || !iGpu ? dGpu : iGpu);
+  const workingGpu = $derived(dAwake || !iGpu ? dGpu : iGpu);
+  // With two cards the tile shows the one the switch has chosen; without
+  // the switch's state yet, the one doing the work now.
+  const chosenGpu = $derived(gpuDef ? (inv?.gpus.find((g) => g.pci === gpuDef?.chosen) ?? null) : null);
+  const activeGpu = $derived(iGpu && dGpu && chosenGpu ? chosenGpu : workingGpu);
   const otherGpu = $derived(activeGpu === dGpu ? iGpu : dGpu);
+  const sameVendor = $derived(!!iGpu && !!dGpu && iGpu.vendor === dGpu.vendor);
+  function shortName(g: GpuInfo): string {
+    if (sameVendor || g.vendor === "unknown") return g.boot_vga ? t().gpu.integrated : t().gpu.discrete;
+    return { nvidia: "NVIDIA", amd: "AMD", intel: "Intel" }[g.vendor];
+  }
+  async function chooseGpu(pci: string) {
+    if (gpuBusy || gpuDef?.chosen === pci) return;
+    gpuBusy = true;
+    gpuErr = "";
+    try {
+      gpuDef = await api.setGpuDefault(pci);
+    } catch (e) {
+      gpuErr = String(e);
+    } finally {
+      gpuBusy = false;
+    }
+  }
   const dSample = $derived(dGpu && snap ? snap.gpus.find((g) => g.pci === dGpu.pci) ?? null : null);
   const iSample = $derived(iGpu && snap ? snap.gpus.find((g) => g.pci === iGpu.pci) ?? null : null);
   const pSet = $derived(new Set(inv?.cpu.p_cores ?? []));
@@ -118,7 +143,22 @@
     <div class="tile-head">
       <span class="ico"><MonitorSmartphone size={18} aria-hidden="true" /></span>
       <h2>{t().parts.gpu}</h2>
-      {#if otherGpu}<span class="in-use">{t().gpu.inUse}</span>{/if}
+      <!-- The card switch: which GPU programs start on. Only with two cards;
+           the desktop itself stays on the card the panel is wired to. -->
+      {#if iGpu && dGpu}
+        <div class="gpu-switch" role="radiogroup" aria-label={t().gpu.switchLabel} title={t().gpu.switchWhy}>
+          {#each [iGpu, dGpu] as g (g.pci)}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={activeGpu === g}
+              class:on={activeGpu === g}
+              disabled={gpuBusy || !gpuDef}
+              onclick={() => chooseGpu(g.pci)}
+            >{shortName(g)}</button>
+          {/each}
+        </div>
+      {/if}
     </div>
     {#if activeGpu}
       {@const s = sampleFor(activeGpu.pci)}
@@ -127,14 +167,23 @@
           <span class="temp {heat(s.temp_c)}">{num(s.temp_c)}{t().unit.c}</span>
           <span class="pct">{s.load_pct != null ? `${num(s.load_pct)}${t().unit.pct}` : `${num(s.core_clock_mhz)} ${t().unit.mhz}`}</span>
         </p>
+      {:else if s?.asleep}
+        <!-- The switch can show a sleeping card; it is never woken to fill this in. -->
+        <p class="value"><span>{t().gpu.asleep}</span></p>
       {:else}
         <p class="value">
           <span>{num(s?.core_clock_mhz ?? null)}<small> {t().unit.mhz}</small></span>
         </p>
       {/if}
       <p class="hw ltr">{activeGpu.name}</p>
-      {#if s && s.temp_c == null}<p class="hint">{t().gpu.sharedTemp}</p>{/if}
+      {#if s?.asleep}<p class="hint">{t().gpu.asleepWhy}</p>
+      {:else if s && s.temp_c == null}<p class="hint">{t().gpu.sharedTemp}</p>{/if}
       {#if s?.load_pct != null}{@render bar(s.load_pct)}{/if}
+    {/if}
+    {#if gpuErr}
+      <p class="hint err">{gpuErr}</p>
+    {:else if gpuDef?.pending}
+      <p class="hint">{t().gpu.afterLogin}</p>
     {/if}
     {#if otherGpu}
       {@const o = sampleFor(otherGpu.pci)}
@@ -309,6 +358,7 @@
   }
   .tile { display: flex; flex-direction: column; }
   .tile-head, .card-head { display: flex; align-items: center; gap: 10px; }
+  .tile-head h2 { white-space: nowrap; }
   .card-head { margin-bottom: 12px; }
   h2 { margin: 0; font-size: 0.98rem; font-weight: 700; }
   .ico {
@@ -339,7 +389,17 @@
   .temp.warm { color: var(--warn); }
   .temp.hot { color: var(--danger); }
   .hw { margin: 0; color: var(--text-3); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .in-use { margin-inline-start: auto; font-size: 0.72rem; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); }
+  .gpu-switch { margin-inline-start: auto; flex: none; display: inline-flex; gap: 2px; padding: 2px; border-radius: 999px; background: var(--card-2); }
+  .gpu-switch button {
+    font: inherit; font-size: 0.72rem; padding: 2px 9px; border: 0; border-radius: 999px;
+    background: transparent; color: var(--text-2); cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .gpu-switch button:hover:not(.on):not(:disabled) { color: var(--text); }
+  .gpu-switch button.on { background: var(--accent-soft); color: var(--accent-text); cursor: default; }
+  .gpu-switch button:disabled:not(.on) { cursor: progress; }
+  .gpu-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .hint.err { color: var(--danger); }
   .other { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; font-size: 0.78rem; color: var(--text-3); }
   .other .ltr-inline { direction: ltr; unicode-bidi: isolate; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lamp-s { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex: none; }

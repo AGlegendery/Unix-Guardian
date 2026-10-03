@@ -53,7 +53,11 @@ export const en = {
   },
   gpu: {
     asleep: "Asleep",
-    inUse: "in use",
+    integrated: "Integrated",
+    discrete: "Discrete",
+    switchLabel: "GPU programs start on",
+    switchWhy: "Choose the card programs and games start on. The desktop itself stays on the card the screen is wired to.",
+    afterLogin: "From your next login, programs start on this card.",
     idle: "idle",
     sharedTemp: "Built into the processor: its temperature is the processor's.",
     asleepWhy: "Powered down to save battery. Unix Guardian never wakes it just to read it.",

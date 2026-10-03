@@ -4,7 +4,7 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { AutoTuneStatus, CoolingState, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -15,6 +15,7 @@ const watches: PowerWatch[] = [];
 let t = 0;
 let fpsSetUp = false;
 let fanMode = 1;
+let gpuDefault: GpuDefault = { chosen: "0000:00:02.0", active: "0000:00:02.0", pending: false };
 let ppdProfile = "balanced";
 const fanCurves: Record<string, [number, number][]> = {};
 const zeroTune: GpuTune = { power_limit_w: 0, core_offset_mhz: 0, mem_offset_mhz: 0 };
@@ -250,6 +251,11 @@ export const mockApi = {
     const n = fpsLog.length;
     fpsLog = [];
     return n;
+  },
+  gpuDefault: async () => ({ ...gpuDefault }),
+  setGpuDefault: async (pci: string) => {
+    gpuDefault = { ...gpuDefault, chosen: pci, pending: pci !== gpuDefault.active };
+    return { ...gpuDefault };
   },
   gpuOffload: async () => [
     { pci: "0000:00:02.0", vendor: "intel", boot_vga: true, launch_options: "DRI_PRIME=pci-0000_00_02_0 MESA_VK_DEVICE_SELECT=8086:468b! __GLX_VENDOR_LIBRARY_NAME=mesa %command%" },
