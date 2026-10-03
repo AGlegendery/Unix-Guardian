@@ -156,19 +156,53 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         })
         .split(r);
 
-    // Tiles: the GPU in use, the processor, memory, network.
-    let gpu_lines: Vec<Line> = match (gpu_awake, dgpu) {
-        (Some(g), Some(d)) => vec![
-            Line::from(vec![Span::styled(opt(g.temp_c, "°", 0), t.title()), Span::styled(format!("  {}", opt(g.load_pct, " %", 0)), t.muted())]),
-            Line::from(Span::styled(d.name.clone(), t.faint())),
-        ],
-        _ => {
-            let clock = igpu.and_then(|i| s.gpus.iter().find(|g| g.pci == i.pci)).map(|g| g.core_clock_mhz).unwrap_or(0);
-            vec![
-                Line::from(vec![Span::styled(format!("{clock} MHz"), t.title()), Span::styled("  in use", Style::default().fg(t.accent))]),
-                Line::from(Span::styled(igpu.map(|g| g.name.clone()).unwrap_or_default(), t.faint())),
-                Line::from(Span::styled(dgpu.map(|d| format!("{}: asleep", short_name(&d.name))).unwrap_or_default(), t.faint())),
-            ]
+    // Tiles: the GPU, the processor, memory, network. With two GPUs the
+    // GPU tile starts with the card switch and shows the chosen card.
+    let switch = gpu_switch(app);
+    let gpu_lines: Vec<Line> = if let Some((names, chosen, pending)) = &switch {
+        let gpus = app.gpu_switch.value.as_ref().map(|v| v.0.clone()).unwrap_or_default();
+        let pci = &gpus[*chosen].pci;
+        let name = |pci: &str| inv.as_ref().and_then(|i| i.gpus.iter().find(|g| g.pci == pci)).map(|g| short_name(&g.name)).unwrap_or_else(|| pci.to_string());
+        let sample = s.gpus.iter().find(|g| &g.pci == pci);
+        let reading = match sample {
+            Some(g) if g.asleep => Line::from(Span::styled("asleep", t.title())),
+            Some(g) if !g.temp_c.is_nan() => Line::from(vec![Span::styled(opt(g.temp_c, "°", 0), t.title()), Span::styled(format!("  {}", opt(g.load_pct, " %", 0)), t.muted())]),
+            Some(g) => Line::from(Span::styled(format!("{} MHz", g.core_clock_mhz), t.title())),
+            None => Line::from(Span::styled("—", t.title())),
+        };
+        let other = &gpus[1 - *chosen];
+        let note = if *pending {
+            Line::from(Span::styled("from your next login", Style::default().fg(t.accent)))
+        } else {
+            let o = s.gpus.iter().find(|g| g.pci == other.pci);
+            let state = match o {
+                Some(g) if g.asleep => "asleep".to_string(),
+                Some(g) if !g.temp_c.is_nan() => opt(g.temp_c, "°", 0),
+                _ => "idle".to_string(),
+            };
+            Line::from(Span::styled(format!("{}: {state}", name(&other.pci)), t.faint()))
+        };
+        let mut l = vec![reading, Line::from(Span::styled(name(pci), t.faint())), note];
+        if wide {
+            // The first line is left for the switch, drawn over it below.
+            l.insert(0, Line::from(""));
+        } else {
+            l[0].spans.push(Span::styled(format!("  [{}]", names[*chosen]), Style::default().fg(t.accent)));
+        }
+        l
+    } else {
+        match (gpu_awake, dgpu) {
+            (Some(g), Some(d)) => vec![
+                Line::from(vec![Span::styled(opt(g.temp_c, "°", 0), t.title()), Span::styled(format!("  {}", opt(g.load_pct, " %", 0)), t.muted())]),
+                Line::from(Span::styled(d.name.clone(), t.faint())),
+            ],
+            _ => {
+                let clock = igpu.and_then(|i| s.gpus.iter().find(|g| g.pci == i.pci)).map(|g| g.core_clock_mhz).unwrap_or(0);
+                vec![
+                    Line::from(Span::styled(format!("{clock} MHz"), t.title())),
+                    Line::from(Span::styled(igpu.map(|g| g.name.clone()).unwrap_or_default(), t.faint())),
+                ]
+            }
         }
     };
     let cpu_lines = vec![
@@ -197,6 +231,11 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         let cols = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Ratio(1, 4); 4]).split(rows[0]);
         for (i, (title, lines)) in tiles.into_iter().enumerate() {
             f.render_widget(Paragraph::new(lines).block(card(app, title)), cols[i]);
+        }
+        if let Some((names, chosen, _)) = &switch {
+            let c = cols[0];
+            let line = Rect { x: c.x + 2, y: c.y + 1, width: c.width.saturating_sub(4), height: 1 };
+            choices(app, f, line, "Programs on", names, *chosen);
         }
     } else {
         let mut lines = Vec::new();
@@ -255,6 +294,45 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         spans.push(Span::styled(e, Style::default().fg(t.accent)));
     }
     f.render_widget(Paragraph::new(Line::from(spans)).block(card(app, "Load per core")), rows[2]);
+}
+
+/// The card switch, when there are two GPUs: their short names (boot GPU
+/// first), the chosen one, and whether it waits for the next login.
+fn gpu_switch(app: &App) -> Option<(Vec<String>, usize, bool)> {
+    let (gpus, st) = app.gpu_switch.value.as_ref()?;
+    if gpus.len() != 2 {
+        return None;
+    }
+    let same = gpus[0].vendor == gpus[1].vendor;
+    let names = gpus
+        .iter()
+        .map(|g| match g.vendor_name() {
+            _ if same => if g.boot_vga { "Integrated" } else { "Discrete" }.to_string(),
+            "nvidia" => "NVIDIA".into(),
+            "amd" => "AMD".into(),
+            "intel" => "Intel".into(),
+            _ => if g.boot_vga { "Integrated" } else { "Discrete" }.to_string(),
+        })
+        .collect();
+    let chosen = gpus.iter().position(|g| g.pci == st.chosen).unwrap_or(0);
+    Some((names, chosen, st.pending))
+}
+
+/// Makes GPU `i` of the switch the one programs start on.
+fn choose_gpu(app: &mut App, i: usize) {
+    let Some((gpus, st)) = app.gpu_switch.value.clone() else { return };
+    let Some(g) = gpus.get(i) else { return };
+    if g.pci == st.chosen {
+        return;
+    }
+    let r = ug_core::gpu_default::set(&ug_core::gpu_default::config_home(), g)
+        .map(|_| "Programs opened after your next login start on this card; `ug run` uses it now.".to_string())
+        .map_err(|e| e.to_string());
+    report(app, r);
+    app.gpu_switch.invalidate();
+    // Shown at once, not at the next refresh.
+    let st = ug_core::gpu_default::state(&ug_core::gpu_default::config_home(), &gpus);
+    app.gpu_switch.store(Ok((gpus, st)));
 }
 
 fn short_name(s: &str) -> String {
@@ -1337,11 +1415,16 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (3, _) => vec![("Tab", "temperature"), ("Enter", "set up / undo")],
         (4, _) => vec![("Tab", "next tab"), ("Enter", "limit while gaming"), ("b", "block"), ("x", "allow")],
         (5, _) => vec![("↑↓", "setting"), ("←→", "change"), ("Enter", "next / run")],
+        (0, _) if gpu_switch(app).is_some() => vec![("←→", "graphics card for programs")],
         _ => vec![],
     }
 }
 
 pub fn set_choice(app: &mut App, i: usize) {
+    if app.page == 0 {
+        choose_gpu(app, i);
+        return;
+    }
     app.choice = i;
     app.armed = None;
     if app.page == 3 {
@@ -1363,6 +1446,12 @@ pub fn set_choice(app: &mut App, i: usize) {
 }
 
 pub fn step_choice(app: &mut App, d: i32) {
+    if app.page == 0 {
+        if let Some((_, chosen, _)) = gpu_switch(app) {
+            choose_gpu(app, (chosen as i32 + d).clamp(0, 1) as usize);
+        }
+        return;
+    }
     if (app.page, app.tab) == (1, 1) {
         step_tune(app, d);
         return;

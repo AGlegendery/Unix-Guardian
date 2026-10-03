@@ -95,6 +95,9 @@ pub struct App {
     pub net: Cached<(Vec<AppTraffic>, Vec<NetRule>, NetControlStatus)>,
     pub overlay: Cached<OverlayState>,
     pub cooling: Cached<(ug_proto::CoolingState, String)>,
+    /// The dashboard's card switch: the GPUs (boot one first) and the GPU
+    /// programs start on. Per-user files and sysfs only.
+    pub gpu_switch: Cached<(Vec<ug_hw::gpu_use::Gpu>, ug_core::gpu_default::State)>,
     /// GPU tuning on the game mode page: the card, its state (read only on
     /// request: it wakes the card), the draft, and the trial's deadline.
     pub tune: Option<(String, ug_proto::GpuTuneState)>,
@@ -147,6 +150,7 @@ impl App {
             ping_compare: None,
             net: Cached::new(Duration::from_secs(2)),
             overlay: Cached::new(SLOW),
+            gpu_switch: Cached::new(SLOW),
             cooling: Cached::new(Duration::from_secs(3)),
             tune: None,
             tune_draft: Default::default(),
@@ -185,6 +189,11 @@ impl App {
                         }
                     }
                     self.snapshot.store(r);
+                }
+                if self.gpu_switch.due() {
+                    let gpus = ug_hw::gpu_use::gpus(&ug_hw::SysRoot::real());
+                    let st = ug_core::gpu_default::state(&ug_core::gpu_default::config_home(), &gpus);
+                    self.gpu_switch.store(Ok((gpus, st)));
                 }
                 self.refresh_games();
             }
