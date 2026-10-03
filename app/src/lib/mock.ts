@@ -5,7 +5,7 @@
 
 import data from "./preview-data.json";
 import driverReport from "./preview-driver.json";
-import type { AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, DriverReport, DriverPlan, DriverOp, ShortcutsState, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, DriverReport, DriverPlan, DriverOp, ShortcutsState, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -16,6 +16,12 @@ const watches: PowerWatch[] = [];
 let t = 0;
 const driverOps: DriverOp[] = [];
 let agentSettings: AgentSettings = { notifications: true, scan_interval_s: 2, close_window_on_game: false };
+const recorder: RecorderState = {
+  engine: "flatpak", can_set_up: false, mode: "idle", since_unix_ms: 0, file: "", last_saved: "", problem: "",
+  captures: ["portal", "DP-1", "eDP-1"],
+  settings: { quality: "balanced", fps: 60, capture: "", codec: "auto", audio_output: true, audio_mic: false, replay_seconds: 60, folder: "" },
+  mb_per_minute: 91, replay_mb: 91, folder: "/home/you/Videos/Unix Guardian",
+};
 const shortcuts: ShortcutsState = {
   enabled: false,
   status: "off",
@@ -25,6 +31,8 @@ const shortcuts: ShortcutsState = {
     { id: "open-window", description: "Open Unix Guardian", trigger: "Meta+Shift+U", keys: "Meta+Shift+U", chosen: false },
     { id: "toggle-overlay", description: "Show or hide the in-game overlay", trigger: "Meta+Shift+O", keys: "Meta+Shift+O", chosen: false },
     { id: "toggle-gamemode", description: "Turn game mode on or off", trigger: "Meta+Shift+G", keys: "Meta+Shift+G", chosen: false },
+    { id: "toggle-recording", description: "Start or stop recording", trigger: "Meta+Shift+R", keys: "Meta+Shift+R", chosen: false },
+    { id: "save-replay", description: "Save the last seconds (replay)", trigger: "Meta+Shift+S", keys: "Meta+Shift+S", chosen: false },
   ],
 };
 let fpsSetUp = false;
@@ -434,12 +442,34 @@ export const mockApi = {
   shortcutsSetKeys: async (id: string, keys: string) => {
     const k = shortcuts.shortcuts.find((s) => s.id === id);
     if (!k) throw `Unknown shortcut \`${id}\``;
-    const suggested = { "open-window": "Meta+Shift+U", "toggle-overlay": "Meta+Shift+O", "toggle-gamemode": "Meta+Shift+G" }[k.id];
+    const suggested = { "open-window": "Meta+Shift+U", "toggle-overlay": "Meta+Shift+O", "toggle-gamemode": "Meta+Shift+G", "toggle-recording": "Meta+Shift+R", "save-replay": "Meta+Shift+S" }[k.id];
     const want = keys || suggested;
     if (!/(Ctrl|Alt|Meta)\+/.test(want) && !/^(Shift\+)?F\d+$/.test(want)) throw `${want} needs Ctrl, Alt or Meta with it, or it would take the key from everything you type.`;
     if (shortcuts.shortcuts.some((s) => s.id !== id && s.keys === want)) throw `${want} is already the shortcut for "${shortcuts.shortcuts.find((s) => s.keys === want)?.description}".`;
     Object.assign(k, { keys: want, trigger: want, chosen: keys !== "" });
     return shortcuts.enabled ? `${want} now does "${k.description}".` : `Saved: ${want}, used when the shortcuts are turned on.`;
+  },
+  recorderState: async (): Promise<RecorderState> => {
+    const s = recorder.settings;
+    const mbit = s.quality === "small" ? 6 : s.quality === "high" ? 24 : 12;
+    const mb = Math.round(((mbit * (s.fps / 60) + (Number(s.audio_output) + Number(s.audio_mic)) * 0.128) * 60) / 8 * 10) / 10;
+    return { ...recorder, settings: { ...s }, mb_per_minute: mb, replay_mb: Math.round((mb * s.replay_seconds) / 6) / 10 };
+  },
+  recorderSet: async (s: RecorderSettings) => {
+    if (![30, 60, 120].includes(s.fps)) throw "frame rate is 30, 60 or 120";
+    recorder.settings = { ...s };
+  },
+  recorderDo: async (what: RecorderAction) => {
+    const file = `${recorder.folder}/Recording 2026-10-03 21-00-00.mp4`;
+    if (what === "start") Object.assign(recorder, { mode: "recording", since_unix_ms: Date.now(), file });
+    if (what === "replay") Object.assign(recorder, { mode: "replay", since_unix_ms: Date.now() });
+    if (what === "stop") {
+      const was = recorder.mode;
+      Object.assign(recorder, { mode: "idle", since_unix_ms: 0, file: "", last_saved: was === "recording" ? file : recorder.last_saved });
+      return was === "recording" ? file : "";
+    }
+    if (what === "save") return (recorder.last_saved = `${recorder.folder}/Replay 2026-10-03 21-01-00.mp4`);
+    return what === "start" ? file : "";
   },
   shortcutsRun: async (id: string) => {
     if (id === "toggle-gamemode") {

@@ -257,7 +257,12 @@ async fn main() -> Result<()> {
         .serve_at(AGENT_OBJECT_PATH, SettingsIface { settings: Arc::clone(&settings) })?
         .serve_at(
             AGENT_OBJECT_PATH,
-            ShortcutsIface { shortcuts: Arc::clone(&shortcuts), core: Arc::clone(&core), overlay: Arc::clone(&overlay) },
+            ShortcutsIface {
+                shortcuts: Arc::clone(&shortcuts),
+                core: Arc::clone(&core),
+                overlay: Arc::clone(&overlay),
+                recorder: Arc::clone(&recorder),
+            },
         )?
         .build()
         .await
@@ -380,7 +385,7 @@ async fn main() -> Result<()> {
             Ok(()) = settings_changed.changed() => ticker = scan_ticker(&settings),
             Some(id) = pressed_rx.recv() => {
                 // A key pressed anywhere has no other feedback than this.
-                let said = shortcuts::perform(&id, &core, &overlay).await;
+                let said = shortcuts::perform(&id, &core, &overlay, &recorder).await;
                 tracing::info!(shortcut = %id, result = ?said, "global shortcut");
                 if id != "open-window" && notify_on() {
                     let text = said.unwrap_or_else(|e| e);

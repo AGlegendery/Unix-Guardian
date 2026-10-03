@@ -56,6 +56,8 @@ check "the replay buffer runs" "'$B/ug' record replay | grep -q 'keeping the las
 check "saving it writes a clip and reports it" "'$B/ug' record save | grep -q 'Saved .*/Replay '"
 check "and it can be saved again" "'$B/ug' record save | grep -q 'Saved .*/Replay '"
 check "stopping the buffer" "'$B/ug' record stop | grep -q 'Replay buffer stopped' && '$B/ug' record | grep -q 'Now           idle'"
+check "the recording shortcut starts and stops a recording" "'$B/ug' shortcut toggle-recording | grep -q 'Recording to' && '$B/ug' shortcut toggle-recording | grep -q 'Recording saved'"
+check "the replay shortcut starts the buffer, then saves it" "'$B/ug' shortcut save-replay | grep -q 'Keeping the last seconds' && '$B/ug' shortcut save-replay | grep -q 'Replay saved' && '$B/ug' record stop >/dev/null"
 check "save without a buffer is refused" "! '$B/ug' record save 2>/dev/null"
 
 echo; [ "$fails" -eq 0 ] && echo "recorder-e2e: OK" || { echo "recorder-e2e: $fails failed"; exit 1; }

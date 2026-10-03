@@ -43,10 +43,12 @@ pub struct Action {
     pub preferred: &'static str,
 }
 
-pub const ACTIONS: [Action; 3] = [
+pub const ACTIONS: [Action; 5] = [
     Action { id: "open-window", description: "Open Unix Guardian", preferred: "LOGO+SHIFT+u" },
     Action { id: "toggle-overlay", description: "Show or hide the in-game overlay", preferred: "LOGO+SHIFT+o" },
     Action { id: "toggle-gamemode", description: "Turn game mode on or off", preferred: "LOGO+SHIFT+g" },
+    Action { id: "toggle-recording", description: "Start or stop recording", preferred: "LOGO+SHIFT+r" },
+    Action { id: "save-replay", description: "Save the last seconds (replay)", preferred: "LOGO+SHIFT+s" },
 ];
 
 /// The application id the portal knows Unix Guardian by: the basename of its
@@ -559,8 +561,37 @@ where
 
 /// Does what shortcut `id` does and says what happened, in a sentence for a
 /// notification or the CLI. Game mode follows at the agent's next tick.
-pub async fn perform(id: &str, core: &crate::iface::Shared, overlay: &Arc<crate::overlay::Overlay>) -> Result<String, String> {
+pub async fn perform(
+    id: &str,
+    core: &crate::iface::Shared,
+    overlay: &Arc<crate::overlay::Overlay>,
+    recorder: &Arc<crate::recorder::Recorder>,
+) -> Result<String, String> {
+    let rec = Arc::clone(recorder);
+    let blocking = |f: Box<dyn FnOnce(&crate::recorder::Recorder) -> Result<String, String> + Send>| async move {
+        tokio::task::spawn_blocking(move || f(&rec)).await.map_err(|e| e.to_string())?
+    };
     match id {
+        "toggle-recording" => {
+            blocking(Box::new(|r| {
+                if r.is_recording() {
+                    r.stop().map(|f| format!("Recording saved: {f}"))
+                } else {
+                    r.start().map(|f| format!("Recording to {f}"))
+                }
+            }))
+            .await
+        }
+        "save-replay" => {
+            blocking(Box::new(|r| {
+                if r.is_replaying() {
+                    r.save_replay().map(|f| format!("Replay saved: {f}"))
+                } else {
+                    r.start_replay().map(|()| "Keeping the last seconds now; press the shortcut again to save them.".to_string())
+                }
+            }))
+            .await
+        }
         "open-window" => crate::tray::open_window().await.map(|()| "Opening Unix Guardian.".to_string()),
         "toggle-overlay" => {
             let o = Arc::clone(overlay);

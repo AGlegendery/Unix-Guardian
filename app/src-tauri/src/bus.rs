@@ -745,6 +745,39 @@ pub async fn driver_ops(bus: State<'_, Bus>) -> Res<Vec<ug_proto::DriverOp>> {
     d.ops().await.map_err(daemon_err)
 }
 
+fn recorder_err(e: zbus::Error) -> String {
+    agent_err(e)
+}
+
+#[tauri::command]
+pub async fn recorder_state(bus: State<'_, Bus>) -> Res<ug_proto::RecorderState> {
+    let r = ug_proto::agent::RecorderProxy::new(bus.agent().await?).await.map_err(recorder_err)?;
+    r.state().await.map_err(recorder_err)
+}
+
+#[tauri::command]
+pub async fn recorder_set(bus: State<'_, Bus>, settings: ug_proto::RecorderSettings) -> Res<()> {
+    let r = ug_proto::agent::RecorderProxy::new(bus.agent().await?).await.map_err(recorder_err)?;
+    r.set(&settings).await.map_err(recorder_err)
+}
+
+/// `start`, `stop`, `replay`, `save`, `setup` or `remove`; returns a file
+/// where there is one.
+#[tauri::command]
+pub async fn recorder_do(bus: State<'_, Bus>, what: String) -> Res<String> {
+    let r = ug_proto::agent::RecorderProxy::new(bus.agent().await?).await.map_err(recorder_err)?;
+    match what.as_str() {
+        "start" => r.start().await,
+        "stop" => r.stop().await,
+        "replay" => r.start_replay().await.map(|()| String::new()),
+        "save" => r.save_replay().await,
+        "setup" => r.set_up(true).await.map(|()| String::new()),
+        "remove" => r.set_up(false).await.map(|()| String::new()),
+        other => return Err(format!("unknown recorder action {other}")),
+    }
+    .map_err(recorder_err)
+}
+
 #[tauri::command]
 pub async fn driver_keep(bus: State<'_, Bus>, op_id: String) -> Res<()> {
     let d = ug_proto::daemon::DriverProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;

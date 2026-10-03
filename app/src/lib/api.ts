@@ -219,8 +219,33 @@ export interface SettingsState {
   /** Set by `ug-agent --scan-interval`; shown, not changeable. */
   scan_interval_fixed: boolean;
 }
+export interface RecorderSettings {
+  quality: "small" | "balanced" | "high";
+  fps: number;
+  capture: string;
+  codec: "auto" | "h264" | "hevc" | "av1";
+  audio_output: boolean;
+  audio_mic: boolean;
+  replay_seconds: number;
+  folder: string;
+}
+export interface RecorderState {
+  engine: "" | "native" | "flatpak";
+  can_set_up: boolean;
+  mode: "idle" | "recording" | "replay" | "installing";
+  since_unix_ms: number;
+  file: string;
+  last_saved: string;
+  problem: string;
+  captures: string[];
+  settings: RecorderSettings;
+  mb_per_minute: number;
+  replay_mb: number;
+  folder: string;
+}
+export type RecorderAction = "start" | "stop" | "replay" | "save" | "setup" | "remove";
 export interface ShortcutInfo {
-  id: "open-window" | "toggle-overlay" | "toggle-gamemode";
+  id: "open-window" | "toggle-overlay" | "toggle-gamemode" | "toggle-recording" | "save-replay";
   description: string;
   /** As the desktop describes it ("Meta+Shift+O"); "" when not bound. */
   trigger: string;
@@ -470,6 +495,9 @@ const tauriApi = {
   shortcutsState: () => invoke<ShortcutsState>("shortcuts_state"),
   shortcutsSetEnabled: (on: boolean) => invoke<void>("shortcuts_set_enabled", { on }),
   shortcutsRun: (id: string) => invoke<string>("shortcuts_run", { id }),
+  recorderState: () => invoke<RecorderState>("recorder_state"),
+  recorderSet: (settings: RecorderSettings) => invoke<void>("recorder_set", { settings }),
+  recorderDo: (what: RecorderAction) => invoke<string>("recorder_do", { what }),
   /** Keys as "Meta+Shift+G"; "" for the suggested ones. Says what happened. */
   shortcutsSetKeys: (id: string, keys: string) => invoke<string>("shortcuts_set_keys", { id, keys }),
   fpsSessions: (sinceUnixMs: number) => invoke<FpsSession[]>("fps_sessions", { sinceUnixMs }),

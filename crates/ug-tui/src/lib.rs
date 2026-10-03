@@ -38,7 +38,7 @@ pub const PAGES: [(&str, &str, bool); 12] = [
     ("Ping stability", "Ping", true),
     ("Overlay", "Overlay", true),
     ("Playtime", "Play", true),
-    ("Recorder", "Rec", false),
+    ("Recorder", "Rec", true),
     ("Drivers", "Drivers", true),
     ("Bug report", "Bugs", false),
     ("Updates", "Updates", false),
@@ -95,6 +95,7 @@ pub struct App {
     pub net: Cached<(Vec<AppTraffic>, Vec<NetRule>, NetControlStatus)>,
     pub overlay: Cached<OverlayState>,
     pub shortcuts: Cached<ug_proto::ShortcutsState>,
+    pub recorder: Cached<ug_proto::RecorderState>,
     /// Recording new keys for a global shortcut: its id, and Meta added by
     /// hand (most terminals never see the Meta key itself).
     pub recording: Option<(String, bool)>,
@@ -174,6 +175,7 @@ impl App {
             overlay: Cached::new(SLOW),
             // Fast enough to follow the desktop's confirmation dialog.
             shortcuts: Cached::new(Duration::from_secs(1)),
+            recorder: Cached::new(Duration::from_secs(1)),
             recording: None,
             settings: Cached::new(SLOW),
             driver: Cached::new(Duration::from_secs(3600)),
@@ -322,6 +324,12 @@ impl App {
                 if self.tab == 1 && self.shortcuts.due() {
                     let r = self.bus.shortcuts();
                     self.shortcuts.store(r);
+                }
+            }
+            7 => {
+                if self.recorder.due() {
+                    let r = self.bus.recorder();
+                    self.recorder.store(r);
                 }
             }
             8 => {
@@ -1010,6 +1018,29 @@ mod tests {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
         assert!(!screen.contains("Not built yet"));
+    }
+
+    #[test]
+    fn the_recorder_page_shows_what_it_does_and_how_to_set_it_up() {
+        let mut app = App::new(Bus::offline());
+        app.go(7);
+        app.recorder.store(Ok(ug_proto::RecorderState { can_set_up: true, mode: "idle".into(), ..Default::default() }));
+        let screen = render(&mut app, 120, 34);
+        assert!(screen.contains("gpu-screen-recorder is not installed") && screen.contains("Set it up"), "{screen}");
+        app.recorder.store(Ok(ug_proto::RecorderState {
+            engine: "flatpak".into(),
+            mode: "replay".into(),
+            settings: ug_proto::RecorderSettings::default(),
+            mb_per_minute: 91.0,
+            replay_mb: 91.0,
+            folder: "/home/u/Videos/Unix Guardian".into(),
+            last_saved: "/home/u/Videos/Unix Guardian/Replay 1.mp4".into(),
+            ..Default::default()
+        }));
+        let screen = render(&mut app, 120, 34);
+        for want in ["keeping the last 60 s", "Enter writes them to a file", "‹ balanced ›", "‹ 60 fps ›", "About 91 MB a minute", "Last saved: /home/u/Videos/Unix Guardian/Replay 1.mp4"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
     }
 
     #[test]

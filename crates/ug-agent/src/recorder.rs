@@ -357,6 +357,16 @@ impl Recorder {
         Ok(shown)
     }
 
+    pub fn is_recording(&self) -> bool {
+        self.reap();
+        self.lock().running.as_ref().is_some_and(|r| !r.replay)
+    }
+
+    pub fn is_replaying(&self) -> bool {
+        self.reap();
+        self.lock().running.as_ref().is_some_and(|r| r.replay)
+    }
+
     pub fn start(&self) -> Result<String, String> {
         self.spawn(false)
     }

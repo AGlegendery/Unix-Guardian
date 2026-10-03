@@ -381,6 +381,7 @@ pub struct ShortcutsIface {
     pub shortcuts: Arc<crate::shortcuts::Shortcuts>,
     pub core: Shared,
     pub overlay: Arc<crate::overlay::Overlay>,
+    pub recorder: Arc<crate::recorder::Recorder>,
 }
 
 #[zbus::interface(name = "org.unixguardian.Agent1.Shortcuts")]
@@ -396,7 +397,7 @@ impl ShortcutsIface {
     }
 
     async fn run(&self, id: &str) -> zbus::fdo::Result<String> {
-        crate::shortcuts::perform(id, &self.core, &self.overlay).await.map_err(zbus::fdo::Error::Failed)
+        crate::shortcuts::perform(id, &self.core, &self.overlay, &self.recorder).await.map_err(zbus::fdo::Error::Failed)
     }
 
     async fn set_keys(&self, id: &str, keys: &str) -> zbus::fdo::Result<String> {

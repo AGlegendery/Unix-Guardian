@@ -203,6 +203,33 @@ impl Bus {
         self.rt.block_on(async { ShortcutsProxy::new(c).await?.run(id).await }).map_err(|e| msg(e, "agent"))
     }
 
+    pub fn recorder(&self) -> Result<ug_proto::RecorderState, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { ug_proto::agent::RecorderProxy::new(c).await?.state().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn recorder_set(&self, s: &ug_proto::RecorderSettings) -> Result<(), String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { ug_proto::agent::RecorderProxy::new(c).await?.set(s).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    /// `start`, `stop`, `replay`, `save` or `setup`; a file where there is one.
+    pub fn recorder_do(&self, what: &str) -> Result<String, String> {
+        let c = self.agent()?;
+        self.rt
+            .block_on(async {
+                let r = ug_proto::agent::RecorderProxy::new(c).await?;
+                match what {
+                    "start" => r.start().await,
+                    "stop" => r.stop().await,
+                    "replay" => r.start_replay().await.map(|()| String::new()),
+                    "save" => r.save_replay().await,
+                    _ => r.set_up(true).await.map(|()| String::new()),
+                }
+            })
+            .map_err(|e| msg(e, "agent"))
+    }
+
     pub fn shortcut_set_keys(&self, id: &str, keys: &str) -> Result<String, String> {
         let c = self.agent()?;
         self.rt.block_on(async { ShortcutsProxy::new(c).await?.set_keys(id, keys).await }).map_err(|e| msg(e, "agent"))

@@ -19,6 +19,7 @@
   import Playtime from "./pages/Playtime.svelte";
   import SettingsPage from "./pages/Settings.svelte";
   import Drivers from "./pages/Drivers.svelte";
+  import Recorder from "./pages/Recorder.svelte";
 
   type Page = keyof ReturnType<typeof t>["nav"];
   // Phoenix Guardian's order, with the Linux-only driver troubleshooter added.
@@ -37,7 +38,7 @@
     ["settings", Settings],
   ];
   // Built so far; every other page says plainly that it is not.
-  const built = new Set<Page>(["dashboard", "gamemode", "system", "monitoring", "ping", "overlay", "playtime", "bugreport", "settings", "drivers"]);
+  const built = new Set<Page>(["dashboard", "gamemode", "system", "monitoring", "ping", "overlay", "playtime", "bugreport", "settings", "drivers", "recorder"]);
 
   // `#gamemode` in the URL opens that page (handy in the browser preview).
   const fromHash = location.hash.slice(1).split("/")[0] as Page;
@@ -174,6 +175,8 @@
       <Playtime />
     {:else if page === "drivers"}
       <Drivers />
+    {:else if page === "recorder"}
+      <Recorder />
     {:else if page === "settings"}
       <SettingsPage {overview} />
     {:else if page === "bugreport"}

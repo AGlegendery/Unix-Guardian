@@ -89,6 +89,7 @@ pub fn draw(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
             }
         }
         6 => playtime_page(app, f, inner),
+        7 => recorder_page(app, f, inner),
         11 => settings_page(app, f, inner),
         8 => {
             tabs(app, f, Rect { height: 1, ..inner }, &["Check", "Changes made"]);
@@ -1572,6 +1573,154 @@ fn overlay_page(app: &mut App, f: &mut Frame, r: Rect) {
     }
 }
 
+/// The recorder's rows: two actions, then the settings.
+const RECORDER_ROWS: [&str; 8] =
+    ["Recording", "Replay buffer", "Save the last seconds", "Quality", "Frame rate", "Replay keeps", "The game's sound", "Microphone"];
+
+fn recorder_page(app: &mut App, f: &mut Frame, r: Rect) {
+    let t = app.theme;
+    let Some(st) = app.recorder.value.clone() else {
+        let msg = app.recorder.error.clone().unwrap_or_else(|| "Reading…".into());
+        f.render_widget(Paragraph::new(Span::styled(msg, t.muted())).wrap(Wrap { trim: true }), r);
+        return;
+    };
+    let line = |y: u16| Rect { x: r.x, y, width: r.width, height: 1 };
+    if st.engine.is_empty() {
+        app.rows = if st.can_set_up { 1 } else { 0 };
+        let mut lines = vec![
+            Line::from(Span::styled("gpu-screen-recorder is not installed.", t.text())),
+            Line::from(Span::styled("It encodes on the graphics card, so games lose almost no frames, and records on Wayland too.", t.faint())),
+            Line::from(""),
+        ];
+        if st.mode == "installing" {
+            lines.push(Line::from(Span::styled("Installing… this can take a few minutes.", t.accent())));
+        } else if !st.can_set_up {
+            lines.push(Line::from(Span::styled("Flatpak is not installed, so install gpu-screen-recorder with your package manager.", t.muted())));
+        }
+        if !st.problem.is_empty() {
+            lines.push(Line::from(Span::styled(st.problem.clone(), t.warn_style())));
+        }
+        f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), Rect { height: r.height.saturating_sub(2), ..r });
+        if st.can_set_up && st.mode != "installing" {
+            let l = Line::from(Span::styled(" Set it up (Flatpak for you only, no password)", t.accent()));
+            row(app, f, line(r.y + 5), 0, l);
+        }
+        return;
+    }
+    let s = &st.settings;
+    let elapsed = if st.since_unix_ms > 0 { (ug_driver::apply::now_ms().saturating_sub(st.since_unix_ms)) / 1000 } else { 0 };
+    let rec = match st.mode.as_str() {
+        "recording" => format!("● recording {}:{:02} — Enter stops and saves", elapsed / 60, elapsed % 60),
+        "replay" => "the replay buffer is running".into(),
+        _ => "Enter starts".into(),
+    };
+    let replay = match st.mode.as_str() {
+        "replay" => format!("keeping the last {} s — Enter stops", s.replay_seconds),
+        "recording" => "not while recording".into(),
+        _ => "Enter starts".into(),
+    };
+    let save = if st.mode == "replay" { "Enter writes them to a file".to_string() } else { "start the buffer first".into() };
+    let onoff = |b: bool| if b { "on" } else { "off" };
+    let values = [
+        rec,
+        replay,
+        save,
+        format!("‹ {} ›", s.quality),
+        format!("‹ {} fps ›", s.fps),
+        format!("‹ {} s ›  ≈ {} MB of memory", s.replay_seconds, st.replay_mb),
+        format!("‹ {} ›", onoff(s.audio_output)),
+        format!("‹ {} ›", onoff(s.audio_mic)),
+    ];
+    app.rows = RECORDER_ROWS.len();
+    for (i, (name, v)) in RECORDER_ROWS.iter().zip(values.iter()).enumerate() {
+        let style = if i == 0 && st.mode == "recording" { Style::default().fg(t.danger) } else if i < 3 { t.accent() } else { t.text() };
+        // A blank line between the actions and the settings.
+        let y = r.y + i as u16 + u16::from(i >= 3);
+        row(app, f, line(y), i, Line::from(vec![Span::styled(format!(" {name:<24}"), t.muted()), Span::styled(v.clone(), style)]));
+    }
+    let mut notes = vec![
+        Line::from(Span::styled(format!("About {} MB a minute. Capture: {}. Codec: {}.", st.mb_per_minute, if s.capture.is_empty() { "default (the desktop asks on Wayland)" } else { &s.capture }, s.codec), t.faint())),
+        Line::from(Span::styled(format!("Folder: {}", st.folder), t.faint())),
+    ];
+    if st.mode == "recording" {
+        notes.push(Line::from(Span::styled(format!("Recording to {}", st.file), t.text())));
+    }
+    if !st.last_saved.is_empty() {
+        notes.push(Line::from(Span::styled(format!("Last saved: {}", st.last_saved), t.accent())));
+    }
+    if !st.problem.is_empty() {
+        notes.push(Line::from(Span::styled(st.problem.clone(), t.warn_style())));
+    }
+    notes.push(Line::from(Span::styled("Capture, codec and folder: ug record set --capture … --codec … --folder …", t.faint())));
+    let y = r.y + RECORDER_ROWS.len() as u16 + 2;
+    if y < r.bottom() {
+        f.render_widget(Paragraph::new(notes).wrap(Wrap { trim: true }), Rect { y, height: r.bottom() - y, ..r });
+    }
+}
+
+fn activate_recorder(app: &mut App, i: usize) {
+    let Some(st) = app.recorder.value.clone() else { return };
+    let what = if st.engine.is_empty() {
+        if !st.can_set_up || st.mode == "installing" {
+            return;
+        }
+        "setup"
+    } else {
+        match (i, st.mode.as_str()) {
+            (0, "idle") => "start",
+            (0, "recording") | (1, "replay") => "stop",
+            (1, "idle") => "replay",
+            (2, "replay") => "save",
+            (3..=5, _) => return step_recorder(app, i, 1),
+            (6, _) | (7, _) => {
+                let mut s = st.settings.clone();
+                if i == 6 {
+                    s.audio_output = !s.audio_output;
+                } else {
+                    s.audio_mic = !s.audio_mic;
+                }
+                let r = app.bus.recorder_set(&s).map(|()| "Saved.".to_string());
+                report(app, r);
+                app.recorder.invalidate();
+                return;
+            }
+            _ => return,
+        }
+    };
+    let r = app.bus.recorder_do(what).map(|file| match what {
+        "start" => format!("Recording to {file}"),
+        "stop" if file.is_empty() => "Replay buffer stopped.".to_string(),
+        "stop" | "save" => format!("Saved {file}"),
+        "replay" => "Keeping the last seconds; Enter on \"Save the last seconds\" writes them.".into(),
+        _ => "Installing gpu-screen-recorder…".into(),
+    });
+    report(app, r);
+    app.recorder.invalidate();
+}
+
+/// ←→ on the quality, frame rate and buffer rows.
+fn step_recorder(app: &mut App, i: usize, d: i32) {
+    let Some(st) = app.recorder.value.clone() else { return };
+    let mut s = st.settings.clone();
+    let step = |list: &[&str], v: &str| -> String {
+        let at = list.iter().position(|x| *x == v).unwrap_or(0) as i32;
+        list[(at + d).clamp(0, list.len() as i32 - 1) as usize].to_string()
+    };
+    match i {
+        3 => s.quality = step(&["small", "balanced", "high"], &s.quality),
+        4 => s.fps = step(&["30", "60", "120"], &s.fps.to_string()).parse().unwrap_or(60),
+        5 => s.replay_seconds = step(&["15", "30", "60", "120"], &s.replay_seconds.to_string()).parse().unwrap_or(60),
+        _ => return,
+    }
+    if s != st.settings {
+        let r = app.bus.recorder_set(&s);
+        if let Err(e) = r {
+            app.say(e, false);
+        }
+        app.recorder.invalidate();
+    }
+}
+
 /// Global shortcuts through the desktop's portal: row 0 turns them on or
 /// off, the others do what each shortcut does, now; `c` records new keys
 /// for one, `x` goes back to the suggested keys.
@@ -2380,6 +2529,7 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (8, 1) => vec![("Tab", "check"), ("Enter ×2", "undo"), ("y", "keep")],
         (8, _) => vec![("Tab", "changes"), ("Enter", "review / apply"), ("r", "check again")],
         (11, _) => vec![("↑↓", "setting"), ("←→", "change"), ("Enter", "toggle")],
+        (7, _) => vec![("Enter", "start / stop / save"), ("←→", "change")],
         (5, 1) if app.recording.is_some() => vec![("Tab", "+Meta"), ("Esc", "cancel")],
         (5, 1) => vec![("Tab", "overlay"), ("Enter", "on/off / run"), ("c", "change keys"), ("x", "suggested keys")],
         (5, _) => vec![("Tab", "shortcuts"), ("↑↓", "setting"), ("←→", "change"), ("Enter", "next / run")],
@@ -2430,6 +2580,10 @@ pub fn step_choice(app: &mut App, d: i32) {
         step_tune(app, d);
         return;
     }
+    if app.page == 7 {
+        step_recorder(app, app.row, d);
+        return;
+    }
     if (app.page, app.tab) == (1, 2) {
         step_launch_gpu(app, d);
         return;
@@ -2470,6 +2624,7 @@ pub fn activate(app: &mut App, i: usize) {
         (6, _) => activate_playtime(app, i),
         (1, 1) => activate_tune(app, i),
         (5, 1) => activate_shortcut(app, i),
+        (7, _) => activate_recorder(app, i),
         (8, 0) => activate_driver(app, i),
         (8, _) => activate_driver_op(app, i),
         (11, _) => {

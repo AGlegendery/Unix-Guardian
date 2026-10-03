@@ -370,3 +370,20 @@ the ping page against the real agent. Known limits:
   rebuilds the initramfs. Refused (with the step-by-step guide as the
   commands) under lockdown, with mkinitcpio lacking resume/systemd hooks,
   without space. Swap "enough" now looks at the largest non-zram area.
+- 🟨 P7 Recorder, first part (2026-10-03, asked as "start the recorder"):
+  agent `recorder.rs` drives gpu-screen-recorder (PATH or Flatpak
+  `com.dec05eba.gpu_screen_recorder`; "Set up" = `flatpak install --user`
+  from Flathub, no root; remove undoes it). Record to ~/Videos/Unix
+  Guardian (SIGINT finishes the file), replay buffer 15–120 s (SIGUSR1
+  saves; the path comes on stdout), quality small/balanced/high (gsr -q
+  medium/high/very_high), 30/60/120 fps, capture portal / monitor / screen
+  from `--list-capture-options`, codec, game sound + mic as two tracks,
+  MB/minute and buffer memory estimates. `Agent1.Recorder`, `ug record`,
+  window page, TUI page 8, shortcuts toggle-recording (Meta+Shift+R) and
+  save-replay (Meta+Shift+S). recorder-e2e (stand-in recorder) 15 checks.
+  **Never run with the real gpu-screen-recorder** (not installed on the
+  laptop): its `--list-capture-options` lines and the replay-saved stdout
+  line are from its documentation, check them first. Not done: region
+  capture, quality presets measured against real files (±10%), the clip
+  library with thumbnails, ffmpeg compression, Telegram (7.4), audio
+  device choice from pw-dump, highlight on loud sound.
