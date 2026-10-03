@@ -99,7 +99,24 @@ systemctl reload dbus.service 2>/dev/null || busctl call org.freedesktop.DBus /o
 systemctl enable unix-guardiand.service
 systemctl restart unix-guardiand.service
 
-echo "installed. Start the agent now (it starts by itself from the next login):"
+# A window or agent that was already running keeps the old program in
+# memory (its file now shows as "(deleted)"), so new pages and features do
+# not appear. Close the old windows and restart the user's agent.
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+  stale=$(for p in $(pgrep -u "$SUDO_USER" -x ug-app; pgrep -u "$SUDO_USER" -x ug-agent); do
+            readlink "/proc/$p/exe" | grep -q '(deleted)' && echo "$p"; done)
+  if pgrep -u "$SUDO_USER" -x ug-app >/dev/null; then
+    pkill -u "$SUDO_USER" -x ug-app && echo "closed the old Unix Guardian window; open it again to see the new version"
+  fi
+  if systemctl --user -M "$SUDO_USER@" daemon-reload 2>/dev/null \
+     && systemctl --user -M "$SUDO_USER@" restart ug-agent.service 2>/dev/null; then
+    echo "restarted $SUDO_USER's agent with the new version"
+  elif [ -n "$stale" ]; then
+    echo "an old agent is still running; restart it (as yourself): systemctl --user restart ug-agent"
+  fi
+fi
+
+echo "installed. If the agent is not running yet (it starts by itself from the next login):"
 echo "  systemctl --user daemon-reload && systemctl --user start ug-agent"
 echo "Then try (as your normal user, no sudo):"
 echo "  ug status"
