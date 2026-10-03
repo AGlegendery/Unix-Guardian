@@ -144,6 +144,7 @@ fn main() {
             bus::driver_apply,
             bus::driver_ops,
             bus::driver_rollback,
+            bus::driver_keep,
             bus::fps_sessions,
             bus::forget_fps_sessions,
             bus::gpu_offload,

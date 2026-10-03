@@ -310,6 +310,9 @@ pub mod daemon {
         fn ops(&self) -> zbus::Result<Vec<DriverOp>>;
         /// Undoes an applied fix (polkit).
         fn rollback(&self, op_id: &str) -> zbus::Result<()>;
+        /// After the restart a change needed: the user checked it and keeps
+        /// it (it is then never undone by itself).
+        fn keep(&self, op_id: &str) -> zbus::Result<()>;
         /// This boot's kernel log lines about firmware (only those), for
         /// callers that may not read the journal themselves.
         fn firmware_log(&self) -> zbus::Result<String>;

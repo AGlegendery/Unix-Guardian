@@ -746,6 +746,12 @@ pub async fn driver_ops(bus: State<'_, Bus>) -> Res<Vec<ug_proto::DriverOp>> {
 }
 
 #[tauri::command]
+pub async fn driver_keep(bus: State<'_, Bus>, op_id: String) -> Res<()> {
+    let d = ug_proto::daemon::DriverProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    d.keep(&op_id).await.map_err(daemon_err)
+}
+
+#[tauri::command]
 pub async fn driver_rollback(bus: State<'_, Bus>, op_id: String) -> Res<()> {
     let d = ug_proto::daemon::DriverProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
     d.rollback(&op_id).await.map_err(daemon_err)

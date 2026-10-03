@@ -12,6 +12,39 @@ use ug_driver::apply::Executor;
 use ug_hw::SysRoot;
 use ug_proto::{DriverOp, DriverPlan};
 
+/// Changes that can leave the computer without a desktop if they went
+/// wrong: graphics drivers and boot parameters.
+fn can_break_the_desktop(fix_id: &str) -> bool {
+    matches!(fix_id, "nouveau-blacklist" | "nvidia-drm-modeset" | "nvidia-suspend" | "install-nvidia-driver" | "remove-nomodeset" | "amd-ppfeaturemask")
+        || fix_id.starts_with("param-")
+}
+
+/// The check after a restart: a change that can break the desktop, after
+/// which nobody reached a desktop within `grace`, is undone by itself, so
+/// the next restart brings the computer back (roadmap 8.6). Everything
+/// else waits for the user to keep it or undo it.
+pub async fn check_after_restart(exec: Arc<Executor>, root: SysRoot, grace: std::time::Duration) {
+    if exec.waiting().is_empty() {
+        return;
+    }
+    tokio::time::sleep(grace).await;
+    if ug_driver::apply::desktop_session(&root) {
+        return;
+    }
+    for (id, fix) in exec.waiting() {
+        if !can_break_the_desktop(&fix) {
+            continue;
+        }
+        let why = format!(
+            "No desktop came up within {} minutes after the restart, so this change was undone by itself. Restart again to start without it.",
+            grace.as_secs().div_ceil(60)
+        );
+        let exec = Arc::clone(&exec);
+        let r = tokio::task::spawn_blocking(move || exec.undo_unchecked(&id, &why)).await;
+        tracing::warn!(result = ?r, fix, "driver change undone after a restart without a desktop");
+    }
+}
+
 pub struct DriverIface {
     pub root: SysRoot,
     pub exec: Arc<Executor>,
@@ -52,6 +85,10 @@ impl DriverIface {
 
     async fn ops(&self) -> Vec<DriverOp> {
         self.exec.ops()
+    }
+
+    async fn keep(&self, op_id: &str) -> zbus::fdo::Result<()> {
+        self.exec.keep(op_id).map_err(zbus::fdo::Error::InvalidArgs)
     }
 
     async fn firmware_log(&self) -> String {

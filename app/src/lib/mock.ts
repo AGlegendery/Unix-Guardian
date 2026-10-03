@@ -398,13 +398,17 @@ export const mockApi = {
     return { fix_id: fixId, title: fixId, steps, needs_reboot: true, refused: "", snapshot: "" };
   },
   driverApply: async (fixId: string) => {
-    const op: DriverOp = { id: `d${Date.now()}`, fix_id: fixId, title: fixId, started_unix_ms: Date.now(), state: "running", log: ["Started (preview: nothing is changed)"], needs_reboot: true };
+    const op: DriverOp = { id: `d${Date.now()}`, fix_id: fixId, title: fixId, started_unix_ms: Date.now(), state: "running", log: ["Started (preview: nothing is changed)"], needs_reboot: true, verify: "" };
     driverOps.unshift(op);
     setTimeout(() => op.log.push("Wrote the file (preview)"), 600);
-    setTimeout(() => { op.log.push("Initramfs rebuilt (preview)", "Done. Restart for it to take effect."); op.state = "done"; }, 1800);
+    setTimeout(() => { op.log.push("Initramfs rebuilt (preview)", "Done. Restart for it to take effect."); op.state = "done"; op.verify = "restart"; }, 1800);
     return op.id;
   },
   driverOps: async () => structuredClone(driverOps),
+  driverKeep: async (opId: string) => {
+    const op = driverOps.find((o) => o.id === opId);
+    if (op) op.verify = "kept";
+  },
   driverRollback: async (opId: string) => {
     const op = driverOps.find((o) => o.id === opId || (!opId && o.state === "done"));
     if (!op) throw "There is no driver change to undo.";

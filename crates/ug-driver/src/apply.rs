@@ -106,6 +106,25 @@ struct Record {
     /// How to go back to the snapshot taken before it, by hand.
     #[serde(default)]
     restore: Vec<String>,
+    /// The boot it finished in, for the check after the restart.
+    #[serde(default)]
+    done_boot: String,
+    /// `restart`, `check`, `kept` or "" (see DriverOp::verify).
+    #[serde(default)]
+    verify: String,
+}
+
+/// This boot's id; it changes at every start.
+pub fn boot_id(root: &SysRoot) -> String {
+    std::fs::read_to_string(root.join("proc/sys/kernel/random/boot_id")).map(|s| s.trim().to_string()).unwrap_or_default()
+}
+
+/// Whether someone is logged in to a desktop (a logind session of type
+/// wayland or x11).
+pub fn desktop_session(root: &SysRoot) -> bool {
+    std::fs::read_dir(root.join("run/systemd/sessions")).into_iter().flatten().flatten().any(|e| {
+        std::fs::read_to_string(e.path()).is_ok_and(|t| t.lines().any(|l| l == "TYPE=wayland" || l == "TYPE=x11"))
+    })
 }
 
 pub fn now_ms() -> u64 {
@@ -128,13 +147,20 @@ impl Executor {
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_default();
+        let boot = boot_id(&root);
         for r in &mut records {
             if r.state == "running" || r.state == "undoing" {
                 r.state = "interrupted".into();
                 r.log.push("Interrupted (the service stopped mid-way). Undo puts back what was done.".into());
             }
+            if r.verify == "restart" && r.state == "done" && !boot.is_empty() && r.done_boot != boot {
+                r.verify = "check".into();
+                r.log.push("Restarted. Check that everything works, then keep the change or undo it.".into());
+            }
         }
-        Executor { root, dir: state_dir.to_path_buf(), runner, records: Mutex::new(records) }
+        let ex = Executor { root, dir: state_dir.to_path_buf(), runner, records: Mutex::new(records) };
+        ex.save(&ex.lock());
+        ex
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Vec<Record>> {
@@ -179,6 +205,7 @@ impl Executor {
                 state: r.state.clone(),
                 log: r.log.clone(),
                 needs_reboot: r.needs_reboot,
+                verify: r.verify.clone(),
             })
             .collect();
         v.sort_by(|a, b| b.started_unix_ms.cmp(&a.started_unix_ms));
@@ -207,6 +234,8 @@ impl Executor {
             needs_reboot: fix.needs_reboot,
             undo: Vec::new(),
             restore: Vec::new(),
+            done_boot: String::new(),
+            verify: String::new(),
         });
         self.save(&all);
         Ok(id)
@@ -359,7 +388,14 @@ impl Executor {
                 return;
             }
         }
-        self.update(id, |r| r.state = "done".into());
+        let boot = boot_id(&self.root);
+        self.update(id, |r| {
+            r.state = "done".into();
+            if r.needs_reboot {
+                r.verify = "restart".into();
+                r.done_boot = boot;
+            }
+        });
         if fix.needs_reboot {
             self.log(id, "Done. Restart for it to take effect. If the screen stays black after the restart, press Ctrl+Alt+F3, log in, and run: ug driver rollback");
         } else {
@@ -386,8 +422,45 @@ impl Executor {
         };
         self.update(&id, |r| r.state = "undoing".into());
         let ok = self.undo_all(&id);
-        self.update(&id, |r| r.state = if ok { "undone".into() } else { "interrupted".into() });
+        self.update(&id, |r| {
+            r.state = if ok { "undone".into() } else { "interrupted".into() };
+            if ok {
+                r.verify.clear();
+            }
+        });
         Ok(id)
+    }
+
+    /// The user checked a change after the restart and keeps it.
+    pub fn keep(&self, id: &str) -> Result<(), String> {
+        let mut found = false;
+        self.update(id, |r| {
+            if r.verify == "check" || r.verify == "restart" {
+                r.verify = "kept".into();
+                r.log.push("Kept.".into());
+                found = true;
+            }
+        });
+        if found {
+            Ok(())
+        } else {
+            Err(format!("No change `{id}` is waiting to be checked."))
+        }
+    }
+
+    /// Changes waiting for the check after their restart.
+    pub fn waiting(&self) -> Vec<(String, String)> {
+        self.lock().iter().filter(|r| r.verify == "check").map(|r| (r.id.clone(), r.fix_id.clone())).collect()
+    }
+
+    /// Undoes a change that is still waiting for its check, saying why in
+    /// its log (no desktop came up after the restart).
+    pub fn undo_unchecked(&self, id: &str, why: &str) -> Result<String, String> {
+        if !self.waiting().iter().any(|(i, _)| i == id) {
+            return Err(format!("`{id}` is not waiting for a check."));
+        }
+        self.log(id, why);
+        self.rollback(Some(id))
     }
 
     /// Runs the undo list backwards, the initramfs last. True if all of it
@@ -753,5 +826,43 @@ mod tests {
         ex.rollback(None).unwrap();
         assert_eq!(snapshot(&fs), before, "the file is back byte for byte");
         assert_eq!(rec.ran.lock().unwrap().len(), 2, "the menu is written again without the parameter");
+    }
+
+    #[test]
+    fn a_change_that_needs_a_restart_is_checked_after_it() {
+        let (fs, state, rec, ex) = machine();
+        fs.write("proc/sys/kernel/random/boot_id", "boot-1\n");
+        let root = SysRoot::at(fs.root());
+        let facts = crate::inventory::facts(&root, &Default::default());
+        let fix = auto("nouveau-blacklist", &root, &facts).unwrap();
+        let id = ex.start(&fix).unwrap();
+        ex.run(&id, &fix);
+        assert_eq!(ex.ops()[0].verify, "restart");
+        // The service restarting in the same boot asks nothing yet.
+        let ex = Executor::new(root.clone(), state.path(), Box::new(Shared(Arc::clone(&rec))));
+        assert_eq!(ex.ops()[0].verify, "restart");
+        assert!(ex.waiting().is_empty());
+        fs.write("proc/sys/kernel/random/boot_id", "boot-2\n");
+        let ex = Executor::new(root.clone(), state.path(), Box::new(Shared(Arc::clone(&rec))));
+        assert_eq!(ex.ops()[0].verify, "check");
+        assert_eq!(ex.waiting(), [(id.clone(), "nouveau-blacklist".to_string())]);
+        ex.keep(&id).unwrap();
+        assert_eq!(ex.ops()[0].verify, "kept");
+        assert!(ex.keep(&id).is_err(), "only once");
+        assert!(ex.undo_unchecked(&id, "x").is_err(), "a kept change is not undone by itself");
+
+        // Another change, after which no desktop came up.
+        let fix = auto("nvidia-drm-modeset", &root, &facts).unwrap();
+        let id2 = ex.start(&fix).unwrap();
+        ex.run(&id2, &fix);
+        fs.write("proc/sys/kernel/random/boot_id", "boot-3\n");
+        let ex = Executor::new(root.clone(), state.path(), Box::new(Shared(Arc::clone(&rec))));
+        assert!(!desktop_session(&root));
+        ex.undo_unchecked(&id2, "No desktop came up after the restart; undone automatically.").unwrap();
+        let op = ex.ops().into_iter().find(|o| o.id == id2).unwrap();
+        assert_eq!((op.state.as_str(), op.verify.as_str()), ("undone", ""));
+        assert!(op.log.iter().any(|l| l.contains("No desktop came up")));
+        fs.write("run/systemd/sessions/2", "UID=1000\nTYPE=wayland\nACTIVE=1\n");
+        assert!(desktop_session(&root));
     }
 }

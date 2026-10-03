@@ -1890,18 +1890,33 @@ fn driver_ops_page(app: &mut App, f: &mut Frame, r: Rect) {
             "running" | "undoing" => t.warn_style(),
             _ => t.accent(),
         };
-        row(app, f, line(y), i, Line::from(vec![Span::styled(format!(" {:<12}", o.state), style), Span::styled(format!("{}  ", o.title), t.text()), Span::styled(o.id.clone(), t.faint())]));
+        let state = if o.verify == "check" { "check it".to_string() } else { o.state.clone() };
+        let style = if o.verify == "check" { t.warn_style() } else { style };
+        row(app, f, line(y), i, Line::from(vec![Span::styled(format!(" {state:<12}"), style), Span::styled(format!("{}  ", o.title), t.text()), Span::styled(o.id.clone(), t.faint())]));
         y += 1;
     }
     y += 1;
     let Some(o) = ops.get(app.row) else { return };
     let mut lines: Vec<Line> = o.log.iter().map(|l| Line::from(Span::styled(format!("  {l}"), t.text()))).collect();
-    if o.state == "done" || o.state == "interrupted" {
+    if o.verify == "check" {
+        lines.push(Line::from(Span::styled("Restarted with this change. Does everything work? y keeps it; Enter twice undoes it.", t.warn_style())));
+    } else if o.state == "done" || o.state == "interrupted" {
         lines.push(Line::from(Span::styled("Enter twice undoes this change. From a text console: sudo ug driver rollback", t.accent())));
     }
     if y < r.bottom() {
         f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), Rect { y, height: r.bottom() - y, ..r });
     }
+}
+
+/// Keeps a change checked after its restart.
+pub fn keep_driver_op(app: &mut App, i: usize) {
+    let Some(o) = app.driver_ops.value.as_ref().and_then(|v| v.get(i)).cloned() else { return };
+    if o.verify != "check" {
+        return;
+    }
+    let r = app.bus.driver_keep(&o.id);
+    report(app, r.map(|_| format!("{} kept.", o.title)));
+    app.driver_ops.invalidate();
 }
 
 fn activate_driver_op(app: &mut App, i: usize) {
@@ -2362,7 +2377,7 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (3, 1) => vec![("Tab", "FPS")],
         (3, _) => vec![("Tab", "temperature"), ("Enter", "set up / undo")],
         (4, _) => vec![("Tab", "next tab"), ("Enter", "limit while gaming"), ("b", "block"), ("x", "allow")],
-        (8, 1) => vec![("Tab", "check"), ("Enter ×2", "undo")],
+        (8, 1) => vec![("Tab", "check"), ("Enter ×2", "undo"), ("y", "keep")],
         (8, _) => vec![("Tab", "changes"), ("Enter", "review / apply"), ("r", "check again")],
         (11, _) => vec![("↑↓", "setting"), ("←→", "change"), ("Enter", "toggle")],
         (5, 1) if app.recording.is_some() => vec![("Tab", "+Meta"), ("Esc", "cancel")],

@@ -350,3 +350,11 @@ the ping page against the real agent. Known limits:
   are automatic; `ug driver param add|remove <p>` (plain characters only)
   and a "Kernel parameters" card in the window; the TUI shows the command
   (no text input there yet).
+- ✅ Driver Fix M5 (2026-10-03): the check after a restart. A change that
+  needs a restart records its boot id (`verify = restart`); in the next
+  boot it becomes `check`. The window shows a "check the change" card
+  (keep / undo), the TUI marks it ("y" keeps), the agent notifies once at
+  login, `ug driver keep`. A change that can break the desktop (graphics,
+  boot parameters) after which no logind session of type wayland/x11 (a
+  greeter counts) exists 10 minutes after boot is undone by itself
+  (`UG_DRIVER_CHECK_GRACE_S` shortens it in tests). driver-e2e 29 checks.

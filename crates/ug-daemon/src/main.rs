@@ -280,6 +280,11 @@ async fn main() -> Result<()> {
         Box::new(ug_driver::apply::SystemdRun)
     };
     let driver_exec = Arc::new(ug_driver::apply::Executor::new(root.clone(), &state_dir, runner));
+    if driver_refused.is_none() {
+        // Ten minutes, as the roadmap asks; tests set it shorter.
+        let grace = std::env::var("UG_DRIVER_CHECK_GRACE_S").ok().and_then(|s| s.parse().ok()).unwrap_or(600);
+        tokio::spawn(driver::check_after_restart(Arc::clone(&driver_exec), root.clone(), std::time::Duration::from_secs(grace)));
+    }
     conn.object_server()
         .at(
             DAEMON_OBJECT_PATH,

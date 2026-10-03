@@ -202,6 +202,8 @@ export interface DriverOp {
   id: string; fix_id: string; title: string; started_unix_ms: number;
   state: "running" | "done" | "failed" | "undoing" | "undone" | "interrupted";
   log: string[]; needs_reboot: boolean;
+  /** The check after a restart: "", "restart", "check" or "kept". */
+  verify: "" | "restart" | "check" | "kept";
 }
 export interface AgentSettings {
   notifications: boolean;
@@ -500,6 +502,7 @@ const tauriApi = {
   driverApply: (fixId: string) => invoke<string>("driver_apply", { fixId }),
   driverOps: () => invoke<DriverOp[]>("driver_ops"),
   driverRollback: (opId: string) => invoke<void>("driver_rollback", { opId }),
+  driverKeep: (opId: string) => invoke<void>("driver_keep", { opId }),
   settingsState: () => invoke<SettingsState>("settings_state"),
   settingsSet: (settings: AgentSettings) => invoke<void>("settings_set", { settings }),
   reportBug: (context: string) => invoke<void>("report_bug", { context }),

@@ -507,6 +507,7 @@ impl App {
                 KeyCode::Char('b') => pages::block(self, self.row),
                 KeyCode::Char('c') if (self.page, self.tab) == (5, 1) => pages::record_shortcut(self, self.row),
                 KeyCode::Char('e') if self.page == 6 => pages::export_playtime(self),
+                KeyCode::Char('y') if (self.page, self.tab) == (8, 1) => pages::keep_driver_op(self, self.row),
                 KeyCode::Char('r') if self.page == 8 => {
                     self.driver.invalidate();
                     self.driver_review = None;

@@ -98,6 +98,16 @@
     }
   }
 
+  async function keep(op: DriverOp) {
+    try {
+      await api.driverKeep(op.id);
+      error = null;
+      await loadOps();
+    } catch (e) {
+      error = errorText(e);
+    }
+  }
+
   async function rollback(op: DriverOp) {
     try {
       await api.driverRollback(op.id);
@@ -159,6 +169,18 @@
 </header>
 
 {#if error}<Problem text={error} />{/if}
+
+{#each ops.filter((o) => o.verify === "check") as op (op.id)}
+  <section class="card checkit" role="alert">
+    <h2>{t().drivers.checkTitle}</h2>
+    <p><b dir="ltr">{op.title}</b></p>
+    <p class="muted">{t().drivers.checkText}</p>
+    <div class="actions">
+      <button class="btn primary" onclick={() => keep(op)}>{t().drivers.keep}</button>
+      <button class="btn" onclick={() => rollback(op)}>{t().drivers.rollback}</button>
+    </div>
+  </section>
+{/each}
 
 <section class="card intro">
   <p class="muted">{t().drivers.intro}</p>
@@ -253,7 +275,7 @@
         <span class="small">{when(op.started_unix_ms)}</span>
       </div>
       <pre dir="ltr">{op.log.join("\n")}</pre>
-      {#if op.state === "done" && op.needs_reboot}<p class="small">{t().drivers.rebootNow}</p>{/if}
+      {#if op.verify === "restart"}<p class="small">{t().drivers.rebootNow}</p>{/if}
       {#if op.state === "done" || op.state === "interrupted"}
         <button class="btn" onclick={() => rollback(op)}>{t().drivers.rollback}</button>
       {/if}
@@ -281,6 +303,7 @@
   .top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .sev, .state { padding: 2px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; background: var(--card-2); color: var(--text-2); }
   .param { flex: 1; min-width: 12rem; padding: 6px 10px; border-radius: 9px; border: 1px solid var(--card-2); background: var(--bg, var(--card-2)); color: var(--text); font: inherit; }
+  .checkit { border: 1px solid #f5a524; }
   .cat { padding: 2px 10px; border-radius: 999px; font-size: 0.78rem; color: var(--text-2); border: 1px solid var(--card-2); }
   .sev.critical, .state.failed, .state.interrupted { background: color-mix(in oklab, #e5484d 22%, transparent); color: #ff8f93; }
   .sev.important, .state.running, .state.undoing { background: color-mix(in oklab, #f5a524 22%, transparent); color: #ffc46b; }

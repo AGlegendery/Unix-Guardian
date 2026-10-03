@@ -325,6 +325,21 @@ async fn main() -> Result<()> {
     let mut rescan = tokio::time::interval(Duration::from_secs(600));
     rescan.tick().await; // first tick is immediate; the library was just scanned
 
+    // A driver change waiting for its check after the restart: say so once
+    // at login, when the desktop has settled.
+    if notify_on() {
+        let (session, daemon_session) = (conn.clone(), args.daemon_session);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(20)).await;
+            let bus = if daemon_session { zbus::Connection::session().await } else { zbus::Connection::system().await };
+            let Ok(bus) = bus else { return };
+            let Ok(d) = ug_proto::daemon::DriverProxy::new(&bus).await else { return };
+            for op in d.ops().await.unwrap_or_default().iter().filter(|o| o.verify == "check") {
+                let body = format!("{}: does everything work? Keep it or undo it in Unix Guardian, Driver troubleshooter (or: ug driver keep).", op.title);
+                notify::show(&session, "Check the driver change after the restart", &body, &[]).await;
+            }
+        });
+    }
     let mut daemon = DaemonLink::new(args.daemon_session);
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     loop {

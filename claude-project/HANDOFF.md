@@ -49,7 +49,7 @@ Last updated: 2026-10-03 (shortcut recorder).
    agent (`3138f00`), because the user saw no troubleshooter page after
    reinstalling: the old window and agent were still running.
 
-7. ⏳ **Driver Fix** (asked 2026-10-03; the user's single most important
+7. ✅ **Driver Fix** (M1–M5 done; see 04-status) (asked 2026-10-03; the user's single most important
    feature, and **not only for gamers**). Plan, highest impact first, one
    commit per milestone:
    - **M1 ✅** (`1bebb27`) diagnosis beyond the GPU: a `category` on rules
@@ -74,7 +74,7 @@ Last updated: 2026-10-03 (shortcut recorder).
    - **M4 ✅** boot-parameter editor (8.7): GRUB, systemd-boot, kernelstub;
      idempotent, backup, diff-empty round trip. Fixes: nomodeset,
      ppfeaturemask, mem_sleep_default=deep, psmouse.synaptics_intertouch.
-   - M5 check after restart (8.6): pending-verify per boot id, re-diagnose,
+   - **M5 ✅** check after restart (8.6): pending-verify per boot id, re-diagnose,
      Keep / Undo in window, TUI and `ug driver verify`; recovery kit.
    Same rules as before: GUI + TUI + CLI for everything, plan shown in
    full before running, polkit, backup, undo from a text console.
@@ -87,7 +87,11 @@ need sudo, pushing, P7+).
 
 ## In progress
 
-Driver Fix M5, check after restart (see item 7 above). M4 done:
+Nothing. Driver Fix M1–M5 are done and committed; release binaries built.
+Next for Driver Fix: try it on the real laptop after reinstalling
+(`ug diagnose`, `ug driver snapshot`), more rules (roadmap wants 35+ for
+graphics alone), a TUI text field for kernel parameters, a driver-version
+picker. M4 done:
 `bootparams.rs` (GRUB/systemd-boot/rEFInd/kernelstub, add+remove is
 diff-empty), fixes nomodeset/ppfeaturemask/mem_sleep_default/intertouch,
 `ug driver param add|remove`, window card; TUI shows the command. M2+M3 done:

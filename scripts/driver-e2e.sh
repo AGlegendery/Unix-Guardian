@@ -85,5 +85,27 @@ check "and taken out again to the byte" "ug driver rollback | grep -q undone && 
 check "a parameter that is not plain text is refused" "! ug driver param add 'x;reboot' --yes >/dev/null 2>&1"
 check "the service hands out only firmware lines of the kernel log" "out=\$(busctl --user call org.unixguardian.Daemon1 /org/unixguardian/Daemon1 org.unixguardian.Daemon1.Driver FirmwareLog); [[ \"\$out\" == s* ]]"
 
+# The check after a restart: a graphics change after which no desktop came
+# up is undone by itself; one the user keeps stays.
+restart_daemon() {
+  kill "$daemon"; wait "$daemon" 2>/dev/null
+  UG_DRIVER_CHECK_GRACE_S=1 "$B/ug-daemon" --session --sysroot "$R" --state-dir "$W/state" --log warn 2>>"$W/daemon.log" & daemon=$!
+  until_ 20 "ug driver history >/dev/null 2>&1"
+}
+mk proc/sys/kernel/random/boot_id 'boot-1\n'
+restart_daemon
+ug driver fix nouveau-blacklist --yes >/dev/null
+check "a change that needs a restart says so" "ug driver history | grep -q 'restart to finish'"
+mk proc/sys/kernel/random/boot_id 'boot-2\n'
+restart_daemon
+check "after a restart without a desktop it is undone by itself" "until_ 10 \"ug driver history | grep -q 'No desktop came up'\" && [ ! -e '$R/etc/modprobe.d/unix-guardian-blacklist-nouveau.conf' ]"
+ug driver fix nouveau-blacklist --yes >/dev/null
+mk proc/sys/kernel/random/boot_id 'boot-3\n'
+mk run/systemd/sessions/2 'UID=1000\nTYPE=wayland\nCLASS=user\n'
+restart_daemon
+sleep 2
+check "with a desktop it waits for the user" "ug driver history | grep -q 'does it work?' && [ -e '$R/etc/modprobe.d/unix-guardian-blacklist-nouveau.conf' ]"
+check "and ug driver keep keeps it" "ug driver keep | grep -q Kept && ! ug driver history | grep -q 'does it work?'"
+
 if [ "$fails" -gt 0 ]; then echo "--- daemon log"; cat "$W/daemon.log"; fi
 echo; [ "$fails" -eq 0 ] && echo "driver-e2e: OK" || { echo "driver-e2e: $fails failed"; exit 1; }

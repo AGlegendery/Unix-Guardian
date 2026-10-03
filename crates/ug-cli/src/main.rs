@@ -210,6 +210,9 @@ enum DriverCommand {
     History,
     /// Undo a change (the newest one still in place if no id is given).
     Rollback { id: Option<String> },
+    /// After the restart a change needed: keep it (the newest waiting one if
+    /// no id is given). Undo it instead with `ug driver rollback`.
+    Keep { id: Option<String> },
     /// What protects package changes here: the snapshot tool found, or how
     /// to get one. Works without the service.
     Snapshot,
@@ -1351,12 +1354,26 @@ async fn driver(conn: &zbus::Connection, command: DriverCommand, json: bool) -> 
                 println!("No driver changes have been made.");
             } else {
                 for o in ops {
-                    println!("{}  {}  {}", o.id, o.state, o.title);
+                    let check = match o.verify.as_str() {
+                        "restart" => "  (restart to finish)",
+                        "check" => "  (restarted: does it work? ug driver keep, or ug driver rollback)",
+                        _ => "",
+                    };
+                    println!("{}  {}  {}{check}", o.id, o.state, o.title);
                     for l in &o.log {
                         println!("    {l}");
                     }
                 }
             }
+        }
+        DriverCommand::Keep { id } => {
+            let ops = d.ops().await?;
+            let id = match id {
+                Some(i) => i,
+                None => ops.iter().find(|o| o.verify == "check").map(|o| o.id.clone()).ok_or_else(|| anyhow::anyhow!("No change is waiting to be checked."))?,
+            };
+            d.keep(&id).await?;
+            println!("Kept {id}.");
         }
         DriverCommand::Rollback { id } => {
             d.rollback(id.as_deref().unwrap_or("")).await?;

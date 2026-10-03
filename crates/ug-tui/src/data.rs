@@ -147,6 +147,11 @@ impl Bus {
         self.rt.block_on(async { ug_proto::daemon::DriverProxy::new(c).await?.ops().await }).map_err(|e| msg(e, "service"))
     }
 
+    pub fn driver_keep(&self, op_id: &str) -> Result<(), String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { ug_proto::daemon::DriverProxy::new(c).await?.keep(op_id).await }).map_err(|e| msg(e, "service"))
+    }
+
     pub fn driver_rollback(&self, op_id: &str) -> Result<(), String> {
         let c = self.daemon()?;
         self.rt.block_on(async { ug_proto::daemon::DriverProxy::new(c).await?.rollback(op_id).await }).map_err(|e| msg(e, "service"))

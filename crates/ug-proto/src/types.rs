@@ -1035,4 +1035,7 @@ pub struct DriverOp {
     pub state: String,
     pub log: Vec<String>,
     pub needs_reboot: bool,
+    /// The check after a restart: "" (none needed), `restart` (done, not
+    /// restarted yet), `check` (restarted: keep it or undo it) or `kept`.
+    pub verify: String,
 }
