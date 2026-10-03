@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Unix Guardian
+GenericName=Gaming system utility
+Comment=Game mode, monitoring, GPU tuning and network control
+Exec=ug-app
+Icon=unix-guardian
+Terminal=false
+Categories=System;Monitor;Game;
+Keywords=game;gpu;fps;monitor;fan;network;
+StartupWMClass=ug-app

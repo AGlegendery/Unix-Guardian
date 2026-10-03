@@ -1,4 +1,5 @@
 <script lang="ts">
+  import GaugeLoader from "./ui/GaugeLoader.svelte";
   // A time series in one unit on one axis (never a second y-scale: charts of
   // different measures are separate charts). Series colours passed the
   // dataviz validator on the card surface (dark): lightness band, CVD
@@ -137,7 +138,7 @@
     </div>
   {/if}
   {#if times.length < 2}
-    <p class="waiting">{waiting}</p>
+    <p class="waiting"><span><GaugeLoader size={22} label={waiting} /> {waiting}</span></p>
   {/if}
 </div>
 
@@ -147,6 +148,7 @@
   .legend li { display: flex; align-items: center; gap: 6px; }
   .key { width: 14px; height: 3px; border-radius: 2px; }
   .waiting { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: var(--text-3); font-size: 0.85rem; }
+  .waiting span { display: inline-flex; align-items: center; gap: 10px; }
   .chart :global(.u-over) { cursor: crosshair; }
   .tip {
     position: absolute;

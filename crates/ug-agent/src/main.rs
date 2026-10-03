@@ -12,6 +12,7 @@ mod background;
 mod core;
 mod fps;
 mod gamemode;
+mod health;
 mod history;
 mod iface;
 mod notify;
@@ -264,7 +265,7 @@ async fn main() -> Result<()> {
     let tray = if args.no_tray {
         None
     } else {
-        match tray::Tray::start(&conn, args.daemon_session).await {
+        match tray::Tray::start(&conn, args.daemon_session, Arc::clone(&core)).await {
             Ok(t) => Some(t),
             Err(e) => {
                 tracing::warn!(error = %e, "could not set up the tray icon");

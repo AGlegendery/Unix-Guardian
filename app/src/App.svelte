@@ -1,5 +1,7 @@
 <script lang="ts">
   import Problem from "./lib/ui/Problem.svelte";
+  import GaugeLoader from "./lib/ui/GaugeLoader.svelte";
+  import Mark from "./lib/ui/Mark.svelte";
   import {
     Activity, Bug, ChevronsLeft, ChevronsRight, Clock, Gamepad2, Layers, LayoutDashboard, Power,
     RefreshCw, Settings, SquareTerminal, Video, Wifi, Wrench,
@@ -58,15 +60,27 @@
   const pointRight = $derived(collapsed !== (locale.current === "fa"));
   let loadError = $state<string | null>(null);
 
+  // The intro plays once while the first readings arrive: it stays until
+  // both are done (the gauge needs about 1.4 s to draw), then fades.
+  let splash = $state(true);
   $effect(() => {
-    api.overview().then((o) => (overview = o)).catch((e) => (loadError = errorText(e)));
+    const drawn = new Promise((r) => setTimeout(r, 1400));
+    const loaded = api.overview().then((o) => (overview = o)).catch((e) => (loadError = errorText(e)));
+    Promise.all([drawn, loaded]).then(() => (splash = false));
   });
 </script>
+
+{#if splash}
+  <div class="splash" aria-live="polite">
+    <GaugeLoader variant="intro" size={112} label={t().app} />
+    <span>{t().app}</span>
+  </div>
+{/if}
 
 <div class="shell" class:collapsed>
   <nav class="side" aria-label={t().app}>
     <div class="brand">
-      <span class="mark" aria-hidden="true"></span>
+      <span class="mark"><Mark size={collapsed ? 30 : 28} /></span>
       {#if !collapsed}<span>{t().app}</span>{/if}
       <button
         class="fold"
@@ -201,22 +215,22 @@
     font-weight: 800;
     font-size: 1.08rem;
   }
-  /* Placeholder mark until the project has a logo (09-open-questions #12). */
-  .mark {
-    width: 26px;
-    height: 26px;
-    border-radius: 8px;
-    background: var(--accent);
-    box-shadow: 0 4px 14px -4px var(--accent);
-    position: relative;
+  .mark { display: inline-grid; place-items: center; flex: none; }
+  .splash {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 18px;
+    background: var(--bg);
+    font-weight: 800;
+    font-size: 1.15rem;
+    letter-spacing: 0.02em;
+    animation: splash-text 0.6s ease-out 0.9s both;
   }
-  .mark::after {
-    content: "";
-    position: absolute;
-    inset: 8px;
-    border-radius: 3px;
-    background: var(--side);
-  }
+  @keyframes splash-text { from { color: transparent; } to { color: var(--text); } }
   ul {
     list-style: none;
     margin: 0;

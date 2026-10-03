@@ -17,6 +17,8 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use crate::health::{Health, IconState, Reading, Temp, Thresholds};
+use crate::iface::{lock, Shared};
 use ug_hw::SysRoot;
 use ug_proto::{GpuInfo, GpuSample, MemSample};
 use zbus::object_server::SignalEmitter;
@@ -26,8 +28,8 @@ const ITEM_PATH: &str = "/StatusNotifierItem";
 const MENU_PATH: &str = "/MenuBar";
 const WATCHERS: [&str; 2] = ["org.kde.StatusNotifierWatcher", "org.freedesktop.StatusNotifierWatcher"];
 
-/// How often the preview updates while the menu is open.
-const LIVE_EVERY: Duration = Duration::from_secs(2);
+/// How often usage is read: for the icon's colour, and for the preview.
+const EVERY: Duration = Duration::from_secs(2);
 /// GPU rows the menu has room for; more GPUs than this are not shown.
 const MAX_GPUS: usize = 4;
 
@@ -45,7 +47,6 @@ const ID_RAM: i32 = 11;
 const ID_GPU0: i32 = 12;
 const ID_BATTERY: i32 = ID_GPU0 + MAX_GPUS as i32;
 
-#[cfg(test)]
 const PREVIEW_IDS: [i32; 3 + MAX_GPUS] = [ID_CPU, ID_RAM, ID_GPU0, ID_GPU0 + 1, ID_GPU0 + 2, ID_GPU0 + 3, ID_BATTERY];
 const MENU_ORDER: [i32; 6 + 3 + MAX_GPUS] = [
     ID_OPEN, ID_SEP1, ID_CPU, ID_RAM, ID_GPU0, ID_GPU0 + 1, ID_GPU0 + 2, ID_GPU0 + 3, ID_BATTERY, ID_SEP2, ID_TERMINAL,
@@ -170,8 +171,15 @@ struct State {
     rows: HashMap<i32, String>,
     open: bool,
     load: ug_hw::cpu::LoadReader,
-    load_read_at: Option<Instant>,
     gpu_names: Vec<GpuInfo>,
+    health: Health,
+    icon: IconState,
+    /// The CPU package sensor and its critical point, found once.
+    cpu_sensor: Option<(PathBuf, Option<f64>)>,
+    throttle_count: Option<u64>,
+    swap_in: Option<(u64, Instant)>,
+    /// Kept between reads; `None` after a failure.
+    daemon: Option<zbus::Connection>,
 }
 
 /// The tray, shared by its D-Bus interfaces and the agent's `Tray` interface.
@@ -181,7 +189,10 @@ pub struct Tray {
     name: String,
     daemon_session: bool,
     state: Arc<Mutex<State>>,
-    live: Arc<tokio::sync::Notify>,
+    core: Shared,
+    /// The status icons are installed in the icon theme, so they can be
+    /// loaded by name and follow the panel's colours.
+    themed: bool,
 }
 
 impl Tray {
@@ -191,7 +202,7 @@ impl Tray {
 
     /// Serves the icon and menu on `conn`, shows the icon, and keeps it
     /// registered across panel restarts.
-    pub async fn start(conn: &zbus::Connection, daemon_session: bool) -> zbus::Result<Tray> {
+    pub async fn start(conn: &zbus::Connection, daemon_session: bool, core: Shared) -> zbus::Result<Tray> {
         let tray = Tray {
             conn: conn.clone(),
             name: format!("org.kde.StatusNotifierItem-{}-1", std::process::id()),
@@ -201,21 +212,21 @@ impl Tray {
                 rows: HashMap::new(),
                 open: false,
                 load: ug_hw::cpu::LoadReader::new(),
-                load_read_at: None,
                 gpu_names: Vec::new(),
+                health: Health::new(Thresholds::load(&ug_core::paths::user_config().join("tray.json"))),
+                icon: IconState::Normal,
+                cpu_sensor: cpu_sensor(&SysRoot::real()),
+                throttle_count: None,
+                swap_in: None,
+                daemon: None,
             })),
-            live: Arc::default(),
+            core,
+            themed: icons_installed(),
         };
         conn.object_server().at(ITEM_PATH, ItemIface { tray: tray.clone() }).await?;
         conn.object_server().at(MENU_PATH, MenuIface { tray: tray.clone() }).await?;
         tokio::spawn(tray.clone().follow_watcher());
-        tokio::spawn(tray.clone().live_preview());
-        // Fill the preview once, so a host that draws the menu before its
-        // AboutToShow answer arrives never shows it without usage rows.
-        let first = tray.clone();
-        tokio::spawn(async move {
-            first.refresh().await;
-        });
+        tokio::spawn(tray.clone().watch());
         tray.show().await;
         Ok(tray)
     }
@@ -280,56 +291,114 @@ impl Tray {
         }
     }
 
-    /// Re-reads usage every two seconds while the menu is open, and never
-    /// otherwise.
-    async fn live_preview(self) {
+    /// Reads usage every two seconds: the icon changes colour with it, and
+    /// an open menu shows it.
+    async fn watch(self) {
+        let mut tick = tokio::time::interval(EVERY);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
-            self.live.notified().await;
-            loop {
-                tokio::time::sleep(LIVE_EVERY).await;
-                if !self.st().open {
-                    break;
-                }
-                let changed = self.refresh().await;
+            tick.tick().await;
+            let changed = self.refresh().await;
+            if self.st().open {
                 self.emit_rows(&changed).await;
             }
         }
     }
 
-    /// Reads usage and updates the rows. Returns the ids whose text changed.
+    /// Reads usage, updates the rows and the icon. Returns the ids of the
+    /// rows whose text changed.
     async fn refresh(&self) -> Vec<i32> {
         let gpus = self.read_gpus().await;
+        let gaming = {
+            let core = lock(&self.core);
+            core.gamemode_desired().is_some() || !core.running().is_empty()
+        };
         let state = Arc::clone(&self.state);
         let local = tokio::task::spawn_blocking(move || {
             let root = SysRoot::real();
             let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-            // A load figure needs two reads. After a long gap, the first menu
-            // opening would show the average since then: take a short fresh one.
-            let stale = st.load_read_at.is_none_or(|t| t.elapsed() > LIVE_EVERY * 3);
-            if stale {
-                st.load.read(&root);
-                drop(st);
-                std::thread::sleep(Duration::from_millis(150));
-                st = state.lock().unwrap_or_else(|e| e.into_inner());
-            }
             let cpu_pct = st.load.read(&root).total_pct;
-            st.load_read_at = Some(Instant::now());
-            drop(st);
-            let chips = ug_hw::hwmon::enumerate(&root);
-            let cpu_temp_c = ug_hw::hwmon::cpu_chip(&chips).and_then(|c| c.package_temp()).unwrap_or(f64::NAN);
+            let (cpu_temp_c, cpu_crit_c) = match &st.cpu_sensor {
+                Some((path, crit)) => (read_milli(path).unwrap_or(f64::NAN), *crit),
+                None => (f64::NAN, None),
+            };
+            let count = read_u64(&root.join("sys/devices/system/cpu/cpu0/thermal_throttle/package_throttle_count"));
+            let throttling = matches!((st.throttle_count, count), (Some(a), Some(b)) if b > a);
+            st.throttle_count = count;
+            let now = Instant::now();
+            let swap_in = std::fs::read_to_string(root.join("proc/vmstat"))
+                .ok()
+                .and_then(|v| v.lines().find_map(|l| l.strip_prefix("pswpin ")?.trim().parse::<u64>().ok()));
+            let swap_rate = match (st.swap_in, swap_in) {
+                (Some((a, t)), Some(b)) => b.saturating_sub(a) as f64 / now.duration_since(t).as_secs_f64().max(0.1),
+                _ => 0.0,
+            };
+            st.swap_in = swap_in.map(|v| (v, now));
             let (pct, w, status, on_ac) = ug_hw::extra::battery(&root);
             let battery = (!pct.is_nan()).then_some((pct, w, status, on_ac));
-            (cpu_pct, cpu_temp_c, ug_hw::mem::read(&root), battery)
+            let mem = ug_hw::mem::read(&root);
+            (cpu_pct, cpu_temp_c, cpu_crit_c, throttling, swap_rate, mem, battery)
         })
         .await;
-        let Ok((cpu_pct, cpu_temp_c, mem, battery)) = local else { return Vec::new() };
+        let Ok((cpu_pct, cpu_temp_c, cpu_crit_c, throttling, swap_rate, mem, battery)) = local else { return Vec::new() };
+
+        let mut reading = Reading {
+            ram_pct: mem.used_pct(),
+            throttling,
+            // 1000 pages/s read back from swap is about 4 MB/s.
+            thrashing: swap_rate >= 1000.0 && mem.used_pct() >= 90.0,
+            gaming,
+            daemon_ok: gpus.is_some(),
+            ..Default::default()
+        };
+        if !cpu_temp_c.is_nan() {
+            reading.temps.push(Temp { what: "CPU".into(), c: cpu_temp_c, crit_c: cpu_crit_c });
+        }
+        if !cpu_pct.is_nan() {
+            reading.usage.push(("CPU".into(), cpu_pct));
+        }
+        let names = self.st().gpu_names.clone();
+        for (name, g) in gpus.iter().flatten() {
+            if g.asleep {
+                continue;
+            }
+            let what = short_gpu_name(name);
+            if !g.temp_c.is_nan() {
+                reading.temps.push(Temp { what: what.clone(), c: g.temp_c, crit_c: None });
+            }
+            if !g.load_pct.is_nan() {
+                reading.usage.push((what.clone(), g.load_pct));
+            }
+            let total = names.iter().find(|i| i.pci == g.pci).map(|i| i.vram_total_mb).unwrap_or(0);
+            if total > 0 && g.vram_used_mb > 0 {
+                reading.vram.push((what, g.vram_used_mb as f64 * 100.0 / total as f64));
+            }
+        }
+
         let usage = Usage { cpu_pct, cpu_temp_c, mem, gpus, battery };
-        let mut st = self.st();
-        let mut changed = Vec::new();
-        for (id, text) in preview_rows(&usage) {
-            if st.rows.get(&id) != Some(&text) {
-                st.rows.insert(id, text);
-                changed.push(id);
+        let (icon_changed, changed) = {
+            let mut st = self.st();
+            let before = (st.icon, st.health.reasons().to_vec());
+            st.icon = st.health.update(Instant::now(), &reading);
+            let icon_changed = before != (st.icon, st.health.reasons().to_vec());
+            let mut changed = Vec::new();
+            for (id, text) in preview_rows(&usage) {
+                if st.rows.get(&id) != Some(&text) {
+                    st.rows.insert(id, text);
+                    changed.push(id);
+                }
+            }
+            (icon_changed, changed)
+        };
+        if icon_changed {
+            {
+                let st = self.st();
+                tracing::info!(state = st.icon.name(), reasons = ?st.health.reasons(), "tray icon");
+            }
+            if let Ok(iface) = self.conn.object_server().interface::<_, ItemIface>(ITEM_PATH).await {
+                let e = iface.signal_emitter();
+                let _ = ItemIface::new_icon(e).await;
+                let _ = ItemIface::new_tool_tip(e).await;
             }
         }
         changed
@@ -339,8 +408,16 @@ impl Tray {
     /// GPU). `None` when it cannot be reached within a second.
     async fn read_gpus(&self) -> Option<Vec<(String, GpuSample)>> {
         let read = async {
-            let conn =
-                if self.daemon_session { zbus::Connection::session().await } else { zbus::Connection::system().await }.ok()?;
+            let cached = self.st().daemon.clone();
+            let conn = match cached {
+                Some(c) => c,
+                None => {
+                    let c = if self.daemon_session { zbus::Connection::session().await } else { zbus::Connection::system().await }
+                        .ok()?;
+                    self.st().daemon = Some(c.clone());
+                    c
+                }
+            };
             let need_names = self.st().gpu_names.is_empty();
             if need_names {
                 let list = ug_proto::daemon::GpuProxy::new(&conn).await.ok()?.list().await.ok()?;
@@ -358,7 +435,24 @@ impl Tray {
                     .collect(),
             )
         };
-        tokio::time::timeout(Duration::from_secs(1), read).await.ok().flatten()
+        let r = tokio::time::timeout(Duration::from_secs(1), read).await.ok().flatten();
+        if r.is_none() {
+            // A restarted daemon needs a fresh connection; the names may differ too.
+            let mut st = self.st();
+            st.daemon = None;
+            st.gpu_names.clear();
+        }
+        r
+    }
+
+    fn tool_tip_text(&self) -> String {
+        let st = self.st();
+        match st.icon {
+            IconState::Offline => "The Unix Guardian service is not running".into(),
+            IconState::Warning | IconState::Critical => st.health.reasons().join(" · "),
+            IconState::GameMode => "Game mode is on · right-click for usage".into(),
+            IconState::Normal => "Click to open · right-click for usage".into(),
+        }
     }
 
     async fn emit_rows(&self, ids: &[i32]) {
@@ -451,16 +545,57 @@ struct ItemIface {
 
 type Pixmap = (i32, i32, Vec<u8>);
 
-fn pixmaps() -> Vec<Pixmap> {
-    [
-        (22, &include_bytes!("../assets/tray-22.argb")[..]),
-        (32, &include_bytes!("../assets/tray-32.argb")[..]),
-        (48, &include_bytes!("../assets/tray-48.argb")[..]),
-        (64, &include_bytes!("../assets/tray-64.argb")[..]),
-    ]
-    .into_iter()
-    .map(|(s, b)| (s, s, b.to_vec()))
-    .collect()
+macro_rules! state_pixmaps {
+    ($state:literal) => {
+        [
+            (22, &include_bytes!(concat!("../assets/tray-", $state, "-22.argb"))[..]),
+            (32, &include_bytes!(concat!("../assets/tray-", $state, "-32.argb"))[..]),
+            (48, &include_bytes!(concat!("../assets/tray-", $state, "-48.argb"))[..]),
+            (64, &include_bytes!(concat!("../assets/tray-", $state, "-64.argb"))[..]),
+        ]
+    };
+}
+
+/// The G gauge in each state, for hosts that cannot load the themed icons
+/// (made by scripts/gen-tray-icons.py).
+fn pixmaps(state: IconState) -> Vec<Pixmap> {
+    let sizes = match state {
+        IconState::Normal => state_pixmaps!("normal"),
+        IconState::Warning => state_pixmaps!("warning"),
+        IconState::Critical => state_pixmaps!("critical"),
+        IconState::GameMode => state_pixmaps!("gamemode"),
+        IconState::Offline => state_pixmaps!("offline"),
+    };
+    sizes.into_iter().map(|(s, b)| (s, s, b.to_vec())).collect()
+}
+
+/// `unix-guardian-normal` and the rest are in a hicolor theme directory.
+fn icons_installed() -> bool {
+    let home = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share"));
+    let dirs = std::env::var_os("XDG_DATA_DIRS").unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+    home.into_iter()
+        .chain(std::env::split_paths(&dirs))
+        .any(|d| d.join("icons/hicolor/scalable/status/unix-guardian-normal.svg").is_file())
+}
+
+fn read_u64(p: &Path) -> Option<u64> {
+    std::fs::read_to_string(p).ok()?.trim().parse().ok()
+}
+
+fn read_milli(p: &Path) -> Option<f64> {
+    read_u64(p).map(|v| v as f64 / 1000.0)
+}
+
+/// The CPU package temperature sensor and its `_crit` value (TjMax on Intel).
+fn cpu_sensor(root: &SysRoot) -> Option<(PathBuf, Option<f64>)> {
+    let chips = ug_hw::hwmon::enumerate(root);
+    let chip = ug_hw::hwmon::cpu_chip(&chips)?;
+    let sensor = ["Package id 0", "Tctl", "Tdie", "Composite"]
+        .iter()
+        .find_map(|l| chip.temp_by_label(l))
+        .or_else(|| chip.temps.iter().min_by_key(|s| s.index))?;
+    let crit = sensor.input_path.to_str().map(|p| PathBuf::from(p.replace("_input", "_crit"))).and_then(|p| read_milli(&p));
+    Some((sensor.input_path.clone(), crit.filter(|c| *c > 0.0)))
 }
 
 #[zbus::interface(name = "org.kde.StatusNotifierItem")]
@@ -485,14 +620,19 @@ impl ItemIface {
     fn window_id(&self) -> i32 {
         0
     }
-    /// Empty, so hosts use the pixmap: no icon has to be installed in a theme.
+    /// The themed icon when installed (its plain parts follow the panel's
+    /// text colour); empty otherwise, so hosts use the pixmap.
     #[zbus(property)]
-    fn icon_name(&self) -> &str {
-        ""
+    fn icon_name(&self) -> String {
+        if self.tray.themed {
+            format!("unix-guardian-{}", self.tray.st().icon.name())
+        } else {
+            String::new()
+        }
     }
     #[zbus(property)]
     fn icon_pixmap(&self) -> Vec<Pixmap> {
-        pixmaps()
+        pixmaps(self.tray.st().icon)
     }
     #[zbus(property)]
     fn overlay_icon_name(&self) -> &str {
@@ -504,7 +644,7 @@ impl ItemIface {
     }
     #[zbus(property)]
     fn tool_tip(&self) -> (String, Vec<Pixmap>, String, String) {
-        (String::new(), Vec::new(), "Unix Guardian".into(), "Click to open · right-click for usage".into())
+        (String::new(), Vec::new(), "Unix Guardian".into(), self.tray.tool_tip_text())
     }
     #[zbus(property)]
     fn item_is_menu(&self) -> bool {
@@ -522,6 +662,11 @@ impl ItemIface {
     fn secondary_activate(&self, _x: i32, _y: i32) {}
     fn context_menu(&self, _x: i32, _y: i32) {}
     fn scroll(&self, _delta: i32, _orientation: &str) {}
+
+    #[zbus(signal)]
+    async fn new_icon(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+    #[zbus(signal)]
+    async fn new_tool_tip(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 }
 
 /// One menu item and its children, `(ia{sv}av)`.
@@ -598,11 +743,10 @@ impl MenuIface {
         if id != ID_ROOT {
             return false;
         }
-        let changed = self.tray.refresh().await;
-        if !changed.is_empty() {
-            let updated = changed.iter().map(|&i| (i, self.tray.props(i))).collect();
-            let _ = Self::items_properties_updated(&emitter, updated, Vec::new()).await;
-        }
+        // The rows are at most a couple of seconds old; send them all so a
+        // host that cached the menu shows the current ones.
+        let updated = PREVIEW_IDS.iter().map(|&i| (i, self.tray.props(i))).collect();
+        let _ = Self::items_properties_updated(&emitter, updated, Vec::new()).await;
         false
     }
 
@@ -636,7 +780,6 @@ impl MenuIface {
         match (id, event_id) {
             (ID_ROOT, "opened") => {
                 self.tray.st().open = true;
-                self.tray.live.notify_one();
             }
             (ID_ROOT, "closed") => self.tray.st().open = false,
             (_, "clicked") => self.tray.clicked(id),

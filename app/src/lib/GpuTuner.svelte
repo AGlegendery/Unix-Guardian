@@ -5,6 +5,7 @@
   import { num } from "./format";
   import { t } from "./i18n.svelte";
   import Problem from "./ui/Problem.svelte";
+  import GaugeLoader from "./ui/GaugeLoader.svelte";
 
   let { pci, name }: { pci: string; name: string } = $props();
 
@@ -199,11 +200,12 @@
 
     {#if auto?.running}
       <div class="trial" role="status">
+        <GaugeLoader size={20} label={auto.message} />
         <span>{auto.message} <span dir="ltr">({auto.step}/{auto.steps})</span></span>
         <button class="btn" onclick={() => api.gpuStopAutoTune()}>{t().tune.stop}</button>
       </div>
     {:else if testing}
-      <div class="trial" role="status"><span>{t().tune.testing}</span></div>
+      <div class="trial" role="status"><GaugeLoader size={20} label={t().tune.testing} /><span>{t().tune.testing}</span></div>
     {:else if left !== null}
       <div class="trial" role="status">
         <span>{t().tune.trying.replace("{s}", num(left))}</span>

@@ -15,6 +15,8 @@
   --accent: #8b5cf6;
   --accent-text: #b49cff; /* accent used as text on dark: brighter for contrast */
   --accent-soft: color-mix(in oklab, var(--accent) 18%, transparent);
+  --ug-fg: #f3eeff;       /* the UG mark and the G gauge */
+  --ug-accent: #b794ff;
   --ok: #34d399;
   --warn: #fbbf24;
   --danger: #f87171;

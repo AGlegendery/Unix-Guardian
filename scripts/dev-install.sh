@@ -28,7 +28,15 @@ files=(
   /usr/local/share/dbus-1/system-services/org.unixguardian.Daemon1.service
   /etc/dbus-1/system.d/org.unixguardian.Daemon1.conf
   /usr/share/polkit-1/actions/org.unixguardian.policy
+  /usr/local/share/applications/unix-guardian.desktop
+  /usr/local/share/icons/hicolor/scalable/apps/unix-guardian.svg
 )
+# The tray's G gauge, one icon per state, loaded by name so it follows the
+# panel's colours.
+for state in normal warning critical gamemode offline; do
+  files+=(/usr/local/share/icons/hicolor/scalable/status/unix-guardian-$state.svg
+          /usr/local/share/icons/hicolor/16x16/status/unix-guardian-$state.svg)
+done
 
 if [ "${1:-}" = "--uninstall" ]; then
   systemctl disable --now unix-guardiand.service 2>/dev/null || true
@@ -55,6 +63,15 @@ fi
 if [ -x "$here/app/src-tauri/target/release/ug-app" ]; then
   install -Dm755 "$here/app/src-tauri/target/release/ug-app" /usr/local/bin/ug-app
 fi
+sed 's|^Exec=ug-app|Exec=/usr/local/bin/ug-app|' "$pkg/applications/unix-guardian.desktop" \
+  | install -Dm644 /dev/stdin /usr/local/share/applications/unix-guardian.desktop
+brand="$here/assets/branding"
+install -Dm644 "$brand/ug-app-icon.svg" /usr/local/share/icons/hicolor/scalable/apps/unix-guardian.svg
+for state in normal warning critical gamemode offline; do
+  install -Dm644 "$brand/tray/ug-tray-$state.svg" /usr/local/share/icons/hicolor/scalable/status/unix-guardian-$state.svg
+  install -Dm644 "$brand/tray/ug-tray-$state-16.svg" /usr/local/share/icons/hicolor/16x16/status/unix-guardian-$state.svg
+done
+touch /usr/local/share/icons/hicolor 2>/dev/null || true
 sed 's|/usr/bin/ug-daemon|/usr/local/bin/ug-daemon|' "$pkg/systemd/unix-guardiand.service" \
   > /etc/systemd/system/unix-guardiand.service
 install -Dm644 "$pkg/dbus/org.unixguardian.Daemon1.conf" /etc/dbus-1/system.d/org.unixguardian.Daemon1.conf
