@@ -4,6 +4,7 @@
 pub const BUG_REPORT_EMAIL: &str = "unixguardian@atomicmail.io";
 
 pub mod distro;
+pub mod gpu_default;
 pub mod logging;
 pub mod paths;
 pub mod profile;

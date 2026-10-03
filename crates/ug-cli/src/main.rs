@@ -37,8 +37,10 @@ enum Command {
     /// No restart or log-out: the program alone renders there (PRIME offload).
     Run {
         /// discrete, integrated, nvidia, amd, intel, or a PCI address.
-        #[arg(long, default_value = "discrete")]
-        gpu: String,
+        /// Defaults to the GPU chosen with `ug gpu default`, else the
+        /// discrete one.
+        #[arg(long)]
+        gpu: Option<String>,
         /// Print the Steam launch options for this GPU instead of running.
         #[arg(long)]
         steam: bool,
@@ -356,6 +358,13 @@ enum GpuCommand {
         /// PCI address; defaults to the active GPU.
         pci: Option<String>,
     },
+    /// Show or choose the GPU programs start on (the dashboard's card
+    /// switch). Takes effect for programs opened after the next login;
+    /// `ug run` uses it at once.
+    Default {
+        /// integrated, discrete, nvidia, amd, intel, or a PCI address.
+        gpu: Option<String>,
+    },
     /// Show or change which GPU tuning acts on.
     Active {
         /// PCI address to switch to; omit to print the current one.
@@ -420,7 +429,11 @@ async fn run() -> Result<()> {
         return tui(cli.session);
     }
     if let Command::Run { gpu, steam, command } = &cli.command {
-        return run_on_gpu(gpu, *steam, command);
+        let gpu = gpu.clone().or_else(|| ug_core::gpu_default::chosen(&ug_core::gpu_default::config_home()));
+        return run_on_gpu(gpu.as_deref().unwrap_or("discrete"), *steam, command);
+    }
+    if let Command::Gpu { command: GpuCommand::Default { gpu } } = &cli.command {
+        return default_gpu(gpu.as_deref(), cli.json);
     }
 
     // The agent always lives on the session bus, so game and playtime commands
@@ -706,6 +719,40 @@ async fn ping(seconds: u32, json: bool) -> Result<()> {
             f(s.p95_ms),
             s.loss_pct
         );
+    }
+    Ok(())
+}
+
+/// Shows or sets the GPU programs start on. Per-user, so no daemon.
+fn default_gpu(want: Option<&str>, json: bool) -> Result<()> {
+    use ug_core::gpu_default;
+    let root = ug_hw::SysRoot::real();
+    let gpus = ug_hw::gpu_use::gpus(&root);
+    let home = gpu_default::config_home();
+    if let Some(want) = want {
+        let Some(gpu) = ug_hw::gpu_use::pick(&gpus, want) else {
+            anyhow::bail!("no GPU matches {want:?}; see ug gpu list");
+        };
+        gpu_default::set(&home, gpu)?;
+    }
+    let st = gpu_default::state(&home, &gpus);
+    let describe = |pci: &str| {
+        gpus.iter()
+            .find(|g| g.pci == pci)
+            .map(|g| format!("{pci} ({}{})", g.vendor_name(), if g.boot_vga { ", integrated" } else { "" }))
+            .unwrap_or_else(|| pci.to_string())
+    };
+    if json {
+        println!("{}", serde_json::json!({ "chosen": st.chosen, "active": st.active, "pending": st.pending }));
+        return Ok(());
+    }
+    println!("Programs start on {}", describe(&st.chosen));
+    if st.pending {
+        println!("This session still uses {}: the choice applies to programs opened after your next login.", describe(&st.active));
+        println!("`ug run -- <program>` uses it now.");
+    }
+    if gpus.len() < 2 {
+        println!("This machine has one GPU, so there is nothing to switch.");
     }
     Ok(())
 }
@@ -1445,6 +1492,7 @@ async fn gpu(
             }
             Ok(())
         }
+        GpuCommand::Default { .. } => unreachable!("handled before connecting to the daemon"),
         GpuCommand::Active { pci } => {
             match pci {
                 Some(p) => {
