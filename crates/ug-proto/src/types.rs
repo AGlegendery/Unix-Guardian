@@ -939,3 +939,88 @@ pub struct AutoTuneStatus {
     /// Finished with a result now on trial (keep it to make it stay).
     pub ok: bool,
 }
+
+/// One fact the driver troubleshooter read, for the "what we found" list.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct DriverFact {
+    /// e.g. `nvidia.kernel_version`.
+    pub key: String,
+    /// As text; "" when it could not be read.
+    pub value: String,
+}
+
+/// A problem the driver troubleshooter found, in both languages (the UI
+/// picks one; the CLI prints English).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct DriverFinding {
+    pub id: String,
+    /// `critical`, `important` or `advice`.
+    pub severity: String,
+    pub title_en: String,
+    pub title_fa: String,
+    /// What this means.
+    pub what_en: String,
+    pub what_fa: String,
+    /// Why it matters.
+    pub why_en: String,
+    pub why_fa: String,
+    /// How it is fixed.
+    pub how_en: String,
+    pub how_fa: String,
+    /// The fix's id; "" when there is nothing to run (advice only).
+    pub fix_id: String,
+    /// Unix Guardian can apply the fix itself (with a backup and undo);
+    /// otherwise `commands` are for the user to run.
+    pub fix_auto: bool,
+    /// Commands for this distribution, to copy.
+    pub commands: Vec<String>,
+    pub doc_url: String,
+}
+
+/// The troubleshooter's whole answer.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct DriverReport {
+    pub facts: Vec<DriverFact>,
+    pub findings: Vec<DriverFinding>,
+    /// The distribution as named in os-release, and whether Unix Guardian
+    /// may change it (tier 1/2, not image-based).
+    pub distro: String,
+    pub can_change: bool,
+}
+
+/// One step of a fix, exactly as it will run.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct DriverStep {
+    /// `write-file`, `remove-file`, `run` or `enable-units`.
+    pub kind: String,
+    /// The file, or the command line.
+    pub target: String,
+    /// The file's new contents, or what the command does.
+    pub detail: String,
+    /// How this step is undone.
+    pub undo: String,
+}
+
+/// What a fix will do, before it is done.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct DriverPlan {
+    pub fix_id: String,
+    pub title: String,
+    pub steps: Vec<DriverStep>,
+    pub needs_reboot: bool,
+    /// Why it cannot be applied here; "" when it can.
+    pub refused: String,
+}
+
+/// A fix that was applied (or is being applied), kept for undo.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct DriverOp {
+    pub id: String,
+    pub fix_id: String,
+    pub title: String,
+    pub started_unix_ms: u64,
+    /// `running`, `done`, `failed` (undone by itself), `undoing`, `undone`.
+    pub state: String,
+    pub log: Vec<String>,
+    pub needs_reboot: bool,
+}

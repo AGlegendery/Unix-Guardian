@@ -1,0 +1,257 @@
+# NVIDIA driver problems. Each rule: id, severity (critical / important /
+# advice), `when` (all must hold; see crates/ug-driver/src/rules.rs for the
+# condition syntax and inventory.rs for the facts), the text in English and
+# Persian, and the fix (crates/ug-driver/src/fixes.rs).
+
+[[rule]]
+id = "nvidia-version-mismatch"
+severity = "critical"
+when = ["nvidia.kernel_version != ''", "nvidia.lib_version != ''", "nvidia.kernel_version != $nvidia.lib_version"]
+title_en = "Driver and library versions do not match"
+title_fa = "نسخه‌ی درایور و کتابخانه‌ی انویدیا یکی نیست"
+what_en = "The NVIDIA kernel module that is running is a different version from the NVIDIA libraries on disk."
+what_fa = "ماژول کرنل انویدیا که الان اجراست با کتابخانه‌های انویدیا روی دیسک نسخه‌ی متفاوتی دارد."
+why_en = "Programs fail with \"Driver/library version mismatch\": nvidia-smi, games and CUDA stop working. It nearly always happens right after a driver update, before a restart."
+why_fa = "برنامه‌ها با خطای «Driver/library version mismatch» از کار می‌افتند: nvidia-smi، بازی‌ها و CUDA. تقریباً همیشه درست بعد از آپدیت درایور و قبل از ری‌استارت پیش می‌آید."
+how_en = "Restart the computer so the new module loads. If it still happens after a restart, the driver packages are out of step and need reinstalling together."
+how_fa = "کامپیوتر را ری‌استارت کنید تا ماژول جدید بارگذاری شود. اگر بعد از ری‌استارت هم ماند، بسته‌های درایور با هم هماهنگ نیستند و باید با هم دوباره نصب شوند."
+fix = "reboot"
+
+[[rule]]
+id = "nvidia-not-installed"
+severity = "important"
+when = ["gpu.nvidia", "!nvidia.installed"]
+title_en = "NVIDIA card without the NVIDIA driver"
+title_fa = "کارت انویدیا بدون درایور انویدیا"
+what_en = "This computer has an NVIDIA graphics card, but NVIDIA's driver is not installed. The card runs on nouveau, or on nothing."
+what_fa = "این کامپیوتر کارت گرافیک انویدیا دارد ولی درایور خود انویدیا نصب نیست. کارت یا با nouveau کار می‌کند یا اصلاً کار نمی‌کند."
+why_en = "nouveau cannot raise the clocks of most modern NVIDIA cards, so games run many times slower, and CUDA, NVENC and DLSS are missing."
+why_fa = "nouveau نمی‌تواند فرکانس اکثر کارت‌های جدید انویدیا را بالا ببرد، پس بازی‌ها چند برابر کندتر اجرا می‌شوند و CUDA و NVENC و DLSS هم در دسترس نیستند."
+how_en = "Install your distribution's NVIDIA driver package, then restart."
+how_fa = "بسته‌ی درایور انویدیای توزیع خودتان را نصب و بعد ری‌استارت کنید."
+fix = "install-nvidia-driver"
+
+[[rule]]
+id = "nvidia-kernel-headers-missing"
+severity = "critical"
+when = ["gpu.nvidia", "dkms.nvidia", "!kernel.headers"]
+title_en = "Kernel headers missing for the running kernel"
+title_fa = "هدرهای کرنل فعلی نصب نیست"
+what_en = "The NVIDIA driver is built for each kernel by DKMS, which needs this kernel's headers. They are not installed."
+what_fa = "درایور انویدیا با DKMS برای هر کرنل ساخته می‌شود و برای این کار هدرهای همان کرنل لازم است. این هدرها نصب نیستند."
+why_en = "After the next kernel update the driver will not be built, and the computer may start without graphics. This is the most common cause of a black screen after an update."
+why_fa = "بعد از آپدیت بعدی کرنل، درایور ساخته نمی‌شود و ممکن است سیستم بدون گرافیک بالا بیاید. این رایج‌ترین علت صفحه‌ی سیاه بعد از آپدیت است."
+how_en = "Install the headers package that matches the running kernel, then rebuild the driver with DKMS."
+how_fa = "بسته‌ی هدر مطابق کرنل فعلی را نصب کنید و بعد درایور را با DKMS دوباره بسازید."
+fix = "install-headers"
+
+[[rule]]
+id = "nvidia-module-not-built"
+severity = "critical"
+when = ["gpu.nvidia", "nvidia.lib_version != ''", "!nvidia.module_built", "kernel.headers"]
+title_en = "The NVIDIA module is not built for this kernel"
+title_fa = "ماژول انویدیا برای این کرنل ساخته نشده"
+what_en = "The NVIDIA libraries are installed, but there is no NVIDIA kernel module for the kernel that is running."
+what_fa = "کتابخانه‌های انویدیا نصب‌اند ولی برای کرنلی که الان اجراست ماژول انویدیا وجود ندارد."
+why_en = "Without the module the card is not used at all. Usually DKMS failed to build it after a kernel update."
+why_fa = "بدون این ماژول کارت اصلاً استفاده نمی‌شود. معمولاً DKMS بعد از آپدیت کرنل نتوانسته آن را بسازد."
+how_en = "Rebuild it with DKMS; if that fails, its log says why (often a kernel newer than the driver supports)."
+how_fa = "با DKMS دوباره بسازیدش؛ اگر نشد، لاگ آن علت را می‌گوید (اغلب کرنلی جدیدتر از آنچه درایور پشتیبانی می‌کند)."
+fix = "dkms-rebuild"
+
+[[rule]]
+id = "nvidia-secure-boot-blocks-module"
+severity = "critical"
+when = ["gpu.nvidia", "boot.secure_boot", "nvidia.module_built", "!module.nvidia"]
+title_en = "Secure Boot is refusing the NVIDIA module"
+title_fa = "Secure Boot جلوی ماژول انویدیا را گرفته"
+what_en = "Secure Boot is on, the NVIDIA module is built, but it is not loaded: the kernel refuses modules that are not signed with a key it trusts."
+what_fa = "Secure Boot روشن است و ماژول انویدیا ساخته شده ولی بارگذاری نشده: کرنل ماژولی را که با کلید مورد اعتمادش امضا نشده رد می‌کند."
+why_en = "The card is not used until the module's signing key is enrolled in the firmware (MOK)."
+why_fa = "تا وقتی کلید امضای ماژول در فرم‌ویر (MOK) ثبت نشود، کارت استفاده نمی‌شود."
+how_en = "Import the DKMS signing key with mokutil, restart, and in the blue MOK screen choose Enroll MOK and type the password you set. Unix Guardian only guides this: it needs you at the keyboard during boot."
+how_fa = "کلید امضای DKMS را با mokutil وارد کنید، ری‌استارت کنید و در صفحه‌ی آبی MOK گزینه‌ی Enroll MOK را بزنید و رمزی را که گذاشتید وارد کنید. یونیکس گاردین فقط راهنمایی می‌کند: این کار حضور شما پشت کیبورد هنگام بوت را لازم دارد."
+fix = "mok-enroll"
+doc_url = "https://wiki.debian.org/SecureBoot#MOK_-_Machine_Owner_Key"
+
+[[rule]]
+id = "nouveau-with-nvidia"
+severity = "critical"
+when = ["module.nouveau", "nvidia.installed"]
+title_en = "nouveau is loaded next to the NVIDIA driver"
+title_fa = "nouveau کنار درایور انویدیا بارگذاری شده"
+what_en = "The open nouveau driver took the card although NVIDIA's driver is installed."
+what_fa = "درایور متن‌باز nouveau کارت را گرفته، در حالی که درایور انویدیا نصب است."
+why_en = "Only one driver can drive the card: NVIDIA's cannot load, so games run on nouveau or on the integrated GPU."
+why_fa = "فقط یک درایور می‌تواند کارت را راه بیندازد: درایور انویدیا بارگذاری نمی‌شود و بازی‌ها روی nouveau یا گرافیک داخلی اجرا می‌شوند."
+how_en = "Block nouveau in modprobe.d, rebuild the initramfs so it is blocked at boot too, and restart."
+how_fa = "nouveau را در modprobe.d مسدود کنید، initramfs را دوباره بسازید تا هنگام بوت هم مسدود باشد، و ری‌استارت کنید."
+fix = "nouveau-blacklist"
+
+[[rule]]
+id = "nouveau-not-blacklisted"
+severity = "advice"
+when = ["nvidia.installed", "!module.nouveau", "!nouveau.blacklisted"]
+title_en = "nouveau is not blocked"
+title_fa = "nouveau مسدود نشده"
+what_en = "NVIDIA's driver is in use, but nothing stops nouveau from taking the card first at a later boot."
+what_fa = "درایور انویدیا استفاده می‌شود ولی چیزی جلوی nouveau را نمی‌گیرد که در بوت‌های بعدی زودتر کارت را بگیرد."
+why_en = "After some updates nouveau wins the race at boot, and the NVIDIA driver then cannot load."
+why_fa = "بعد از بعضی آپدیت‌ها nouveau هنگام بوت زودتر می‌رسد و درایور انویدیا دیگر بارگذاری نمی‌شود."
+how_en = "Block nouveau in modprobe.d and rebuild the initramfs."
+how_fa = "nouveau را در modprobe.d مسدود و initramfs را دوباره بسازید."
+fix = "nouveau-blacklist"
+
+[[rule]]
+id = "nvidia-drm-modeset-off"
+severity = "important"
+when = ["module.nvidia", "!nvidia.drm_modeset"]
+title_en = "nvidia-drm kernel modesetting is off"
+title_fa = "modeset درایور nvidia-drm خاموش است"
+what_en = "The NVIDIA driver is not doing kernel modesetting (nvidia-drm.modeset)."
+what_fa = "درایور انویدیا modesetting کرنل (nvidia-drm.modeset) را انجام نمی‌دهد."
+why_en = "Wayland desktops need it: without it they fall back to X11, tear, freeze, or show a black screen; PRIME sync on laptops also needs it."
+why_fa = "دسکتاپ‌های Wayland به آن نیاز دارند: بدون آن به X11 برمی‌گردند، تصویر پاره می‌شود، فریز می‌کند یا صفحه سیاه می‌شود؛ PRIME sync روی لپ‌تاپ هم به آن نیاز دارد."
+how_en = "Set nvidia-drm modeset=1 (and fbdev=1 on driver 545 or newer) in modprobe.d, rebuild the initramfs, restart."
+how_fa = "در modprobe.d مقدار nvidia-drm modeset=1 (و روی درایور ۵۴۵ به بالا fbdev=1) را بگذارید، initramfs را دوباره بسازید و ری‌استارت کنید."
+fix = "nvidia-drm-modeset"
+
+[[rule]]
+id = "nvidia-drm-fbdev-off"
+severity = "advice"
+when = ["module.nvidia", "nvidia.drm_modeset", "nvidia.lib_major >= 545", "!nvidia.drm_fbdev"]
+title_en = "nvidia-drm's own framebuffer is off"
+title_fa = "فریم‌بافر خود nvidia-drm خاموش است"
+what_en = "Driver 545 and newer can provide the text console's framebuffer itself (nvidia-drm.fbdev=1); here it does not."
+what_fa = "درایور ۵۴۵ به بالا می‌تواند فریم‌بافر کنسول متنی را خودش فراهم کند (nvidia-drm.fbdev=1)؛ اینجا این کار را نمی‌کند."
+why_en = "Without it the text console (Ctrl+Alt+F3) can be blank on the NVIDIA screen, and some Wayland compositors flicker at login."
+why_fa = "بدون آن کنسول متنی (Ctrl+Alt+F3) روی صفحه‌ی انویدیا ممکن است خالی بماند و بعضی کامپوزیتورهای Wayland هنگام ورود چشمک بزنند."
+how_en = "Set nvidia-drm fbdev=1 next to modeset=1 in modprobe.d, rebuild the initramfs, restart."
+how_fa = "در modprobe.d کنار modeset=1 مقدار fbdev=1 را بگذارید، initramfs را دوباره بسازید و ری‌استارت کنید."
+fix = "nvidia-drm-modeset"
+
+[[rule]]
+id = "nvidia-suspend-vram"
+severity = "important"
+when = ["module.nvidia", "!nvidia.preserve_vram", "nvidia.suspend_units_exist"]
+title_en = "Video memory is not kept across sleep"
+title_fa = "حافظه‌ی گرافیک هنگام sleep نگه داشته نمی‌شود"
+what_en = "NVIDIA's suspend helpers are installed, but the driver is not told to save video memory when the computer sleeps (NVreg_PreserveVideoMemoryAllocations=0)."
+what_fa = "ابزارهای suspend انویدیا نصب‌اند، ولی به درایور گفته نشده هنگام sleep حافظه‌ی گرافیک را ذخیره کند (NVreg_PreserveVideoMemoryAllocations=0)."
+why_en = "After waking up, the desktop or a game can show corrupted graphics, a black window, or crash."
+why_fa = "بعد از بیدار شدن، دسکتاپ یا بازی ممکن است تصویر خراب یا پنجره‌ی سیاه نشان دهد یا کرش کند."
+how_en = "Set NVreg_PreserveVideoMemoryAllocations=1 in modprobe.d, enable nvidia-suspend, nvidia-resume and nvidia-hibernate, rebuild the initramfs, restart."
+how_fa = "در modprobe.d مقدار NVreg_PreserveVideoMemoryAllocations=1 را بگذارید، سرویس‌های nvidia-suspend و nvidia-resume و nvidia-hibernate را فعال کنید، initramfs را دوباره بسازید و ری‌استارت کنید."
+fix = "nvidia-suspend"
+
+[[rule]]
+id = "nvidia-suspend-units-off"
+severity = "important"
+when = ["module.nvidia", "nvidia.preserve_vram", "nvidia.suspend_units_exist", "!nvidia.suspend_units_enabled"]
+title_en = "NVIDIA's sleep services are off"
+title_fa = "سرویس‌های sleep انویدیا خاموش‌اند"
+what_en = "Video memory is set to be kept across sleep, but the services that save and restore it are not enabled."
+what_fa = "قرار است حافظه‌ی گرافیک هنگام sleep نگه داشته شود، ولی سرویس‌هایی که آن را ذخیره و بازیابی می‌کنند فعال نیستند."
+why_en = "The computer may fail to sleep, or wake to a black screen."
+why_fa = "ممکن است کامپیوتر sleep نشود یا با صفحه‌ی سیاه بیدار شود."
+how_en = "Enable nvidia-suspend, nvidia-resume and nvidia-hibernate."
+how_fa = "سرویس‌های nvidia-suspend و nvidia-resume و nvidia-hibernate را فعال کنید."
+fix = "nvidia-suspend"
+
+[[rule]]
+id = "nvidia-steam-lib32-missing"
+severity = "important"
+when = ["nvidia.installed", "steam.native", "!nvidia.lib32"]
+title_en = "32-bit NVIDIA libraries missing for Steam"
+title_fa = "کتابخانه‌های ۳۲ بیتی انویدیا برای Steam نصب نیست"
+what_en = "Steam is installed from the distribution, but NVIDIA's 32-bit libraries are not."
+what_fa = "Steam از مخزن توزیع نصب شده، ولی کتابخانه‌های ۳۲ بیتی انویدیا نصب نیستند."
+why_en = "Steam itself and many games are 32-bit: Steam may not start, or games fall back to software rendering."
+why_fa = "خود Steam و خیلی از بازی‌ها ۳۲ بیتی‌اند: ممکن است Steam باز نشود یا بازی‌ها با رندر نرم‌افزاری و خیلی کند اجرا شوند."
+how_en = "Install the 32-bit NVIDIA package of the same version (enabling 32-bit packages first where needed)."
+how_fa = "بسته‌ی ۳۲ بیتی انویدیا با همان نسخه را نصب کنید (اگر لازم است اول بسته‌های ۳۲ بیتی را فعال کنید)."
+fix = "install-lib32"
+
+[[rule]]
+id = "nvidia-flatpak-gl-mismatch"
+severity = "important"
+when = ["module.nvidia", "flatpak.apps > 0", "flatpak.gl_nvidia_wanted != ''", "!flatpak.gl_nvidia_matches"]
+title_en = "Flatpak's NVIDIA runtime does not match the driver"
+title_fa = "رانتایم انویدیای Flatpak با درایور یکی نیست"
+what_en = "Flatpak apps (Flatpak Steam, Bottles…) need a GL runtime with exactly the driver's version; the one for this driver is not installed."
+what_fa = "برنامه‌های Flatpak (مثل Steam و Bottles نسخه‌ی Flatpak) یک رانتایم GL با دقیقاً همان نسخه‌ی درایور لازم دارند؛ رانتایم این نسخه نصب نیست."
+why_en = "Those apps cannot use the NVIDIA card: games run on the integrated GPU or with software rendering."
+why_fa = "این برنامه‌ها نمی‌توانند از کارت انویدیا استفاده کنند: بازی‌ها روی گرافیک داخلی یا با رندر نرم‌افزاری اجرا می‌شوند."
+how_en = "Run flatpak update; Flatpak installs the matching runtime by itself. If it does not, install it by name."
+how_fa = "دستور flatpak update را اجرا کنید؛ Flatpak رانتایم مطابق را خودش نصب می‌کند. اگر نکرد، با اسمش نصبش کنید."
+fix = "flatpak-gl"
+
+[[rule]]
+id = "nvidia-vulkan-icd-missing"
+severity = "important"
+when = ["module.nvidia", "!vulkan.nvidia_icd"]
+title_en = "Vulkan does not know about the NVIDIA driver"
+title_fa = "Vulkan درایور انویدیا را نمی‌شناسد"
+what_en = "There is no NVIDIA entry (ICD) in Vulkan's driver list."
+what_fa = "در فهرست درایورهای Vulkan هیچ ورودی (ICD) برای انویدیا نیست."
+why_en = "DXVK, VKD3D and Proton need Vulkan: Windows games through Steam run on the integrated GPU or do not start."
+why_fa = "DXVK و VKD3D و Proton به Vulkan نیاز دارند: بازی‌های ویندوزی در Steam روی گرافیک داخلی اجرا می‌شوند یا باز نمی‌شوند."
+how_en = "Reinstall the NVIDIA driver packages; the ICD file comes with them."
+how_fa = "بسته‌های درایور انویدیا را دوباره نصب کنید؛ فایل ICD همراه آن‌هاست."
+fix = "reinstall-driver"
+
+[[rule]]
+id = "nvidia-legacy-card"
+severity = "important"
+when = ["nvidia.family == 'kepler'", "nvidia.lib_major > 470"]
+title_en = "This card is too old for the installed driver"
+title_fa = "این کارت برای درایور نصب‌شده قدیمی است"
+what_en = "This is a Kepler card; NVIDIA's drivers after the 470 series do not support it."
+what_fa = "این کارت از نسل Kepler است؛ درایورهای انویدیا بعد از سری ۴۷۰ از آن پشتیبانی نمی‌کنند."
+why_en = "The driver will not drive it at all."
+why_fa = "درایور اصلاً آن را راه نمی‌اندازد."
+how_en = "Use the 470 legacy driver where your distribution still offers it, or nouveau."
+how_fa = "اگر توزیعتان هنوز درایور قدیمی ۴۷۰ را دارد از آن استفاده کنید، وگرنه از nouveau."
+fix = "legacy-driver"
+
+[[rule]]
+id = "nvidia-fermi-card"
+severity = "important"
+when = ["nvidia.family == 'fermi'", "nvidia.lib_major > 390"]
+title_en = "This card is too old for the installed driver"
+title_fa = "این کارت برای درایور نصب‌شده قدیمی است"
+what_en = "This is a Fermi card; NVIDIA's drivers after the 390 series do not support it."
+what_fa = "این کارت از نسل Fermi است؛ درایورهای انویدیا بعد از سری ۳۹۰ از آن پشتیبانی نمی‌کنند."
+why_en = "The driver will not drive it at all."
+why_fa = "درایور اصلاً آن را راه نمی‌اندازد."
+how_en = "nouveau is the practical choice for this card on a current kernel."
+how_fa = "روی کرنل‌های امروزی nouveau انتخاب عملی برای این کارت است."
+fix = "legacy-driver"
+
+[[rule]]
+id = "nvidia-wayland-old-driver"
+severity = "important"
+when = ["session.type == 'wayland'", "module.nvidia", "nvidia.lib_major > 0", "nvidia.lib_major < 555"]
+title_en = "Wayland with an NVIDIA driver older than 555"
+title_fa = "Wayland با درایور انویدیای قدیمی‌تر از ۵۵۵"
+what_en = "This is a Wayland session on NVIDIA driver older than 555, which lacks explicit sync."
+what_fa = "این یک نشست Wayland روی درایور انویدیای قدیمی‌تر از ۵۵۵ است که explicit sync ندارد."
+why_en = "Games and apps through XWayland can flicker, stutter or show frames out of order."
+why_fa = "بازی‌ها و برنامه‌هایی که از XWayland رد می‌شوند ممکن است چشمک بزنند، لگ بزنند یا فریم‌ها را جابه‌جا نشان دهند."
+how_en = "Update to driver 555 or newer when your distribution offers it, or use an X11 session for games meanwhile."
+how_fa = "وقتی توزیعتان درایور ۵۵۵ یا جدیدتر را داد آپدیت کنید؛ تا آن موقع برای بازی از نشست X11 استفاده کنید."
+fix = "update-driver"
+
+[[rule]]
+id = "nvidia-vaapi-missing"
+severity = "advice"
+when = ["module.nvidia", "!gpu.intel", "!vaapi.nvidia"]
+title_en = "No hardware video decoding in browsers"
+title_fa = "رمزگشایی سخت‌افزاری ویدیو در مرورگر نیست"
+what_en = "The VA-API bridge for NVIDIA (nvidia-vaapi-driver) is not installed."
+what_fa = "پل VA-API برای انویدیا (nvidia-vaapi-driver) نصب نیست."
+why_en = "Browsers decode video on the CPU: more heat, noise and battery use."
+why_fa = "مرورگرها ویدیو را با پردازنده رمزگشایی می‌کنند: گرمای بیشتر، صدای فن و مصرف باتری."
+how_en = "Install nvidia-vaapi-driver and set LIBVA_DRIVER_NAME=nvidia."
+how_fa = "nvidia-vaapi-driver را نصب و LIBVA_DRIVER_NAME=nvidia را تنظیم کنید."
+fix = "vaapi"

@@ -293,6 +293,25 @@ pub mod daemon {
         fn set_fan_mode(&self, mode: i32) -> zbus::Result<()>;
     }
 
+    /// The graphics driver troubleshooter's changes. Diagnosis itself runs in
+    /// the caller (`ug_driver::diagnose`), so it works with the daemon down.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Daemon1.Driver",
+        default_service = "org.unixguardian.Daemon1",
+        default_path = "/org/unixguardian/Daemon1"
+    )]
+    pub trait Driver {
+        /// Exactly what a fix will do here, or why it cannot be done.
+        fn plan(&self, fix_id: &str) -> zbus::Result<DriverPlan>;
+        /// Starts a fix (polkit, password every time); returns the
+        /// operation's id. Progress is in `Ops`.
+        fn apply(&self, fix_id: &str) -> zbus::Result<String>;
+        /// Every fix applied, newest first.
+        fn ops(&self) -> zbus::Result<Vec<DriverOp>>;
+        /// Undoes an applied fix (polkit).
+        fn rollback(&self, op_id: &str) -> zbus::Result<()>;
+    }
+
     /// Internet control: traffic per app (and, next, blocking and limits).
     /// Counting happens in Unix Guardian's own nftables table; other
     /// firewall rules are never touched.

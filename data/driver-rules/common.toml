@@ -1,0 +1,43 @@
+# Problems that are not NVIDIA's alone. Format: see nvidia.toml.
+
+[[rule]]
+id = "kernel-nomodeset"
+severity = "critical"
+when = ["kernel.cmdline contains 'nomodeset'"]
+title_en = "The kernel is started with nomodeset"
+title_fa = "کرنل با nomodeset اجرا شده"
+what_en = "The boot options include nomodeset, which turns off every graphics driver's modesetting."
+what_fa = "در گزینه‌های بوت nomodeset هست که modesetting همه‌ی درایورهای گرافیک را خاموش می‌کند."
+why_en = "The desktop runs on a slow fallback framebuffer: no acceleration, one screen, often a wrong resolution. It is often left over from an installer's safe-graphics mode."
+why_fa = "دسکتاپ روی یک فریم‌بافر کند و پشتیبان اجرا می‌شود: بدون شتاب سخت‌افزاری، یک صفحه و اغلب رزولوشن اشتباه. معمولاً از حالت گرافیک امن نصب‌کننده جا مانده."
+how_en = "Remove nomodeset from the kernel command line in the boot loader's settings and restart."
+how_fa = "nomodeset را از خط فرمان کرنل در تنظیمات بوت‌لودر حذف و ری‌استارت کنید."
+fix = "remove-nomodeset"
+
+[[rule]]
+id = "vulkan-loader-missing"
+severity = "important"
+when = ["!vulkan.loader"]
+title_en = "Vulkan is not installed"
+title_fa = "Vulkan نصب نیست"
+what_en = "The Vulkan loader (libvulkan.so.1) is not installed."
+what_fa = "لودر Vulkan (یعنی libvulkan.so.1) نصب نیست."
+why_en = "Proton, DXVK and most new Linux games need Vulkan; without it they do not start."
+why_fa = "Proton و DXVK و بیشتر بازی‌های جدید لینوکسی به Vulkan نیاز دارند و بدون آن باز نمی‌شوند."
+how_en = "Install the Vulkan loader and the Vulkan drivers for your GPUs."
+how_fa = "لودر Vulkan و درایورهای Vulkan کارت‌های گرافیکتان را نصب کنید."
+fix = "install-vulkan"
+
+[[rule]]
+id = "amd-ppfeaturemask-missing"
+severity = "advice"
+when = ["gpu.amd", "module.amdgpu", "!amd.ppfeaturemask"]
+title_en = "AMD overclocking controls are locked"
+title_fa = "کنترل‌های اورکلاک AMD قفل است"
+what_en = "The amdgpu.ppfeaturemask boot option is not set, so the card's clock and voltage tables are read-only."
+what_fa = "گزینه‌ی بوت amdgpu.ppfeaturemask تنظیم نشده، پس جدول فرکانس و ولتاژ کارت فقط‌خواندنی است."
+why_en = "Unix Guardian's GPU tuning (undervolt, clock limits) cannot change an AMD card without it. Nothing else is affected."
+why_fa = "تنظیم کارت گرافیک یونیکس گاردین (آندرولت، محدودیت فرکانس) بدون آن نمی‌تواند کارت AMD را تغییر دهد. چیز دیگری تحت تأثیر نیست."
+how_en = "Add amdgpu.ppfeaturemask=0xffffffff to the kernel command line and restart, only if you want to tune the card."
+how_fa = "فقط اگر می‌خواهید کارت را تنظیم کنید، amdgpu.ppfeaturemask=0xffffffff را به خط فرمان کرنل اضافه و ری‌استارت کنید."
+fix = "amd-ppfeaturemask"
