@@ -103,92 +103,294 @@ fn hm(secs: u64) -> String {
     }
 }
 
-/// Playtime: the period, a summary, and every game by time played.
+/// One row of the Playtime page's Apps tab: a tracked app, or an app no
+/// longer counted that still has time in the period.
+struct AppRow {
+    key: String,
+    exe: String,
+    name: String,
+    seconds: u64,
+    sessions: u32,
+    counting: bool,
+}
+
+fn game_rows(app: &App) -> Vec<ug_proto::PlaytimeEntry> {
+    app.playtime.value.iter().flatten().filter(|e| !e.key.starts_with("app:")).cloned().collect()
+}
+
+fn app_rows(app: &App) -> Vec<AppRow> {
+    let tracked = app.playtime_extra.value.as_ref().map(|v| v.0.clone()).unwrap_or_default();
+    let mut rows: Vec<AppRow> = app
+        .playtime
+        .value
+        .iter()
+        .flatten()
+        .filter_map(|e| {
+            let exe = e.key.strip_prefix("app:")?.to_string();
+            let counting = tracked.iter().any(|a| a.exe == exe);
+            Some(AppRow { key: e.key.clone(), exe, name: e.name.clone(), seconds: e.seconds, sessions: e.sessions, counting })
+        })
+        .collect();
+    for a in tracked {
+        if !rows.iter().any(|r| r.exe == a.exe) {
+            rows.push(AppRow { key: format!("app:{}", a.exe), exe: a.exe, name: a.name, seconds: 0, sessions: 0, counting: true });
+        }
+    }
+    rows
+}
+
+/// Open programs not yet tracked, below the apps on the Apps tab.
+fn program_rows(app: &App) -> Vec<ug_proto::TrackedApp> {
+    let rows = app_rows(app);
+    app.programs.value.iter().flatten().filter(|p| !rows.iter().any(|r| r.exe == p.exe)).cloned().collect()
+}
+
+fn fit(name: &str, w: usize) -> String {
+    let mut n: String = name.chars().take(w).collect();
+    if name.chars().count() > w {
+        n.pop();
+        n.push('…');
+    }
+    format!("{n:<w$}")
+}
+
+/// Playtime: the period, then games or apps by time, with what can be done
+/// to them.
 fn playtime_page(app: &mut App, f: &mut Frame, r: Rect) {
     let t = app.theme;
+    tabs(app, f, Rect { height: 1, ..r }, &["Games", "Apps"]);
+    let r = Rect { y: r.y + 2, height: r.height.saturating_sub(2), ..r };
     let names: Vec<String> = ["Today", "This week", "All time"].map(String::from).to_vec();
     let chosen = app.choice.min(2);
     choices(app, f, Rect { height: 1, ..r }, "Period", &names, chosen);
     let mut y = r.y + 2;
     let line = |y: u16| Rect { x: r.x, y, width: r.width, height: 1 };
-    let entries = app.playtime.value.clone().unwrap_or_default();
-    if let Some(e) = &app.playtime.error {
-        f.render_widget(Paragraph::new(Span::styled(e.clone(), Style::default().fg(t.danger))), line(y));
+    // Tracked apps and imports come from newer agents only; without them the
+    // page still lists what was recorded.
+    if let Some(e) = app.playtime.error.clone() {
+        f.render_widget(Paragraph::new(Span::styled(e, Style::default().fg(t.danger))), line(y));
         return;
     }
     if app.playtime.value.is_none() {
         return;
     }
-    let total: u64 = entries.iter().map(|e| e.seconds).sum();
-    let mut summary = vec![
-        Span::styled(["Played today ", "Played this week ", "Played in total "][chosen], t.muted()),
-        Span::styled(hm(total), t.title()),
-        Span::styled(format!("   {} {}", entries.len(), if entries.len() == 1 { "game" } else { "games" }), t.muted()),
-    ];
-    if let Some(top) = entries.first() {
-        summary.push(Span::styled("   most played ", t.muted()));
-        summary.push(Span::styled(top.name.clone(), t.text()));
-    }
-    f.render_widget(Paragraph::new(Line::from(summary)), line(y));
-    y += 2;
-    if entries.is_empty() {
-        let msg = ["No games played today.", "No games played this week.", "No games recorded yet."][chosen];
-        f.render_widget(Paragraph::new(Span::styled(msg, t.muted())), line(y));
+    let name_w = (r.width as usize / 3).clamp(12, 34);
+    // name, time, share, then room for "  press again: delete".
+    let bar_w = (r.width as usize).saturating_sub(name_w + 46).clamp(6, 30);
+    let bottom = r.bottom().saturating_sub(3);
+    let armed = |app: &App, what: &str| app.armed.as_ref().is_some_and(|(a, _)| a == what);
+
+    let hint = if app.tab == 0 {
+        let games = game_rows(app);
+        let imported: Vec<ug_proto::PlaytimeEntry> = app.playtime_extra.value.as_ref().map(|v| v.1.clone()).unwrap_or_default();
+        let total: u64 = games.iter().map(|e| e.seconds).sum();
+        let mut summary = vec![
+            Span::styled(["Played today ", "Played this week ", "Played in total "][chosen], t.muted()),
+            Span::styled(hm(total), t.title()),
+            Span::styled(format!("   {} {}", games.len(), if games.len() == 1 { "game" } else { "games" }), t.muted()),
+        ];
+        if let Some(top) = games.first() {
+            summary.push(Span::styled("   most played ", t.muted()));
+            summary.push(Span::styled(top.name.clone(), t.text()));
+        }
+        f.render_widget(Paragraph::new(Line::from(summary)), line(y));
         y += 2;
-    } else {
-        let name_w = (r.width as usize / 3).clamp(12, 34);
-        // name, time, share, then room for "  press again: delete".
-        let bar_w = (r.width as usize).saturating_sub(name_w + 46).clamp(6, 30);
-        let bottom = r.bottom().saturating_sub(2);
-        app.rows = entries.len();
-        for (i, e) in entries.iter().enumerate() {
+        if games.is_empty() {
+            let msg = ["No games played today.", "No games played this week.", "No games recorded yet."][chosen];
+            f.render_widget(Paragraph::new(Span::styled(msg, t.muted())), line(y));
+            y += 2;
+        }
+        app.rows = games.len();
+        for (i, e) in games.iter().enumerate() {
             if y >= bottom {
                 break;
             }
             let frac = if total > 0 { e.seconds as f64 / total as f64 } else { 0.0 };
-            let mut name: String = e.name.chars().take(name_w).collect();
-            if e.name.chars().count() > name_w {
-                name.pop();
-                name.push('…');
-            }
-            let armed = app.armed.as_ref().is_some_and(|(a, _)| *a == format!("delete {}'s playtime", e.name));
+            let steam = if chosen == 2 { imported.iter().find(|m| m.key == e.key).map(|m| m.seconds) } else { None };
+            let note = if armed(app, &format!("delete {}'s playtime", e.name)) {
+                ("  press again: delete".to_string(), Style::default().fg(t.danger))
+            } else if armed(app, &format!("move {} to Apps", e.name)) {
+                ("  n again: not a game".to_string(), Style::default().fg(t.danger))
+            } else {
+                let mut n = if e.sessions == 0 { "  from Steam".to_string() } else { format!("  {}×", e.sessions) };
+                if e.sessions > 0 && steam.is_some() {
+                    n.push_str(" +Steam");
+                }
+                if e.key.starts_with("exe:") {
+                    n.push_str("  guessed");
+                }
+                (n, t.faint())
+            };
             let l = Line::from(vec![
-                Span::styled(format!("{name:<name_w$}  "), t.text()),
+                Span::styled(format!("{}  ", fit(&e.name, name_w)), t.text()),
                 Span::styled(format!("{:>13}  ", hm(e.seconds)), t.title()),
                 Span::styled(format!("{:>4.0} %  ", frac * 100.0), t.muted()),
                 Span::styled(bar(bar_w as u16, frac), Style::default().fg(t.accent)),
-                Span::styled(
-                    if armed { "  press again: delete".to_string() } else { format!("  {}×", e.sessions) },
-                    if armed { Style::default().fg(t.danger) } else { t.faint() },
-                ),
+                Span::styled(note.0, note.1),
             ]);
             row(app, f, line(y), i, l);
             y += 1;
         }
-        y += 1;
-    }
-    if y < r.bottom() {
+        format!(
+            "Counted automatically while a game runs. x deletes a game's history · n moves a guessed game to Apps · i imports Steam's own playtime into All time{} · e saves the period as CSV in Downloads.",
+            if imported.is_empty() { "" } else { ", u removes it" }
+        )
+    } else {
+        let apps = app_rows(app);
+        let programs = program_rows(app);
+        let total: u64 = apps.iter().map(|a| a.seconds).sum();
+        let counting = apps.iter().filter(|a| a.counting).count();
         f.render_widget(
-            Paragraph::new(Span::styled("Counted automatically while a game runs. x deletes a game's whole history; e saves the period as CSV in Downloads.", t.faint()))
-                .wrap(Wrap { trim: true }),
-            Rect { x: r.x, y, width: r.width, height: r.bottom() - y },
+            Paragraph::new(Line::from(vec![
+                Span::styled(["Apps today ", "Apps this week ", "Apps in total "][chosen], t.muted()),
+                Span::styled(hm(total), t.title()),
+                Span::styled(format!("   {counting} counted"), t.muted()),
+            ])),
+            line(y),
         );
+        y += 2;
+        if apps.is_empty() {
+            f.render_widget(
+                Paragraph::new(Span::styled("No apps yet: pick an open program below to see how much of your time it takes.", t.muted())),
+                line(y),
+            );
+            y += 2;
+        }
+        app.rows = apps.len() + programs.len();
+        for (i, a) in apps.iter().enumerate() {
+            if y >= bottom {
+                break;
+            }
+            let frac = if total > 0 { a.seconds as f64 / total as f64 } else { 0.0 };
+            let note = if armed(app, &format!("delete {}'s playtime", a.name)) {
+                ("  press again: delete".to_string(), Style::default().fg(t.danger))
+            } else if a.counting {
+                ("  counting".to_string(), Style::default().fg(t.accent))
+            } else {
+                ("  not counted".to_string(), t.faint())
+            };
+            let l = Line::from(vec![
+                Span::styled(format!("{}  ", fit(&a.name, name_w)), t.text()),
+                Span::styled(format!("{:>13}  ", hm(a.seconds)), t.title()),
+                Span::styled(format!("{:>4.0} %  ", frac * 100.0), t.muted()),
+                Span::styled(bar(bar_w as u16, frac), Style::default().fg(t.accent)),
+                Span::styled(note.0, note.1),
+            ]);
+            row(app, f, line(y), i, l);
+            y += 1;
+        }
+        if !programs.is_empty() && y + 2 < bottom {
+            y += 1;
+            f.render_widget(Paragraph::new(Span::styled("Open now (Enter starts counting)", t.muted())), line(y));
+            y += 1;
+            for (j, p) in programs.iter().enumerate() {
+                if y >= bottom {
+                    break;
+                }
+                let l = Line::from(vec![Span::styled(format!("+ {}", fit(&p.name, name_w)), t.text()), Span::styled(format!("  {}", p.exe), t.faint())]);
+                row(app, f, line(y), apps.len() + j, l);
+                y += 1;
+            }
+        }
+        "Apps are only timed, never tuned. Enter stops or restarts counting · x deletes an app's history · any program: ug playtime track <name>.".to_string()
+    };
+    y += 1;
+    if y < r.bottom() {
+        f.render_widget(Paragraph::new(Span::styled(hint, t.faint())).wrap(Wrap { trim: true }), Rect { x: r.x, y, width: r.width, height: r.bottom() - y });
     }
 }
 
-/// Deletes a game's playtime on the second press.
+/// Deletes a game's or an app's playtime on the second press.
 fn forget_game(app: &mut App, i: usize) {
-    let Some(e) = app.playtime.value.as_ref().and_then(|v| v.get(i)).cloned() else { return };
-    let confirm = format!("delete {}'s playtime", e.name);
+    let target = if app.tab == 0 {
+        game_rows(app).get(i).map(|e| (e.key.clone(), e.name.clone()))
+    } else {
+        app_rows(app).get(i).filter(|a| a.sessions > 0).map(|a| (a.key.clone(), a.name.clone()))
+    };
+    let Some((key, name)) = target else { return };
+    let confirm = format!("delete {name}'s playtime");
     if app.armed.as_ref().is_some_and(|(a, _)| *a == confirm) {
         app.armed = None;
-        let r = app.bus.playtime_forget(&e.key);
-        report(app, r.map(|n| format!("Deleted {n} sessions of {}.", e.name)));
+        let r = app.bus.playtime_forget(&key);
+        report(app, r.map(|n| format!("Deleted {n} sessions of {name}.")));
         app.playtime.invalidate();
         app.row = app.row.saturating_sub(1);
     } else {
         app.armed = Some((confirm, std::time::Instant::now()));
     }
+}
+
+/// "Not a game" for a guessed game, on the second press.
+pub fn not_a_game(app: &mut App, i: usize) {
+    if app.tab != 0 {
+        return;
+    }
+    let Some(e) = game_rows(app).get(i).cloned() else { return };
+    if !e.key.starts_with("exe:") {
+        report(app, Err(format!("{} was recognised by its launcher or the game database, not guessed; it stays a game.", e.name)));
+        return;
+    }
+    let confirm = format!("move {} to Apps", e.name);
+    if app.armed.as_ref().is_some_and(|(a, _)| *a == confirm) {
+        app.armed = None;
+        let r = app.bus.move_to_apps(&e.key);
+        report(app, r.map(|n| format!("{} is an app now: no game mode for it, its time ({n} sessions) counts under Apps.", e.name)));
+        app.playtime.invalidate();
+        app.playtime_extra.invalidate();
+    } else {
+        app.armed = Some((confirm, std::time::Instant::now()));
+    }
+}
+
+/// Enter on the Playtime page: confirms a move armed with n, deletes on
+/// Games, starts or stops counting on Apps.
+fn activate_playtime(app: &mut App, i: usize) {
+    if app.tab == 0 {
+        let moving = game_rows(app).get(i).is_some_and(|e| app.armed.as_ref().is_some_and(|(a, _)| *a == format!("move {} to Apps", e.name)));
+        if moving {
+            not_a_game(app, i);
+        } else {
+            forget_game(app, i);
+        }
+        return;
+    }
+    let apps = app_rows(app);
+    let r = if let Some(a) = apps.get(i) {
+        if a.counting {
+            app.bus.untrack_app(&a.exe).map(|_| format!("No longer counting {}. The time counted so far stays.", a.name))
+        } else {
+            app.bus.track_app(&a.exe, &a.name).map(|_| format!("Counting {} again.", a.name))
+        }
+    } else if let Some(p) = program_rows(app).get(i - apps.len()) {
+        app.bus.track_app(&p.exe, &p.name).map(|_| format!("Counting {} from now on.", p.name))
+    } else {
+        return;
+    };
+    report(app, r);
+    app.playtime.invalidate();
+    app.playtime_extra.invalidate();
+    app.programs.invalidate();
+}
+
+/// Imports Steam's own playtime, or (`undo`) removes the import.
+pub fn import_steam(app: &mut App, undo: bool) {
+    if app.tab != 0 {
+        return;
+    }
+    let r = if undo {
+        app.bus.forget_imported().map(|n| format!("Removed the Steam playtime of {n} games."))
+    } else {
+        app.bus.import_steam().map(|(n, secs)| {
+            if n == 0 {
+                "Nothing to add: Steam has no playtime that Unix Guardian has not counted already.".to_string()
+            } else {
+                format!("Added {} of Steam playtime across {n} games to All time.", hm(secs))
+            }
+        })
+    };
+    report(app, r);
+    app.playtime.invalidate();
+    app.playtime_extra.invalidate();
 }
 
 /// Saves the chosen period's sessions as CSV in the Downloads folder.
@@ -1533,7 +1735,8 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (3, _) => vec![("Tab", "temperature"), ("Enter", "set up / undo")],
         (4, _) => vec![("Tab", "next tab"), ("Enter", "limit while gaming"), ("b", "block"), ("x", "allow")],
         (5, _) => vec![("↑↓", "setting"), ("←→", "change"), ("Enter", "next / run")],
-        (6, _) => vec![("←→", "period"), ("↑↓", "game"), ("x", "delete"), ("e", "export CSV")],
+        (6, 0) => vec![("Tab", "apps"), ("←→", "period"), ("x", "delete"), ("n", "not a game"), ("i", "import Steam"), ("e", "CSV")],
+        (6, _) => vec![("Tab", "games"), ("←→", "period"), ("Enter", "count / stop"), ("x", "delete")],
         (0, _) if gpu_switch(app).is_some() => vec![("←→", "graphics card for programs")],
         _ => vec![],
     }
@@ -1608,7 +1811,7 @@ fn report(app: &mut App, r: Result<String, String>) {
 
 pub fn activate(app: &mut App, i: usize) {
     match (app.page, app.tab) {
-        (6, _) => forget_game(app, i),
+        (6, _) => activate_playtime(app, i),
         (1, 1) => activate_tune(app, i),
         (2, 3) => {
             let _ = i;

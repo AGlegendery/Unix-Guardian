@@ -97,9 +97,13 @@ pub struct App {
     pub cooling: Cached<(ug_proto::CoolingState, String)>,
     /// The dashboard's card switch: the GPUs (boot one first) and the GPU
     /// programs start on. Per-user files and sysfs only.
-    /// The Playtime page's list for the chosen period.
-    pub playtime: Cached<Vec<ug_proto::PlaytimeEntry>>,
     pub gpu_switch: Cached<(Vec<ug_hw::gpu_use::Gpu>, ug_core::gpu_default::State)>,
+    /// The Playtime page's list for the chosen period (games and apps).
+    pub playtime: Cached<Vec<ug_proto::PlaytimeEntry>>,
+    /// Tracked apps and what Steam imports added, read with `playtime`.
+    pub playtime_extra: Cached<(Vec<ug_proto::TrackedApp>, Vec<ug_proto::PlaytimeEntry>)>,
+    /// Programs open now that could be tracked, while the Apps tab is open.
+    pub programs: Cached<Vec<ug_proto::TrackedApp>>,
     /// GPU tuning on the game mode page: the card, its state (read only on
     /// request: it wakes the card), the draft, and the trial's deadline.
     pub tune: Option<(String, ug_proto::GpuTuneState)>,
@@ -155,6 +159,8 @@ impl App {
             gpu_switch: Cached::new(SLOW),
             // A running game's time moves by the agent's minute heartbeat.
             playtime: Cached::new(RARE),
+            playtime_extra: Cached::new(RARE),
+            programs: Cached::new(Duration::from_secs(10)),
             cooling: Cached::new(Duration::from_secs(3)),
             tune: None,
             tune_draft: Default::default(),
@@ -312,6 +318,14 @@ impl App {
                     let r = self.bus.playtime(since);
                     self.playtime.store(r);
                 }
+                if self.playtime_extra.due() {
+                    let r = self.bus.tracked_apps().and_then(|a| Ok((a, self.bus.playtime_imported()?)));
+                    self.playtime_extra.store(r);
+                }
+                if self.tab == 1 && self.programs.due() {
+                    let r = self.bus.running_programs();
+                    self.programs.store(r);
+                }
             }
             _ => {}
         }
@@ -365,6 +379,7 @@ impl App {
             2 => 4,
             3 => 3,
             4 => 2,
+            6 => 2,
             _ => 1,
         }
     }
@@ -412,6 +427,9 @@ impl App {
                 KeyCode::Char('x') | KeyCode::Delete => pages::remove(self, self.row),
                 KeyCode::Char('b') => pages::block(self, self.row),
                 KeyCode::Char('e') if self.page == 6 => pages::export_playtime(self),
+                KeyCode::Char('n') if self.page == 6 => pages::not_a_game(self, self.row),
+                KeyCode::Char('i') if self.page == 6 => pages::import_steam(self, false),
+                KeyCode::Char('u') if self.page == 6 => pages::import_steam(self, true),
                 _ => {}
             },
         }
@@ -937,6 +955,49 @@ mod tests {
         app.key(KeyCode::Char('x'), KeyModifiers::NONE);
         assert!(app.armed.as_ref().is_some_and(|(a, _)| a.contains("Counter-Strike 2")), "first press only arms");
         assert!(render(&mut app, 120, 34).contains("press again: delete"));
+    }
+
+    #[test]
+    fn a_guessed_game_can_be_moved_to_apps_and_apps_have_their_own_tab() {
+        let mut app = App::new(Bus::offline());
+        app.go(6);
+        app.focus = Focus::Page;
+        let e = |key: &str, name: &str, seconds: u64, sessions: u32| ug_proto::PlaytimeEntry {
+            key: key.into(),
+            name: name.into(),
+            seconds,
+            sessions,
+            last_played_unix_ms: 0,
+        };
+        app.playtime.store(Ok(vec![
+            e("steam:730", "Counter-Strike 2", 7200, 2),
+            e("exe:wondershare filmora", "Wondershare Filmora", 900, 1),
+            e("app:dolphin", "Dolphin", 600, 3),
+        ]));
+        let firefox = ug_proto::TrackedApp { exe: "firefox-esr".into(), name: "Firefox ESR".into() };
+        let dolphin = ug_proto::TrackedApp { exe: "dolphin".into(), name: "Dolphin".into() };
+        app.playtime_extra.store(Ok((vec![dolphin.clone()], vec![])));
+        app.programs.store(Ok(vec![dolphin, firefox]));
+
+        let games = render(&mut app, 120, 34);
+        assert!(games.contains("1×  guessed") && games.contains("2 games"), "{games}");
+        assert!(!games.contains("Dolphin"), "apps are not games");
+
+        app.row = 0;
+        app.key(KeyCode::Char('n'), KeyModifiers::NONE);
+        assert!(app.armed.is_none(), "a Steam game is never moved");
+        app.row = 1;
+        app.key(KeyCode::Char('n'), KeyModifiers::NONE);
+        assert!(app.armed.as_ref().is_some_and(|(a, _)| a == "move Wondershare Filmora to Apps"), "first press only arms");
+        assert!(render(&mut app, 120, 34).contains("n again: not a game"));
+
+        app.key(KeyCode::Tab, KeyModifiers::NONE);
+        let apps = render(&mut app, 120, 34);
+        for want in ["Apps this week", "1 counted", "Dolphin", "counting", "Open now", "+ Firefox ESR"] {
+            assert!(apps.contains(want), "missing {want:?} in\n{apps}");
+        }
+        assert!(!apps.contains("+ Dolphin"), "a tracked app is not offered again");
+        assert_eq!(app.rows, 2, "Dolphin, then Firefox to add");
     }
 
     #[test]

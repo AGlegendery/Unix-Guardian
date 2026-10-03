@@ -222,6 +222,46 @@ impl Bus {
         self.rt.block_on(async { PlaytimeProxy::new(c).await?.sessions(since_ms).await }).map_err(|e| msg(e, "agent"))
     }
 
+    pub fn tracked_apps(&self) -> Result<Vec<ug_proto::TrackedApp>, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { PlaytimeProxy::new(c).await?.tracked_apps().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn track_app(&self, exe: &str, name: &str) -> Result<(), String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { PlaytimeProxy::new(c).await?.track_app(exe, name).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn untrack_app(&self, exe: &str) -> Result<bool, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { PlaytimeProxy::new(c).await?.untrack_app(exe).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn running_programs(&self) -> Result<Vec<ug_proto::TrackedApp>, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { PlaytimeProxy::new(c).await?.running_programs().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn move_to_apps(&self, key: &str) -> Result<u32, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { PlaytimeProxy::new(c).await?.move_to_apps(key).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn import_steam(&self) -> Result<(u32, u64), String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { PlaytimeProxy::new(c).await?.import_steam().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn playtime_imported(&self) -> Result<Vec<ug_proto::PlaytimeEntry>, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { PlaytimeProxy::new(c).await?.imported().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn forget_imported(&self) -> Result<u32, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { PlaytimeProxy::new(c).await?.forget_imported().await }).map_err(|e| msg(e, "agent"))
+    }
+
     pub fn playtime_forget(&self, key: &str) -> Result<u32, String> {
         let c = self.agent()?;
         self.rt.block_on(async { PlaytimeProxy::new(c).await?.forget(key).await }).map_err(|e| msg(e, "agent"))
