@@ -127,6 +127,15 @@ P6 is merged into `main` (`fc9a5a4`). On `p5-gpu`:
   `ug tray` shows it again). Programs start via `systemd-run --user` so they
   escape the agent unit's NoNewPrivileges. `--no-tray` disables it.
   Verified on KDE Wayland (registered, menu read, click, terminal, Quit).
+- ✅ Branding (2026-10-03, `ab39d51`): UG icon (`assets/branding/ug-app-icon.svg`,
+  Tauri icons, `packaging/applications/unix-guardian.desktop`), UG mark in the
+  sidebar, G-gauge tray states (`health.rs`: normal/warning/critical/gamemode/
+  offline, hysteresis, `tray.json` overrides; `scripts/gen-tray-icons.py`
+  makes the SVGs and fallback pixmaps; dev-install puts them in hicolor),
+  `GaugeLoader.svelte` (intro splash; busy loop stops after 20 s — no idle
+  loop, WebKit rule). Verified: warning gauge shown in the KDE panel.
+  Not done: GPU thermal-throttle reason (NVML) is not read; the window's
+  Wayland app_id vs the .desktop name was not checked.
 
 ## P6 overlay (branch `p6-overlay`) — built, not merged, 2026-10-01
 
