@@ -5,7 +5,7 @@
 //! keeping this free of async lets it be tested by calling `tick` with a fake
 //! root and a fake clock.
 
-use crate::{affinity, apps::Paused, playtime::Playtime};
+use crate::{affinity, apps::Paused, choices::Choices, playtime::Playtime};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -14,7 +14,7 @@ use ug_core::profile::Profiles;
 use ug_games::detect::{Detector, Event, RunningGame};
 use ug_games::{db::GameDb, InstalledGame};
 use ug_hw::{topology, SysRoot};
-use ug_proto::{InstalledGameInfo, RunningGameInfo};
+use ug_proto::{InstalledGameInfo, RunningGameInfo, TrackedApp};
 
 /// The PCI address of the GPU the firmware booted the display on.
 fn boot_vga(root: &SysRoot) -> String {
@@ -46,6 +46,13 @@ struct Running {
     pinned: BTreeSet<i32>,
 }
 
+/// A tracked app running now: only its time is recorded.
+struct AppSession {
+    name: String,
+    session: i64,
+    started_ms: u64,
+}
+
 pub struct AgentCore {
     root: SysRoot,
     home: PathBuf,
@@ -57,6 +64,13 @@ pub struct AgentCore {
     profiles: Profiles,
     preferred_cpus: Option<Vec<u32>>,
     running: BTreeMap<String, Running>,
+    apps: BTreeMap<String, AppSession>,
+    /// Tracked apps and "not a game" decisions, kept in `playtime.json`.
+    choices: Choices,
+    /// False when `playtime.json` did not parse: it is then never written,
+    /// so the user's file is not lost to a save of the empty defaults.
+    choices_writable: bool,
+    test_run: Option<String>,
     paused: Paused,
 }
 
@@ -73,9 +87,19 @@ impl AgentCore {
             cpus
         });
         tracing::info!(installed = installed.len(), "game library scanned");
+        let (choices, choices_writable) = match Choices::load(config_dir) {
+            Ok(c) => (c, true),
+            Err(e) => {
+                tracing::warn!(error = %e, "tracked apps and not-a-game choices unreadable; left as they are");
+                (Choices::default(), false)
+            }
+        };
+        let mut detector = Detector::new(GameDb::bundled(), installed.clone(), uid);
+        detector.ignore_exes(choices.not_games.clone());
+        detector.set_tracked_apps(choices.tracked_pairs());
 
         AgentCore {
-            detector: Detector::new(GameDb::bundled(), installed.clone(), uid),
+            detector,
             root,
             home: home.to_path_buf(),
             config_dir: config_dir.to_path_buf(),
@@ -85,6 +109,10 @@ impl AgentCore {
             profiles,
             preferred_cpus,
             running: BTreeMap::new(),
+            apps: BTreeMap::new(),
+            choices,
+            choices_writable,
+            test_run: None,
             paused: Paused::default(),
         }
     }
@@ -97,14 +125,28 @@ impl AgentCore {
         outcomes
     }
 
+    /// Games become outcomes for the async layer (game mode, signals,
+    /// notifications); tracked apps only start and end a playtime session.
     fn apply(&mut self, events: Vec<Event>, wall_ms: u64) -> Vec<Outcome> {
-        events
-            .into_iter()
-            .map(|e| match e {
-                Event::Started(g) => self.on_started(g, wall_ms),
-                Event::Stopped { game, played } => self.on_stopped(&game, played.as_secs(), wall_ms),
-            })
-            .collect()
+        let mut out = Vec::new();
+        for e in events {
+            match e {
+                Event::Started(g) if g.is_app() => {
+                    tracing::info!(app = %g.name, "tracked app started");
+                    let session = self.playtime.start(&g.key, &g.name, wall_ms);
+                    self.apps.insert(g.key.clone(), AppSession { name: g.name, session, started_ms: wall_ms });
+                }
+                Event::Stopped { game, played } if game.is_app() => {
+                    if let Some(a) = self.apps.remove(&game.key) {
+                        self.playtime.touch(a.session, a.started_ms + played.as_millis() as u64);
+                        tracing::info!(app = %a.name, played_s = played.as_secs(), "tracked app stopped");
+                    }
+                }
+                Event::Started(g) => out.push(self.on_started(g, wall_ms)),
+                Event::Stopped { game, played } => out.push(self.on_stopped(&game, played.as_secs(), wall_ms)),
+            }
+        }
+        out
     }
 
     fn on_started(&mut self, g: RunningGame, wall_ms: u64) -> Outcome {
@@ -194,6 +236,9 @@ impl AgentCore {
         for r in self.running.values() {
             self.playtime.touch(r.session, wall_ms);
         }
+        for a in self.apps.values() {
+            self.playtime.touch(a.session, wall_ms);
+        }
     }
 
     /// Records the end of every running session, for a clean shutdown.
@@ -215,7 +260,8 @@ impl AgentCore {
 
     /// See [`ug_games::Detector::set_test_run`].
     pub fn set_test_run(&mut self, token: Option<String>) {
-        self.detector.set_test_run(token);
+        self.detector.set_test_run(token.clone());
+        self.test_run = token;
     }
 
     /// Every profile, with the games the user assigned to it.
@@ -289,10 +335,104 @@ impl AgentCore {
         self.detector.register(pid);
     }
 
-    /// "Not a game". Returns outcomes for anything this stops.
+    /// "Not a game", remembered across sessions. Returns outcomes for
+    /// anything this stops.
     pub fn ignore(&mut self, exe: &str, now: Instant, wall_ms: u64) -> Vec<Outcome> {
+        if self.choices.not_a_game(exe) {
+            self.save_choices();
+        }
         let events = self.detector.ignore_exe(exe, now);
         self.apply(events, wall_ms)
+    }
+
+    fn save_choices(&self) {
+        if !self.choices_writable {
+            tracing::warn!("playtime.json was unreadable at start-up; this choice lasts until the agent restarts");
+            return;
+        }
+        if let Err(e) = self.choices.save(&self.config_dir) {
+            tracing::warn!(error = %e, "could not save tracked apps");
+        }
+    }
+
+    pub fn tracked_apps(&self) -> Vec<TrackedApp> {
+        self.choices.apps.clone()
+    }
+
+    /// Starts counting a program's time. Running already, it starts counting
+    /// on the next tick.
+    pub fn track_app(&mut self, exe: &str, name: &str) -> Result<(), String> {
+        self.choices.track(exe, name)?;
+        self.save_choices();
+        self.detector.set_tracked_apps(self.choices.tracked_pairs());
+        Ok(())
+    }
+
+    /// Stops counting it; its time stays. Returns whether it was tracked.
+    pub fn untrack_app(&mut self, exe: &str) -> bool {
+        let was = self.choices.untrack(exe);
+        if was {
+            self.save_choices();
+            self.detector.set_tracked_apps(self.choices.tracked_pairs());
+        }
+        was
+    }
+
+    /// "Not a game" for a game recognised only by its behaviour: remembered
+    /// as not a game, tracked as an app, its sessions so far moved along.
+    /// Returns the sessions moved and outcomes for the game this stops.
+    pub fn move_to_apps(&mut self, key: &str, now: Instant, wall_ms: u64) -> Result<(u32, Vec<Outcome>), String> {
+        let Some(exe) = key.strip_prefix("exe:").filter(|e| !e.is_empty()) else {
+            return Err(format!(
+                "{key} was recognised by its launcher or the game database, not by guesswork; only guessed games can be moved"
+            ));
+        };
+        let name = self
+            .playtime
+            .summary(0)
+            .into_iter()
+            .find(|e| e.key == key)
+            .map(|e| e.name)
+            .or_else(|| self.running.get(key).map(|r| r.info.name.clone()))
+            .unwrap_or_else(|| exe.to_string());
+        let outcomes = self.ignore(exe, now, wall_ms);
+        let moved = self.playtime.move_key(key, &format!("app:{exe}"));
+        self.track_app(exe, &name)?;
+        Ok((moved, outcomes))
+    }
+
+    /// Programs open now that could be tracked. Returns the work to do, so
+    /// it runs without holding the agent's lock.
+    pub fn running_programs(&self) -> impl FnOnce() -> Vec<TrackedApp> + Send + 'static {
+        let skip: Vec<String> = self.choices.apps.iter().map(|a| a.exe.clone()).collect();
+        let (root, uid, test_run) = (self.root.clone(), self.uid, self.test_run.clone());
+        move || crate::programs::running(&root, uid, test_run.as_deref(), &crate::programs::application_dirs(), &skip)
+    }
+
+    /// Imports Steam's own playtime (see [`Playtime::import`]). Games get the
+    /// library's name, the database's, or "Steam app <id>". Returns the work
+    /// to do, so the file is read without holding the agent's lock.
+    pub fn import_steam(&self) -> impl FnOnce() -> Result<(u32, u64), String> + Send + 'static {
+        let (home, installed, playtime) = (self.home.clone(), self.installed.clone(), Arc::clone(&self.playtime));
+        move || {
+            let steam = ug_games::steam::playtime(&home)?;
+            let db = GameDb::bundled();
+            let games: Vec<(String, String, u64, u64)> = steam
+                .iter()
+                .map(|s| {
+                    let name = installed
+                        .iter()
+                        .find(|g| g.steam_appid == Some(s.appid))
+                        .map(|g| g.name.clone())
+                        .or_else(|| db.by_steam_appid(s.appid).map(|k| k.name.clone()))
+                        .unwrap_or_else(|| format!("Steam app {}", s.appid));
+                    (format!("steam:{}", s.appid), name, s.minutes * 60, s.last_played_unix * 1000)
+                })
+                .collect();
+            let r = playtime.import("steam", &games).map_err(|e| format!("could not save the import: {e}"))?;
+            tracing::info!(found = games.len(), games = r.0, seconds = r.1, "Steam playtime imported");
+            Ok(r)
+        }
     }
 
     /// What game mode should be right now: `None` with no game running,
@@ -470,6 +610,98 @@ mod tests {
         assert!(!c.gamemode_desired().unwrap().cpu_no_idle_states);
         assert!(!c.profiles_info().into_iter().find(|p| p.id == "competitive").unwrap().cpu_no_idle_states);
         assert!(c.set_profile_option("turbo", "cpu_priority", true).unwrap_err().contains("available"));
+    }
+
+    fn tool(cpu: u64) -> FakeProc<'static> {
+        FakeProc { pid: 20, comm: "Tool.exe", cmdline: &[r"C:\t\Tool.exe"], maps: &["/x/d3d11.dll"], cpu_ticks: cpu, ..Default::default() }
+    }
+
+    #[test]
+    fn not_a_game_is_remembered_after_the_agent_restarts() {
+        let fs = TestFs::new();
+        let cfg = tempfile::tempdir().unwrap();
+        let t0 = Instant::now();
+        {
+            let mut c = core(&fs, cfg.path());
+            fs.process(&tool(0));
+            c.tick(t0, 0);
+            fs.process(&tool(100_000));
+            assert_eq!(c.tick(t0 + Duration::from_secs(6), 6_000).len(), 1, "taken for a game");
+            c.ignore("Tool.exe", t0 + Duration::from_secs(8), 8_000);
+        }
+        // The next login: a new agent, the same program still busy.
+        let mut c = core(&fs, cfg.path());
+        fs.process(&tool(200_000));
+        c.tick(t0 + Duration::from_secs(10), 10_000);
+        fs.process(&tool(400_000));
+        assert!(c.tick(t0 + Duration::from_secs(16), 16_000).is_empty(), "still not a game");
+    }
+
+    #[test]
+    fn a_tracked_app_records_its_time_and_never_wants_game_mode() {
+        let fs = TestFs::new();
+        let cfg = tempfile::tempdir().unwrap();
+        let mut c = core(&fs, cfg.path());
+        c.track_app("dolphin", "Dolphin").unwrap();
+        let t0 = Instant::now();
+        fs.process(&FakeProc { pid: 30, comm: "dolphin", exe: Some("/usr/bin/dolphin"), cmdline: &["/usr/bin/dolphin"], ..Default::default() });
+        assert!(c.tick(t0, 1_000_000).is_empty(), "no game started");
+        assert_eq!(c.gamemode_desired(), None);
+        c.heartbeat(1_060_000);
+        assert_eq!(c.playtime().summary(0)[0].seconds, 60, "counted while running");
+        fs.kill(30);
+        c.tick(t0 + Duration::from_secs(120), 1_120_000);
+        c.tick(t0 + Duration::from_secs(124), 1_124_000);
+        let s = c.playtime().summary(0);
+        assert_eq!((s[0].key.as_str(), s[0].name.as_str(), s[0].seconds), ("app:dolphin", "Dolphin", 120));
+        assert_eq!(c.tracked_apps().len(), 1);
+        // Remembered with the other choices.
+        assert_eq!(core(&fs, cfg.path()).tracked_apps()[0].exe, "dolphin");
+    }
+
+    #[test]
+    fn a_guessed_game_moves_to_apps_with_its_time() {
+        let fs = TestFs::new();
+        let cfg = tempfile::tempdir().unwrap();
+        let mut c = core(&fs, cfg.path());
+        let t0 = Instant::now();
+        fs.process(&tool(0));
+        c.tick(t0, 0);
+        fs.process(&tool(100_000));
+        c.tick(t0 + Duration::from_secs(6), 6_000);
+        c.heartbeat(66_000);
+        assert_eq!(c.playtime().summary(0)[0].key, "exe:tool");
+
+        let (moved, out) = c.move_to_apps("exe:tool", t0 + Duration::from_secs(70), 70_000).unwrap();
+        assert_eq!(moved, 1);
+        assert!(matches!(&out[..], [Outcome::Stopped(..)]), "game mode is let go at once");
+        assert!(c.running().is_empty());
+        // From the next tick the same process counts as the app.
+        c.tick(t0 + Duration::from_secs(72), 72_000);
+        c.heartbeat(132_000);
+        let s = c.playtime().summary(0);
+        assert_eq!(s.len(), 1);
+        assert_eq!((s[0].key.as_str(), s[0].name.as_str(), s[0].sessions), ("app:tool", "Tool", 2));
+        assert!(c.move_to_apps("steam:730", t0, 0).unwrap_err().contains("only guessed games"));
+    }
+
+    #[test]
+    fn steam_playtime_is_imported_with_names() {
+        let fs = TestFs::new();
+        fs.write("home/.local/share/Steam/steamapps/libraryfolders.vdf", "\"libraryfolders\" {}");
+        fs.write(
+            "home/.local/share/Steam/userdata/1/config/localconfig.vdf",
+            r#""UserLocalConfigStore" { "Software" { "Valve" { "Steam" { "apps" {
+                "730" { "LastPlayed" "1790000000" "Playtime" "120" }
+                "999999" { "Playtime" "30" }
+            } } } } }"#,
+        );
+        let cfg = tempfile::tempdir().unwrap();
+        let c = core(&fs, cfg.path());
+        assert_eq!(c.import_steam()().unwrap(), (2, 150 * 60));
+        let s = c.playtime().summary(0);
+        assert_eq!((s[0].name.as_str(), s[0].seconds, s[0].last_played_unix_ms), ("Counter-Strike 2", 7200, 1_790_000_000_000));
+        assert_eq!(s[1].name, "Steam app 999999");
     }
 
     #[test]

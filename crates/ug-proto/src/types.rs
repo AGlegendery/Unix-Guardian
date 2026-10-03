@@ -355,6 +355,16 @@ pub struct PlaytimeEntry {
     pub last_played_unix_ms: u64,
 }
 
+/// A program whose time is counted although it is not a game, or one that
+/// could be (a program open now).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct TrackedApp {
+    /// Normalised executable name (lower case, no `.exe`), as matched.
+    pub exe: String,
+    /// The name shown, e.g. from the program's desktop entry.
+    pub name: String,
+}
+
 /// One recorded play session, for exporting history.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct PlaytimeSession {

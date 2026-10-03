@@ -4,6 +4,12 @@
 //! moved forward by a heartbeat while it runs and set exactly when it stops.
 //! If the agent is killed mid-game, at most one heartbeat interval of play is
 //! lost — the row is already there with a recent end time.
+//!
+//! Imports (Steam's own totals) are not sessions: they have no dates. Each
+//! game's import is what the source counted *beyond* the sessions recorded
+//! here, so time played since Unix Guardian was installed is never counted
+//! twice, and importing again simply replaces the last import. They add to
+//! the all-time totals only; today and this week stay what was recorded.
 
 use rusqlite::{params, Connection};
 use std::path::Path;
@@ -39,7 +45,14 @@ impl Playtime {
                  ended_ms   INTEGER NOT NULL
              );
              CREATE INDEX IF NOT EXISTS sessions_key   ON sessions(key);
-             CREATE INDEX IF NOT EXISTS sessions_ended ON sessions(ended_ms);",
+             CREATE INDEX IF NOT EXISTS sessions_ended ON sessions(ended_ms);
+             CREATE TABLE IF NOT EXISTS imported (
+                 key            TEXT    PRIMARY KEY,
+                 name           TEXT    NOT NULL,
+                 ms             INTEGER NOT NULL,
+                 last_played_ms INTEGER NOT NULL,
+                 source         TEXT    NOT NULL
+             );",
         )?;
         Ok(Playtime { conn: Mutex::new(conn) })
     }
@@ -77,8 +90,26 @@ impl Playtime {
     }
 
     /// Time per game since `since_ms`, most played first. Sessions that began
-    /// before `since_ms` count only from `since_ms` on.
+    /// before `since_ms` count only from `since_ms` on. All time (`0`)
+    /// includes imports.
     pub fn summary(&self, since_ms: u64) -> Vec<PlaytimeEntry> {
+        let mut v = self.recorded(since_ms);
+        if since_ms == 0 {
+            for i in self.imported() {
+                match v.iter_mut().find(|e| e.key == i.key) {
+                    Some(e) => {
+                        e.seconds += i.seconds;
+                        e.last_played_unix_ms = e.last_played_unix_ms.max(i.last_played_unix_ms);
+                    }
+                    None => v.push(i),
+                }
+            }
+            v.sort_by(|a, b| b.seconds.cmp(&a.seconds).then_with(|| a.key.cmp(&b.key)));
+        }
+        v
+    }
+
+    fn recorded(&self, since_ms: u64) -> Vec<PlaytimeEntry> {
         let c = self.conn();
         let mut stmt = match c.prepare(
             "SELECT s.key,
@@ -134,11 +165,77 @@ impl Playtime {
         .unwrap_or_default()
     }
 
-    /// Deletes every session of one game; returns how many.
+    /// Deletes every session of one game, and its import; returns how many
+    /// sessions.
     pub fn forget(&self, key: &str) -> u32 {
+        let c = self.conn();
+        let _ = c.execute("DELETE FROM imported WHERE key = ?1", params![key]);
+        c.execute("DELETE FROM sessions WHERE key = ?1", params![key]).unwrap_or(0) as u32
+    }
+
+    /// Files a game's history under another key ("not a game" → app).
+    /// Returns the sessions moved.
+    pub fn move_key(&self, from: &str, to: &str) -> u32 {
         self.conn()
-            .execute("DELETE FROM sessions WHERE key = ?1", params![key])
-            .unwrap_or(0) as u32
+            .execute("UPDATE sessions SET key = ?2 WHERE key = ?1", params![from, to])
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, from, to, "could not move playtime");
+                0
+            }) as u32
+    }
+
+    /// Replaces the import from `source` with these totals: (key, name,
+    /// seconds the source counted in all, last played). Each game keeps only
+    /// what the source counted beyond the sessions recorded here. Returns
+    /// (games with time added, seconds added).
+    pub fn import(&self, source: &str, games: &[(String, String, u64, u64)]) -> rusqlite::Result<(u32, u64)> {
+        let mut c = self.conn();
+        let tx = c.transaction()?;
+        tx.execute("DELETE FROM imported WHERE source = ?1", params![source])?;
+        let (mut n, mut added_ms) = (0u32, 0u64);
+        for (key, name, seconds, last_played_ms) in games {
+            let recorded: i64 = tx.query_row(
+                "SELECT COALESCE(SUM(ended_ms - started_ms), 0) FROM sessions WHERE key = ?1",
+                params![key],
+                |r| r.get(0),
+            )?;
+            let extra = (*seconds as i64 * 1000).saturating_sub(recorded.max(0));
+            if extra <= 0 {
+                continue;
+            }
+            tx.execute(
+                "INSERT OR REPLACE INTO imported (key, name, ms, last_played_ms, source) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![key, name, extra, *last_played_ms as i64, source],
+            )?;
+            n += 1;
+            added_ms += extra as u64;
+        }
+        tx.commit()?;
+        Ok((n, added_ms / 1000))
+    }
+
+    /// What imports added, per game, most first. `sessions` is 0.
+    pub fn imported(&self) -> Vec<PlaytimeEntry> {
+        let c = self.conn();
+        let Ok(mut stmt) = c.prepare("SELECT key, name, ms, last_played_ms FROM imported ORDER BY ms DESC, key") else {
+            return Vec::new();
+        };
+        stmt.query_map([], |r| {
+            Ok(PlaytimeEntry {
+                key: r.get(0)?,
+                name: r.get(1)?,
+                seconds: (r.get::<_, i64>(2)?.max(0) / 1000) as u64,
+                sessions: 0,
+                last_played_unix_ms: r.get::<_, i64>(3)?.max(0) as u64,
+            })
+        })
+        .map(|rows| rows.flatten().collect())
+        .unwrap_or_default()
+    }
+
+    /// Removes every import; returns how many games had one.
+    pub fn forget_imported(&self) -> u32 {
+        self.conn().execute("DELETE FROM imported", []).unwrap_or(0) as u32
     }
 }
 
@@ -219,6 +316,66 @@ mod tests {
         let s = p.summary(0);
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].key, "b");
+    }
+
+    #[test]
+    fn an_import_adds_only_what_was_not_recorded_here_and_only_to_all_time() {
+        let p = Playtime::in_memory();
+        // One hour recorded here; Steam has counted ten in all.
+        let a = p.start("steam:730", "Counter-Strike 2", 100 * H);
+        p.touch(a, 101 * H);
+        let games = [
+            ("steam:730".to_string(), "Counter-Strike 2".to_string(), 10 * 3600, 101 * H),
+            ("steam:413150".to_string(), "Stardew Valley".to_string(), 2 * 3600, 50 * H),
+        ];
+        assert_eq!(p.import("steam", &games).unwrap(), (2, 9 * 3600 + 2 * 3600));
+
+        let all = p.summary(0);
+        assert_eq!((all[0].key.as_str(), all[0].seconds, all[0].sessions), ("steam:730", 10 * 3600, 1), "not 11 hours");
+        assert_eq!((all[1].key.as_str(), all[1].seconds, all[1].sessions), ("steam:413150", 2 * 3600, 0));
+        assert_eq!(p.summary(100 * H).len(), 1, "a period only has what was recorded in it");
+        assert_eq!(p.summary(100 * H)[0].seconds, 3600);
+
+        // Importing again after more play replaces, never adds up.
+        let b = p.start("steam:730", "Counter-Strike 2", 102 * H);
+        p.touch(b, 103 * H);
+        let again = [("steam:730".to_string(), "Counter-Strike 2".to_string(), 11 * 3600, 103 * H)];
+        assert_eq!(p.import("steam", &again).unwrap(), (1, 9 * 3600));
+        let all = p.summary(0);
+        assert_eq!(all.len(), 1, "a game no longer in the import is gone from it");
+        assert_eq!(all[0].seconds, 11 * 3600);
+
+        assert_eq!(p.forget_imported(), 1);
+        assert_eq!(p.summary(0)[0].seconds, 2 * 3600);
+    }
+
+    #[test]
+    fn a_game_recorded_longer_here_than_by_steam_imports_nothing() {
+        let p = Playtime::in_memory();
+        let a = p.start("steam:730", "CS2", 0);
+        p.touch(a, 2 * H);
+        assert_eq!(p.import("steam", &[("steam:730".into(), "CS2".into(), 3600, H)]).unwrap(), (0, 0));
+        assert!(p.imported().is_empty());
+    }
+
+    #[test]
+    fn moving_a_games_history_keeps_every_session() {
+        let p = Playtime::in_memory();
+        for i in 0..3 {
+            let id = p.start("exe:wondershare filmora", "Wondershare Filmora", i * H);
+            p.touch(id, i * H + H / 2);
+        }
+        assert_eq!(p.move_key("exe:wondershare filmora", "app:wondershare filmora"), 3);
+        let s = p.summary(0);
+        assert_eq!((s[0].key.as_str(), s[0].seconds, s[0].sessions), ("app:wondershare filmora", 3 * 1800, 3));
+    }
+
+    #[test]
+    fn forgetting_a_game_also_forgets_its_import() {
+        let p = Playtime::in_memory();
+        p.import("steam", &[("steam:730".into(), "CS2".into(), 3600, H)]).unwrap();
+        p.forget("steam:730");
+        assert!(p.summary(0).is_empty());
     }
 
     #[test]

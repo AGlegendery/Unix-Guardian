@@ -371,6 +371,30 @@ pub mod agent {
         /// Every session that ended after `since_unix_ms` (0 for all), oldest
         /// first, for export.
         fn sessions(&self, since_unix_ms: u64) -> zbus::Result<Vec<PlaytimeSession>>;
+
+        /// Programs whose time is counted although they are not games. Their
+        /// playtime keys are `app:<exe>`.
+        fn tracked_apps(&self) -> zbus::Result<Vec<TrackedApp>>;
+        /// Starts counting a program's time (never a game, never tuned).
+        fn track_app(&self, exe: &str, name: &str) -> zbus::Result<()>;
+        /// Stops counting it; its recorded time stays.
+        fn untrack_app(&self, exe: &str) -> zbus::Result<bool>;
+        /// Programs open now that could be tracked: those with a desktop
+        /// entry, and Windows programs.
+        fn running_programs(&self) -> zbus::Result<Vec<TrackedApp>>;
+        /// "Not a game": a game recognised only by its behaviour (`exe:` key)
+        /// becomes a tracked app, with the time recorded so far. Returns the
+        /// sessions moved.
+        fn move_to_apps(&self, key: &str) -> zbus::Result<u32>;
+
+        /// Reads Steam's own playtime and adds what Unix Guardian had not
+        /// counted itself to the all-time totals. Returns (games, seconds
+        /// added). Importing again replaces the earlier import.
+        fn import_steam(&self) -> zbus::Result<(u32, u64)>;
+        /// What earlier imports added, per game (`sessions` is 0).
+        fn imported(&self) -> zbus::Result<Vec<PlaytimeEntry>>;
+        /// Removes everything imported; returns how many games had some.
+        fn forget_imported(&self) -> zbus::Result<u32>;
     }
 
     /// Monitoring history the agent records once a minute (90 days).

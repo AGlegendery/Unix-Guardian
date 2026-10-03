@@ -66,6 +66,8 @@ impl GamesIface {
 /// `org.unixguardian.Agent1.Playtime`
 pub struct PlaytimeIface {
     pub core: Shared,
+    /// Lets `MoveToApps` announce the game it stops.
+    pub announce: tokio::sync::mpsc::UnboundedSender<crate::core::Outcome>,
 }
 
 #[zbus::interface(name = "org.unixguardian.Agent1.Playtime")]
@@ -86,6 +88,49 @@ impl PlaytimeIface {
         let core = lock(&self.core);
         core.heartbeat(now_ms());
         core.playtime().sessions(since_unix_ms)
+    }
+
+    async fn tracked_apps(&self) -> Vec<ug_proto::TrackedApp> {
+        lock(&self.core).tracked_apps()
+    }
+
+    async fn track_app(&self, exe: &str, name: &str) -> zbus::fdo::Result<()> {
+        lock(&self.core).track_app(exe, name).map_err(zbus::fdo::Error::InvalidArgs)
+    }
+
+    async fn untrack_app(&self, exe: &str) -> bool {
+        lock(&self.core).untrack_app(exe)
+    }
+
+    /// Reads the process table and desktop entries: off the async threads.
+    async fn running_programs(&self) -> Vec<ug_proto::TrackedApp> {
+        let job = lock(&self.core).running_programs();
+        tokio::task::spawn_blocking(job).await.unwrap_or_default()
+    }
+
+    async fn move_to_apps(&self, key: &str) -> zbus::fdo::Result<u32> {
+        let (moved, outcomes) =
+            lock(&self.core).move_to_apps(key, Instant::now(), now_ms()).map_err(zbus::fdo::Error::InvalidArgs)?;
+        for o in outcomes {
+            let _ = self.announce.send(o);
+        }
+        Ok(moved)
+    }
+
+    async fn import_steam(&self) -> zbus::fdo::Result<(u32, u64)> {
+        let job = lock(&self.core).import_steam();
+        tokio::task::spawn_blocking(job)
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+            .map_err(zbus::fdo::Error::Failed)
+    }
+
+    async fn imported(&self) -> Vec<PlaytimeEntry> {
+        lock(&self.core).playtime().imported()
+    }
+
+    async fn forget_imported(&self) -> u32 {
+        lock(&self.core).playtime().forget_imported()
     }
 }
 

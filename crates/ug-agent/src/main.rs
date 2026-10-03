@@ -9,6 +9,7 @@
 mod affinity;
 mod apps;
 mod background;
+mod choices;
 mod core;
 mod fps;
 mod gamemode;
@@ -20,6 +21,7 @@ mod overlay;
 mod ping;
 mod playtime;
 mod ppd;
+mod programs;
 mod tray;
 
 use anyhow::{Context, Result};
@@ -237,7 +239,7 @@ async fn main() -> Result<()> {
 
     let conn = zbus::connection::Builder::session()?
         .serve_at(AGENT_OBJECT_PATH, GamesIface { core: Arc::clone(&core), announce: announce_tx.clone() })?
-        .serve_at(AGENT_OBJECT_PATH, PlaytimeIface { core: Arc::clone(&core) })?
+        .serve_at(AGENT_OBJECT_PATH, PlaytimeIface { core: Arc::clone(&core), announce: announce_tx.clone() })?
         .serve_at(AGENT_OBJECT_PATH, ProfilesIface { core: Arc::clone(&core) })?
         .serve_at(AGENT_OBJECT_PATH, MonitorIface { history: Arc::clone(&history), overlay: Arc::clone(&overlay) })?
         .serve_at(AGENT_OBJECT_PATH, OverlayIface { overlay: Arc::clone(&overlay) })?

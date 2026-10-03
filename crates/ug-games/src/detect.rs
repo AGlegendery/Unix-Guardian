@@ -129,6 +129,12 @@ fn is_chromium_child(p: &proc::Proc) -> bool {
     p.args().skip(1).any(|a| a.starts_with("--type="))
 }
 
+/// Wine's own processes, store clients and installers: never a game, and not
+/// a program anyone would want to time either.
+pub fn is_wine_helper(basename: &str) -> bool {
+    NEVER_WINDOWS.contains(&normalise_exe(basename).as_str()) || is_installer(basename)
+}
+
 fn is_installer(basename: &str) -> bool {
     let b = normalise_exe(basename);
     b.contains("setup") || b.contains("install") || b.starts_with("unins") || b.contains("redist")
