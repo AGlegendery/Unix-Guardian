@@ -12,6 +12,7 @@ pub mod bottles;
 pub mod db;
 pub mod detect;
 pub mod heroic;
+pub mod launch;
 pub mod lutris;
 pub mod proc;
 pub mod steam;
