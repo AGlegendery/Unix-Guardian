@@ -52,7 +52,7 @@ Last updated: 2026-10-03 (shortcut recorder).
 7. ⏳ **Driver Fix** (asked 2026-10-03; the user's single most important
    feature, and **not only for gamers**). Plan, highest impact first, one
    commit per milestone:
-   - **M1 ✅** (`see git log`) diagnosis beyond the GPU: a `category` on rules
+   - **M1 ✅** (`1bebb27`) diagnosis beyond the GPU: a `category` on rules
      and findings (graphics, wifi, bluetooth, audio, input, camera,
      printing, sleep, firmware); new facts in `ug-driver` (`hardware.rs`:
      PCI/USB devices without a driver, rfkill, `/proc/asound/cards`, SOF
