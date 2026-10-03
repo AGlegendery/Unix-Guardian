@@ -363,6 +363,11 @@ pub struct ShortcutInfo {
     pub description: String,
     /// As the desktop describes it, e.g. "Meta+Shift+O"; "" when not bound.
     pub trigger: String,
+    /// The keys asked for, e.g. "Meta+Shift+O": the user's (`chosen`) or
+    /// the suggested ones.
+    pub keys: String,
+    /// The user picked `keys` (SetKeys); false: the suggested ones.
+    pub chosen: bool,
 }
 
 /// Global shortcuts through the desktop's GlobalShortcuts portal.

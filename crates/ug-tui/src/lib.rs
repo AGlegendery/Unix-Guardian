@@ -1003,7 +1003,7 @@ mod tests {
         let keys = |trigger: &str| {
             ["open-window", "toggle-overlay", "toggle-gamemode"]
                 .iter()
-                .map(|id| ug_proto::ShortcutInfo { id: (*id).into(), description: format!("Do {id}"), trigger: trigger.into() })
+                .map(|id| ug_proto::ShortcutInfo { id: (*id).into(), description: format!("Do {id}"), trigger: trigger.into(), ..Default::default() })
                 .collect()
         };
         app.shortcuts.store(Ok(ug_proto::ShortcutsState {

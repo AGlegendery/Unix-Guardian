@@ -501,6 +501,10 @@ pub mod agent {
         fn set_enabled(&self, on: bool) -> zbus::Result<()>;
         /// Does what a shortcut does, now; returns what happened.
         fn run(&self, id: &str) -> zbus::Result<String>;
+        /// Uses `keys` ("Meta+Shift+G", "LOGO+SHIFT+g"…; "" for the
+        /// suggested keys) for shortcut `id`. Remembered; returns what
+        /// happened (set in the desktop, asked for, or saved for later).
+        fn set_keys(&self, id: &str, keys: &str) -> zbus::Result<String>;
     }
 
     /// The agent's own settings.

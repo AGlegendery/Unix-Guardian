@@ -16,6 +16,7 @@ mod gamemode;
 mod health;
 mod history;
 mod iface;
+mod keys;
 mod notify;
 mod overlay;
 mod ping;

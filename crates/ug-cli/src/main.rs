@@ -171,9 +171,13 @@ enum Command {
     /// argument shows them; `on`/`off` binds or unbinds them (the desktop may
     /// ask to confirm the keys); `open-window`, `toggle-overlay` or
     /// `toggle-gamemode` does what that shortcut does, for binding in a
-    /// desktop without the portal.
+    /// desktop without the portal; `keys <id> <keys>` picks the keys (e.g.
+    /// `ug shortcut keys toggle-gamemode Meta+Alt+G`; no keys: the suggested
+    /// ones).
     Shortcut {
         action: Option<String>,
+        /// For `keys`: the shortcut id and the keys.
+        args: Vec<String>,
     },
     /// Frame statistics of recent game sessions (from MangoHud's log).
     Fps {
@@ -549,7 +553,7 @@ async fn run() -> Result<()> {
         Command::Traffic { days } => return traffic(days, cli.json).await,
         Command::Ping { seconds } => return ping(seconds, cli.json).await,
         Command::Overlay { command } => return overlay(command, cli.json).await,
-        Command::Shortcut { action } => return shortcut(action, cli.json).await,
+        Command::Shortcut { action, args } => return shortcut(action, args, cli.json).await,
         Command::Settings { notifications, scan_interval, close_window_on_game } => {
             return settings(notifications, scan_interval, close_window_on_game, cli.json).await
         }
@@ -1306,11 +1310,21 @@ async fn driver(conn: &zbus::Connection, command: DriverCommand, json: bool) -> 
     Ok(())
 }
 
-async fn shortcut(action: Option<String>, json: bool) -> Result<()> {
+async fn shortcut(action: Option<String>, args: Vec<String>, json: bool) -> Result<()> {
     let conn = agent_conn().await?;
     let s = ShortcutsProxy::new(&conn).await?;
+    if action.as_deref() != Some("keys") && !args.is_empty() {
+        anyhow::bail!("Unexpected `{}`. To pick keys: ug shortcut keys <id> <keys>", args.join(" "));
+    }
     match action.as_deref() {
         None => {}
+        Some("keys") => {
+            let Some((id, keys)) = args.split_first() else {
+                anyhow::bail!("Which shortcut? ug shortcut keys <id> <keys>, e.g. ug shortcut keys toggle-gamemode Meta+Alt+G");
+            };
+            println!("{}", s.set_keys(id, &keys.join("+")).await.map_err(agent_hint)?);
+            return Ok(());
+        }
         Some("on") => s.set_enabled(true).await.map_err(agent_hint)?,
         Some("off") => s.set_enabled(false).await.map_err(agent_hint)?,
         Some(id) => {
@@ -1346,7 +1360,14 @@ async fn shortcut(action: Option<String>, json: bool) -> Result<()> {
         println!("            {}", st.problem);
     }
     for k in &st.shortcuts {
-        let keys = if k.trigger.is_empty() { "-" } else { k.trigger.as_str() };
+        // What the desktop gave; before binding, what will be asked for.
+        let keys = if !k.trigger.is_empty() {
+            k.trigger.clone()
+        } else if k.chosen {
+            format!("({}, yours)", k.keys)
+        } else {
+            format!("({})", k.keys)
+        };
         println!("  {:<16} {:<20} {}", k.id, keys, k.description);
     }
     if !st.gamemode_by_hand.is_empty() {

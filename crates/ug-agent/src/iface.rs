@@ -351,4 +351,8 @@ impl ShortcutsIface {
     async fn run(&self, id: &str) -> zbus::fdo::Result<String> {
         crate::shortcuts::perform(id, &self.core, &self.overlay).await.map_err(zbus::fdo::Error::Failed)
     }
+
+    async fn set_keys(&self, id: &str, keys: &str) -> zbus::fdo::Result<String> {
+        self.shortcuts.set_keys(id, keys).await.map_err(zbus::fdo::Error::InvalidArgs)
+    }
 }
