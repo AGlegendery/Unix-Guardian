@@ -19,6 +19,12 @@
 //! Classification is cached per process — `(pid, start time)` — so steady
 //! state costs a directory listing plus a `stat` read for each process already
 //! known to be a game or candidate.
+//!
+//! The same scan also follows the programs the user asked to have their time
+//! counted (["tracked apps"](Detector::set_tracked_apps)). They come first: a
+//! tracked app is never a game, so it never gets game mode, whatever else it
+//! looks like. Their events carry [`Evidence::TrackedApp`] and they are not in
+//! [`Detector::running`].
 
 use crate::db::{normalise_exe, GameDb};
 use crate::{proc, steam, InstalledGame};
@@ -46,6 +52,8 @@ pub enum Evidence {
     Library,
     Database,
     Heuristic,
+    /// Not a game: a program whose time the user asked to have counted.
+    TrackedApp,
 }
 
 /// A game that is running now.
@@ -64,6 +72,13 @@ pub struct RunningGame {
     pub steam_appid: Option<u32>,
     /// Set when the database knows this game's anti-cheat refuses Linux.
     pub blocked_note: Option<String>,
+}
+
+impl RunningGame {
+    /// A tracked app rather than a game: its time counts, nothing is tuned.
+    pub fn is_app(&self) -> bool {
+        self.evidence == Evidence::TrackedApp
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -140,6 +155,9 @@ enum Class {
 #[derive(Debug)]
 struct Seen {
     start_ticks: u64,
+    /// Normalised executable name, so a change to the tracked apps knows
+    /// which processes to look at again.
+    exe: String,
     class: Class,
 }
 
@@ -175,6 +193,8 @@ pub struct Detector {
     seen: HashMap<i32, Seen>,
     games: HashMap<String, Tracked>,
     ignored: HashSet<String>,
+    /// Tracked apps: normalised executable name → name shown.
+    apps: HashMap<String, String>,
     registered: HashMap<i32, Evidence>,
     /// Only processes started with this `UG_TEST_RUN` token count; `None` (a
     /// real agent) means only processes without one. See [`proc::test_run`].
@@ -193,6 +213,7 @@ impl Detector {
             seen: HashMap::new(),
             games: HashMap::new(),
             ignored: HashSet::new(),
+            apps: HashMap::new(),
             registered: HashMap::new(),
             test_run: None,
         }
@@ -208,6 +229,28 @@ impl Detector {
     /// processes keep their identity; new ones use the new list.
     pub fn set_installed(&mut self, installed: Vec<InstalledGame>) {
         self.installed = installed;
+    }
+
+    /// Executables the user said are not games, remembered from earlier
+    /// sessions. Unlike [`Detector::ignore_exe`] this stops nothing: it is
+    /// meant for start-up, before the first scan.
+    pub fn ignore_exes<I: IntoIterator<Item = String>>(&mut self, names: I) {
+        self.ignored.extend(names.into_iter().map(|n| normalise_exe(&n)));
+    }
+
+    /// Replaces the tracked apps: `(executable, name shown)`. Processes already
+    /// classified are looked at again on the next scan, so an app that is
+    /// already running starts counting at once, and one no longer tracked
+    /// stops (after the usual debounce).
+    pub fn set_tracked_apps<I: IntoIterator<Item = (String, String)>>(&mut self, apps: I) {
+        self.apps = apps.into_iter().map(|(exe, name)| (normalise_exe(&exe), name)).collect();
+        // Look again at: whatever is (or was) a tracked app, and processes not
+        // judged games. A game that is not now tracked keeps its session.
+        let apps = &self.apps;
+        self.seen.retain(|_, s| match &s.class {
+            Class::Game(key) => !key.starts_with("app:") && !apps.contains_key(&s.exe),
+            Class::Ignored | Class::Candidate { .. } => false,
+        });
     }
 
     /// Records a GameMode `RegisterGame` call: the process is a game regardless
@@ -241,9 +284,14 @@ impl Detector {
         events
     }
 
-    /// Games running as of the last scan.
+    /// Games running as of the last scan (tracked apps are not games).
     pub fn running(&self) -> Vec<RunningGame> {
-        let mut v: Vec<_> = self.games.values().filter(|t| t.announced).map(Tracked::snapshot).collect();
+        let mut v: Vec<_> = self
+            .games
+            .values()
+            .filter(|t| t.announced && t.ident.evidence != Evidence::TrackedApp)
+            .map(Tracked::snapshot)
+            .collect();
         v.sort_by(|a, b| a.key.cmp(&b.key));
         v
     }
@@ -280,7 +328,8 @@ impl Detector {
     fn classify(&mut self, root: &SysRoot, pid: i32, now: Instant) {
         let Some(p) = proc::read(root, pid) else { return };
         let class = self.judge(root, &p, now);
-        self.seen.insert(pid, Seen { start_ticks: p.start_ticks, class });
+        let exe = normalise_exe(&p.exe_basename());
+        self.seen.insert(pid, Seen { start_ticks: p.start_ticks, exe, class });
     }
 
     fn judge(&mut self, root: &SysRoot, p: &proc::Proc, now: Instant) -> Class {
@@ -292,6 +341,17 @@ impl Detector {
         }
         let basename = p.exe_basename();
         let norm = normalise_exe(&basename);
+        if let Some(name) = self.apps.get(&norm).cloned() {
+            let ident = Identity {
+                key: format!("app:{norm}"),
+                name,
+                evidence: Evidence::TrackedApp,
+                profile: String::new(),
+                steam_appid: None,
+                blocked_note: None,
+            };
+            return self.track(ident, p.pid, now);
+        }
         if self.ignored.contains(&norm) {
             return Class::Ignored;
         }
@@ -466,7 +526,7 @@ impl Evidence {
     /// specific identity's evidence; GameMode only says "a game", not which.
     fn min_strength(self, other: Evidence) -> Evidence {
         match other {
-            Evidence::Heuristic => self,
+            Evidence::Heuristic | Evidence::TrackedApp => self,
             _ => other,
         }
     }

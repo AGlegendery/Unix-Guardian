@@ -375,3 +375,71 @@ fn a_test_agent_ignores_the_users_real_games() {
     d.set_test_run(Some("e2e-1".into()));
     assert!(d.scan(&root, Instant::now()).is_empty());
 }
+
+#[test]
+fn a_tracked_app_counts_its_time_but_is_never_a_game() {
+    let fs = TestFs::new();
+    let root = SysRoot::at(fs.root());
+    let t0 = Instant::now();
+    let mut d = detector(vec![]);
+    // The real case: a Windows video editor under Wine that the heuristic
+    // took for a game (it draws through Direct3D and keeps a core busy).
+    let editor = |pid, cpu| FakeProc {
+        pid,
+        comm: "Wondershare Fil",
+        cmdline: &[r"C:\Program Files\Wondershare\Wondershare Filmora.exe"],
+        maps: &["/pfx/drive_c/windows/system32/d3d11.dll"],
+        cpu_ticks: cpu,
+        ..Default::default()
+    };
+    fs.process(&editor(70, 0));
+    d.scan(&root, t0);
+    fs.process(&editor(70, 500));
+    assert_eq!(started(&d.scan(&root, secs(t0, 5)))[0].key, "exe:wondershare filmora", "a game by behaviour");
+
+    // Tracked while running: from the next scan it is an app, not a game.
+    d.set_tracked_apps([("Wondershare Filmora.exe".to_string(), "Filmora".to_string())]);
+    let ev = d.scan(&root, secs(t0, 6));
+    let s = started(&ev);
+    assert_eq!(s.len(), 1);
+    assert_eq!((s[0].key.as_str(), s[0].name.as_str(), s[0].is_app()), ("app:wondershare filmora", "Filmora", true));
+    assert!(d.running().iter().all(|g| !g.is_app()), "apps never get game mode");
+    let ev = d.scan(&root, secs(t0, 10));
+    assert_eq!(stopped(&ev)[0].0.key, "exe:wondershare filmora", "the game session ends after the debounce");
+    assert!(d.running().is_empty());
+
+    fs.kill(70);
+    d.scan(&root, secs(t0, 20));
+    let ev = d.scan(&root, secs(t0, 24));
+    let st = stopped(&ev);
+    assert_eq!(st[0].0.key, "app:wondershare filmora");
+    assert_eq!(st[0].1, Duration::from_secs(14), "played from tracking to exit");
+}
+
+#[test]
+fn a_browser_can_be_tracked_even_though_it_is_never_a_game() {
+    let fs = TestFs::new();
+    let root = SysRoot::at(fs.root());
+    let mut d = detector(vec![]);
+    d.set_tracked_apps([("firefox".to_string(), "Firefox".to_string())]);
+    fs.process(&FakeProc { pid: 90, comm: "firefox", exe: Some("/usr/lib/firefox/firefox"), cmdline: &["/usr/lib/firefox/firefox"], ..Default::default() });
+    fs.process(&FakeProc { pid: 91, comm: "Isolated Web Co", exe: Some("/usr/lib/firefox/firefox"), cmdline: &["/usr/lib/firefox/firefox -contentproc"], ..Default::default() });
+    let ev = d.scan(&root, Instant::now());
+    let s = started(&ev);
+    assert_eq!(s.len(), 1, "one app however many processes");
+    assert_eq!(s[0].pids, vec![90, 91]);
+}
+
+#[test]
+fn not_a_game_from_an_earlier_session_is_remembered() {
+    let fs = TestFs::new();
+    let root = SysRoot::at(fs.root());
+    let t0 = Instant::now();
+    let mut d = detector(vec![]);
+    d.ignore_exes(["Render.exe".to_string()]);
+    let p = |cpu| FakeProc { pid: 62, comm: "Render.exe", cmdline: &[r"C:\r\Render.exe"], maps: &["/x/d3d12.dll"], cpu_ticks: cpu, ..Default::default() };
+    fs.process(&p(0));
+    d.scan(&root, t0);
+    fs.process(&p(900));
+    assert!(d.scan(&root, secs(t0, 6)).is_empty());
+}

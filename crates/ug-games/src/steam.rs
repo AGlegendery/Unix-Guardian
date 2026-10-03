@@ -103,6 +103,64 @@ pub fn is_tool_appid(appid: u32) -> bool {
     TOOLS.contains(&appid)
 }
 
+/// What Steam itself counted for one app, on any computer the account used.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SteamPlaytime {
+    pub appid: u32,
+    pub minutes: u64,
+    /// Unix seconds; 0 when Steam has no date.
+    pub last_played_unix: u64,
+}
+
+/// Steam's playtime for the account last used on this computer.
+///
+/// Steam keeps it per account in `userdata/<account id>/config/localconfig.vdf`,
+/// under `UserLocalConfigStore/Software/Valve/Steam/apps/<appid>`: `Playtime`
+/// is the total in minutes, `LastPlayed` a Unix time in seconds (both written
+/// by Steam only for apps that were played). With several accounts, the file
+/// written most recently wins. The file is only read.
+///
+/// Steam's tools and non-Steam shortcuts are left out: shortcuts carry ids of
+/// 2³¹ and up and are named only in the binary `shortcuts.vdf`.
+pub fn playtime(home: &Path) -> Result<Vec<SteamPlaytime>, String> {
+    let roots = roots(home);
+    if roots.is_empty() {
+        return Err("Steam is not installed for this user.".into());
+    }
+    let newest = roots
+        .iter()
+        .flat_map(|r| std::fs::read_dir(r.join("userdata")).into_iter().flatten().flatten())
+        .map(|account| account.path().join("config/localconfig.vdf"))
+        .filter_map(|f| Some((std::fs::metadata(&f).ok()?.modified().ok()?, f)))
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, f)| f)
+        .ok_or("Steam has not been signed in on this computer yet.")?;
+    let src = std::fs::read_to_string(&newest).map_err(|e| format!("{}: {e}", newest.display()))?;
+    let doc = Vdf::parse(&src).ok_or_else(|| format!("{} did not parse", newest.display()))?;
+    Ok(apps_playtime(&doc))
+}
+
+fn apps_playtime(doc: &Vdf) -> Vec<SteamPlaytime> {
+    let Some(apps) = doc.path(&["UserLocalConfigStore", "Software", "Valve", "Steam", "apps"]) else {
+        return Vec::new();
+    };
+    let num = |app: &Vdf, key: &str| app.get(key).and_then(Vdf::as_str).and_then(|v| v.trim().parse::<u64>().ok());
+    let mut v: Vec<SteamPlaytime> = apps
+        .entries()
+        .iter()
+        .filter_map(|(id, app)| {
+            let appid: u32 = id.parse().ok()?;
+            if appid >= 0x8000_0000 || is_tool_appid(appid) {
+                return None;
+            }
+            let minutes = num(app, "Playtime").filter(|&m| m > 0)?;
+            Some(SteamPlaytime { appid, minutes, last_played_unix: num(app, "LastPlayed").unwrap_or(0) })
+        })
+        .collect();
+    v.sort_by(|a, b| b.minutes.cmp(&a.minutes).then(a.appid.cmp(&b.appid)));
+    v
+}
+
 fn read_manifest(path: &Path, steamapps: &Path) -> Option<InstalledGame> {
     let doc = Vdf::parse(&std::fs::read_to_string(path).ok()?)?;
     let app = doc.get("AppState")?;
@@ -182,6 +240,87 @@ mod tests {
         std::fs::create_dir_all(fs.root().join("home/.steam")).unwrap();
         std::os::unix::fs::symlink(fs.root().join("home/.local/share/Steam"), fs.root().join("home/.steam/steam")).unwrap();
         assert_eq!(scan(&fs.root().join("home")).len(), 1);
+    }
+
+    /// The layout of a real `localconfig.vdf` (Flatpak Steam, 2026-10): the
+    /// apps without play only have `cloud`/`BadgeData` blocks. `Playtime` and
+    /// `LastPlayed` are added as Steam writes them for played apps.
+    const LOCALCONFIG: &str = r#""UserLocalConfigStore"
+{
+	"friends"
+	{
+		"672194005"
+		{
+			"NameHistory" { "0" "someone" }
+		}
+	}
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"apps"
+				{
+					"7"
+					{
+						"cloud"
+						{
+							"last_sync_state"		"synchronized"
+						}
+					}
+					"730"
+					{
+						"LastPlayed"		"1790000000"
+						"Playtime2wks"		"95"
+						"Playtime"		"5521"
+						"cloud" { "last_sync_state" "synchronized" }
+					}
+					"413150"
+					{
+						"LastPlayed"		"1780000000"
+						"Playtime"		"610"
+					}
+					"1628350"
+					{
+						"Playtime"		"12"
+					}
+					"3169765128"
+					{
+						"BadgeData"		"020000000800"
+						"Playtime"		"30"
+					}
+				}
+				"LastPlayedTimesSyncTime"		"10"
+				"PlayerLevel"		"0"
+			}
+		}
+	}
+}
+"#;
+
+    #[test]
+    fn steam_playtime_is_read_for_played_games_only() {
+        let fs = TestFs::new();
+        fs.write("home/.local/share/Steam/steamapps/libraryfolders.vdf", "\"libraryfolders\" {}");
+        fs.write("home/.local/share/Steam/userdata/672194005/config/localconfig.vdf", LOCALCONFIG);
+        let p = playtime(&fs.root().join("home")).unwrap();
+        assert_eq!(
+            p,
+            vec![
+                SteamPlaytime { appid: 730, minutes: 5521, last_played_unix: 1_790_000_000 },
+                SteamPlaytime { appid: 413150, minutes: 610, last_played_unix: 1_780_000_000 },
+            ],
+            "no unplayed apps, no runtimes, no non-Steam shortcuts"
+        );
+    }
+
+    #[test]
+    fn no_steam_and_no_account_are_said_plainly() {
+        let fs = TestFs::new();
+        assert!(playtime(&fs.root().join("home")).unwrap_err().contains("not installed"));
+        fs.write("home/.local/share/Steam/steamapps/libraryfolders.vdf", "\"libraryfolders\" {}");
+        assert!(playtime(&fs.root().join("home")).unwrap_err().contains("signed in"));
     }
 
     #[test]
