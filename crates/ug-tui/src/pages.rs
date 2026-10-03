@@ -1,6 +1,7 @@
 //! The pages: drawing, and what their keys and clicks do.
 
 use crate::{data, App, Hit, PAGES};
+use crossterm::event::{KeyCode, KeyModifiers};
 use std::time::{Duration, Instant};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -1572,12 +1573,13 @@ fn overlay_page(app: &mut App, f: &mut Frame, r: Rect) {
 }
 
 /// Global shortcuts through the desktop's portal: row 0 turns them on or
-/// off, the others do what each shortcut does, now.
+/// off, the others do what each shortcut does, now; `c` records new keys
+/// for one, `x` goes back to the suggested keys.
 fn shortcuts_page(app: &mut App, f: &mut Frame, r: Rect) {
     let t = app.theme;
     let lines = vec![
         Line::from(Span::styled(
-            "Keys that work anywhere on the desktop, even with a game in front. The desktop owns them: it asks you to confirm them the first time, and they can be changed in its own shortcut settings.",
+            "Keys that work anywhere on the desktop, even with a game in front. The desktop owns them: it asks you to confirm them the first time, and they also show in its own shortcut settings.",
             t.faint(),
         )),
         Line::from(""),
@@ -1609,9 +1611,16 @@ fn shortcuts_page(app: &mut App, f: &mut Frame, r: Rect) {
     ]);
     row(app, f, Rect { y: r.y + h, height: 1, ..r }, 0, on);
     let fallback = st.status == "unavailable" || st.status == "failed";
+    let recording = app.recording.clone();
     for (i, k) in st.shortcuts.iter().enumerate() {
-        let keys = if k.trigger.is_empty() { "no key".to_string() } else { k.trigger.clone() };
-        let mut spans = vec![Span::styled(format!(" {:<34}", k.description), t.text()), Span::styled(format!("{keys:<18}"), t.accent())];
+        // Bound: the desktop's keys; not yet: the keys that will be asked for.
+        let (keys, style) = match &recording {
+            Some((id, meta)) if *id == k.id => (format!("{}press the keys…", if *meta { "Meta+" } else { "" }), t.accent()),
+            _ if !k.trigger.is_empty() => (k.trigger.clone(), t.accent()),
+            _ if k.chosen => (format!("{} (yours)", k.keys), t.muted()),
+            _ => (k.keys.clone(), t.muted()),
+        };
+        let mut spans = vec![Span::styled(format!(" {:<34}", k.description), t.text()), Span::styled(format!("{keys:<24}"), style)];
         if fallback {
             spans.push(Span::styled(format!("ug shortcut {}", k.id), t.muted()));
         }
@@ -1629,12 +1638,88 @@ fn shortcuts_page(app: &mut App, f: &mut Frame, r: Rect) {
         "off" => notes.push("Game mode is off by hand until the running games close.".into()),
         _ => {}
     }
-    notes.push("Enter on a shortcut runs it now.".into());
+    if recording.is_some() {
+        notes.push("Hold Ctrl or Alt and press a key (F1 to F12 work alone). Tab adds or drops Meta, which most terminals cannot see; Esc cancels.".into());
+    } else {
+        notes.push("Enter on a shortcut runs it now; c picks new keys for it, x goes back to the suggested ones.".into());
+    }
     let y = r.y + h + 2 + st.shortcuts.len() as u16;
     if y < r.bottom() {
         let text: Vec<Line> = notes.into_iter().map(|n| Line::from(Span::styled(n, t.faint()))).collect();
         f.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), Rect { y, height: r.bottom() - y, ..r });
     }
+}
+
+/// Starts recording keys for shortcut row `i` (row 0 is the switch).
+pub fn record_shortcut(app: &mut App, i: usize) {
+    let Some(k) = app.shortcuts.value.as_ref().and_then(|s| s.shortcuts.get(i.wrapping_sub(1))) else { return };
+    app.recording = Some((k.id.clone(), false));
+}
+
+/// A press while recording: Esc cancels, Tab adds or drops Meta, anything
+/// else is the new keys (the agent refuses what can't be a shortcut).
+pub fn record_keys(app: &mut App, code: KeyCode, mods: KeyModifiers) {
+    let Some((id, meta)) = app.recording.clone() else { return };
+    match code {
+        KeyCode::Esc if mods.is_empty() => app.recording = None,
+        KeyCode::Tab if mods.is_empty() => app.recording = Some((id, !meta)),
+        _ => {
+            let Some(keys) = combo(code, mods, meta) else { return };
+            app.recording = None;
+            let r = app.bus.shortcut_set_keys(&id, &keys);
+            report(app, r);
+            app.shortcuts.invalidate();
+        }
+    }
+}
+
+/// A terminal key press as a shortcut ("Meta+Ctrl+G"), or None for a key a
+/// shortcut can't use. Upper-case letters mean Shift.
+pub fn combo(code: KeyCode, mods: KeyModifiers, meta: bool) -> Option<String> {
+    let mut shift = mods.contains(KeyModifiers::SHIFT);
+    let key = match code {
+        KeyCode::Char(' ') => "Space".to_string(),
+        KeyCode::Char(c) if c.is_ascii_uppercase() => {
+            shift = true;
+            c.to_string()
+        }
+        KeyCode::Char(c) if c.is_ascii_graphic() => c.to_ascii_uppercase().to_string(),
+        KeyCode::F(n) => format!("F{n}"),
+        KeyCode::Enter => "Return".into(),
+        KeyCode::Tab => "Tab".into(),
+        KeyCode::BackTab => {
+            shift = true;
+            "Tab".into()
+        }
+        KeyCode::Backspace => "BackSpace".into(),
+        KeyCode::Esc => "Escape".into(),
+        KeyCode::Insert => "Insert".into(),
+        KeyCode::Delete => "Delete".into(),
+        KeyCode::Home => "Home".into(),
+        KeyCode::End => "End".into(),
+        KeyCode::PageUp => "Page_Up".into(),
+        KeyCode::PageDown => "Page_Down".into(),
+        KeyCode::Up => "Up".into(),
+        KeyCode::Down => "Down".into(),
+        KeyCode::Left => "Left".into(),
+        KeyCode::Right => "Right".into(),
+        _ => return None,
+    };
+    let mut parts = Vec::new();
+    if meta || mods.contains(KeyModifiers::SUPER) || mods.contains(KeyModifiers::META) {
+        parts.push("Meta");
+    }
+    if mods.contains(KeyModifiers::CONTROL) {
+        parts.push("Ctrl");
+    }
+    if mods.contains(KeyModifiers::ALT) {
+        parts.push("Alt");
+    }
+    if shift {
+        parts.push("Shift");
+    }
+    parts.push(&key);
+    Some(parts.join("+"))
 }
 
 fn activate_shortcut(app: &mut App, i: usize) {
@@ -1848,7 +1933,7 @@ fn settings_page(app: &mut App, f: &mut Frame, r: Rect) {
         1 => "The window's web view gives its memory back to the game; this terminal interface stays open.",
         2 => "Sooner means game mode starts sooner, for a little more CPU time.",
         3 => "Hidden, it comes back from here or with `ug tray`; Unix Guardian keeps running either way.",
-        _ => "Keys that work anywhere; the desktop asks to confirm them. Overlay → Global shortcuts shows the keys.",
+        _ => "Keys that work anywhere; the desktop asks to confirm them. Overlay → Global shortcuts shows and changes the keys.",
     };
     let service = app.daemon_version.value.clone().unwrap_or_else(|| "not reachable".into());
     let about = vec![
@@ -2248,7 +2333,8 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (8, 1) => vec![("Tab", "check"), ("Enter ×2", "undo")],
         (8, _) => vec![("Tab", "changes"), ("Enter", "review / apply"), ("r", "check again")],
         (11, _) => vec![("↑↓", "setting"), ("←→", "change"), ("Enter", "toggle")],
-        (5, 1) => vec![("Tab", "overlay"), ("Enter", "on/off / run")],
+        (5, 1) if app.recording.is_some() => vec![("Tab", "+Meta"), ("Esc", "cancel")],
+        (5, 1) => vec![("Tab", "overlay"), ("Enter", "on/off / run"), ("c", "change keys"), ("x", "suggested keys")],
         (5, _) => vec![("Tab", "shortcuts"), ("↑↓", "setting"), ("←→", "change"), ("Enter", "next / run")],
         (6, 0) => vec![("Tab", "apps"), ("←→", "period"), ("x", "delete"), ("n", "not a game"), ("i", "import Steam"), ("e", "CSV")],
         (6, _) => vec![("Tab", "games"), ("←→", "period"), ("Enter", "count / stop"), ("x", "delete")],
@@ -2463,6 +2549,15 @@ pub fn block(app: &mut App, i: usize) {
 }
 
 pub fn remove(app: &mut App, i: usize) {
+    if (app.page, app.tab) == (5, 1) {
+        let Some(k) = app.shortcuts.value.as_ref().and_then(|s| s.shortcuts.get(i.wrapping_sub(1))).cloned() else { return };
+        if k.chosen {
+            let r = app.bus.shortcut_set_keys(&k.id, "");
+            report(app, r);
+            app.shortcuts.invalidate();
+        }
+        return;
+    }
     if app.page == 6 {
         forget_game(app, i);
         return;

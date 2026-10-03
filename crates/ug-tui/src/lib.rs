@@ -95,6 +95,9 @@ pub struct App {
     pub net: Cached<(Vec<AppTraffic>, Vec<NetRule>, NetControlStatus)>,
     pub overlay: Cached<OverlayState>,
     pub shortcuts: Cached<ug_proto::ShortcutsState>,
+    /// Recording new keys for a global shortcut: its id, and Meta added by
+    /// hand (most terminals never see the Meta key itself).
+    pub recording: Option<(String, bool)>,
     pub settings: Cached<ug_proto::SettingsState>,
     /// The driver check (files only, run here) and the service's changes.
     pub driver: Cached<ug_proto::DriverReport>,
@@ -171,6 +174,7 @@ impl App {
             overlay: Cached::new(SLOW),
             // Fast enough to follow the desktop's confirmation dialog.
             shortcuts: Cached::new(Duration::from_secs(1)),
+            recording: None,
             settings: Cached::new(SLOW),
             driver: Cached::new(Duration::from_secs(3600)),
             driver_ops: Cached::new(Duration::from_secs(1)),
@@ -455,6 +459,11 @@ impl App {
             self.help = false;
             return;
         }
+        // The next press is the shortcut's new keys, whatever it is.
+        if self.recording.is_some() {
+            pages::record_keys(self, code, mods);
+            return;
+        }
         match code {
             KeyCode::Char('c') if mods.contains(KeyModifiers::CONTROL) => self.quit = true,
             KeyCode::Char('q') => self.quit = true,
@@ -492,6 +501,7 @@ impl App {
                 KeyCode::Enter | KeyCode::Char(' ') => pages::activate(self, self.row),
                 KeyCode::Char('x') | KeyCode::Delete => pages::remove(self, self.row),
                 KeyCode::Char('b') => pages::block(self, self.row),
+                KeyCode::Char('c') if (self.page, self.tab) == (5, 1) => pages::record_shortcut(self, self.row),
                 KeyCode::Char('e') if self.page == 6 => pages::export_playtime(self),
                 KeyCode::Char('r') if self.page == 8 => {
                     self.driver.invalidate();
@@ -679,6 +689,8 @@ impl App {
         let t = &self.theme;
         let keys: Vec<(&str, &str)> = if self.help {
             vec![("any key", "close help")]
+        } else if self.recording.is_some() {
+            pages::keys(self)
         } else if self.focus == Focus::Menu {
             vec![("↑↓", "menu"), ("Enter", "open"), ("1-9", "jump"), ("?", "help"), ("g", "window"), ("q", "quit")]
         } else {
@@ -996,6 +1008,19 @@ mod tests {
     }
 
     #[test]
+    fn a_terminal_key_press_reads_as_a_shortcut() {
+        use pages::combo;
+        assert_eq!(combo(KeyCode::Char('g'), KeyModifiers::CONTROL | KeyModifiers::ALT, false).as_deref(), Some("Ctrl+Alt+G"));
+        assert_eq!(combo(KeyCode::Char('G'), KeyModifiers::ALT, true).as_deref(), Some("Meta+Alt+Shift+G"));
+        assert_eq!(combo(KeyCode::Char('g'), KeyModifiers::SUPER, false).as_deref(), Some("Meta+G"));
+        assert_eq!(combo(KeyCode::F(5), KeyModifiers::NONE, false).as_deref(), Some("F5"));
+        assert_eq!(combo(KeyCode::Char(' '), KeyModifiers::CONTROL, false).as_deref(), Some("Ctrl+Space"));
+        assert_eq!(combo(KeyCode::PageUp, KeyModifiers::ALT, false).as_deref(), Some("Alt+Page_Up"));
+        assert_eq!(combo(KeyCode::Char(','), KeyModifiers::ALT, false).as_deref(), Some("Alt+,"));
+        assert_eq!(combo(KeyCode::CapsLock, KeyModifiers::ALT, false), None);
+    }
+
+    #[test]
     fn the_shortcuts_tab_shows_the_keys_or_the_commands_to_bind() {
         let mut app = App::new(Bus::offline());
         app.go(5);
@@ -1003,7 +1028,13 @@ mod tests {
         let keys = |trigger: &str| {
             ["open-window", "toggle-overlay", "toggle-gamemode"]
                 .iter()
-                .map(|id| ug_proto::ShortcutInfo { id: (*id).into(), description: format!("Do {id}"), trigger: trigger.into(), ..Default::default() })
+                .map(|id| ug_proto::ShortcutInfo {
+                    id: (*id).into(),
+                    description: format!("Do {id}"),
+                    trigger: trigger.into(),
+                    keys: "Meta+Alt+K".into(),
+                    chosen: true,
+                })
                 .collect()
         };
         app.shortcuts.store(Ok(ug_proto::ShortcutsState {
@@ -1020,9 +1051,25 @@ mod tests {
         assert!(!screen.contains("ug shortcut"), "no commands while the desktop binds the keys");
         app.shortcuts.store(Ok(ug_proto::ShortcutsState { enabled: true, status: "unavailable".into(), shortcuts: keys(""), ..Default::default() }));
         let screen = render(&mut app, 120, 34);
-        for want in ["not offered by this desktop", "ug shortcut toggle-overlay", "no key"] {
+        for want in ["not offered by this desktop", "ug shortcut toggle-overlay", "Meta+Alt+K (yours)"] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
+
+        // c records new keys for the selected shortcut; Tab adds Meta, which
+        // most terminals can't see; Esc cancels without leaving the page.
+        app.focus = Focus::Page;
+        app.row = 3;
+        app.key(KeyCode::Char('c'), KeyModifiers::NONE);
+        assert_eq!(app.recording, Some(("toggle-gamemode".to_string(), false)));
+        assert!(render(&mut app, 120, 34).contains("press the keys…"));
+        app.key(KeyCode::Tab, KeyModifiers::NONE);
+        assert!(render(&mut app, 120, 34).contains("Meta+press the keys…"));
+        app.key(KeyCode::Char('q'), KeyModifiers::NONE);
+        assert!(!app.quit, "while recording, q is a key to record, not quit");
+        assert_eq!(app.recording, None);
+        app.key(KeyCode::Char('c'), KeyModifiers::NONE);
+        app.key(KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!((app.recording.clone(), app.focus, app.quit), (None, Focus::Page, false));
     }
 
     #[test]

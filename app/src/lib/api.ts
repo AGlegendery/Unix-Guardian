@@ -221,6 +221,9 @@ export interface ShortcutInfo {
   description: string;
   /** As the desktop describes it ("Meta+Shift+O"); "" when not bound. */
   trigger: string;
+  /** The keys asked for: the user's (`chosen`) or the suggested ones. */
+  keys: string;
+  chosen: boolean;
 }
 export interface ShortcutsState {
   enabled: boolean;
@@ -464,6 +467,8 @@ const tauriApi = {
   shortcutsState: () => invoke<ShortcutsState>("shortcuts_state"),
   shortcutsSetEnabled: (on: boolean) => invoke<void>("shortcuts_set_enabled", { on }),
   shortcutsRun: (id: string) => invoke<string>("shortcuts_run", { id }),
+  /** Keys as "Meta+Shift+G"; "" for the suggested ones. Says what happened. */
+  shortcutsSetKeys: (id: string, keys: string) => invoke<string>("shortcuts_set_keys", { id, keys }),
   fpsSessions: (sinceUnixMs: number) => invoke<FpsSession[]>("fps_sessions", { sinceUnixMs }),
   forgetFpsSessions: () => invoke<number>("forget_fps_sessions"),
   gpuOffload: () => invoke<GpuOffload[]>("gpu_offload"),

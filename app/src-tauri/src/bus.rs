@@ -525,6 +525,12 @@ pub async fn shortcuts_run(bus: State<'_, Bus>, id: String) -> Res<String> {
 }
 
 #[tauri::command]
+pub async fn shortcuts_set_keys(bus: State<'_, Bus>, id: String, keys: String) -> Res<String> {
+    let s = ShortcutsProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    s.set_keys(&id, &keys).await.map_err(agent_err)
+}
+
+#[tauri::command]
 pub async fn fps_sessions(bus: State<'_, Bus>, since_unix_ms: u64) -> Res<Vec<ug_proto::FpsSession>> {
     let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;
     m.fps_sessions(since_unix_ms).await.map_err(agent_err)

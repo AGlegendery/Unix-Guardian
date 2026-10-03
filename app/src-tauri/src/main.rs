@@ -135,6 +135,7 @@ fn main() {
             bus::shortcuts_state,
             bus::shortcuts_set_enabled,
             bus::shortcuts_run,
+            bus::shortcuts_set_keys,
             bus::settings_state,
             bus::settings_set,
             bus::tray_hide,

@@ -175,3 +175,4 @@ one is encoded in code and tests now; keep them in mind when extending nearby.
 | `ug playtime --csv \| head` would panic | `println!` on a closed pipe (same as the monitor bug) | explicit writer, `BrokenPipe` = clean end |
 | Fixture leaked the root filesystem UUID | `/proc/cmdline` copied verbatim | UUIDs zeroed; gateway zeroed; no serials/MACs/UUIDs collected |
 | **"Not a game" was forgotten at the next login** | the detector's ignore list lived in memory only (its test said "now and forever" within one detector) | choices saved in `playtime.json` and loaded at start; the agent test fails without the load |
+| **Global shortcuts said "this desktop does not offer them" on KDE, which has the portal** | the portal's property is `version` (lower case); zbus turned the proxy's `version()` into a request for `Version` | `#[zbus(property, name = "version")]`; found by `scripts/shortcuts-e2e.sh` against a fake portal (fails without the fix) |

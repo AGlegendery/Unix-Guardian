@@ -464,7 +464,7 @@ export const en = {
   },
   shortcuts: {
     title: "Global shortcuts",
-    explain: "Keys that work anywhere on the desktop, even with a game in front. The desktop owns them: it asks you to confirm them the first time, and you can change them in its own shortcut settings.",
+    explain: "Keys that work anywhere on the desktop, even with a game in front. Pick the keys with Change. The desktop owns them: it asks you to confirm them the first time, and they also show in its own shortcut settings.",
     enable: "Use global shortcuts",
     status: {
       off: "Off",
@@ -479,6 +479,13 @@ export const en = {
       "toggle-overlay": "Show or hide the overlay",
       "toggle-gamemode": "Turn game mode on or off",
     } as Record<string, string>,
+    change: "Change",
+    pressKeys: "Press the keys…",
+    cancel: "Cancel",
+    reset: "Back to the suggested keys",
+    yours: "Your keys; the desktop is asked for them when the shortcuts are on",
+    suggested: "Suggested keys; the desktop is asked for them when the shortcuts are on",
+    recordNote: "Hold Ctrl, Alt or Meta and press a key (F1 to F12 work alone). Esc cancels. Keys the desktop already uses may not reach this window.",
     notBound: "No key",
     run: "Run now",
     byHandOn: "Game mode is on by hand. It stays on until you turn it off.",

@@ -22,9 +22,9 @@ const shortcuts: ShortcutsState = {
   problem: "",
   gamemode_by_hand: "",
   shortcuts: [
-    { id: "open-window", description: "Open Unix Guardian", trigger: "Meta+Shift+U" },
-    { id: "toggle-overlay", description: "Show or hide the in-game overlay", trigger: "Meta+Shift+O" },
-    { id: "toggle-gamemode", description: "Turn game mode on or off", trigger: "Meta+Shift+G" },
+    { id: "open-window", description: "Open Unix Guardian", trigger: "Meta+Shift+U", keys: "Meta+Shift+U", chosen: false },
+    { id: "toggle-overlay", description: "Show or hide the in-game overlay", trigger: "Meta+Shift+O", keys: "Meta+Shift+O", chosen: false },
+    { id: "toggle-gamemode", description: "Turn game mode on or off", trigger: "Meta+Shift+G", keys: "Meta+Shift+G", chosen: false },
   ],
 };
 let fpsSetUp = false;
@@ -424,6 +424,16 @@ export const mockApi = {
   shortcutsSetEnabled: async (on: boolean) => {
     shortcuts.enabled = on;
     shortcuts.status = on ? "active" : "off";
+  },
+  shortcutsSetKeys: async (id: string, keys: string) => {
+    const k = shortcuts.shortcuts.find((s) => s.id === id);
+    if (!k) throw `Unknown shortcut \`${id}\``;
+    const suggested = { "open-window": "Meta+Shift+U", "toggle-overlay": "Meta+Shift+O", "toggle-gamemode": "Meta+Shift+G" }[k.id];
+    const want = keys || suggested;
+    if (!/(Ctrl|Alt|Meta)\+/.test(want) && !/^(Shift\+)?F\d+$/.test(want)) throw `${want} needs Ctrl, Alt or Meta with it, or it would take the key from everything you type.`;
+    if (shortcuts.shortcuts.some((s) => s.id !== id && s.keys === want)) throw `${want} is already the shortcut for "${shortcuts.shortcuts.find((s) => s.keys === want)?.description}".`;
+    Object.assign(k, { keys: want, trigger: want, chosen: keys !== "" });
+    return shortcuts.enabled ? `${want} now does "${k.description}".` : `Saved: ${want}, used when the shortcuts are turned on.`;
   },
   shortcutsRun: async (id: string) => {
     if (id === "toggle-gamemode") {

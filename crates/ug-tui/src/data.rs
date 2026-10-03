@@ -192,6 +192,11 @@ impl Bus {
         self.rt.block_on(async { ShortcutsProxy::new(c).await?.run(id).await }).map_err(|e| msg(e, "agent"))
     }
 
+    pub fn shortcut_set_keys(&self, id: &str, keys: &str) -> Result<String, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { ShortcutsProxy::new(c).await?.set_keys(id, keys).await }).map_err(|e| msg(e, "agent"))
+    }
+
     pub fn fps_sessions(&self, since_ms: u64) -> Result<Vec<FpsSession>, String> {
         let c = self.agent()?;
         self.rt.block_on(async { MonitorProxy::new(c).await?.fps_sessions(since_ms).await }).map_err(|e| msg(e, "agent"))

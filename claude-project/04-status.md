@@ -229,6 +229,17 @@ P4 is merged into `main` (`dc1fdfa`). On `p6-overlay`:
   `Agent1.Shortcuts`, `ug shortcut`, window card (Overlay page), TUI
   Overlay → Global shortcuts. agent-e2e 41 checks. **Not tried on the real
   KDE desktop yet** (portal version 1 is there).
+  Keys the user picks (2026-10-03): recorder in the window card ("Change",
+  press the keys, Esc cancels) and the TUI (`c` records, Tab adds Meta,
+  `x` back to the suggested keys), `ug shortcut keys <id> <keys>`,
+  `Agent1.Shortcuts.SetKeys`. Kept in `shortcuts.json` (`keys`, XDG
+  format; `keys.rs` reads any spelling), sent as the preferred trigger,
+  and on KDE set in kglobalaccel (`setForeignShortcutKeys`; a key another
+  program holds is refused with its name, from `globalShortcutsByKey`),
+  also re-applied after every bind because KDE keeps old keys. Other
+  portal desktops: bind again with the new suggestion. Fixed the portal
+  `version` property bug (finding in 05). `scripts/shortcuts-e2e.sh`
+  (fake KDE portal + kglobalaccel, `fake-kde-shortcuts.py`) 14 checks.
 - 🟨 6.6 beta packaging (2026-10-03, `f9aa5ac`): `scripts/stage.sh` (one
   file list, prefix /usr or /usr/local), `scripts/build-packages.sh` →
   `dist/`: .deb (dpkg-shlibdeps Depends, maintainer scripts, lintian

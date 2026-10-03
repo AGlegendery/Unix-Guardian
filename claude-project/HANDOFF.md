@@ -6,7 +6,7 @@ in minutes. **Update this file after every finished item and commit it.**
 Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 `05-findings.md`, `07-conventions.md`, `03-architecture.md`.
 
-Last updated: 2026-10-03 (driver troubleshooter first cut, `5b5d55b`).
+Last updated: 2026-10-03 (shortcut recorder).
 
 ## Where we are
 
@@ -38,6 +38,17 @@ Last updated: 2026-10-03 (driver troubleshooter first cut, `5b5d55b`).
    password every time; root passes), `ug diagnose`, `ug driver
    plan|fix|history|rollback`, window page, TUI page 9, `scripts/driver-e2e.sh`.
 
+6. ✅ Shortcut recorder (asked after the queue): pick the global shortcuts
+   keys in the window (Settings → Global shortcuts, "Change") and the TUI
+   (Overlay → Global shortcuts, `c`), and `ug shortcut keys <id> <keys>`.
+   The agent sets them in KDE's kglobalaccel directly. Also fixed: the agent
+   never found the portal (zbus asked for `Version`, the property is
+   `version`), so `ug shortcut on` always said "not offered".
+   `scripts/shortcuts-e2e.sh` runs it against a fake KDE desktop.
+   Also `dev-install.sh` now closes the old window and restarts the user's
+   agent (`3138f00`), because the user saw no troubleshooter page after
+   reinstalling: the old window and agent were still running.
+
 **The queue is done.** Release binaries and `dist/` were rebuilt after the
 last commit; the user still has to reinstall (sudo) to try them for real.
 
@@ -51,10 +62,12 @@ real-desktop checks below, merging `p5-gpu` into `main`, P7 (recording).
 
 ## Done but not tried on the real desktop
 
-- Global shortcuts (P6.3): KDE's portal answers `version 1`, but binding
-  (KDE shows a confirmation dialog) needs the installed agent rebuilt and
-  reinstalled. Check: `ug shortcut on`, confirm the dialog, press Meta+Shift+G,
-  `ug shortcut` shows the keys; `ug shortcut off`.
+- Global shortcuts (P6.3) and the recorder: only the fake KDE desktop so
+  far. Check after reinstalling: `ug shortcut on`, confirm KDE's dialog,
+  press Meta+Shift+G, then Settings → Global shortcuts → Change, press new
+  keys; System Settings → Shortcuts should show them under Unix Guardian
+  (component `unix-guardian`). Unknown: whether KWin lets Meta+… reach the
+  window while recording (the TUI has Tab for Meta; the CLI always works).
 - Packages (P6.6): the .deb was installed and purged in a Debian container
   without network (`--force-depends`, no systemd there), install.sh into a
   scratch root, the PKGBUILD's `package()` and `--printsrcinfo` in an Arch
@@ -79,8 +92,8 @@ real-desktop checks below, merging `p5-gpu` into `main`, P7 (recording).
 ```bash
 sudo ./scripts/dev-install.sh
 ```
-then `systemctl --user daemon-reload && systemctl --user restart ug-agent`,
-and try `ug settings`, `ug shortcut on` (KDE asks to confirm the keys).
+(it now closes the old window and restarts the agent itself), then try
+`ug shortcut on` (KDE asks to confirm the keys) and the recorder.
 
 ## Build, test, install
 
@@ -88,6 +101,7 @@ and try `ug settings`, `ug shortcut on` (KDE asks to confirm the keys).
 cargo build --workspace
 cargo test --workspace
 ./scripts/test-bus.sh ./scripts/smoke.sh
+./scripts/test-bus.sh ./scripts/shortcuts-e2e.sh  # fake KDE portal + kglobalaccel
 ./scripts/test-bus.sh ./scripts/agent-e2e.sh      # stop the installed agent first:
 systemctl --user stop ug-agent                    # (it sees fake games and tunes the real machine)
 cd app && npm run check                            # window type check
