@@ -57,6 +57,18 @@ fn main() {
             use tauri::Manager;
             let args: Vec<String> = std::env::args().collect();
             let open = args.iter().position(|a| a == "--open").and_then(|i| args.get(i + 1)).cloned();
+            // 900 px tall fits the whole dashboard at the default width;
+            // on a shorter screen, open no taller than its work area (less
+            // a title bar's worth). Wayland may not name the monitor yet;
+            // the compositor then keeps the window on screen itself.
+            if let Some(w) = app.get_webview_window("main") {
+                if let (Ok(Some(m)), Ok(size)) = (w.current_monitor(), w.inner_size()) {
+                    let room = m.work_area().size.height.saturating_sub((40.0 * m.scale_factor()) as u32);
+                    if size.height > room && room > 0 {
+                        let _ = w.set_size(tauri::PhysicalSize::new(size.width, room));
+                    }
+                }
+            }
             if let (Some(path), Some(w)) = (open, app.get_webview_window("main")) {
                 let path: String = path.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '/' || *c == '-').collect();
                 let _ = w.eval(&format!("if (location.hash !== '#{path}') {{ location.hash = '{path}'; location.reload(); }}"));
