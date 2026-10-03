@@ -999,7 +999,8 @@ pub struct DriverReport {
 /// One step of a fix, exactly as it will run.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct DriverStep {
-    /// `write-file`, `remove-file`, `run` or `enable-units`.
+    /// `write-file`, `remove-file`, `run`, `enable-units`, `write-switch`,
+    /// `backup`, `snapshot` or `install`.
     pub kind: String,
     /// The file, or the command line.
     pub target: String,
@@ -1018,6 +1019,9 @@ pub struct DriverPlan {
     pub needs_reboot: bool,
     /// Why it cannot be applied here; "" when it can.
     pub refused: String,
+    /// The safety net for a package change ("A Timeshift snapshot of the
+    /// system is taken first."); "" when none is involved.
+    pub snapshot: String,
 }
 
 /// A fix that was applied (or is being applied), kept for undo.

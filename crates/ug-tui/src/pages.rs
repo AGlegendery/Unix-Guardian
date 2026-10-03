@@ -1802,8 +1802,12 @@ fn driver_page(app: &mut App, f: &mut Frame, r: Rect) {
                 }
                 lines.push(Line::from(Span::styled(format!("      undo: {}", s.undo), t.faint())));
             }
+            if !p.snapshot.is_empty() {
+                lines.push(Line::from(Span::styled(format!("Safety net: {}", p.snapshot), t.accent())));
+            }
+            let after = if p.needs_reboot { "; a restart is needed after" } else { "" };
             lines.push(Line::from(Span::styled(
-                "Enter again applies it (your password is asked; a restart is needed after). From a text console: sudo ug driver fix ".to_string() + &fd.fix_id,
+                format!("Enter again applies it (your password is asked{after}). From a text console: sudo ug driver fix ") + &fd.fix_id,
                 t.accent(),
             )));
         }

@@ -210,6 +210,9 @@ enum DriverCommand {
     History,
     /// Undo a change (the newest one still in place if no id is given).
     Rollback { id: Option<String> },
+    /// What protects package changes here: the snapshot tool found, or how
+    /// to get one. Works without the service.
+    Snapshot,
 }
 
 #[derive(Subcommand)]
@@ -537,6 +540,9 @@ async fn run() -> Result<()> {
     }
     if let Command::Gpu { command: GpuCommand::Default { gpu } } = &cli.command {
         return default_gpu(gpu.as_deref(), cli.json);
+    }
+    if let Command::Driver { command: DriverCommand::Snapshot } = cli.command {
+        return driver_snapshot();
     }
     if let Command::Diagnose = cli.command {
         return diagnose(cli.json, cli.session).await;
@@ -1212,6 +1218,9 @@ fn print_plan(p: &ug_proto::DriverPlan) {
         }
         println!("       undo: {}", s.undo);
     }
+    if !p.snapshot.is_empty() {
+        println!("  Safety net: {}", p.snapshot);
+    }
     if p.needs_reboot {
         println!("  A restart is needed afterwards.");
     }
@@ -1249,6 +1258,21 @@ impl Drop for TtyAgent {
     }
 }
 
+/// Reads files only, so it works with the service down.
+fn driver_snapshot() -> Result<()> {
+    let root = ug_hw::SysRoot::real();
+    let family = format!("{:?}", ug_core::distro::Distro::detect(&root).family).to_lowercase();
+    let st = ug_driver::snapshot::detect(&root, &family);
+    println!("{}", st.summary);
+    if st.tool.is_none() {
+        println!("Without one, Unix Guardian shows package commands instead of running them.");
+        for c in &st.get_one {
+            println!("  {c}");
+        }
+    }
+    Ok(())
+}
+
 async fn driver(conn: &zbus::Connection, command: DriverCommand, json: bool) -> Result<()> {
     let d = ug_proto::daemon::DriverProxy::new(conn).await?;
     let _agent = matches!(command, DriverCommand::Fix { .. } | DriverCommand::Rollback { .. }).then(TtyAgent::start);
@@ -1272,6 +1296,7 @@ async fn driver(conn: &zbus::Connection, command: DriverCommand, json: bool) -> 
         }
     };
     match command {
+        DriverCommand::Snapshot => unreachable!("handled before connecting"),
         DriverCommand::Plan { fix } => {
             let p = d.plan(&fix).await?;
             if json {

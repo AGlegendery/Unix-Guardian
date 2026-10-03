@@ -66,9 +66,9 @@ Last updated: 2026-10-03 (shortcut recorder).
      Automatic fixes in M1 only where undo is exact: rfkill unblock
      (sysfs write, undo writes back), enable units `--now` (bluetooth,
      cups), our own `modules-load.d`/`modprobe.d` files.
-   - M2 snapshot layer (8.5): snapper / timeshift / btrfs / LVM detection,
+   - **M2 ✅** snapshot layer (8.5): snapper / timeshift / btrfs / LVM detection,
      light config backup always, `ug driver snapshots`.
-   - M3 distro adapter + package installs (8.4), only with a snapshot
+   - **M3 ✅** distro adapter + package installs (8.4), only with a snapshot
      (golden rule), argv only, live log; undo removes what was installed.
      Firmware, sof-firmware, bluez, cups, ipp-usb, sane-airscan, NVIDIA.
    - M4 boot-parameter editor (8.7): GRUB, systemd-boot, kernelstub;
@@ -87,7 +87,12 @@ need sudo, pushing, P7+).
 
 ## In progress
 
-Driver Fix M2, snapshot layer (see item 7 above). M1 done: 30 new rules
+Driver Fix M4, boot-parameter editor (see item 7 above). M2+M3 done:
+`snapshot.rs` (snapper > Timeshift > ZFS > plain read-only Btrfs snapshot
+into /var/lib/unix-guardian/snapshots; LVM never), light config backup
+always, `packages.rs` (apt/pacman/dnf/zypper argv, undo removes only what
+the install added), `ug driver snapshot`. The laptop has btrfs-progs and
+root on /@, so package fixes run there with a Btrfs snapshot. M1 done: 30 new rules
 (`data/driver-rules/{wifi,bluetooth,audio,input,camera,printing,sleep,firmware}.toml`),
 `ug-driver/src/hardware.rs`, live fixes (rfkill, units --now, modules-load.d +
 modprobe), `Daemon1.Driver.FirmwareLog`, category chips in window and TUI.

@@ -85,6 +85,8 @@ enum Undo {
     Switch { path: String, value: String },
     /// Unload a module that was not loaded before.
     Unload { module: String },
+    /// Remove the packages an install added.
+    Remove { family: String, packages: Vec<String> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,6 +99,9 @@ struct Record {
     log: Vec<String>,
     needs_reboot: bool,
     undo: Vec<Undo>,
+    /// How to go back to the snapshot taken before it, by hand.
+    #[serde(default)]
+    restore: Vec<String>,
 }
 
 pub fn now_ms() -> u64 {
@@ -197,6 +202,7 @@ impl Executor {
             log: vec![format!("Started: {}", fix.title)],
             needs_reboot: fix.needs_reboot,
             undo: Vec::new(),
+            restore: Vec::new(),
         });
         self.save(&all);
         Ok(id)
@@ -254,6 +260,56 @@ impl Executor {
                 self.push_undo(id, Undo::Switch { path: path.clone(), value: old.clone() });
                 std::fs::write(&target, value).map_err(|e| format!("writing {path}: {e}"))?;
                 self.log(id, format!("Set {path} to {value} (was {old})"));
+            }
+            Step::Install { family, packages } => {
+                let before = crate::snapshot::installed_packages(&self.root);
+                // Written down before anything runs: the requested packages
+                // that are new. After the install it becomes the real list
+                // (with what they pulled in).
+                let new: Vec<String> = packages.iter().filter(|p| !before.contains(p)).cloned().collect();
+                if new.is_empty() {
+                    self.log(id, format!("Already installed: {}", packages.join(", ")));
+                    return Ok(());
+                }
+                self.push_undo(id, Undo::Remove { family: family.clone(), packages: new.clone() });
+                if let Some(r) = crate::packages::refresh_argv(family) {
+                    self.log(id, format!("Running {}…", r.join(" ")));
+                    let out = self.runner.run(&r)?;
+                    self.log(id, format!("Package lists refreshed{}", trail(&out)));
+                }
+                let argv = crate::packages::install_argv(family, packages);
+                self.log(id, format!("Running {} (a few minutes)…", argv.join(" ")));
+                let out = self.runner.run(&argv)?;
+                let mut added = crate::packages::added(&before, &crate::snapshot::installed_packages(&self.root));
+                if added.is_empty() {
+                    added = new;
+                }
+                let list = added.clone();
+                self.update(id, |r| {
+                    if let Some(Undo::Remove { packages, .. }) = r.undo.last_mut() {
+                        *packages = list;
+                    }
+                });
+                self.log(id, format!("Installed {}{}", added.join(", "), trail(&out)));
+            }
+            Step::Backup => {
+                let dir = self.dir.join(format!("backups/driver-{id}/config"));
+                let n = crate::snapshot::backup_config(&self.root, &dir).map_err(|e| format!("backing up the configuration: {e}"))?;
+                self.log(id, format!("Copied {n} configuration files and the package list to {}", dir.display()));
+            }
+            Step::Snapshot { tool } => {
+                let title = self.lock().iter().find(|r| r.id == id).map(|r| r.title.clone()).unwrap_or_default();
+                let argv = crate::snapshot::create_argv(tool, id, &title);
+                if let crate::snapshot::Tool::Btrfs { .. } = tool {
+                    let dir = self.real(crate::snapshot::BTRFS_DIR);
+                    std::fs::create_dir_all(&dir).map_err(|e| format!("creating {}: {e}", dir.display()))?;
+                }
+                self.log(id, format!("Taking a snapshot: {}", argv.join(" ")));
+                let out = self.runner.run(&argv)?;
+                let name = crate::snapshot::created_name(tool, id, &out);
+                let back = crate::snapshot::restore_commands(tool, &name);
+                self.update(id, |r| r.restore = back);
+                self.log(id, format!("Snapshot taken: {}", if name.is_empty() { "(unnamed)" } else { &name }));
             }
             Step::Modprobe { module } => {
                 let loaded = std::fs::read_to_string(self.root.join("proc/modules"))
@@ -348,6 +404,10 @@ impl Executor {
                 Undo::Unload { module } => {
                     self.runner.run(&["modprobe".to_string(), "-r".to_string(), module.clone()]).map(|_| format!("Unloaded {module}"))
                 }
+                Undo::Remove { family, packages } => self
+                    .runner
+                    .run(&crate::packages::remove_argv(family, packages))
+                    .map(|_| format!("Removed {}", packages.join(", "))),
                 Undo::Initramfs { argv } => {
                     initramfs = Some(argv.clone());
                     continue;
@@ -394,7 +454,7 @@ fn recovery_text(records: &[Record], _dir: &Path) -> String {
         "Unix Guardian driver changes, and how to undo them by hand.\n\
          Easiest, from a text console (Ctrl+Alt+F3): ug driver rollback\n\n",
     );
-    let open: Vec<&Record> = records.iter().filter(|r| !r.undo.is_empty()).collect();
+    let open: Vec<&Record> = records.iter().filter(|r| !r.undo.is_empty() || (!r.restore.is_empty() && r.state != "undone")).collect();
     if open.is_empty() {
         t.push_str("Nothing to undo.\n");
     }
@@ -411,11 +471,23 @@ fn recovery_text(records: &[Record], _dir: &Path) -> String {
                 }
                 Undo::Switch { path, value } => t.push_str(&format!("echo {value} | sudo tee '{path}'\n")),
                 Undo::Unload { module } => t.push_str(&format!("sudo modprobe -r {module}\n")),
+                Undo::Remove { family, packages } => {
+                    let argv = crate::packages::remove_argv(family, packages);
+                    let argv: Vec<&str> = argv.iter().map(String::as_str).filter(|a| *a != "env" && !a.starts_with("DEBIAN_FRONTEND")).collect();
+                    t.push_str(&format!("sudo {}\n", argv.join(" ")))
+                }
                 Undo::Initramfs { argv } => initramfs = Some(argv.join(" ")),
             }
         }
         if let Some(i) = initramfs {
             t.push_str(&format!("sudo {i}\n"));
+        }
+        if !r.restore.is_empty() {
+            t.push_str("# If the system is still broken, go back to the snapshot taken before it:\n");
+            for c in &r.restore {
+                t.push_str(c);
+                t.push('\n');
+            }
         }
         t.push('\n');
     }
@@ -573,5 +645,69 @@ mod tests {
         assert_eq!(std::fs::read_to_string(fs.root().join("sys/class/rfkill/rfkill0/soft")).unwrap(), "1");
         assert_eq!(snapshot(&fs), before, "the modules-load.d file is gone again");
         assert!(ex.rollback(None).is_err());
+    }
+
+    /// A package manager that really adds to the dpkg database, so the
+    /// executor can see what an install added.
+    struct FakeApt {
+        status: PathBuf,
+        ran: Arc<Mutex<Vec<Vec<String>>>>,
+    }
+    impl Runner for FakeApt {
+        fn run(&self, argv: &[String]) -> Result<String, String> {
+            self.ran.lock().unwrap().push(argv.to_vec());
+            if argv.iter().any(|a| a == "install") {
+                let mut t = std::fs::read_to_string(&self.status).unwrap_or_default();
+                for p in argv.iter().skip(5).chain(["libbluetooth3".to_string()].iter()) {
+                    t.push_str(&format!("\nPackage: {p}\nStatus: install ok installed\n"));
+                }
+                std::fs::write(&self.status, t).unwrap();
+            }
+            if argv[0] == "timeshift" {
+                return Ok("Tagged snapshot '2026-10-03_18-00-01': ondemand".into());
+            }
+            Ok(String::new())
+        }
+    }
+
+    #[test]
+    fn a_package_is_installed_only_under_a_snapshot_and_undo_removes_what_it_added() {
+        let fs = TestFs::new();
+        fs.write("etc/os-release", "ID=debian\nPRETTY_NAME=Debian\n")
+            .write("var/lib/dpkg/status", "Package: bash\nStatus: install ok installed\n")
+            .write("etc/modprobe.d/x.conf", "options x y=1\n");
+        let root = SysRoot::at(fs.root());
+        let facts = crate::inventory::facts(&root, &Default::default());
+        let refused = auto("install-bluez", &root, &facts).unwrap_err();
+        assert!(refused.contains("only when it can take a snapshot") && refused.contains("apt install timeshift"), "{refused}");
+        assert!(!crate::fixes::can_run("install-bluez", &facts));
+
+        fs.write("usr/bin/timeshift", "").write("etc/timeshift/timeshift.json", "{}");
+        let facts = crate::inventory::facts(&root, &Default::default());
+        assert!(crate::fixes::can_run("install-bluez", &facts));
+        let fix = auto("install-bluez", &root, &facts).unwrap();
+        let kinds: Vec<String> = fix.steps.iter().map(|s| s.describe().kind).collect();
+        assert_eq!(kinds, ["backup", "snapshot", "install", "enable-units"], "safety net first");
+
+        let state = tempfile::tempdir().unwrap();
+        let ran = Arc::new(Mutex::new(Vec::new()));
+        let runner = FakeApt { status: fs.root().join("var/lib/dpkg/status"), ran: Arc::clone(&ran) };
+        let ex = Executor::new(root.clone(), state.path(), Box::new(runner));
+        let id = ex.start(&fix).unwrap();
+        ex.run(&id, &fix);
+        assert_eq!(ex.ops()[0].state, "done", "{:?}", ex.ops()[0].log);
+        let r = ran.lock().unwrap().clone();
+        assert_eq!(r[0][..2], ["timeshift".to_string(), "--create".to_string()]);
+        assert_eq!(r[1], ["apt-get", "update"]);
+        assert_eq!(r[2], ["env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", "bluez"]);
+        assert!(state.path().join(format!("backups/driver-{id}/config/etc/modprobe.d/x.conf")).exists());
+        assert!(std::fs::read_to_string(state.path().join(format!("backups/driver-{id}/config/packages.txt"))).unwrap().contains("bash"));
+        let recovery = std::fs::read_to_string(state.path().join("driver-recovery.txt")).unwrap();
+        assert!(recovery.contains("sudo apt-get remove -y bluez libbluetooth3"), "{recovery}");
+        assert!(recovery.contains("sudo timeshift --restore --snapshot '2026-10-03_18-00-01'"), "{recovery}");
+
+        ex.rollback(None).unwrap();
+        let r = ran.lock().unwrap().clone();
+        assert_eq!(r.last().unwrap(), &["env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "remove", "-y", "bluez", "libbluetooth3"], "what it added, bash stays");
     }
 }

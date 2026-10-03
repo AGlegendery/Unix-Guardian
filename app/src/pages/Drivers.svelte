@@ -189,6 +189,7 @@
                 {t().drivers.reboot}
               </label>
             {/if}
+            {#if review.plan.snapshot}<p><b>{t().drivers.safety}:</b> <span dir="ltr">{review.plan.snapshot}</span></p>{/if}
             <p class="small">{t().drivers.password}</p>
             <div class="actions">
               <button class="btn primary" onclick={apply} disabled={review.busy || (review.plan.needs_reboot && !review.agreed)}>{t().drivers.apply}</button>

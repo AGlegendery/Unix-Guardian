@@ -327,3 +327,17 @@ the ping page against the real agent. Known limits:
   `modules-load.d` file + modprobe (i2c_hid_acpi, uvcvideo). Package and
   boot-parameter fixes are commands until M2–M4. Fixed: two driver changes
   in the same millisecond shared an id; `ug diagnose | head` panicked.
+- ✅ Driver Fix M2+M3 (2026-10-03): package fixes run only under a
+  snapshot. `ug-driver/src/snapshot.rs`: snapper (root config), Timeshift
+  (configured), ZFS root, or a read-only Btrfs snapshot of the root
+  subvolume into /var/lib/unix-guardian/snapshots (restore commands swap
+  the subvolume from the top level); none → refused with "install
+  Timeshift". Every package fix first copies driver configuration and the
+  package list (`backups/driver-<id>/config`). `packages.rs`: argv per
+  family (apt-get with DEBIAN_FRONTEND, never `pacman -Sy` alone), undo
+  removes exactly what the install added (dpkg/pacman database before vs
+  after, written ahead). Auto: firmware, SOF, BlueZ (+enable), CUPS
+  (+enable), ipp-usb/airscan, HPLIP, libcamera, Vulkan, broadcom-wl,
+  headers, NVIDIA on Debian/Arch. Ubuntu's NVIDIA (ubuntu-drivers),
+  Fedora/openSUSE NVIDIA (repos first), MOK enrollment stay commands.
+  `ug driver snapshot`; the review shows "Safety net".

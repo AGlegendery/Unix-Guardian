@@ -44,7 +44,7 @@ check "ug diagnose | head ends quietly" "'$B/ug' diagnose 2>'$W/pipe.err' | head
 check "ug diagnose works without the service and as JSON" "'$B/ug' diagnose --json | python3 -c 'import json,sys; r=json.load(sys.stdin); assert \"facts\" in r'"
 check "the plan shows the file, the units and the rebuild before anything runs" \
   "ug driver plan nvidia-suspend | grep -q '| options nvidia NVreg_PreserveVideoMemoryAllocations=1' && ug driver plan nvidia-suspend | grep -q 'update-initramfs -u -k all' && [ ! -e '$R/etc/modprobe.d/unix-guardian-nvidia-power.conf' ]"
-check "a package fix is never run, only shown" "ug driver plan install-headers | grep -q 'Not available here'"
+check "a package fix is never run without a safety net, only shown" "ug driver plan install-headers | grep -q 'Not available here'"
 check "answering anything but yes changes nothing" "echo no | ug driver fix nvidia-suspend | grep -q 'Nothing was changed' && [ ! -e '$R/etc/modprobe.d/unix-guardian-nvidia-power.conf' ]"
 out="$(ug driver fix nvidia-suspend --yes 2>&1)"
 check "the fix runs step by step and finishes" "grep -q ': done' <<<\"\$out\" && grep -q 'Initramfs rebuilt' <<<\"\$out\""
@@ -69,6 +69,14 @@ check "a Wi-Fi switch is flipped without a restart" "ug driver fix rfkill-unbloc
 out="$(ug driver fix enable-cups --yes 2>&1)"
 check "the printing service is enabled and started" "grep -q 'Enabled cups.socket, cups.service' <<<\"\$out\" && grep -q 'recorded, not run' <<<\"\$out\""
 check "both are undone, newest first" "ug driver rollback | grep -q undone && ug driver rollback | grep -q undone && [ \"\$(cat '$R/sys/class/rfkill/rfkill0/soft')\" = 1 ]"
+check "a package fix is refused without a snapshot tool, saying how to get one" "ug driver plan install-bluez | grep -q 'apt install timeshift'"
+mk usr/bin/timeshift
+mk etc/timeshift/timeshift.json '{}'
+mk var/lib/dpkg/status 'Package: bash\nStatus: install ok installed\n'
+check "with Timeshift the plan takes a snapshot before installing" "ug driver plan install-bluez | grep -q 'Safety net: A Timeshift snapshot' && ug driver plan install-bluez | grep -q 'install apt-get install\\|install env DEBIAN_FRONTEND=noninteractive apt-get install -y bluez'"
+out="$(ug driver fix install-bluez --yes 2>&1)"
+check "the backup, the snapshot and the install run in that order" "grep -n 'Copied\\|timeshift --create\\|apt-get install' <<<\"\$out\" | cut -d: -f1 | sort -c -n && grep -q ': done' <<<\"\$out\""
+check "undo removes what was installed" "ug driver rollback | grep -q undone && ug driver history | grep -q 'Removed bluez'"
 check "the service hands out only firmware lines of the kernel log" "out=\$(busctl --user call org.unixguardian.Daemon1 /org/unixguardian/Daemon1 org.unixguardian.Daemon1.Driver FirmwareLog); [[ \"\$out\" == s* ]]"
 
 if [ "$fails" -gt 0 ]; then echo "--- daemon log"; cat "$W/daemon.log"; fi

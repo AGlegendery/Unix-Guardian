@@ -13,7 +13,9 @@ pub mod apply;
 pub mod fixes;
 pub mod hardware;
 pub mod inventory;
+pub mod packages;
 pub mod rules;
+pub mod snapshot;
 
 pub use inventory::{Env, Facts, Value};
 use ug_hw::SysRoot;
@@ -75,7 +77,7 @@ pub fn report(facts: &Facts) -> DriverReport {
                     how_en: r.how_en.clone(),
                     how_fa: r.how_fa.clone(),
                     fix_id: r.fix.clone(),
-                    fix_auto: fixes::AUTO.contains(&r.fix.as_str()) && facts.get("distro.can_change").is_some_and(Value::truthy),
+                    fix_auto: fixes::can_run(&r.fix, facts),
                     commands: fixes::commands(&r.fix, facts),
                     doc_url: r.doc_url.clone(),
                 });

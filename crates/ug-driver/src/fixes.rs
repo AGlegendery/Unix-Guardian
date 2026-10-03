@@ -27,6 +27,16 @@ pub enum Step {
     SysWrite { path: String, value: String },
     /// Loads a kernel module now; undo unloads it if it was not loaded.
     Modprobe { module: String },
+    /// Copies the driver configuration and the package list (always, before
+    /// a package change); kept, not undone.
+    Backup,
+    /// A snapshot of the whole system; kept, and the way back to it is
+    /// written to the recovery file.
+    Snapshot { tool: crate::snapshot::Tool },
+    /// Installs packages with the distribution's package manager (after
+    /// refreshing its lists where that is safe); undo removes the packages
+    /// it added, and only those.
+    Install { family: String, packages: Vec<String> },
     /// Rebuilds the initramfs so a module setting also holds at boot. Run
     /// again on undo.
     Initramfs { argv: Vec<String> },
@@ -59,6 +69,27 @@ impl Step {
                 target: path.clone(),
                 detail: format!("Writes {value} (takes effect at once)."),
                 undo: "The value it had is written back.".into(),
+            },
+            Step::Install { family, packages } => DriverStep {
+                kind: "install".into(),
+                target: crate::packages::install_argv(family, packages).join(" "),
+                detail: match crate::packages::refresh_argv(family) {
+                    Some(r) => format!("Runs {} first. Needs the internet; takes a few minutes.", r.join(" ")),
+                    None => "Needs the internet; takes a few minutes.".into(),
+                },
+                undo: format!("{} (only the packages this added)", crate::packages::remove_argv(family, &["…".to_string()]).join(" ")),
+            },
+            Step::Backup => DriverStep {
+                kind: "backup".into(),
+                target: "/var/lib/unix-guardian/backups".into(),
+                detail: "Copies modprobe.d, modules-load.d, the boot loader settings, the package sources and the list of installed packages.".into(),
+                undo: "Nothing to undo; the copy is kept.".into(),
+            },
+            Step::Snapshot { tool } => DriverStep {
+                kind: "snapshot".into(),
+                target: crate::snapshot::create_argv(tool, "<id>", "<fix>").join(" "),
+                detail: "A snapshot of the whole system, to go back to if anything goes wrong.".into(),
+                undo: "Kept. Going back to it is written to the recovery file (ug driver rollback undoes the change itself).".into(),
             },
             Step::Modprobe { module } => DriverStep {
                 kind: "run".into(),
@@ -169,13 +200,59 @@ fn title(fix_id: &str) -> &'static str {
     }
 }
 
+/// Whether Unix Guardian can run a fix itself on this machine.
+pub fn can_run(fix_id: &str, facts: &Facts) -> bool {
+    let yes = |k: &str| facts.get(k).is_some_and(Value::truthy);
+    if LIVE.contains(&fix_id) {
+        return true;
+    }
+    if AUTO.contains(&fix_id) {
+        return yes("distro.can_change");
+    }
+    yes("distro.can_change") && yes("snapshot.tool") && crate::packages::for_fix(fix_id, &s(facts, "distro.family"), facts).is_some()
+}
+
+/// A package fix: backup, snapshot, install, and what goes with it.
+fn package_fix(fix_id: &str, root: &SysRoot, facts: &Facts, packages: Vec<String>) -> Result<AutoFix, String> {
+    if !facts.get("distro.can_change").is_some_and(Value::truthy) {
+        return Err(format!(
+            "{} is image-based or not one Unix Guardian can safely change; run the commands by hand instead.",
+            s(facts, "distro.name")
+        ));
+    }
+    let family = s(facts, "distro.family");
+    let snap = crate::snapshot::detect(root, &family);
+    let Some(tool) = snap.tool else {
+        let get = if snap.get_one.is_empty() { String::new() } else { format!(" To get one: {}.", snap.get_one.join("; ")) };
+        return Err(format!(
+            "{} Unix Guardian installs packages only when it can take a snapshot first, so the commands are shown instead.{get}",
+            snap.summary
+        ));
+    };
+    let debian_firmware = family == "apt" && s(facts, "distro.id") == "debian" && packages.iter().any(|p| p.starts_with("firmware-"));
+    if debian_firmware && !facts.get("apt.nonfree_firmware").is_some_and(Value::truthy) {
+        return Err("These firmware packages are in Debian's non-free-firmware component, which is not in the package sources yet. Add it first (see that finding).".into());
+    }
+    let mut steps = vec![Step::Backup, Step::Snapshot { tool }, Step::Install { family, packages }];
+    match fix_id {
+        "install-bluez" => steps.push(Step::EnableUnits { units: vec!["bluetooth.service".into()], now: true }),
+        "install-cups" => steps.push(Step::EnableUnits { units: vec!["cups.socket".into()], now: true }),
+        _ => {}
+    }
+    let needs_reboot = matches!(fix_id, "install-firmware" | "install-sof-firmware" | "broadcom-wl" | "install-nvidia-driver");
+    Ok(AutoFix { fix_id: fix_id.into(), title: title(fix_id).into(), steps, needs_reboot })
+}
+
 /// Builds an automatic fix, or says why it cannot run here.
 pub fn auto(fix_id: &str, root: &SysRoot, facts: &Facts) -> Result<AutoFix, String> {
+    if let Some(p) = crate::packages::for_fix(fix_id, &s(facts, "distro.family"), facts) {
+        return package_fix(fix_id, root, facts, p);
+    }
     if !AUTO.contains(&fix_id) {
         return Err(if title(fix_id).is_empty() {
             format!("Unknown fix `{fix_id}`.")
         } else {
-            "Unix Guardian does not run this fix itself (it installs or removes packages, or needs you at boot); its commands are shown to copy.".into()
+            "Unix Guardian does not run this fix itself here (it needs a repository added by hand, a choice only you can make, or you at the keyboard during boot); its commands are shown to copy.".into()
         });
     }
     if LIVE.contains(&fix_id) {
@@ -262,7 +339,7 @@ fn live(fix_id: &str, root: &SysRoot) -> Result<AutoFix, String> {
 
 /// The packages that carry the firmware this machine misses: from the
 /// kernel log when it was read, else from what the file checks found.
-fn firmware_packages(facts: &Facts) -> Vec<String> {
+pub(crate) fn firmware_packages(facts: &Facts) -> Vec<String> {
     let mut files: Vec<String> =
         s(facts, "firmware.missing").split(", ").filter(|f| !f.is_empty()).map(str::to_string).collect();
     let yes = |k: &str| facts.get(k).is_some_and(Value::truthy);
@@ -286,6 +363,10 @@ fn firmware_packages(facts: &Facts) -> Vec<String> {
     pkgs
 }
 
+pub(crate) fn is_ubuntu(facts: &Facts) -> bool {
+    s(facts, "distro.id") == "ubuntu" || s(facts, "distro.like").split_whitespace().any(|l| l == "ubuntu")
+}
+
 /// The plan as the user reviews it.
 pub fn plan(fix_id: &str, root: &SysRoot, facts: &Facts) -> DriverPlan {
     match auto(fix_id, root, facts) {
@@ -295,6 +376,11 @@ pub fn plan(fix_id: &str, root: &SysRoot, facts: &Facts) -> DriverPlan {
             steps: a.steps.iter().map(Step::describe).collect(),
             needs_reboot: a.needs_reboot,
             refused: String::new(),
+            snapshot: if a.steps.iter().any(|s| matches!(s, Step::Snapshot { .. })) {
+                crate::snapshot::detect(root, &s(facts, "distro.family")).summary
+            } else {
+                String::new()
+            },
         },
         Err(e) => DriverPlan { fix_id: fix_id.into(), title: title(fix_id).into(), refused: e, ..Default::default() },
     }
@@ -304,7 +390,7 @@ pub fn plan(fix_id: &str, root: &SysRoot, facts: &Facts) -> DriverPlan {
 /// theirs too, for anyone who prefers to run them by hand.
 pub fn commands(fix_id: &str, facts: &Facts) -> Vec<String> {
     let fam = s(facts, "distro.family");
-    let ubuntu = s(facts, "distro.id") == "ubuntu" || s(facts, "distro.like").split_whitespace().any(|l| l == "ubuntu");
+    let ubuntu = is_ubuntu(facts);
     let kernel = "$(uname -r)";
     let initramfs = match s(facts, "boot.initramfs_tool").as_str() {
         "mkinitcpio" => "sudo mkinitcpio -P",

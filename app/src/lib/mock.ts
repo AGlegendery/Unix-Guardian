@@ -388,12 +388,14 @@ export const mockApi = {
       "nouveau-blacklist": ["/etc/modprobe.d/unix-guardian-blacklist-nouveau.conf", "blacklist nouveau\noptions nouveau modeset=0"],
     };
     const f = files[fixId];
-    if (!f) return { fix_id: fixId, title: fixId, steps: [], needs_reboot: false, refused: "Unix Guardian does not run this fix itself; its commands are shown to copy." };
+    if (fixId === "rfkill-unblock-wifi")
+      return { fix_id: fixId, title: "Switch Wi-Fi on", steps: [{ kind: "write-switch", target: "/sys/class/rfkill/rfkill0/soft", detail: "Writes 0 (takes effect at once).", undo: "The value it had is written back." }], needs_reboot: false, refused: "", snapshot: "" };
+    if (!f) return { fix_id: fixId, title: fixId, steps: [], needs_reboot: false, refused: "Unix Guardian does not run this fix itself; its commands are shown to copy.", snapshot: "" };
     const steps: DriverPlan["steps"] = [{ kind: "write-file", target: f[0], detail: "# Written by Unix Guardian's driver troubleshooter.\n" + f[1] + "\n", undo: "The previous file is put back (or this one removed if there was none)." }];
     if (fixId === "nvidia-suspend")
       steps.push({ kind: "enable-units", target: "systemctl enable nvidia-suspend.service nvidia-resume.service nvidia-hibernate.service", detail: "Starts these services at sleep, wake and hibernate.", undo: "systemctl disable (only those that were off before)" });
     steps.push({ kind: "run", target: "update-initramfs -u -k all", detail: "Rebuilds the initramfs so the setting also applies early in boot. Takes up to a minute.", undo: "Run again after the files are put back." });
-    return { fix_id: fixId, title: fixId, steps, needs_reboot: true, refused: "" };
+    return { fix_id: fixId, title: fixId, steps, needs_reboot: true, refused: "", snapshot: "" };
   },
   driverApply: async (fixId: string) => {
     const op: DriverOp = { id: `d${Date.now()}`, fix_id: fixId, title: fixId, started_unix_ms: Date.now(), state: "running", log: ["Started (preview: nothing is changed)"], needs_reboot: true };

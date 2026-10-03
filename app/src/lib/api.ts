@@ -196,8 +196,8 @@ export interface DriverFinding {
   doc_url: string;
 }
 export interface DriverReport { facts: DriverFact[]; findings: DriverFinding[]; distro: string; can_change: boolean }
-export interface DriverStep { kind: "write-file" | "remove-file" | "run" | "enable-units"; target: string; detail: string; undo: string }
-export interface DriverPlan { fix_id: string; title: string; steps: DriverStep[]; needs_reboot: boolean; refused: string }
+export interface DriverStep { kind: "write-file" | "remove-file" | "run" | "enable-units" | "write-switch" | "backup" | "snapshot" | "install"; target: string; detail: string; undo: string }
+export interface DriverPlan { fix_id: string; title: string; steps: DriverStep[]; needs_reboot: boolean; refused: string; snapshot: string }
 export interface DriverOp {
   id: string; fix_id: string; title: string; started_unix_ms: number;
   state: "running" | "done" | "failed" | "undoing" | "undone" | "interrupted";

@@ -452,5 +452,15 @@ pub fn facts(root: &SysRoot, env: &Env) -> Facts {
     );
     put("amd.ppfeaturemask", Value::Bool(cmdline.contains("amdgpu.ppfeaturemask=")));
     crate::hardware::facts(root, env, &modules, &mut f);
+    let snap = crate::snapshot::detect(root, &format!("{:?}", distro.family).to_lowercase());
+    let tool = match snap.tool {
+        Some(crate::snapshot::Tool::Snapper) => "snapper",
+        Some(crate::snapshot::Tool::Timeshift) => "timeshift",
+        Some(crate::snapshot::Tool::Zfs { .. }) => "zfs",
+        Some(crate::snapshot::Tool::Btrfs { .. }) => "btrfs",
+        None => "",
+    };
+    f.insert("snapshot.tool".into(), Value::Str(tool.into()));
+    f.insert("snapshot.summary".into(), Value::Str(snap.summary));
     f
 }
