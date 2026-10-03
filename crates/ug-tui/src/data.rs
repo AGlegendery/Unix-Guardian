@@ -4,7 +4,7 @@
 //! work.
 
 use std::time::{Duration, Instant};
-use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, ProfilesProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy};
 use ug_proto::daemon::{CoolingProxy, DaemonProxy, GameModeProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{
     AppTraffic, BatteryCare, FpsSession, OverlaySettings, OverlayState, DayTraffic, ExtraSample, NetControlStatus, NetRule, PingComparison, PingReport, FpsReading, HistoryPoint, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
@@ -210,6 +210,21 @@ impl Bus {
     pub fn installed(&self) -> Result<Vec<InstalledGameInfo>, String> {
         let c = self.agent()?;
         self.rt.block_on(async { GamesProxy::new(c).await?.installed().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn playtime(&self, since_ms: u64) -> Result<Vec<ug_proto::PlaytimeEntry>, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { PlaytimeProxy::new(c).await?.summary(since_ms).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn playtime_sessions(&self, since_ms: u64) -> Result<Vec<ug_proto::PlaytimeSession>, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { PlaytimeProxy::new(c).await?.sessions(since_ms).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn playtime_forget(&self, key: &str) -> Result<u32, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { PlaytimeProxy::new(c).await?.forget(key).await }).map_err(|e| msg(e, "agent"))
     }
 
     pub fn profiles(&self) -> Result<Vec<ProfileInfo>, String> {

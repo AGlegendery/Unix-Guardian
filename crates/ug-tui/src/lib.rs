@@ -37,7 +37,7 @@ pub const PAGES: [(&str, &str, bool); 12] = [
     ("Monitoring", "Monitor", true),
     ("Ping stability", "Ping", true),
     ("Overlay", "Overlay", true),
-    ("Playtime", "Play", false),
+    ("Playtime", "Play", true),
     ("Recorder", "Rec", false),
     ("Drivers", "Drivers", false),
     ("Bug report", "Bugs", false),
@@ -97,6 +97,8 @@ pub struct App {
     pub cooling: Cached<(ug_proto::CoolingState, String)>,
     /// The dashboard's card switch: the GPUs (boot one first) and the GPU
     /// programs start on. Per-user files and sysfs only.
+    /// The Playtime page's list for the chosen period.
+    pub playtime: Cached<Vec<ug_proto::PlaytimeEntry>>,
     pub gpu_switch: Cached<(Vec<ug_hw::gpu_use::Gpu>, ug_core::gpu_default::State)>,
     /// GPU tuning on the game mode page: the card, its state (read only on
     /// request: it wakes the card), the draft, and the trial's deadline.
@@ -151,6 +153,8 @@ impl App {
             net: Cached::new(Duration::from_secs(2)),
             overlay: Cached::new(SLOW),
             gpu_switch: Cached::new(SLOW),
+            // A running game's time moves by the agent's minute heartbeat.
+            playtime: Cached::new(RARE),
             cooling: Cached::new(Duration::from_secs(3)),
             tune: None,
             tune_draft: Default::default(),
@@ -302,6 +306,13 @@ impl App {
                     self.net.store(r);
                 }
             }
+            6 => {
+                if self.playtime.due() {
+                    let since = ug_core::playtime::since(ug_core::playtime::RANGES[self.choice.min(2)], data::now_ms());
+                    let r = self.bus.playtime(since);
+                    self.playtime.store(r);
+                }
+            }
             _ => {}
         }
         // A GPU trial ends by itself in the service; show that here too.
@@ -341,7 +352,8 @@ impl App {
             self.page = page;
             self.tab = 0;
             self.row = 0;
-            self.choice = if page == 3 { 1 } else { 0 };
+            // Monitoring and Playtime open on their middle range.
+            self.choice = if page == 3 || page == 6 { 1 } else { 0 };
             self.armed = None;
             self.history.invalidate();
         }
@@ -399,6 +411,7 @@ impl App {
                 KeyCode::Enter | KeyCode::Char(' ') => pages::activate(self, self.row),
                 KeyCode::Char('x') | KeyCode::Delete => pages::remove(self, self.row),
                 KeyCode::Char('b') => pages::block(self, self.row),
+                KeyCode::Char('e') if self.page == 6 => pages::export_playtime(self),
                 _ => {}
             },
         }
@@ -902,6 +915,28 @@ mod tests {
         assert_eq!(app.page, 3);
         app.key(KeyCode::Char('q'), KeyModifiers::NONE);
         assert!(app.quit);
+    }
+
+    #[test]
+    fn playtime_lists_games_by_time_and_deleting_asks_twice() {
+        let mut app = App::new(Bus::offline());
+        app.go(6);
+        app.focus = Focus::Page;
+        let e = |key: &str, name: &str, seconds: u64| ug_proto::PlaytimeEntry {
+            key: key.into(),
+            name: name.into(),
+            seconds,
+            sessions: 3,
+            last_played_unix_ms: 0,
+        };
+        app.playtime.store(Ok(vec![e("steam:730", "Counter-Strike 2", 3 * 3600 + 7 * 60), e("steam:1245620", "Elden Ring", 25 * 60)]));
+        let screen = render(&mut app, 120, 34);
+        for want in ["This week", "Played this week", "3 h 32 min", "2 games", "most played", "3 h 07 min", "88 %", "25 min"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        app.key(KeyCode::Char('x'), KeyModifiers::NONE);
+        assert!(app.armed.as_ref().is_some_and(|(a, _)| a.contains("Counter-Strike 2")), "first press only arms");
+        assert!(render(&mut app, 120, 34).contains("press again: delete"));
     }
 
     #[test]
