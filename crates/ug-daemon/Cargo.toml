@@ -18,6 +18,7 @@ ug-hw.workspace = true
 ug-gpu.workspace = true
 ug-tune.workspace = true
 ug-net.workspace = true
+ug-driver.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 tokio.workspace = true

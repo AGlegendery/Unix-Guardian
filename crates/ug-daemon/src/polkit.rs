@@ -33,11 +33,13 @@ pub mod action {
     pub const GPU_TUNE: &str = "org.unixguardian.gpu.tune";
     /// Fan curves and the firmware's fan modes.
     pub const COOLING: &str = "org.unixguardian.cooling";
+    /// Graphics driver fixes and their undo (password every time).
+    pub const DRIVER: &str = "org.unixguardian.driver.fix";
 
     /// Every action, for the test that keeps this list and the shipped
     /// policy file in step.
     #[cfg(test)]
-    pub const ALL: &[&str] = &[DAEMON_DEBUG, GAMEMODE, POWER, NET, GPU_TUNE, COOLING];
+    pub const ALL: &[&str] = &[DAEMON_DEBUG, GAMEMODE, POWER, NET, GPU_TUNE, COOLING, DRIVER];
 }
 
 /// Bit 0 of CheckAuthorization's flags: allow polkit to prompt the user.

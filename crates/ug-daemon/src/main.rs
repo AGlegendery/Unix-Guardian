@@ -21,6 +21,7 @@ mod autotune;
 mod battery;
 mod conditions;
 mod cooling;
+mod driver;
 mod energy;
 mod gamemode;
 mod gputune;
@@ -269,6 +270,23 @@ async fn main() -> Result<()> {
         .await
         .context("serving the cooling interface")?;
     tokio::spawn(cooling::run(Arc::clone(&cooling)));
+    // Driver fixes: real programs through systemd-run as root; a development
+    // run changes only a --sysroot tree and records the programs.
+    let driver_refused = (args.session && args.sysroot.is_none() || !privileged && args.sysroot.is_none())
+        .then(|| "This development service runs on the real system, so it never changes drivers; start it with --sysroot to try fixes on a scratch tree.".to_string());
+    let runner: Box<dyn ug_driver::apply::Runner> = if development {
+        Box::new(ug_driver::apply::Recorder::default())
+    } else {
+        Box::new(ug_driver::apply::SystemdRun)
+    };
+    let driver_exec = Arc::new(ug_driver::apply::Executor::new(root.clone(), &state_dir, runner));
+    conn.object_server()
+        .at(
+            DAEMON_OBJECT_PATH,
+            driver::DriverIface { root: root.clone(), exec: driver_exec, gate: gate.clone(), refused: driver_refused },
+        )
+        .await
+        .context("serving the driver interface")?;
     let backend_for_battery = Arc::clone(&backend);
     tokio::spawn(power::run(conn.clone(), schedule, Arc::clone(&backend), schedule_changed));
     tokio::spawn(power::watch(watches, observer, backend, watches_changed));

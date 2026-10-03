@@ -70,6 +70,15 @@ enum Command {
         #[arg(long)]
         all: bool,
     },
+    /// Check the graphics driver setup and explain what is wrong. Reads
+    /// files only: works without the service, from a text console.
+    Diagnose,
+    /// Fix a driver problem `ug diagnose` found (with a backup), list the
+    /// changes made, or undo one.
+    Driver {
+        #[command(subcommand)]
+        command: DriverCommand,
+    },
     /// Fans: what can be driven, fan curves, and the laptop's fan modes.
     Fans {
         /// Drive a fan by a curve, e.g. --curve amdgpu/pwm1=40:25,70:60,85:100
@@ -180,6 +189,23 @@ enum Command {
         #[command(subcommand)]
         command: ProfileCommand,
     },
+}
+
+#[derive(Subcommand)]
+enum DriverCommand {
+    /// Show exactly what a fix would change, without changing anything.
+    Plan { fix: String },
+    /// Apply a fix: shows the plan, asks, then runs it with a backup.
+    Fix {
+        fix: String,
+        /// Do not ask first.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Driver changes made so far, newest first, with their log.
+    History,
+    /// Undo a change (the newest one still in place if no id is given).
+    Rollback { id: Option<String> },
 }
 
 #[derive(Subcommand)]
@@ -508,6 +534,9 @@ async fn run() -> Result<()> {
     if let Command::Gpu { command: GpuCommand::Default { gpu } } = &cli.command {
         return default_gpu(gpu.as_deref(), cli.json);
     }
+    if let Command::Diagnose = cli.command {
+        return diagnose(cli.json);
+    }
 
     // The agent always lives on the session bus, so game and playtime commands
     // work whether or not the daemon is reachable.
@@ -567,6 +596,8 @@ async fn run() -> Result<()> {
         Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
         Command::Net { command, all } => net(&conn, command, all, cli.json).await,
         Command::Fans { curve, auto, mode } => fans(&conn, curve, auto, mode, cli.json).await,
+        Command::Driver { command } => driver(&conn, command, cli.json).await,
+        Command::Diagnose => unreachable!("handled above"),
         Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Shortcut { .. } | Command::Settings { .. } | Command::Tray { .. } | Command::Quit | Command::Fps { .. } | Command::Run { .. } | Command::Tui => {
             unreachable!("handled above")
         }
@@ -1090,6 +1121,155 @@ async fn settings(notifications: Option<String>, scan: Option<u32>, close: Optio
     println!("Close window in game   {}", yes(s.close_window_on_game));
     println!("Agent                  {}", st.agent_version);
     println!("Settings and data      {}  {}", st.config_dir, st.data_dir);
+    Ok(())
+}
+
+fn diagnose(json: bool) -> Result<()> {
+    let r = ug_driver::diagnose(&ug_hw::SysRoot::real(), &ug_driver::Env::from_process());
+    if json {
+        println!("{}", serde_json::to_string_pretty(&r)?);
+        return Ok(());
+    }
+    println!("Graphics driver check — {}", r.distro);
+    for f in &r.facts {
+        if !f.value.is_empty() && f.key != "kernel.cmdline" {
+            println!("  {:<30} {}", f.key, f.value);
+        }
+    }
+    println!();
+    if r.findings.is_empty() {
+        println!("No problems found.");
+        return Ok(());
+    }
+    for f in &r.findings {
+        let mark = match f.severity.as_str() {
+            "critical" => "CRITICAL ",
+            "important" => "IMPORTANT",
+            _ => "ADVICE   ",
+        };
+        println!("{mark} {}", f.title_en);
+        println!("          {}", f.what_en);
+        println!("          Why: {}", f.why_en);
+        println!("          Fix: {}", f.how_en);
+        if f.fix_auto {
+            println!("          Unix Guardian can do it, with a backup: ug driver fix {}", f.fix_id);
+        }
+        if !f.commands.is_empty() {
+            println!("          {}:", if f.fix_auto { "Or by hand" } else { "Commands" });
+            for c in &f.commands {
+                println!("            {c}");
+            }
+        }
+        if !f.doc_url.is_empty() {
+            println!("          More: {}", f.doc_url);
+        }
+        println!();
+    }
+    Ok(())
+}
+
+fn print_plan(p: &ug_proto::DriverPlan) {
+    println!("{} — {}", p.title, p.fix_id);
+    if !p.refused.is_empty() {
+        println!("  Not available here: {}", p.refused);
+        return;
+    }
+    for (i, s) in p.steps.iter().enumerate() {
+        println!("  {}. {} {}", i + 1, s.kind, s.target);
+        if s.kind == "write-file" {
+            for l in s.detail.lines() {
+                println!("       | {l}");
+            }
+        } else {
+            println!("       {}", s.detail);
+        }
+        println!("       undo: {}", s.undo);
+    }
+    if p.needs_reboot {
+        println!("  A restart is needed afterwards.");
+    }
+}
+
+async fn driver(conn: &zbus::Connection, command: DriverCommand, json: bool) -> Result<()> {
+    let d = ug_proto::daemon::DriverProxy::new(conn).await?;
+    let follow = |id: String| {
+        let d = d.clone();
+        async move {
+        let mut shown = 0;
+        loop {
+            let ops = d.ops().await?;
+            let Some(op) = ops.iter().find(|o| o.id == id) else { anyhow::bail!("the change {id} disappeared") };
+            for l in &op.log[shown..] {
+                println!("  {l}");
+            }
+            shown = op.log.len();
+            if op.state != "running" && op.state != "undoing" {
+                println!("{}: {}", op.id, op.state);
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        }
+    };
+    match command {
+        DriverCommand::Plan { fix } => {
+            let p = d.plan(&fix).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&p)?);
+            } else {
+                print_plan(&p);
+            }
+        }
+        DriverCommand::Fix { fix, yes } => {
+            let p = d.plan(&fix).await?;
+            print_plan(&p);
+            if !p.refused.is_empty() {
+                anyhow::bail!("not applied");
+            }
+            if !yes {
+                use std::io::Write;
+                print!("Type yes to make these changes (a backup is kept; undo with `ug driver rollback`): ");
+                std::io::stdout().flush()?;
+                let mut answer = String::new();
+                std::io::stdin().read_line(&mut answer)?;
+                if answer.trim() != "yes" {
+                    println!("Nothing was changed.");
+                    return Ok(());
+                }
+            }
+            let id = d.apply(&fix).await?;
+            follow(id).await?;
+        }
+        DriverCommand::History => {
+            let ops = d.ops().await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&ops)?);
+            } else if ops.is_empty() {
+                println!("No driver changes have been made.");
+            } else {
+                for o in ops {
+                    println!("{}  {}  {}", o.id, o.state, o.title);
+                    for l in &o.log {
+                        println!("    {l}");
+                    }
+                }
+            }
+        }
+        DriverCommand::Rollback { id } => {
+            d.rollback(id.as_deref().unwrap_or("")).await?;
+            let ops = d.ops().await?;
+            let op = match &id {
+                Some(i) => ops.iter().find(|o| &o.id == i),
+                None => ops.iter().find(|o| o.state == "undone" || o.state == "interrupted"),
+            };
+            if let Some(o) = op {
+                println!("{}: {} ({})", o.id, o.state, o.title);
+                if o.needs_reboot {
+                    println!("Restart for it to take effect.");
+                }
+            }
+        }
+    }
     Ok(())
 }
 
