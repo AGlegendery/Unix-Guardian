@@ -180,6 +180,20 @@ export interface OverlayState {
   every_game_active: boolean;
   game_running: boolean;
 }
+export interface AgentSettings {
+  notifications: boolean;
+  /** Seconds between looks for running games, 1 to 10. */
+  scan_interval_s: number;
+  close_window_on_game: boolean;
+}
+export interface SettingsState {
+  settings: AgentSettings;
+  agent_version: string;
+  config_dir: string;
+  data_dir: string;
+  /** Set by `ug-agent --scan-interval`; shown, not changeable. */
+  scan_interval_fixed: boolean;
+}
 export interface ShortcutInfo {
   id: "open-window" | "toggle-overlay" | "toggle-gamemode";
   description: string;
@@ -452,6 +466,9 @@ const tauriApi = {
   /** null: no agent, or no tray. */
   trayVisible: () => invoke<boolean | null>("tray_visible"),
   trayShow: () => invoke<void>("tray_show"),
+  trayHide: () => invoke<void>("tray_hide"),
+  settingsState: () => invoke<SettingsState>("settings_state"),
+  settingsSet: (settings: AgentSettings) => invoke<void>("settings_set", { settings }),
   reportBug: (context: string) => invoke<void>("report_bug", { context }),
   battery: () => invoke<BatteryCare>("battery"),
   setBatteryCare: (mode: string, limit: number) => invoke<void>("set_battery_care", { mode, limit }),

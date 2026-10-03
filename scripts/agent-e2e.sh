@@ -129,4 +129,14 @@ check "and off again" "'$B/ug' shortcut toggle-gamemode | grep -q 'Game mode off
 check "the overlay shortcut says when the overlay is not set up" "out=\$('$B/ug' shortcut toggle-overlay 2>&1); [ \$? -ne 0 ] && grep -q 'not set up' <<<\"\$out\""
 check "an unknown shortcut is refused with the known ones" "out=\$('$B/ug' shortcut fly 2>&1); [ \$? -ne 0 ] && grep -q 'open-window' <<<\"\$out\""
 
+# Settings: shown, changed one at a time, kept in settings.json, and an
+# out-of-range value refused.
+check "settings show the defaults" "'$B/ug' settings | grep -q 'Look for games every   2 s'"
+check "settings change only what is given" "'$B/ug' settings --scan-interval 3 --close-window-on-game on | grep -q 'every   3 s' && '$B/ug' settings | grep -q 'Notifications          on'"
+check "settings are kept in settings.json" "grep -q '\"scan_interval_s\": 3' '$XDG_CONFIG_HOME/unix-guardian/settings.json'"
+SteamAppId=730 bash -c 'exec -a cs2 sleep 20' & game=$!
+check "games are still found at the new interval" "until_ 8 \"'$B/ug' game running | grep -q 'Counter-Strike 2'\""
+kill $game; wait $game 2>/dev/null
+check "an interval out of range is refused" "! '$B/ug' settings --scan-interval 60 2>/dev/null && '$B/ug' settings | grep -q 'every   3 s'"
+
 echo; [ "$fails" -eq 0 ] && echo "agent-e2e: OK" || { echo "agent-e2e: $fails failed"; exit 1; }

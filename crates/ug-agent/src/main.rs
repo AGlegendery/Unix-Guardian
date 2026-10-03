@@ -21,6 +21,7 @@ mod overlay;
 mod ping;
 mod playtime;
 mod ppd;
+mod settings;
 mod shortcuts;
 mod programs;
 mod tray;
@@ -35,7 +36,7 @@ use ug_hw::SysRoot;
 use ug_proto::{AGENT_BUS_NAME, AGENT_OBJECT_PATH};
 
 use crate::core::{AgentCore, Outcome};
-use iface::{lock, now_ms, GamesIface, MonitorIface, OverlayIface, PingIface, PlaytimeIface, ProfilesIface, Shared, ShortcutsIface};
+use iface::{lock, now_ms, GamesIface, MonitorIface, OverlayIface, PingIface, PlaytimeIface, ProfilesIface, SettingsIface, Shared, ShortcutsIface};
 
 const GAMEMODE_NAME: &str = "com.feralinteractive.GameMode";
 const GAMEMODE_PATH: &str = "/com/feralinteractive/GameMode";
@@ -43,15 +44,15 @@ const GAMEMODE_PATH: &str = "/com/feralinteractive/GameMode";
 #[derive(Parser, Debug)]
 #[command(name = "ug-agent", version, about = "Unix Guardian per-user agent")]
 struct Args {
-    /// Seconds between process-table scans.
-    #[arg(long, default_value_t = 2)]
-    scan_interval: u64,
+    /// Seconds between process-table scans; overrides the Settings page.
+    #[arg(long)]
+    scan_interval: Option<u32>,
 
     /// Do not answer on the GameMode D-Bus name.
     #[arg(long)]
     no_gamemode: bool,
 
-    /// Do not show desktop notifications.
+    /// Do not show desktop notifications, whatever the Settings page says.
     #[arg(long)]
     quiet: bool,
 
@@ -237,6 +238,7 @@ async fn main() -> Result<()> {
         &ug_core::paths::user_config(),
     ));
     let (announce_tx, mut announce_rx) = tokio::sync::mpsc::unbounded_channel::<Outcome>();
+    let settings = Arc::new(settings::Settings::load(&ug_core::paths::user_config(), args.scan_interval.map(|s| s.max(1))));
     let (pressed_tx, mut pressed_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let shortcuts = shortcuts::Shortcuts::new(&ug_core::paths::user_config(), pressed_tx);
 
@@ -247,6 +249,7 @@ async fn main() -> Result<()> {
         .serve_at(AGENT_OBJECT_PATH, MonitorIface { history: Arc::clone(&history), overlay: Arc::clone(&overlay) })?
         .serve_at(AGENT_OBJECT_PATH, OverlayIface { overlay: Arc::clone(&overlay) })?
         .serve_at(AGENT_OBJECT_PATH, PingIface { pinger: pinger.clone() })?
+        .serve_at(AGENT_OBJECT_PATH, SettingsIface { settings: Arc::clone(&settings) })?
         .serve_at(
             AGENT_OBJECT_PATH,
             ShortcutsIface { shortcuts: Arc::clone(&shortcuts), core: Arc::clone(&core), overlay: Arc::clone(&overlay) },
@@ -307,8 +310,16 @@ async fn main() -> Result<()> {
     // Guardian daemon is a development one on the session bus.
     let system_bus = if args.daemon_session { None } else { zbus::Connection::system().await.ok() };
 
-    let mut ticker = tokio::time::interval(Duration::from_secs(args.scan_interval.max(1)));
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let scan_ticker = |s: &settings::Settings| {
+        let mut t = tokio::time::interval(Duration::from_secs(s.get().scan_interval_s.max(1).into()));
+        t.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        t
+    };
+    let mut ticker = scan_ticker(&settings);
+    let mut settings_changed = settings.watch();
+    // Notifications: off with --quiet, else as the Settings page says.
+    let notify_on = || !args.quiet && settings.get().notifications;
+    let mut had_game = false;
     let mut heartbeat = tokio::time::interval(Duration::from_secs(60));
     let mut rescan = tokio::time::interval(Duration::from_secs(600));
     rescan.tick().await; // first tick is immediate; the library was just scanned
@@ -321,8 +332,15 @@ async fn main() -> Result<()> {
                 let c = Arc::clone(&core);
                 let outcomes = tokio::task::spawn_blocking(move || lock(&c).tick(Instant::now(), now_ms())).await?;
                 for o in outcomes {
-                    announce(&conn, o, !args.quiet, &pending_dismissals).await;
+                    announce(&conn, o, notify_on(), &pending_dismissals).await;
                 }
+                // A game just started: the window gives its memory back.
+                let gaming = !lock(&core).running().is_empty();
+                if gaming && !had_game && settings.get().close_window_on_game {
+                    tracing::info!("a game started; closing Unix Guardian's windows (Settings)");
+                    tray::close_windows();
+                }
+                had_game = gaming;
                 let want = lock(&core).gamemode_desired();
                 let was_on = daemon.applied.is_some();
                 daemon.sync(want).await;
@@ -330,7 +348,7 @@ async fn main() -> Result<()> {
                     pinger.mark(if was_on { "gamemode-off" } else { "gamemode-on" }, now_ms());
                     offered.clear();
                 }
-                if daemon.applied.is_some() && !args.quiet && daemon.ticks % 15 == 5 {
+                if daemon.applied.is_some() && notify_on() && daemon.ticks % 15 == 5 {
                     daemon.watch_background(&conn, &mut offered, &pending_limits).await;
                 }
                 follow_game(&core, &pinger).await;
@@ -338,12 +356,13 @@ async fn main() -> Result<()> {
                 let (wanted, game) = lock(&core).power_profile_wanted();
                 holder.sync(system_bus.as_ref(), wanted, &game).await;
             }
-            Some(o) = announce_rx.recv() => announce(&conn, o, !args.quiet, &pending_dismissals).await,
+            Some(o) = announce_rx.recv() => announce(&conn, o, notify_on(), &pending_dismissals).await,
+            Ok(()) = settings_changed.changed() => ticker = scan_ticker(&settings),
             Some(id) = pressed_rx.recv() => {
                 // A key pressed anywhere has no other feedback than this.
                 let said = shortcuts::perform(&id, &core, &overlay).await;
                 tracing::info!(shortcut = %id, result = ?said, "global shortcut");
-                if id != "open-window" && !args.quiet {
+                if id != "open-window" && notify_on() {
                     let text = said.unwrap_or_else(|e| e);
                     notify::show(&conn, &text, "", &[]).await;
                 }

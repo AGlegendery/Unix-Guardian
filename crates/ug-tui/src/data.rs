@@ -4,7 +4,7 @@
 //! work.
 
 use std::time::{Duration, Instant};
-use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy, ShortcutsProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy, SettingsProxy, ShortcutsProxy, TrayProxy};
 use ug_proto::daemon::{CoolingProxy, DaemonProxy, GameModeProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{
     AppTraffic, BatteryCare, FpsSession, OverlaySettings, OverlayState, DayTraffic, ExtraSample, NetControlStatus, NetRule, PingComparison, PingReport, FpsReading, HistoryPoint, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
@@ -124,6 +124,37 @@ impl Bus {
     pub fn overlay_set_up(&self, on: bool) -> Result<(), String> {
         let c = self.agent()?;
         self.rt.block_on(async { OverlayProxy::new(c).await?.set_up(on).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn settings(&self) -> Result<ug_proto::SettingsState, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { SettingsProxy::new(c).await?.state().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn settings_set(&self, s: &ug_proto::AgentSettings) -> Result<(), String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { SettingsProxy::new(c).await?.set(s).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    /// The daemon's version, for the Settings page.
+    pub fn daemon_version(&self) -> Result<String, String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { DaemonProxy::new(c).await?.version().await }).map_err(|e| msg(e, "service"))
+    }
+
+    pub fn tray_visible(&self) -> Result<bool, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { TrayProxy::new(c).await?.visible().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn tray_set(&self, on: bool) -> Result<(), String> {
+        let c = self.agent()?;
+        self.rt
+            .block_on(async {
+                let t = TrayProxy::new(c).await?;
+                if on { t.show().await } else { t.hide().await }
+            })
+            .map_err(|e| msg(e, "agent"))
     }
 
     pub fn shortcuts(&self) -> Result<ug_proto::ShortcutsState, String> {

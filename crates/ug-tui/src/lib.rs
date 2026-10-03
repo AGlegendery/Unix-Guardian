@@ -42,7 +42,7 @@ pub const PAGES: [(&str, &str, bool); 12] = [
     ("Drivers", "Drivers", false),
     ("Bug report", "Bugs", false),
     ("Updates", "Updates", false),
-    ("Settings", "Settings", false),
+    ("Settings", "Settings", true),
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -95,6 +95,9 @@ pub struct App {
     pub net: Cached<(Vec<AppTraffic>, Vec<NetRule>, NetControlStatus)>,
     pub overlay: Cached<OverlayState>,
     pub shortcuts: Cached<ug_proto::ShortcutsState>,
+    pub settings: Cached<ug_proto::SettingsState>,
+    pub tray: Cached<bool>,
+    pub daemon_version: Cached<String>,
     pub cooling: Cached<(ug_proto::CoolingState, String)>,
     /// The dashboard's card switch: the GPUs (boot one first) and the GPU
     /// programs start on. Per-user files and sysfs only.
@@ -163,6 +166,9 @@ impl App {
             overlay: Cached::new(SLOW),
             // Fast enough to follow the desktop's confirmation dialog.
             shortcuts: Cached::new(Duration::from_secs(1)),
+            settings: Cached::new(SLOW),
+            tray: Cached::new(SLOW),
+            daemon_version: Cached::new(Duration::from_secs(3600)),
             gpu_switch: Cached::new(SLOW),
             // A running game's time moves by the agent's minute heartbeat.
             playtime: Cached::new(RARE),
@@ -304,6 +310,24 @@ impl App {
                 if self.tab == 1 && self.shortcuts.due() {
                     let r = self.bus.shortcuts();
                     self.shortcuts.store(r);
+                }
+            }
+            11 => {
+                if self.settings.due() {
+                    let r = self.bus.settings();
+                    self.settings.store(r);
+                }
+                if self.tray.due() {
+                    let r = self.bus.tray_visible();
+                    self.tray.store(r);
+                }
+                if self.shortcuts.due() {
+                    let r = self.bus.shortcuts();
+                    self.shortcuts.store(r);
+                }
+                if self.daemon_version.due() {
+                    let r = self.bus.daemon_version();
+                    self.daemon_version.store(r);
                 }
             }
             4 => {
@@ -876,6 +900,27 @@ mod tests {
         for want in ["firefox-esr", "Rules", "qbittorrent", "up 1.0 Mbit/s", "waits for a game"] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
+    }
+
+    #[test]
+    fn the_settings_page_shows_the_agent_settings_and_this_installation() {
+        let mut app = App::new(Bus::offline());
+        app.go(11);
+        app.refresh();
+        assert!(render(&mut app, 120, 34).contains("Cannot reach the session bus"), "says why when there is no agent");
+        app.settings.store(Ok(ug_proto::SettingsState {
+            settings: ug_proto::AgentSettings { notifications: false, scan_interval_s: 5, close_window_on_game: true },
+            agent_version: "0.1.0".into(),
+            config_dir: "/home/u/.config/unix-guardian".into(),
+            data_dir: "/home/u/.local/share/unix-guardian".into(),
+            scan_interval_fixed: false,
+        }));
+        app.tray.store(Ok(false));
+        let screen = render(&mut app, 130, 34);
+        for want in ["Settings", "Notifications", "‹ off ›", "Close the window when a game starts", "‹ on ›", "‹ 5 s ›", "‹ hidden ›", "0.1.0", ".config/unix-guardian", "GNU GPL"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        assert!(!screen.contains("Not built yet"));
     }
 
     #[test]

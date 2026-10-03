@@ -9,7 +9,7 @@ use futures_lite::StreamExt;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, OnceCell};
-use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy, ShortcutsProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy, SettingsProxy, ShortcutsProxy};
 use ug_proto::daemon::{CoolingProxy, DaemonProxy, GameModeProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{BatteryCare, DayTraffic, HistoryPoint, Inventory, InstalledGameInfo, PlaytimeEntry, PowerCapability, PowerJob, PowerUsage, PowerWatch, ProfileInfo, RunningGameInfo, Snapshot};
 
@@ -704,6 +704,24 @@ pub async fn tray_visible(bus: State<'_, Bus>) -> Res<Option<bool>> {
 pub async fn tray_show(bus: State<'_, Bus>) -> Res<()> {
     let t = ug_proto::agent::TrayProxy::new(bus.agent().await?).await.map_err(agent_err)?;
     t.show().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn tray_hide(bus: State<'_, Bus>) -> Res<()> {
+    let t = ug_proto::agent::TrayProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    t.hide().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn settings_state(bus: State<'_, Bus>) -> Res<ug_proto::SettingsState> {
+    let s = SettingsProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    s.state().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn settings_set(bus: State<'_, Bus>, settings: ug_proto::AgentSettings) -> Res<()> {
+    let s = SettingsProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    s.set(&settings).await.map_err(agent_err)
 }
 
 #[tauri::command]

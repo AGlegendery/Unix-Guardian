@@ -88,6 +88,7 @@ pub fn draw(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
             }
         }
         6 => playtime_page(app, f, inner),
+        11 => settings_page(app, f, inner),
         p => {
             let text = vec![
                 Line::from(Span::styled(PAGES[p].0, app.theme.title())),
@@ -1641,6 +1642,110 @@ fn activate_shortcut(app: &mut App, i: usize) {
     app.shortcuts.invalidate();
 }
 
+/// The agent's settings, the tray icon and global shortcuts, one row each,
+/// then what this installation is.
+const SETTINGS_ROWS: [&str; 5] =
+    ["Notifications", "Close the window when a game starts", "Look for games every", "Tray icon", "Global shortcuts"];
+const SCAN_STEPS: [u32; 4] = [1, 2, 5, 10];
+
+fn settings_page(app: &mut App, f: &mut Frame, r: Rect) {
+    let t = app.theme;
+    f.render_widget(Paragraph::new(Span::styled("Settings", t.title())), Rect { height: 1, ..r });
+    let Some(st) = app.settings.value.clone() else {
+        let msg = app.settings.error.clone().unwrap_or_else(|| "Reading…".into());
+        f.render_widget(Paragraph::new(Span::styled(msg, t.muted())).wrap(Wrap { trim: true }), Rect { y: r.y + 2, height: 3, ..r });
+        return;
+    };
+    let s = &st.settings;
+    let yes = |b: bool| if b { "on" } else { "off" };
+    let shortcuts = match app.shortcuts.value.as_ref() {
+        Some(k) if k.enabled && k.status == "active" => "on".to_string(),
+        Some(k) if k.enabled => format!("on ({})", k.status),
+        Some(_) => "off".to_string(),
+        None => "—".to_string(),
+    };
+    let values = [
+        yes(s.notifications).to_string(),
+        yes(s.close_window_on_game).to_string(),
+        if st.scan_interval_fixed { format!("{} s (set by ug-agent --scan-interval)", s.scan_interval_s) } else { format!("{} s", s.scan_interval_s) },
+        match app.tray.value {
+            Some(true) => "shown".into(),
+            Some(false) => "hidden".into(),
+            None => "—".into(),
+        },
+        shortcuts,
+    ];
+    app.rows = SETTINGS_ROWS.len();
+    let top = r.y + 2;
+    for (i, (name, v)) in SETTINGS_ROWS.iter().zip(values).enumerate() {
+        let line = Line::from(vec![Span::styled(format!(" {name:<38}"), t.text()), Span::styled(format!("‹ {v} ›"), t.muted())]);
+        row(app, f, Rect { y: top + i as u16, height: 1, ..r }, i, line);
+    }
+    let note = match app.row {
+        0 => "When a game is found, when a background download could be limited, and when a shortcut is used.",
+        1 => "The window's web view gives its memory back to the game; this terminal interface stays open.",
+        2 => "Sooner means game mode starts sooner, for a little more CPU time.",
+        3 => "Hidden, it comes back from here or with `ug tray`; Unix Guardian keeps running either way.",
+        _ => "Keys that work anywhere; the desktop asks to confirm them. Overlay → Global shortcuts shows the keys.",
+    };
+    let service = app.daemon_version.value.clone().unwrap_or_else(|| "not reachable".into());
+    let about = vec![
+        Line::from(Span::styled(note, t.faint())),
+        Line::from(""),
+        Line::from(vec![Span::styled(" Agent    ", t.muted()), Span::styled(st.agent_version.clone(), t.text())]),
+        Line::from(vec![Span::styled(" Service  ", t.muted()), Span::styled(service, t.text())]),
+        Line::from(vec![Span::styled(" Files    ", t.muted()), Span::styled(format!("{}  {}", st.config_dir, st.data_dir), t.text())]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "This interface is in English; the window can be switched to Persian on its Settings page. Free software under the GNU GPL, version 3 or later.",
+            t.faint(),
+        )),
+    ];
+    let y = top + SETTINGS_ROWS.len() as u16 + 1;
+    if y < r.bottom() {
+        f.render_widget(Paragraph::new(about).wrap(Wrap { trim: true }), Rect { y, height: r.bottom() - y, ..r });
+    }
+}
+
+/// ←→ or Enter on a settings row.
+fn step_settings(app: &mut App, d: i32) {
+    let Some(st) = app.settings.value.clone() else { return };
+    let mut s = st.settings.clone();
+    let r = match app.row {
+        0 => {
+            s.notifications = !s.notifications;
+            app.bus.settings_set(&s).map(|_| format!("Notifications {}.", if s.notifications { "on" } else { "off" }))
+        }
+        1 => {
+            s.close_window_on_game = !s.close_window_on_game;
+            app.bus.settings_set(&s).map(|_| "Saved.".to_string())
+        }
+        2 if st.scan_interval_fixed => Err("Set by ug-agent --scan-interval in the service; change it there.".to_string()),
+        2 => {
+            let i = SCAN_STEPS.iter().position(|v| *v >= s.scan_interval_s).unwrap_or(1) as i32;
+            s.scan_interval_s = SCAN_STEPS[(i + d).clamp(0, SCAN_STEPS.len() as i32 - 1) as usize];
+            app.bus.settings_set(&s).map(|_| format!("Looking for games every {} s.", s.scan_interval_s))
+        }
+        3 => {
+            let on = app.tray.value != Some(true);
+            let r = app.bus.tray_set(on).map(|_| if on { "Tray icon shown." } else { "Tray icon hidden." }.to_string());
+            app.tray.invalidate();
+            r
+        }
+        _ => {
+            let on = !app.shortcuts.value.as_ref().is_some_and(|k| k.enabled);
+            let r = app
+                .bus
+                .shortcuts_set_enabled(on)
+                .map(|_| if on { "Asking the desktop for the keys…" } else { "Global shortcuts off." }.to_string());
+            app.shortcuts.invalidate();
+            r
+        }
+    };
+    report(app, r);
+    app.settings.invalidate();
+}
+
 /// ←→ on an overlay row.
 fn step_overlay(app: &mut App, d: i32) {
     let Some(st) = app.overlay.value.clone() else { return };
@@ -1978,6 +2083,7 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (3, 1) => vec![("Tab", "FPS")],
         (3, _) => vec![("Tab", "temperature"), ("Enter", "set up / undo")],
         (4, _) => vec![("Tab", "next tab"), ("Enter", "limit while gaming"), ("b", "block"), ("x", "allow")],
+        (11, _) => vec![("↑↓", "setting"), ("←→", "change"), ("Enter", "toggle")],
         (5, 1) => vec![("Tab", "overlay"), ("Enter", "on/off / run")],
         (5, _) => vec![("Tab", "shortcuts"), ("↑↓", "setting"), ("←→", "change"), ("Enter", "next / run")],
         (6, 0) => vec![("Tab", "apps"), ("←→", "period"), ("x", "delete"), ("n", "not a game"), ("i", "import Steam"), ("e", "CSV")],
@@ -2035,6 +2141,10 @@ pub fn step_choice(app: &mut App, d: i32) {
         step_overlay(app, d);
         return;
     }
+    if app.page == 11 {
+        step_settings(app, d);
+        return;
+    }
     if (app.page, app.tab) == (2, 3) {
         step_cooling(app, d);
         return;
@@ -2063,6 +2173,10 @@ pub fn activate(app: &mut App, i: usize) {
         (6, _) => activate_playtime(app, i),
         (1, 1) => activate_tune(app, i),
         (5, 1) => activate_shortcut(app, i),
+        (11, _) => {
+            let _ = i;
+            step_settings(app, 1);
+        }
         (1, 2) => {
             let _ = i;
             write_launch(app);

@@ -967,6 +967,16 @@ pub fn quit_everything() {
 
 /// Closes this user's Unix Guardian windows and terminal UIs.
 fn close_uis() {
+    close(true);
+}
+
+/// Closes this user's Unix Guardian windows (not the terminal UI, which costs
+/// a game nothing): the Settings page's "close the window when a game starts".
+pub fn close_windows() {
+    close(false);
+}
+
+fn close(with_tui: bool) {
     if std::env::var_os("UG_TEST_RUN").is_some_and(|t| !t.is_empty()) {
         // A test agent must not close the developer's real window.
         tracing::info!("test run: not closing windows");
@@ -974,15 +984,18 @@ fn close_uis() {
     }
     // SAFETY: getuid cannot fail and has no preconditions.
     let uid = unsafe { libc::getuid() };
-    for pid in ui_pids(&SysRoot::real(), uid) {
+    for (pid, tui) in ui_pids(&SysRoot::real(), uid) {
+        if tui && !with_tui {
+            continue;
+        }
         // SAFETY: plain kill(2) on a pid just read from /proc.
         unsafe { libc::kill(pid, libc::SIGTERM) };
     }
 }
 
 /// Processes owned by `uid` that are a Unix Guardian window (`ug-app`) or
-/// terminal UI (`ug tui`). Other `ug` commands are left alone.
-fn ui_pids(root: &SysRoot, uid: u32) -> Vec<i32> {
+/// terminal UI (`ug tui`, marked `true`). Other `ug` commands are left alone.
+fn ui_pids(root: &SysRoot, uid: u32) -> Vec<(i32, bool)> {
     let mut pids = Vec::new();
     for e in std::fs::read_dir(root.join("proc")).into_iter().flatten().flatten() {
         let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<i32>().ok()) else { continue };
@@ -999,7 +1012,7 @@ fn ui_pids(root: &SysRoot, uid: u32) -> Vec<i32> {
         let tui = name == Some("ug")
             && std::fs::read(e.path().join("cmdline")).is_ok_and(|c| c.split(|&b| b == 0).skip(1).any(|a| a == b"tui"));
         if name == Some("ug-app") || tui {
-            pids.push(pid);
+            pids.push((pid, tui));
         }
     }
     pids
@@ -1107,7 +1120,7 @@ mod tests {
             .write("proc/101/status", "Name:\tug-app\nUid:\t1001\t1001\t1001\t1001\n")
             .write("proc/102/status", "Name:\tkonsole\nUid:\t1000\t1000\t1000\t1000\n")
             .write("proc/self/status", "Name:\tug-app\nUid:\t1000\n");
-        assert_eq!(ui_pids(&SysRoot::at(fs.root()), 1000), vec![100]);
+        assert_eq!(ui_pids(&SysRoot::at(fs.root()), 1000), vec![(100, false)]);
     }
 
     #[test]
@@ -1121,6 +1134,6 @@ mod tests {
             .write("proc/202/cmdline", "ug\0--session\0tui\0");
         let mut pids = ui_pids(&SysRoot::at(fs.root()), 1000);
         pids.sort();
-        assert_eq!(pids, vec![200, 202]);
+        assert_eq!(pids, vec![(200, true), (202, true)], "marked as terminal UIs, which a game start leaves open");
     }
 }

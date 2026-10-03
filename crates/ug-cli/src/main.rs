@@ -10,7 +10,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy, ShortcutsProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy, SettingsProxy, ShortcutsProxy};
 use ug_proto::daemon::{CoolingProxy, DaemonProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{GpuCapabilities, Inventory, PowerWatch, Snapshot};
 
@@ -144,6 +144,19 @@ enum Command {
     Overlay {
         #[command(subcommand)]
         command: Option<OverlayCommand>,
+    },
+    /// The agent's settings (as on the Settings page); only the ones given
+    /// change.
+    Settings {
+        /// Desktop notifications: on or off.
+        #[arg(long)]
+        notifications: Option<String>,
+        /// Seconds between looks for running games, 1 to 10.
+        #[arg(long)]
+        scan_interval: Option<u32>,
+        /// Close Unix Guardian's window when a game starts: on or off.
+        #[arg(long)]
+        close_window_on_game: Option<String>,
     },
     /// Global shortcuts (the desktop's GlobalShortcuts portal). Without an
     /// argument shows them; `on`/`off` binds or unbinds them (the desktop may
@@ -508,6 +521,9 @@ async fn run() -> Result<()> {
         Command::Ping { seconds } => return ping(seconds, cli.json).await,
         Command::Overlay { command } => return overlay(command, cli.json).await,
         Command::Shortcut { action } => return shortcut(action, cli.json).await,
+        Command::Settings { notifications, scan_interval, close_window_on_game } => {
+            return settings(notifications, scan_interval, close_window_on_game, cli.json).await
+        }
         Command::Tray { hide } => return tray(hide).await,
         Command::Quit => {
             let conn = agent_conn().await?;
@@ -551,7 +567,7 @@ async fn run() -> Result<()> {
         Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
         Command::Net { command, all } => net(&conn, command, all, cli.json).await,
         Command::Fans { curve, auto, mode } => fans(&conn, curve, auto, mode, cli.json).await,
-        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Shortcut { .. } | Command::Tray { .. } | Command::Quit | Command::Fps { .. } | Command::Run { .. } | Command::Tui => {
+        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Shortcut { .. } | Command::Settings { .. } | Command::Tray { .. } | Command::Quit | Command::Fps { .. } | Command::Run { .. } | Command::Tui => {
             unreachable!("handled above")
         }
     }
@@ -1031,6 +1047,49 @@ async fn overlay(command: Option<OverlayCommand>, json: bool) -> Result<()> {
         if s.every_game { "on" } else { "off (or add `mangohud %command%` to a Steam game's launch options)" },
         if s.every_game && !st.every_game_active { " — takes effect at your next login" } else { "" }
     );
+    Ok(())
+}
+
+fn on_off(v: &str) -> Result<bool> {
+    match v {
+        "on" => Ok(true),
+        "off" => Ok(false),
+        other => anyhow::bail!("give on or off, not {other}"),
+    }
+}
+
+async fn settings(notifications: Option<String>, scan: Option<u32>, close: Option<String>, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let p = SettingsProxy::new(&conn).await?;
+    if notifications.is_some() || scan.is_some() || close.is_some() {
+        let mut s = p.state().await.map_err(agent_hint)?.settings;
+        if let Some(v) = notifications {
+            s.notifications = on_off(&v)?;
+        }
+        if let Some(v) = scan {
+            s.scan_interval_s = v;
+        }
+        if let Some(v) = close {
+            s.close_window_on_game = on_off(&v)?;
+        }
+        p.set(&s).await.map_err(agent_hint)?;
+    }
+    let st = p.state().await.map_err(agent_hint)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&st)?);
+        return Ok(());
+    }
+    let s = &st.settings;
+    let yes = |b: bool| if b { "on" } else { "off" };
+    println!("Notifications          {}", yes(s.notifications));
+    println!(
+        "Look for games every   {} s{}",
+        s.scan_interval_s,
+        if st.scan_interval_fixed { " (set by ug-agent --scan-interval)" } else { "" }
+    );
+    println!("Close window in game   {}", yes(s.close_window_on_game));
+    println!("Agent                  {}", st.agent_version);
+    println!("Settings and data      {}  {}", st.config_dir, st.data_dir);
     Ok(())
 }
 

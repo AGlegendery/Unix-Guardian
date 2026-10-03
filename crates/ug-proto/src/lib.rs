@@ -484,6 +484,18 @@ pub mod agent {
         fn run(&self, id: &str) -> zbus::Result<String>;
     }
 
+    /// The agent's own settings.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Settings",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Settings {
+        fn state(&self) -> zbus::Result<SettingsState>;
+        /// Saves them; refused with the reason when a value is out of range.
+        fn set(&self, settings: &AgentSettings) -> zbus::Result<()>;
+    }
+
     /// The in-game overlay (MangoHud), set up and styled by Unix Guardian.
     #[zbus::proxy(
         interface = "org.unixguardian.Agent1.Overlay",

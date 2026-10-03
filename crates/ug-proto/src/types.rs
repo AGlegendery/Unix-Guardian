@@ -381,6 +381,39 @@ pub struct ShortcutsState {
     pub gamemode_by_hand: String,
 }
 
+/// The agent's own settings (the Settings page). Each user has their own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct AgentSettings {
+    /// Desktop notifications (game detected, "limit while I play", a
+    /// shortcut's result).
+    pub notifications: bool,
+    /// Seconds between looks at the running programs (1–10): how soon a
+    /// game is noticed, against a little CPU time.
+    pub scan_interval_s: u32,
+    /// Close Unix Guardian's window when a game starts, so its web view
+    /// gives its memory back to the game.
+    pub close_window_on_game: bool,
+}
+
+impl Default for AgentSettings {
+    fn default() -> Self {
+        AgentSettings { notifications: true, scan_interval_s: 2, close_window_on_game: false }
+    }
+}
+
+/// The settings plus what the Settings page shows about the agent.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct SettingsState {
+    pub settings: AgentSettings,
+    pub agent_version: String,
+    /// Where each user's settings and data live.
+    pub config_dir: String,
+    pub data_dir: String,
+    /// The scan interval is fixed by `ug-agent --scan-interval` (tests,
+    /// custom units), so the page shows it but cannot change it.
+    pub scan_interval_fixed: bool,
+}
+
 /// A Steam game's launch options, and Unix Guardian's part in them.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct LaunchInfo {

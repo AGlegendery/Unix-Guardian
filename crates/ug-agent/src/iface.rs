@@ -307,6 +307,28 @@ pub fn local_date(ms: u64) -> String {
     format!("{:04}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
 }
 
+/// `org.unixguardian.Agent1.Settings`
+pub struct SettingsIface {
+    pub settings: Arc<crate::settings::Settings>,
+}
+
+#[zbus::interface(name = "org.unixguardian.Agent1.Settings")]
+impl SettingsIface {
+    async fn state(&self) -> ug_proto::SettingsState {
+        ug_proto::SettingsState {
+            settings: self.settings.get(),
+            agent_version: env!("CARGO_PKG_VERSION").into(),
+            config_dir: ug_core::paths::user_config().display().to_string(),
+            data_dir: ug_core::paths::user_data().display().to_string(),
+            scan_interval_fixed: self.settings.scan_fixed(),
+        }
+    }
+
+    async fn set(&self, settings: ug_proto::AgentSettings) -> zbus::fdo::Result<()> {
+        self.settings.set(settings).map_err(zbus::fdo::Error::InvalidArgs)
+    }
+}
+
 /// `org.unixguardian.Agent1.Shortcuts`
 pub struct ShortcutsIface {
     pub shortcuts: Arc<crate::shortcuts::Shortcuts>,

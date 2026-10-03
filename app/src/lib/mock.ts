@@ -4,7 +4,7 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, ShortcutsState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, ShortcutsState, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -13,6 +13,7 @@ let alarm = 0;
 const bat: BatteryCare = { supported: true, method: "vendor-long-life", adjustable: false, mode: "off", limit: 80, capacity: 100, status: "Full", reason: "" };
 const watches: PowerWatch[] = [];
 let t = 0;
+let agentSettings: AgentSettings = { notifications: true, scan_interval_s: 2, close_window_on_game: false };
 const shortcuts: ShortcutsState = {
   enabled: false,
   status: "off",
@@ -377,6 +378,17 @@ export const mockApi = {
   overlaySetUp: async (on: boolean) => {
     fpsSetUp = on;
   },
+  settingsState: async (): Promise<SettingsState> => ({
+    settings: { ...agentSettings },
+    agent_version: "0.1.0",
+    config_dir: "~/.config/unix-guardian",
+    data_dir: "~/.local/share/unix-guardian",
+    scan_interval_fixed: false,
+  }),
+  settingsSet: async (s: AgentSettings) => {
+    if (s.scan_interval_s < 1 || s.scan_interval_s > 10) throw `scan interval must be 1 to 10 seconds, not ${s.scan_interval_s}`;
+    agentSettings = { ...s };
+  },
   shortcutsState: async (): Promise<ShortcutsState> => ({ ...shortcuts, shortcuts: shortcuts.shortcuts.map((k) => ({ ...k, trigger: shortcuts.enabled ? k.trigger : "" })) }),
   shortcutsSetEnabled: async (on: boolean) => {
     shortcuts.enabled = on;
@@ -473,6 +485,9 @@ export const mockApi = {
   trayVisible: async () => trayVisible,
   trayShow: async () => {
     trayVisible = true;
+  },
+  trayHide: async () => {
+    trayVisible = false;
   },
   openTerminal: async () => {
     throw "The preview cannot open a terminal. In the app this opens ug tui.";
