@@ -67,12 +67,12 @@ pub fn draw(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
     match app.page {
         0 => dashboard(app, f, inner, wide),
         1 => {
-            tabs(app, f, Rect { height: 1, ..inner }, &["Game mode", "Graphics card"]);
+            tabs(app, f, Rect { height: 1, ..inner }, &["Game mode", "Graphics card", "Steam launch options"]);
             let body = Rect { y: inner.y + 2, height: inner.height.saturating_sub(2), ..inner };
-            if app.tab == 1 {
-                gpu_tune_page(app, f, body)
-            } else {
-                game_mode(app, f, body)
+            match app.tab {
+                1 => gpu_tune_page(app, f, body),
+                2 => launch_page(app, f, body),
+                _ => game_mode(app, f, body),
             }
         }
         2 => system(app, f, inner),
@@ -774,6 +774,161 @@ fn game_mode(app: &mut App, f: &mut Frame, r: Rect) {
             ];
             f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), Rect { x: r.x, y: y + 1, width: r.width, height: r.bottom() - y - 1 });
         }
+    }
+}
+
+/// The launch options of one Steam game being edited on the Game mode
+/// page's third tab.
+pub struct LaunchEdit {
+    pub appid: u32,
+    pub info: Result<ug_proto::LaunchInfo, String>,
+    /// The choice: a GPU's PCI address ("" for the system's) and the overlay.
+    pub gpu: String,
+    pub overlay: bool,
+    pub after: Result<String, String>,
+}
+
+/// Installed Steam games: (App ID, name).
+fn steam_games(app: &App) -> Vec<(u32, String)> {
+    app.installed
+        .value
+        .iter()
+        .flatten()
+        .filter_map(|g| Some((g.id.strip_prefix("steam:")?.parse().ok()?, g.name.clone())))
+        .collect()
+}
+
+/// Reads the selected game's launch options when the selection changes, and
+/// every few seconds while shown (Steam may have been closed meanwhile).
+pub fn refresh_launch(app: &mut App) {
+    let Some((appid, _)) = steam_games(app).get(app.row).cloned() else {
+        app.launch = None;
+        return;
+    };
+    let stale = app.launch.as_ref().is_none_or(|l| l.appid != appid);
+    if !stale && !app.launch_due.due() {
+        return;
+    }
+    app.launch_due.store(Ok(()));
+    let info = app.bus.launch_options(appid);
+    let (gpu, overlay) = match (&app.launch, &info) {
+        (Some(l), _) if !stale => (l.gpu.clone(), l.overlay),
+        (_, Ok(i)) => (i.gpu.clone(), i.overlay && i.overlay_problem.is_empty()),
+        _ => (String::new(), false),
+    };
+    let after = if info.is_ok() { app.bus.preview_launch_options(appid, &gpu, overlay) } else { Err(String::new()) };
+    app.launch = Some(LaunchEdit { appid, info, gpu, overlay, after });
+}
+
+fn repreview(app: &mut App) {
+    if let Some(l) = app.launch.as_mut() {
+        l.after = app.bus.preview_launch_options(l.appid, &l.gpu, l.overlay);
+    }
+}
+
+/// ←/→: the system's choice, then each GPU.
+fn step_launch_gpu(app: &mut App, d: i32) {
+    let gpus: Vec<String> = std::iter::once(String::new()).chain(ug_hw::gpu_use::gpus(&ug_hw::SysRoot::real()).into_iter().map(|g| g.pci)).collect();
+    if let Some(l) = app.launch.as_mut() {
+        let i = gpus.iter().position(|g| *g == l.gpu).unwrap_or(0) as i32;
+        l.gpu = gpus[(i + d).clamp(0, gpus.len() as i32 - 1) as usize].clone();
+    }
+    repreview(app);
+}
+
+pub fn toggle_launch_overlay(app: &mut App) {
+    let Some(l) = app.launch.as_mut() else { return };
+    if let Ok(i) = &l.info {
+        if !i.overlay_problem.is_empty() {
+            let why = i.overlay_problem.clone();
+            report(app, Err(why));
+            return;
+        }
+    }
+    l.overlay = !l.overlay;
+    repreview(app);
+}
+
+fn write_launch(app: &mut App) {
+    let Some(l) = app.launch.as_ref() else { return };
+    let r = app.bus.set_launch_options(l.appid, &l.gpu, l.overlay).map(|(_, backup)| {
+        format!("Written: Steam uses it the next time the game starts. Backup of Steam's settings: {backup}")
+    });
+    report(app, r);
+    app.launch_due.invalidate();
+    app.launch = app.launch.take().map(|l| LaunchEdit { appid: u32::MAX, ..l });
+    refresh_launch(app);
+}
+
+pub fn undo_launch(app: &mut App) {
+    let Some(l) = app.launch.as_ref() else { return };
+    let r = app.bus.undo_launch_options(l.appid).map(|(o, _)| format!("Back to the game's own launch options: {}", if o.is_empty() { "(none)" } else { &o }));
+    report(app, r);
+    app.launch = app.launch.take().map(|l| LaunchEdit { appid: u32::MAX, ..l });
+    refresh_launch(app);
+}
+
+/// The Steam launch options tab: games, then the selected game's choice and
+/// what it would write.
+fn launch_page(app: &mut App, f: &mut Frame, r: Rect) {
+    let t = app.theme;
+    let games = steam_games(app);
+    let line = |y: u16| Rect { x: r.x, y, width: r.width, height: 1 };
+    if games.is_empty() {
+        let msg = app.installed.error.clone().unwrap_or_else(|| "No Steam games are installed.".into());
+        f.render_widget(Paragraph::new(Span::styled(msg, t.muted())), line(r.y));
+        return;
+    }
+    f.render_widget(Paragraph::new(Span::styled("Choose a game with ↑↓; the card it renders on and the MangoHud overlay go into its Steam launch options.", t.faint())), line(r.y));
+    let mut y = r.y + 2;
+    let list_h = (games.len() as u16).min(r.height.saturating_sub(12).max(3));
+    app.rows = games.len();
+    let first = app.row.saturating_sub(list_h as usize - 1);
+    for (i, (_, name)) in games.iter().enumerate().skip(first).take(list_h as usize) {
+        row(app, f, line(y), i, Line::from(Span::styled(format!(" {name}"), t.text())));
+        y += 1;
+    }
+    y += 1;
+    let Some(l) = app.launch.as_ref() else { return };
+    let mut lines: Vec<Line> = Vec::new();
+    match &l.info {
+        Err(e) => lines.push(Line::from(Span::styled(e.clone(), Style::default().fg(t.danger)))),
+        Ok(i) => {
+            let gpu_name = if l.gpu.is_empty() {
+                "System's choice".to_string()
+            } else {
+                app.inventory.value.as_ref().and_then(|v| v.gpus.iter().find(|g| g.pci == l.gpu).map(|g| short_name(&g.name))).unwrap_or_else(|| l.gpu.clone())
+            };
+            lines.push(Line::from(vec![Span::styled("  Graphics card     ", t.muted()), Span::styled(format!("‹ {gpu_name} ›"), t.accent())]));
+            let ov = if !i.overlay_problem.is_empty() { "[–]" } else if l.overlay { "[■]" } else { "[ ]" };
+            lines.push(Line::from(vec![Span::styled("  MangoHud overlay  ", t.muted()), Span::styled(ov, Style::default().fg(t.accent)), Span::styled("  (o)", t.faint())]));
+            if !i.overlay_problem.is_empty() {
+                lines.push(Line::from(Span::styled(format!("  {}", i.overlay_problem), t.faint())));
+            }
+            let none = |s: &str| if s.is_empty() { "(none)".to_string() } else { s.to_string() };
+            lines.push(Line::from(vec![Span::styled("  Now    ", t.muted()), Span::styled(none(&i.current), t.text())]));
+            match &l.after {
+                Ok(a) => lines.push(Line::from(vec![Span::styled("  After  ", t.muted()), Span::styled(none(a), if *a == i.current { t.text() } else { t.accent() })])),
+                Err(e) => lines.push(Line::from(Span::styled(format!("  {e}"), Style::default().fg(t.danger)))),
+            }
+            if i.steam_running {
+                lines.push(Line::from(Span::styled("  Steam is running: close it first (Steam → Exit); it rewrites its settings when it exits.", t.warn_style())));
+            } else {
+                lines.push(Line::from(Span::styled(
+                    format!("  Enter writes it (Steam's settings are backed up first){}", if i.gpu.is_empty() && !i.overlay { "" } else { " · u puts the game's own options back" }),
+                    t.faint(),
+                )));
+            }
+            if i.changed_outside {
+                lines.push(Line::from(Span::styled("  Changed in Steam since Unix Guardian set them: kept and built on.", t.faint())));
+            }
+            if i.flatpak {
+                lines.push(Line::from(Span::styled("  Flatpak Steam: the overlay comes from MangoHud's Flatpak layer.", t.faint())));
+            }
+        }
+    }
+    if y < r.bottom() {
+        f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), Rect { x: r.x, y, width: r.width, height: r.bottom() - y });
     }
 }
 
@@ -1724,7 +1879,8 @@ fn ping_page(app: &mut App, f: &mut Frame, r: Rect) {
 /// The page's own keys, for the key bar.
 pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
     match (app.page, app.tab) {
-        (1, 1) => vec![("Tab", "game mode"), ("←→", "change"), ("Enter", "run")],
+        (1, 1) => vec![("Tab", "launch options"), ("←→", "change"), ("Enter", "run")],
+        (1, 2) => vec![("Tab", "game mode"), ("↑↓", "game"), ("←→", "card"), ("o", "overlay"), ("Enter", "write"), ("u", "undo")],
         (1, _) => vec![("Tab", "graphics card"), ("←→", "profile"), ("Enter", "toggle")],
         (2, 0) => vec![("←→", "when"), ("Enter", "run")],
         (2, 1) => vec![("Tab", "next tab"), ("x", "cancel")],
@@ -1782,6 +1938,10 @@ pub fn step_choice(app: &mut App, d: i32) {
         step_tune(app, d);
         return;
     }
+    if (app.page, app.tab) == (1, 2) {
+        step_launch_gpu(app, d);
+        return;
+    }
     if app.page == 5 {
         step_overlay(app, d);
         return;
@@ -1813,6 +1973,10 @@ pub fn activate(app: &mut App, i: usize) {
     match (app.page, app.tab) {
         (6, _) => activate_playtime(app, i),
         (1, 1) => activate_tune(app, i),
+        (1, 2) => {
+            let _ = i;
+            write_launch(app);
+        }
         (2, 3) => {
             let _ = i;
             step_cooling(app, 1);

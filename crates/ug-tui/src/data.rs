@@ -222,6 +222,26 @@ impl Bus {
         self.rt.block_on(async { PlaytimeProxy::new(c).await?.sessions(since_ms).await }).map_err(|e| msg(e, "agent"))
     }
 
+    pub fn launch_options(&self, appid: u32) -> Result<ug_proto::LaunchInfo, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { GamesProxy::new(c).await?.launch_options(appid).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn preview_launch_options(&self, appid: u32, gpu: &str, overlay: bool) -> Result<String, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { GamesProxy::new(c).await?.preview_launch_options(appid, gpu, overlay).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn set_launch_options(&self, appid: u32, gpu: &str, overlay: bool) -> Result<(String, String), String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { GamesProxy::new(c).await?.set_launch_options(appid, gpu, overlay).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn undo_launch_options(&self, appid: u32) -> Result<(String, String), String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { GamesProxy::new(c).await?.undo_launch_options(appid).await }).map_err(|e| msg(e, "agent"))
+    }
+
     pub fn tracked_apps(&self) -> Result<Vec<ug_proto::TrackedApp>, String> {
         let c = self.agent()?;
         self.rt.block_on(async { PlaytimeProxy::new(c).await?.tracked_apps().await }).map_err(|e| msg(e, "agent"))

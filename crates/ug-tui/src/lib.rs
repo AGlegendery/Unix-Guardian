@@ -104,6 +104,10 @@ pub struct App {
     pub playtime_extra: Cached<(Vec<ug_proto::TrackedApp>, Vec<ug_proto::PlaytimeEntry>)>,
     /// Programs open now that could be tracked, while the Apps tab is open.
     pub programs: Cached<Vec<ug_proto::TrackedApp>>,
+    /// The Steam game whose launch options are being edited, and the choice.
+    pub launch: Option<pages::LaunchEdit>,
+    /// Re-reads the launch options (is Steam still running?) while shown.
+    pub launch_due: Cached<()>,
     /// GPU tuning on the game mode page: the card, its state (read only on
     /// request: it wakes the card), the draft, and the trial's deadline.
     pub tune: Option<(String, ug_proto::GpuTuneState)>,
@@ -161,6 +165,8 @@ impl App {
             playtime: Cached::new(RARE),
             playtime_extra: Cached::new(RARE),
             programs: Cached::new(Duration::from_secs(10)),
+            launch: None,
+            launch_due: Cached::new(SLOW),
             cooling: Cached::new(Duration::from_secs(3)),
             tune: None,
             tune_draft: Default::default(),
@@ -212,6 +218,9 @@ impl App {
                 if self.installed.due() {
                     let r = self.bus.installed();
                     self.installed.store(r);
+                }
+                if self.tab == 2 {
+                    pages::refresh_launch(self);
                 }
             }
             2 => {
@@ -375,7 +384,7 @@ impl App {
 
     fn tabs(&self) -> usize {
         match self.page {
-            1 => 2,
+            1 => 3,
             2 => 4,
             3 => 3,
             4 => 2,
@@ -427,6 +436,8 @@ impl App {
                 KeyCode::Char('x') | KeyCode::Delete => pages::remove(self, self.row),
                 KeyCode::Char('b') => pages::block(self, self.row),
                 KeyCode::Char('e') if self.page == 6 => pages::export_playtime(self),
+                KeyCode::Char('o') if (self.page, self.tab) == (1, 2) => pages::toggle_launch_overlay(self),
+                KeyCode::Char('u') if (self.page, self.tab) == (1, 2) => pages::undo_launch(self),
                 KeyCode::Char('n') if self.page == 6 => pages::not_a_game(self, self.row),
                 KeyCode::Char('i') if self.page == 6 => pages::import_steam(self, false),
                 KeyCode::Char('u') if self.page == 6 => pages::import_steam(self, true),
@@ -998,6 +1009,35 @@ mod tests {
         }
         assert!(!apps.contains("+ Dolphin"), "a tracked app is not offered again");
         assert_eq!(app.rows, 2, "Dolphin, then Firefox to add");
+    }
+
+    #[test]
+    fn steam_launch_options_show_now_and_after_and_wait_for_steam_to_close() {
+        let mut app = App::new(Bus::offline());
+        app.go(1);
+        app.focus = Focus::Page;
+        app.key(KeyCode::Tab, KeyModifiers::NONE);
+        app.key(KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(app.tab, 2);
+        let game = |id: &str, name: &str, launcher: &str| ug_proto::InstalledGameInfo { id: id.into(), name: name.into(), launcher: launcher.into() };
+        app.installed.store(Ok(vec![game("steam:730", "Counter-Strike 2", "steam"), game("lutris:3", "osu!", "lutris")]));
+        let info = ug_proto::LaunchInfo {
+            appid: 730,
+            name: "Counter-Strike 2".into(),
+            current: "-novid".into(),
+            own: "-novid".into(),
+            steam_running: true,
+            overlay_problem: "MangoHud is not installed.".into(),
+            ..Default::default()
+        };
+        app.launch = Some(pages::LaunchEdit { appid: 730, info: Ok(info), gpu: String::new(), overlay: false, after: Ok("__NV_PRIME_RENDER_OFFLOAD=1 %command% -novid".into()) });
+        let screen = render(&mut app, 120, 34);
+        for want in ["Steam launch options", "Counter-Strike 2", "System's choice", "[–]", "MangoHud is not installed.", "Now    -novid", "After  __NV_PRIME_RENDER_OFFLOAD=1 %command% -novid", "Steam is running"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        assert!(!screen.contains("osu!"), "only Steam games have Steam launch options");
+        app.key(KeyCode::Char('o'), KeyModifiers::NONE);
+        assert!(!app.launch.as_ref().unwrap().overlay, "the overlay cannot be chosen without MangoHud");
     }
 
     #[test]
