@@ -242,6 +242,55 @@ pub async fn playtime_forget(bus: State<'_, Bus>, key: String) -> Res<u32> {
     p.forget(&key).await.map_err(agent_err)
 }
 
+#[tauri::command]
+pub async fn playtime_tracked_apps(bus: State<'_, Bus>) -> Res<Vec<ug_proto::TrackedApp>> {
+    let p = PlaytimeProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.tracked_apps().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn playtime_track_app(bus: State<'_, Bus>, exe: String, name: String) -> Res<()> {
+    let p = PlaytimeProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.track_app(&exe, &name).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn playtime_untrack_app(bus: State<'_, Bus>, exe: String) -> Res<bool> {
+    let p = PlaytimeProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.untrack_app(&exe).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn playtime_running_programs(bus: State<'_, Bus>) -> Res<Vec<ug_proto::TrackedApp>> {
+    let p = PlaytimeProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.running_programs().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn playtime_move_to_apps(bus: State<'_, Bus>, key: String) -> Res<u32> {
+    let p = PlaytimeProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.move_to_apps(&key).await.map_err(agent_err)
+}
+
+/// Returns (games, seconds added).
+#[tauri::command]
+pub async fn playtime_import_steam(bus: State<'_, Bus>) -> Res<(u32, u64)> {
+    let p = PlaytimeProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.import_steam().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn playtime_imported(bus: State<'_, Bus>) -> Res<Vec<PlaytimeEntry>> {
+    let p = PlaytimeProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.imported().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn playtime_forget_imported(bus: State<'_, Bus>) -> Res<u32> {
+    let p = PlaytimeProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.forget_imported().await.map_err(agent_err)
+}
+
 /// Writes the sessions since `since_unix_ms` as CSV into the user's
 /// Downloads folder and returns the file's path. A file, not a save dialog:
 /// the window has no dialog plugin, and the path is shown to the user.

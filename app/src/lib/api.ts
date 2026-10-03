@@ -347,6 +347,12 @@ export interface PlaytimeSession {
   ended_unix_ms: number;
 }
 
+/** A program timed as an app (never a game), or one open now. */
+export interface TrackedApp {
+  exe: string;
+  name: string;
+}
+
 const tauriApi = {
   preview: false as boolean,
   overview: () => invoke<Overview>("overview"),
@@ -424,6 +430,16 @@ const tauriApi = {
   playtimeForget: (key: string) => invoke<number>("playtime_forget", { key }),
   /** Writes a CSV into Downloads; returns its path. */
   playtimeExport: (sinceUnixMs: number) => invoke<string>("playtime_export", { sinceUnixMs }),
+  trackedApps: () => invoke<TrackedApp[]>("playtime_tracked_apps"),
+  trackApp: (exe: string, name: string) => invoke<void>("playtime_track_app", { exe, name }),
+  untrackApp: (exe: string) => invoke<boolean>("playtime_untrack_app", { exe }),
+  runningPrograms: () => invoke<TrackedApp[]>("playtime_running_programs"),
+  /** A guessed game (key exe:…) becomes a tracked app; returns sessions moved. */
+  moveToApps: (key: string) => invoke<number>("playtime_move_to_apps", { key }),
+  /** Returns [games, seconds added]. */
+  importSteam: () => invoke<[number, number]>("playtime_import_steam"),
+  playtimeImported: () => invoke<PlaytimeEntry[]>("playtime_imported"),
+  forgetImported: () => invoke<number>("playtime_forget_imported"),
   onSample: (f: (s: Snapshot) => void): Promise<UnlistenFn> => listen<Snapshot>("sample", (e) => f(e.payload)),
 };
 

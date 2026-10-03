@@ -4,7 +4,7 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -16,10 +16,14 @@ let t = 0;
 let fpsSetUp = false;
 let fanMode = 1;
 let trayVisible = true;
+let tracked: TrackedApp[] = [];
+let ptImported: PlaytimeEntry[] = [];
 let ptSessions: PlaytimeSession[] = (() => {
   const games: [string, string, number][] = [
     ["steam:730", "Counter-Strike 2", 95], ["steam:1245620", "Elden Ring", 70],
     ["steam:1091500", "Cyberpunk 2077", 45], ["lutris:osu", "osu!", 20],
+    // Taken for a game by its behaviour, as on the dev laptop.
+    ["exe:wondershare filmora", "Wondershare Filmora", 15],
   ];
   const out: PlaytimeSession[] = [];
   const now = Date.now();
@@ -154,6 +158,13 @@ export const mockApi = {
       e.last_played_unix_ms = Math.max(e.last_played_unix_ms, s.ended_unix_ms);
       by.set(s.key, e);
     }
+    if (since === 0) {
+      for (const i of ptImported) {
+        const e = by.get(i.key);
+        if (e) { e.seconds += i.seconds; e.last_played_unix_ms = Math.max(e.last_played_unix_ms, i.last_played_unix_ms); }
+        else by.set(i.key, { ...i });
+      }
+    }
     return [...by.values()].sort((a, b) => b.seconds - a.seconds);
   },
   playtimeSessions: async (since: number): Promise<PlaytimeSession[]> => ptSessions.filter((s) => s.ended_unix_ms > since),
@@ -163,6 +174,44 @@ export const mockApi = {
     return n;
   },
   playtimeExport: async () => "~/Downloads/unix-guardian-playtime-preview.csv",
+  trackedApps: async (): Promise<TrackedApp[]> => structuredClone(tracked),
+  trackApp: async (exe: string, name: string) => {
+    const e = exe.trim().toLowerCase().replace(/\.exe$/, "");
+    if (!e) throw "give a program's executable name, e.g. firefox or Filmora.exe";
+    tracked = [...tracked.filter((a) => a.exe !== e), { exe: e, name: name.trim() || e }];
+  },
+  untrackApp: async (exe: string) => {
+    const before = tracked.length;
+    tracked = tracked.filter((a) => a.exe !== exe);
+    return tracked.length !== before;
+  },
+  runningPrograms: async (): Promise<TrackedApp[]> =>
+    [
+      { exe: "firefox-esr", name: "Firefox ESR" },
+      { exe: "chrome", name: "Google Chrome" },
+      { exe: "konsole", name: "Konsole" },
+      { exe: "telegram", name: "Telegram" },
+      { exe: "wondershare filmora", name: "Wondershare Filmora" },
+    ].filter((p) => !tracked.some((a) => a.exe === p.exe)),
+  moveToApps: async (key: string) => {
+    const exe = key.replace(/^exe:/, "");
+    let n = 0;
+    for (const s of ptSessions) if (s.key === key) { s.key = `app:${exe}`; n++; }
+    const name = ptSessions.find((s) => s.key === `app:${exe}`)?.name ?? exe;
+    tracked = [...tracked.filter((a) => a.exe !== exe), { exe, name }];
+    return n;
+  },
+  importSteam: async (): Promise<[number, number]> => {
+    ptImported = [{ key: "steam:730", name: "Counter-Strike 2", seconds: 412 * 3600, sessions: 0, last_played_unix_ms: Date.now() - 3 * 86_400_000 },
+      { key: "steam:570", name: "Dota 2", seconds: 96 * 3600, sessions: 0, last_played_unix_ms: Date.now() - 200 * 86_400_000 }];
+    return [2, ptImported.reduce((a, e) => a + e.seconds, 0)];
+  },
+  playtimeImported: async () => structuredClone(ptImported),
+  forgetImported: async () => {
+    const n = ptImported.length;
+    ptImported = [];
+    return n;
+  },
   // Power in the preview: nothing is ever done; the queue lives in memory.
   powerCaps: async () =>
     (["power-off", "reboot", "suspend", "hibernate", "hybrid-sleep", "suspend-then-hibernate", "reboot-firmware"] as PowerAction[]).map((action) => ({
