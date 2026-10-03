@@ -111,6 +111,8 @@ enum Command {
         /// Print every session as CSV (for a spreadsheet) instead of a summary.
         #[arg(long, conflicts_with = "forget")]
         csv: bool,
+        #[command(subcommand)]
+        command: Option<PlaytimeCommand>,
     },
     /// Temperature, load and power over the past hours (recorded once a minute).
     History {
@@ -355,6 +357,32 @@ enum PowerCommand {
 }
 
 #[derive(Subcommand)]
+enum PlaytimeCommand {
+    /// Tracked apps, and programs open now that could be tracked.
+    Apps,
+    /// Count a program's time although it is not a game (never tuned).
+    Track {
+        /// Executable name, e.g. firefox-esr or "Wondershare Filmora.exe".
+        exe: String,
+        /// Name to show; defaults to the executable's.
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Stop counting a program's time (what was counted stays).
+    Untrack { exe: String },
+    /// A program taken for a game by its behaviour (key exe:…) is not one:
+    /// track it as an app instead, with the time counted so far.
+    NotAGame { key: String },
+    /// Add Steam's own playtime to the all-time totals (only what Unix
+    /// Guardian did not count itself; importing again replaces it).
+    ImportSteam {
+        /// Remove what was imported.
+        #[arg(long)]
+        undo: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum GpuCommand {
     /// List every GPU in the machine.
     List,
@@ -445,7 +473,8 @@ async fn run() -> Result<()> {
     // work whether or not the daemon is reachable.
     match cli.command {
         Command::Game { command } => return game(command, cli.json).await,
-        Command::Playtime { today, week, forget, csv } => return playtime(today, week, forget, csv, cli.json).await,
+        Command::Playtime { command: Some(c), .. } => return playtime_command(c, cli.json).await,
+        Command::Playtime { today, week, forget, csv, command: None } => return playtime(today, week, forget, csv, cli.json).await,
         Command::Profile { command } => return profile(command, cli.json).await,
         Command::History { hours } => return history(hours, cli.json).await,
         Command::Traffic { days } => return traffic(days, cli.json).await,
@@ -598,12 +627,82 @@ async fn playtime(today: bool, week: bool, forget: Option<String>, csv: bool, js
         println!("No playtime recorded{}.", if today { " today" } else if week { " this week" } else { "" });
         return Ok(());
     }
-    let total: u64 = entries.iter().map(|e| e.seconds).sum();
-    for e in &entries {
-        let pct = if total > 0 { e.seconds * 100 / total } else { 0 };
-        println!("{:>8}  {:>3}%  {}", hms(e.seconds), pct, e.name);
+    let (apps, games): (Vec<_>, Vec<_>) = entries.iter().partition(|e| e.key.starts_with("app:"));
+    let imported = since == 0 && !pt.imported().await.unwrap_or_default().is_empty();
+    if !games.is_empty() {
+        let total: u64 = games.iter().map(|e| e.seconds).sum();
+        for e in &games {
+            let pct = if total > 0 { e.seconds * 100 / total } else { 0 };
+            println!("{:>8}  {:>3}%  {}", hms(e.seconds), pct, e.name);
+        }
+        println!("{:>8}        total, {} games", hms(total), games.len());
+        if imported {
+            println!("All time includes playtime imported from Steam (ug playtime import-steam --undo removes it).");
+        }
     }
-    println!("{:>8}        total, {} games", hms(total), entries.len());
+    if !apps.is_empty() {
+        println!("{}Apps", if games.is_empty() { "" } else { "\n" });
+        for e in &apps {
+            println!("{:>8}        {}", hms(e.seconds), e.name);
+        }
+    }
+    Ok(())
+}
+
+async fn playtime_command(command: PlaytimeCommand, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let pt = PlaytimeProxy::new(&conn).await?;
+    match command {
+        PlaytimeCommand::Apps => {
+            let tracked = pt.tracked_apps().await.map_err(agent_hint)?;
+            let open = pt.running_programs().await.map_err(agent_hint)?;
+            if json {
+                println!("{}", serde_json::json!({ "tracked": tracked, "open": open }));
+                return Ok(());
+            }
+            if tracked.is_empty() {
+                println!("No apps tracked. Track one with: ug playtime track <executable>");
+            } else {
+                println!("Tracked");
+                for a in &tracked {
+                    println!("  {:<28} {}", a.name, a.exe);
+                }
+            }
+            if !open.is_empty() {
+                println!("\nOpen now");
+                for a in &open {
+                    println!("  {:<28} {}", a.name, a.exe);
+                }
+            }
+        }
+        PlaytimeCommand::Track { exe, name } => {
+            pt.track_app(&exe, name.as_deref().unwrap_or("")).await.map_err(agent_hint)?;
+            println!("Counting the time of {exe} from now on (it is never treated as a game).");
+        }
+        PlaytimeCommand::Untrack { exe } => {
+            if pt.untrack_app(&exe).await.map_err(agent_hint)? {
+                println!("No longer counting {exe}; the time counted so far stays (ug playtime --forget app:… deletes it).");
+            } else {
+                println!("{exe} was not tracked.");
+            }
+        }
+        PlaytimeCommand::NotAGame { key } => {
+            let n = pt.move_to_apps(&key).await.map_err(agent_hint)?;
+            println!("{key} is no longer a game: tracked as an app, with {n} sessions moved.");
+        }
+        PlaytimeCommand::ImportSteam { undo: true } => {
+            let n = pt.forget_imported().await.map_err(agent_hint)?;
+            println!("Removed the imported playtime of {n} games.");
+        }
+        PlaytimeCommand::ImportSteam { undo: false } => {
+            let (games, seconds) = pt.import_steam().await.map_err(agent_hint)?;
+            if games == 0 {
+                println!("Nothing to add: Steam has no playtime that Unix Guardian has not counted already.");
+            } else {
+                println!("Added {} of Steam playtime across {games} games to the all-time totals.", hms(seconds));
+            }
+        }
+    }
     Ok(())
 }
 

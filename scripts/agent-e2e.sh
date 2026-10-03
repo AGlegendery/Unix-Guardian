@@ -25,6 +25,14 @@ export XDG_DATA_HOME="$W/data" XDG_CONFIG_HOME="$W/cfg"
 mkdir -p "$XDG_CONFIG_HOME/unix-guardian/profiles" "$W/bin"
 printf 'cpu_preferred_cores = true\npause_apps = ["ugfakechat"]\n' > "$XDG_CONFIG_HOME/unix-guardian/profiles/competitive.toml"
 ln -s "$(command -v sleep)" "$W/bin/ugfakechat"
+# A copy, not a link: an app is matched by the program actually running.
+cp "$(command -v sleep)" "$W/bin/ugfakeeditor"
+# A home of its own for the agent: no real library, and a Steam account
+# whose own count for CS2 is ten hours.
+mkdir -p "$W/home/.local/share/Steam/steamapps" "$W/home/.local/share/Steam/userdata/1/config"
+echo '"libraryfolders" {}' > "$W/home/.local/share/Steam/steamapps/libraryfolders.vdf"
+echo '"UserLocalConfigStore" { "Software" { "Valve" { "Steam" { "apps" { "730" { "LastPlayed" "1790000000" "Playtime" "600" } } } } } }' \
+  > "$W/home/.local/share/Steam/userdata/1/config/localconfig.vdf"
 
 # Everything this script starts carries the token, so an installed agent
 # watching the same user's processes ignores the fake games (and this run's
@@ -36,8 +44,8 @@ state() { awk '{print $3}' "/proc/$1/stat" 2>/dev/null; }
 until_() { local d=$((SECONDS+$1)); shift; until eval "$@"; do (( SECONDS < d )) || return 1; sleep 0.2; done; }
 
 "$W/bin/ugfakechat" 300 & chat=$!
-"$B/ug-agent" --quiet --log warn & agent=$!
-trap 'kill $agent $chat ${game:-} ${other:-} 2>/dev/null; rm -rf "$W"' EXIT
+HOME="$W/home" "$B/ug-agent" --quiet --log warn & agent=$!
+trap 'kill $agent $chat ${game:-} ${other:-} ${editor:-} 2>/dev/null; rm -rf "$W"' EXIT
 until_ 15 "'$B/ug' game running >/dev/null 2>&1" || { echo "FAIL  agent did not start"; exit 1; }
 
 # The user unit and the XDG autostart fallback may both start an agent; the
@@ -73,5 +81,22 @@ check "playtime was recorded for both" "'$B/ug' playtime | grep -q 'Counter-Stri
 check "the agent serves monitoring history (empty without a daemon)" "'$B/ug' history --hours 1 >/dev/null && '$B/ug' traffic >/dev/null"
 check "playtime exports as CSV, one row per session" "'$B/ug' playtime --csv | grep -q '^Counter-Strike 2,steam:730,' && [ \"\$('$B/ug' playtime --csv | head -1)\" = game,key,started,ended,minutes ]"
 check "the CSV export ends cleanly when the reader stops early" "'$B/ug' playtime --csv 2>&1 | head -1 >/dev/null; [ \"\${PIPESTATUS[0]}\" = 0 ]"
+
+# Tracked apps: time counted, never a game, the choice kept.
+"$W/bin/ugfakeeditor" 120 & editor=$!
+check "a program can be tracked as an app" "'$B/ug' playtime track ugfakeeditor --name 'Fake Editor' >/dev/null"
+check "its time is counted under Apps" "until_ 8 \"'$B/ug' playtime | sed -n '/^Apps/,\\\$p' | grep -q 'Fake Editor'\""
+check "and it is not a game" "'$B/ug' game running | grep -q 'No game is running'"
+check "the choice is kept for the next login" "grep -q ugfakeeditor '$XDG_CONFIG_HOME/unix-guardian/playtime.json'"
+check "untracking keeps the time counted" "'$B/ug' playtime untrack ugfakeeditor >/dev/null && '$B/ug' playtime | grep -q 'Fake Editor'"
+
+# Steam import: all time becomes Steam's ten hours, not ten plus what was
+# recorded here; a week stays what was recorded; undo takes it back.
+pt_json() { "$B/ug" playtime --json "$@" | python3 -c 'import json,sys; print(sum(e["seconds"] for e in json.load(sys.stdin) if e["key"]=="steam:730"))'; }
+check "Steam's playtime is imported" "'$B/ug' playtime import-steam | grep -q 'across 1 games'"
+check "all time is Steam's count, not counted twice" "[ \"\$(pt_json)\" = 36000 ]"
+check "a week has only what was recorded here" "[ \"\$(pt_json --week)\" -lt 100 ]"
+check "importing again does not add up" "'$B/ug' playtime import-steam >/dev/null && [ \"\$(pt_json)\" = 36000 ]"
+check "undo removes the import" "'$B/ug' playtime import-steam --undo >/dev/null && [ \"\$(pt_json)\" -lt 100 ]"
 
 echo; [ "$fails" -eq 0 ] && echo "agent-e2e: OK" || { echo "agent-e2e: $fails failed"; exit 1; }
