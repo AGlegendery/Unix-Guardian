@@ -166,6 +166,13 @@ P6 is merged into `main` (`fc9a5a4`). On `p5-gpu`:
   account has none yet). The user's real Filmora entry is still `exe:` until
   they press "Not a game".
 
+- ✅ Settings page (2026-10-03, `17ea6ec`, roadmap 1.7 settings part):
+  `Agent1.Settings` / `settings.rs` (notifications, scan interval 1–10 s
+  with the loop's timer rebuilt live, close the window when a game starts),
+  `ug settings`; window page (language, tray show/hide, agent settings,
+  global shortcuts card, About) and TUI page 12. No theme or start-at-login
+  control (see HANDOFF.md). agent-e2e 46 checks.
+
 ## P6 overlay (branch `p6-overlay`) — built, not merged, 2026-10-01
 
 P4 is merged into `main` (`dc1fdfa`). On `p6-overlay`:

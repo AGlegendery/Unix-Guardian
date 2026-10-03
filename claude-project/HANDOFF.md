@@ -6,7 +6,7 @@ in minutes. **Update this file after every finished item and commit it.**
 Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 `05-findings.md`, `07-conventions.md`, `03-architecture.md`.
 
-Last updated: 2026-10-03.
+Last updated: 2026-10-03 (queue finished, `17ea6ec`).
 
 ## Where we are
 
@@ -27,15 +27,20 @@ Last updated: 2026-10-03.
 3. ✅ Beta packaging, local only (P6.6) — `f9aa5ac`. `./scripts/build-packages.sh`
    → `dist/` (.deb, install.sh tarball, arch/PKGBUILD + source). Not
    published, and must not be without the user's word.
-4. ✱ **Settings page**, in the window **and** the TUI in the same change
-   (project rule: every page exists in both).
+4. ✅ Settings page, window + TUI (P1.7) — `17ea6ec`. Agent1.Settings
+   (`settings.json`: notifications, scan interval, close window on game),
+   `ug settings`; window page with language, tray, shortcuts, About; TUI page 12.
+
+**The queue is done.** Release binaries and `dist/` were rebuilt after the
+last commit; the user still has to reinstall (sudo) to try them for real.
 
 After the queue: see "Next steps" in `04-status.md` (real-install checks that
 need sudo, pushing, P7+).
 
-## In progress: Settings page
+## In progress
 
-Not started yet. Window page + TUI page in the same change.
+Nothing. Next candidates (ask or follow `04-status.md` "Next steps"): the
+real-desktop checks below, merging `p5-gpu` into `main`, P7 (recording).
 
 ## Done but not tried on the real desktop
 
@@ -48,6 +53,17 @@ Not started yet. Window page + TUI page in the same change.
   scratch root, the PKGBUILD's `package()` and `--printsrcinfo` in an Arch
   container (no fakeroot there, so no real `makepkg`). Never installed on a
   real system. AppImage (roadmap 6.6) not done; `ug diagnose` not done.
+- Settings: only tests, e2e and the browser preview. Theme and "start at
+  login" from roadmap 1.7 are deliberately not offered (one theme; turning
+  the agent off at login would break D-Bus activation).
+
+## For the user to run (needs sudo, at the device)
+
+```bash
+sudo ./scripts/dev-install.sh
+```
+then `systemctl --user daemon-reload && systemctl --user restart ug-agent`,
+and try `ug settings`, `ug shortcut on` (KDE asks to confirm the keys).
 
 ## Build, test, install
 
