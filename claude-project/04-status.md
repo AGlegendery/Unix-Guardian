@@ -179,8 +179,16 @@ P4 is merged into `main` (`dc1fdfa`). On `p6-overlay`:
 - ✅ VPN handling (on main): category `vpn`, loopback skipped for VPN
   groups, caps follow `ip route get` (TUN), proxy-mode note, ping
   direct/through-VPN and fake-reply detection. net-e2e 35 checks.
-- ⬜ Not done: 6.1 writing Steam launch options / Lutris wrappers (no
-  launcher on the dev laptop; the UI shows `mangohud %command%`), 6.3
+- ✅ 6.1 Steam launch options (2026-10-03, on `p5-gpu`): `ug_games::launch`
+  edits `localconfig.vdf` in place (`vdf::set_string`/`remove_key`, every
+  other byte kept), Steam must be closed, backup first (10 kept), read
+  back, own options remembered (`steam-launch.json`), undo to the byte;
+  GPU env (no host Vulkan paths in Flatpak Steam) + `mangohud` /
+  `MANGOHUD=1` (Flatpak). Agent1.Games *LaunchOptions methods; `ug game
+  launch`; window editor per Steam game (Game Mode → Your games); TUI Game
+  mode → Steam launch options. Fixtures + private-bus e2e only: no Steam
+  game on the laptop. ⬜ Lutris/Heroic wrappers not done.
+- ⬜ Not done: 6.3
   global shortcuts through the portal (MangoHud's in-game key is used),
   6.6 beta packaging.
 - **Not verified on the laptop:** MangoHud is not installed there; nothing
