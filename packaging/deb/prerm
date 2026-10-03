@@ -1,0 +1,9 @@
+#!/bin/sh
+# Stopping the daemon reverts anything it changed (game mode, GPU tuning,
+# network rules, fan curves) before the files go.
+set -e
+if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
+  systemctl disable --now unix-guardiand.service || true
+  systemctl --global disable ug-agent.service || true
+fi
+exit 0

@@ -12,3 +12,4 @@
 # Local tool state (design-skill sessions, editor launch configs)
 /.impeccable/
 /.claude/
+/dist

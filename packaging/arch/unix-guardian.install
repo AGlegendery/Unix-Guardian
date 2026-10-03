@@ -1,0 +1,23 @@
+# The daemon starts now and at boot; the agent is enabled for every user and
+# starts at their next login (`systemctl --user start ug-agent` for now).
+post_install() {
+  systemctl daemon-reload
+  systemctl enable --now unix-guardiand.service
+  systemctl --global enable ug-agent.service
+  echo "Start the agent now (as yourself): systemctl --user start ug-agent"
+}
+
+post_upgrade() {
+  systemctl daemon-reload
+  systemctl try-restart unix-guardiand.service
+}
+
+# Stopping the daemon reverts what it changed before the files go.
+pre_remove() {
+  systemctl disable --now unix-guardiand.service
+  systemctl --global disable ug-agent.service
+}
+
+post_remove() {
+  systemctl daemon-reload
+}

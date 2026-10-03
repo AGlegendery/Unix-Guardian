@@ -1,0 +1,52 @@
+# Maintainer: Unix Guardian <unixguardian@atomicmail.io>
+#
+# Beta package. Built locally with scripts/build-packages.sh, which puts the
+# source tarball next to this file; once releases are tagged the same
+# PKGBUILD builds from GitHub.
+pkgname=unix-guardian
+pkgver=0.1.0beta1
+pkgrel=1
+pkgdesc="Linux gaming utility: game mode, monitoring, GPU tuning, playtime and MangoHud setup"
+arch=('x86_64')
+url="https://github.com/AGlegendery/Unix-Guardian"
+license=('GPL-3.0-or-later')
+depends=('dbus' 'polkit' 'systemd' 'gcc-libs' 'glibc' 'webkit2gtk-4.1' 'gtk3')
+makedepends=('cargo' 'nodejs' 'npm')
+optdepends=(
+  'mangohud: in-game overlay and FPS statistics'
+  'power-profiles-daemon: performance power profile while gaming'
+  'nftables: per-app network blocking and limits'
+  'iproute2: per-app network limits'
+  'vulkan-icd-loader: GPU stability test (ug-stress)'
+)
+install=unix-guardian.install
+options=('!lto')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+# GitHub names the folder after the repository.
+_src() { cd "$srcdir/Unix-Guardian-$pkgver"; }
+
+prepare() {
+  _src
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+  (cd app && npm ci)
+}
+
+build() {
+  _src
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  cargo build --frozen --release --workspace
+  (cd app && npx tauri build --no-bundle)
+}
+
+check() {
+  _src
+  cargo test --frozen --release --workspace
+}
+
+package() {
+  _src
+  ./scripts/stage.sh "$pkgdir" /usr
+}

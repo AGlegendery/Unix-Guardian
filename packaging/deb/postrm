@@ -1,0 +1,11 @@
+#!/bin/sh
+# Purge also removes the daemon's state; users' own settings and playtime in
+# their home directories are theirs and stay.
+set -e
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload || true
+fi
+if [ "$1" = purge ]; then
+  rm -rf /var/lib/unix-guardian /etc/unix-guardian
+fi
+exit 0

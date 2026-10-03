@@ -1,0 +1,21 @@
+Package: unix-guardian
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Unix Guardian <unixguardian@atomicmail.io>
+Installed-Size: @SIZE@
+Depends: @DEPENDS@, dbus, polkitd | policykit-1, systemd
+Recommends: power-profiles-daemon, nftables, iproute2
+Suggests: mangohud
+Section: utils
+Priority: optional
+Homepage: https://github.com/AGlegendery/Unix-Guardian
+Description: Linux gaming utility: game mode, monitoring, GPU tuning
+ Unix Guardian detects games and tunes the system while they run (CPU,
+ memory, background services, network), and puts everything back
+ afterwards. It monitors CPU, GPU, memory and network, tunes NVIDIA and
+ AMD graphics cards, records playtime and FPS, and sets up MangoHud.
+ .
+ A root service (unix-guardiand), a per-user agent, the ug command line
+ tool, a terminal interface (ug tui) and a window (ug-app).
+ .
+ This is a beta.
