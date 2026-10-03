@@ -137,6 +137,15 @@ P6 is merged into `main` (`fc9a5a4`). On `p5-gpu`:
   Not done: GPU thermal-throttle reason (NVML) is not read; the window's
   Wayland app_id vs the .desktop name was not checked.
 
+- ✅ Card switch (2026-10-03): the dashboard GPU tile's "in use" label is
+  now a two-way switch (window + TUI; hidden with one GPU) for the GPU
+  *programs* start on: `ug_core::gpu_default` writes PRIME offload
+  variables (GLX/Vulkan only, never DRI_PRIME) to
+  `~/.config/environment.d/90-unix-guardian-gpu.conf`; integrated = no
+  file. Applies after the next login (`UG_DEFAULT_GPU` tells the UIs);
+  `ug run` without `--gpu` uses it at once; `ug gpu default`. The desktop
+  stays on Intel (no MUX). Not yet tried across a real re-login.
+
 ## P6 overlay (branch `p6-overlay`) — built, not merged, 2026-10-01
 
 P4 is merged into `main` (`dc1fdfa`). On `p6-overlay`:
