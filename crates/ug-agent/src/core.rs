@@ -71,6 +71,9 @@ pub struct AgentCore {
     /// so the user's file is not lost to a save of the empty defaults.
     choices_writable: bool,
     test_run: Option<String>,
+    /// Game mode turned on (`Some(true)`) or off by hand; `None` follows the
+    /// games. "Off" lasts until no game runs any more.
+    by_hand: Option<bool>,
     paused: Paused,
 }
 
@@ -113,6 +116,7 @@ impl AgentCore {
             choices,
             choices_writable,
             test_run: None,
+            by_hand: None,
             paused: Paused::default(),
         }
     }
@@ -122,8 +126,34 @@ impl AgentCore {
         let events = self.detector.scan(&self.root, now);
         let outcomes = self.apply(events, wall_ms);
         self.refresh_members();
+        // "Off by hand" was for the games that were running.
+        if self.by_hand == Some(false) && self.running.is_empty() {
+            self.by_hand = None;
+        }
         outcomes
     }
+
+    /// The game mode shortcut: on if it is off, off if it is on (also while
+    /// a game runs). Returns whether game mode is wanted now.
+    pub fn toggle_gamemode(&mut self) -> bool {
+        let on = self.gamemode_desired().is_none();
+        // Off with no game running is simply back to following the games.
+        self.by_hand = if on { Some(true) } else if self.running.is_empty() { None } else { Some(false) };
+        tracing::info!(on, "game mode turned by hand");
+        on
+    }
+
+    /// "on" or "off" when game mode was turned by hand, else "".
+    pub fn gamemode_by_hand(&self) -> &'static str {
+        match self.by_hand {
+            Some(true) => "on",
+            Some(false) => "off",
+            None => "",
+        }
+    }
+
+    /// The profile game mode uses when turned on by hand.
+    const BY_HAND_PROFILE: &'static str = "balanced";
 
     /// Games become outcomes for the async layer (game mode, signals,
     /// notifications); tracked apps only start and end a playtime session.
@@ -455,7 +485,21 @@ impl AgentCore {
     /// otherwise every running game's profile combined — a setting is on if
     /// any running game wants it — covering every game process.
     pub fn gamemode_desired(&self) -> Option<ug_proto::GameModeRequest> {
+        if self.by_hand == Some(false) {
+            return None;
+        }
         let mut want: Option<ug_proto::GameModeRequest> = None;
+        if self.by_hand == Some(true) {
+            if let Some(p) = self.profiles.get(Self::BY_HAND_PROFILE) {
+                let w = want.get_or_insert_with(Default::default);
+                w.cpu_performance |= p.cpu_performance;
+                w.cpu_no_idle_states |= p.cpu_no_idle_states;
+                w.cpu_priority |= p.cpu_priority;
+                w.memory_tuning |= p.memory_tuning;
+                w.pause_services |= p.pause_services;
+                w.network_tuning |= p.network_tuning;
+            }
+        }
         for r in self.running.values() {
             let Some(p) = self.profiles.get(&r.info.profile) else { continue };
             let w = want.get_or_insert_with(Default::default);
@@ -477,6 +521,12 @@ impl AgentCore {
     /// Whether a running game's profile asks for the performance power
     /// profile, and that game's name.
     pub fn power_profile_wanted(&self) -> (bool, String) {
+        if self.by_hand == Some(false) {
+            return (false, String::new());
+        }
+        if self.by_hand == Some(true) && self.profiles.get(Self::BY_HAND_PROFILE).is_some_and(|p| p.power_profile) {
+            return (true, "game mode (turned on by hand)".into());
+        }
         self.running
             .values()
             .find(|r| self.profiles.get(&r.info.profile).is_some_and(|p| p.power_profile))
@@ -718,6 +768,31 @@ mod tests {
         let s = c.playtime().summary(0);
         assert_eq!((s[0].name.as_str(), s[0].seconds, s[0].last_played_unix_ms), ("Counter-Strike 2", 7200, 1_790_000_000_000));
         assert_eq!(s[1].name, "Steam app 999999");
+    }
+
+    #[test]
+    fn game_mode_can_be_turned_on_and_off_by_hand() {
+        let fs = TestFs::new();
+        let cfg = tempfile::tempdir().unwrap();
+        let mut c = core(&fs, cfg.path());
+        assert!(c.toggle_gamemode(), "no game: on");
+        let want = c.gamemode_desired().expect("on without a game");
+        assert!(want.pids.is_empty(), "no game to prioritise");
+        assert_eq!(c.gamemode_by_hand(), "on");
+        assert!(!c.toggle_gamemode(), "and off again");
+        assert_eq!(c.gamemode_desired(), None);
+
+        // Off by hand while a game runs, until it stops.
+        fs.process(&FakeProc { pid: 10, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+        let t0 = Instant::now();
+        c.tick(t0, 0);
+        assert!(c.gamemode_desired().is_some());
+        assert!(!c.toggle_gamemode());
+        assert_eq!(c.gamemode_desired(), None, "off although the game runs");
+        fs.kill(10);
+        c.tick(t0 + Duration::from_secs(10), 10_000);
+        c.tick(t0 + Duration::from_secs(14), 14_000);
+        assert_eq!(c.gamemode_by_hand(), "", "back to following the games");
     }
 
     #[test]

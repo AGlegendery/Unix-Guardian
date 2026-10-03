@@ -9,7 +9,7 @@ use futures_lite::StreamExt;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{Mutex, OnceCell};
-use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy, ShortcutsProxy};
 use ug_proto::daemon::{CoolingProxy, DaemonProxy, GameModeProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{BatteryCare, DayTraffic, HistoryPoint, Inventory, InstalledGameInfo, PlaytimeEntry, PowerCapability, PowerJob, PowerUsage, PowerWatch, ProfileInfo, RunningGameInfo, Snapshot};
 
@@ -504,6 +504,24 @@ pub async fn overlay_set(bus: State<'_, Bus>, settings: ug_proto::OverlaySetting
 pub async fn overlay_set_up(bus: State<'_, Bus>, on: bool) -> Res<()> {
     let o = OverlayProxy::new(bus.agent().await?).await.map_err(agent_err)?;
     o.set_up(on).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn shortcuts_state(bus: State<'_, Bus>) -> Res<ug_proto::ShortcutsState> {
+    let s = ShortcutsProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    s.state().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn shortcuts_set_enabled(bus: State<'_, Bus>, on: bool) -> Res<()> {
+    let s = ShortcutsProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    s.set_enabled(on).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn shortcuts_run(bus: State<'_, Bus>, id: String) -> Res<String> {
+    let s = ShortcutsProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    s.run(&id).await.map_err(agent_err)
 }
 
 #[tauri::command]

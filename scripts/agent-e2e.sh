@@ -119,4 +119,14 @@ else
   echo "SKIP  writing launch options (no GPU here)"
 fi
 
+# Global shortcuts: a test bus has no portal, so turning them on says what
+# to bind instead; the actions themselves work through `ug shortcut <id>`.
+check "shortcuts are off until turned on" "'$B/ug' shortcut | grep -q 'off (ug shortcut on)'"
+check "without a portal they are unavailable, with the commands to bind" "'$B/ug' shortcut on | grep -q 'ug shortcut toggle-gamemode'"
+check "the choice is remembered" "grep -q true '$XDG_CONFIG_HOME/unix-guardian/shortcuts.json' && '$B/ug' shortcut off >/dev/null && grep -q false '$XDG_CONFIG_HOME/unix-guardian/shortcuts.json'"
+check "game mode can be turned on by hand without a game" "'$B/ug' shortcut toggle-gamemode | grep -q 'Game mode on' && '$B/ug' shortcut | grep -q 'turned on by hand'"
+check "and off again" "'$B/ug' shortcut toggle-gamemode | grep -q 'Game mode off' && ! '$B/ug' shortcut | grep -q 'by hand'"
+check "the overlay shortcut says when the overlay is not set up" "out=\$('$B/ug' shortcut toggle-overlay 2>&1); [ \$? -ne 0 ] && grep -q 'not set up' <<<\"\$out\""
+check "an unknown shortcut is refused with the known ones" "out=\$('$B/ug' shortcut fly 2>&1); [ \$? -ne 0 ] && grep -q 'open-window' <<<\"\$out\""
+
 echo; [ "$fails" -eq 0 ] && echo "agent-e2e: OK" || { echo "agent-e2e: $fails failed"; exit 1; }

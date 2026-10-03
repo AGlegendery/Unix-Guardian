@@ -94,6 +94,7 @@ pub struct App {
     pub ping_compare: Option<(u64, PingComparison)>,
     pub net: Cached<(Vec<AppTraffic>, Vec<NetRule>, NetControlStatus)>,
     pub overlay: Cached<OverlayState>,
+    pub shortcuts: Cached<ug_proto::ShortcutsState>,
     pub cooling: Cached<(ug_proto::CoolingState, String)>,
     /// The dashboard's card switch: the GPUs (boot one first) and the GPU
     /// programs start on. Per-user files and sysfs only.
@@ -160,6 +161,8 @@ impl App {
             ping_compare: None,
             net: Cached::new(Duration::from_secs(2)),
             overlay: Cached::new(SLOW),
+            // Fast enough to follow the desktop's confirmation dialog.
+            shortcuts: Cached::new(Duration::from_secs(1)),
             gpu_switch: Cached::new(SLOW),
             // A running game's time moves by the agent's minute heartbeat.
             playtime: Cached::new(RARE),
@@ -294,9 +297,13 @@ impl App {
                 }
             }
             5 => {
-                if self.overlay.due() {
+                if self.tab == 0 && self.overlay.due() {
                     let r = self.bus.overlay();
                     self.overlay.store(r);
+                }
+                if self.tab == 1 && self.shortcuts.due() {
+                    let r = self.bus.shortcuts();
+                    self.shortcuts.store(r);
                 }
             }
             4 => {
@@ -388,6 +395,7 @@ impl App {
             2 => 4,
             3 => 3,
             4 => 2,
+            5 => 2,
             6 => 2,
             _ => 1,
         }
@@ -866,6 +874,36 @@ mod tests {
         app.tab = 1;
         let screen = render(&mut app, 130, 40);
         for want in ["firefox-esr", "Rules", "qbittorrent", "up 1.0 Mbit/s", "waits for a game"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+    }
+
+    #[test]
+    fn the_shortcuts_tab_shows_the_keys_or_the_commands_to_bind() {
+        let mut app = App::new(Bus::offline());
+        app.go(5);
+        app.tab = 1;
+        let keys = |trigger: &str| {
+            ["open-window", "toggle-overlay", "toggle-gamemode"]
+                .iter()
+                .map(|id| ug_proto::ShortcutInfo { id: (*id).into(), description: format!("Do {id}"), trigger: trigger.into() })
+                .collect()
+        };
+        app.shortcuts.store(Ok(ug_proto::ShortcutsState {
+            enabled: true,
+            status: "active".into(),
+            shortcuts: keys("Meta+Shift+G"),
+            gamemode_by_hand: "on".into(),
+            ..Default::default()
+        }));
+        let screen = render(&mut app, 120, 34);
+        for want in ["Global shortcuts", "Use global shortcuts", "‹ on ›", "Meta+Shift+G", "Do toggle-gamemode", "on by hand"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        assert!(!screen.contains("ug shortcut"), "no commands while the desktop binds the keys");
+        app.shortcuts.store(Ok(ug_proto::ShortcutsState { enabled: true, status: "unavailable".into(), shortcuts: keys(""), ..Default::default() }));
+        let screen = render(&mut app, 120, 34);
+        for want in ["not offered by this desktop", "ug shortcut toggle-overlay", "no key"] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
     }

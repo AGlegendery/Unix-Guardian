@@ -2,6 +2,7 @@
   import { api, errorText, type OverlaySettings, type OverlayState, type Snapshot } from "../lib/api";
   import { num } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
+  import ShortcutsCard from "../lib/ShortcutsCard.svelte";
   import Problem from "../lib/ui/Problem.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
   import Switch from "../lib/ui/Switch.svelte";
@@ -169,6 +170,8 @@
     </section>
   </div>
 {/if}
+
+<ShortcutsCard />
 
 <style>
   .head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }

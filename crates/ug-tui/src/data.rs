@@ -4,7 +4,7 @@
 //! work.
 
 use std::time::{Duration, Instant};
-use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy, ShortcutsProxy};
 use ug_proto::daemon::{CoolingProxy, DaemonProxy, GameModeProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{
     AppTraffic, BatteryCare, FpsSession, OverlaySettings, OverlayState, DayTraffic, ExtraSample, NetControlStatus, NetRule, PingComparison, PingReport, FpsReading, HistoryPoint, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
@@ -124,6 +124,21 @@ impl Bus {
     pub fn overlay_set_up(&self, on: bool) -> Result<(), String> {
         let c = self.agent()?;
         self.rt.block_on(async { OverlayProxy::new(c).await?.set_up(on).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn shortcuts(&self) -> Result<ug_proto::ShortcutsState, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { ShortcutsProxy::new(c).await?.state().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn shortcuts_set_enabled(&self, on: bool) -> Result<(), String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { ShortcutsProxy::new(c).await?.set_enabled(on).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn shortcut_run(&self, id: &str) -> Result<String, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { ShortcutsProxy::new(c).await?.run(id).await }).map_err(|e| msg(e, "agent"))
     }
 
     pub fn fps_sessions(&self, since_ms: u64) -> Result<Vec<FpsSession>, String> {

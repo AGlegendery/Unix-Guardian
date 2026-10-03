@@ -21,6 +21,7 @@ mod overlay;
 mod ping;
 mod playtime;
 mod ppd;
+mod shortcuts;
 mod programs;
 mod tray;
 
@@ -34,7 +35,7 @@ use ug_hw::SysRoot;
 use ug_proto::{AGENT_BUS_NAME, AGENT_OBJECT_PATH};
 
 use crate::core::{AgentCore, Outcome};
-use iface::{lock, now_ms, GamesIface, MonitorIface, OverlayIface, PingIface, PlaytimeIface, ProfilesIface, Shared};
+use iface::{lock, now_ms, GamesIface, MonitorIface, OverlayIface, PingIface, PlaytimeIface, ProfilesIface, Shared, ShortcutsIface};
 
 const GAMEMODE_NAME: &str = "com.feralinteractive.GameMode";
 const GAMEMODE_PATH: &str = "/com/feralinteractive/GameMode";
@@ -236,6 +237,8 @@ async fn main() -> Result<()> {
         &ug_core::paths::user_config(),
     ));
     let (announce_tx, mut announce_rx) = tokio::sync::mpsc::unbounded_channel::<Outcome>();
+    let (pressed_tx, mut pressed_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let shortcuts = shortcuts::Shortcuts::new(&ug_core::paths::user_config(), pressed_tx);
 
     let conn = zbus::connection::Builder::session()?
         .serve_at(AGENT_OBJECT_PATH, GamesIface { core: Arc::clone(&core), announce: announce_tx.clone() })?
@@ -244,6 +247,10 @@ async fn main() -> Result<()> {
         .serve_at(AGENT_OBJECT_PATH, MonitorIface { history: Arc::clone(&history), overlay: Arc::clone(&overlay) })?
         .serve_at(AGENT_OBJECT_PATH, OverlayIface { overlay: Arc::clone(&overlay) })?
         .serve_at(AGENT_OBJECT_PATH, PingIface { pinger: pinger.clone() })?
+        .serve_at(
+            AGENT_OBJECT_PATH,
+            ShortcutsIface { shortcuts: Arc::clone(&shortcuts), core: Arc::clone(&core), overlay: Arc::clone(&overlay) },
+        )?
         .build()
         .await
         .context("connecting to the session bus")?;
@@ -276,6 +283,8 @@ async fn main() -> Result<()> {
         }
     };
     conn.object_server().at(AGENT_OBJECT_PATH, tray::TrayControl { tray }).await.context("serving the tray control")?;
+    // Only after the name is ours: a second agent must not bind them too.
+    shortcuts.start();
     tracing::info!("agent ready");
 
     // Notification id → executable, for the "not a game" button, and
@@ -330,6 +339,15 @@ async fn main() -> Result<()> {
                 holder.sync(system_bus.as_ref(), wanted, &game).await;
             }
             Some(o) = announce_rx.recv() => announce(&conn, o, !args.quiet, &pending_dismissals).await,
+            Some(id) = pressed_rx.recv() => {
+                // A key pressed anywhere has no other feedback than this.
+                let said = shortcuts::perform(&id, &core, &overlay).await;
+                tracing::info!(shortcut = %id, result = ?said, "global shortcut");
+                if id != "open-window" && !args.quiet {
+                    let text = said.unwrap_or_else(|e| e);
+                    notify::show(&conn, &text, "", &[]).await;
+                }
+            }
             _ = heartbeat.tick() => {
                 lock(&core).heartbeat(now_ms());
                 daemon.record_history(&history).await;
@@ -347,6 +365,7 @@ async fn main() -> Result<()> {
 
     // Resume anything we paused and close open sessions before going. The
     // daemon also reverts game mode by itself once we drop off the bus.
+    shortcuts.shutdown().await;
     lock(&core).shutdown(now_ms());
     if daemon.applied.is_some() {
         daemon.backoff = 0;

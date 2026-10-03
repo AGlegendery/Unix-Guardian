@@ -32,6 +32,9 @@ pub struct Overlay {
     settings: Mutex<OverlaySettings>,
     /// The last "game running" this block was written for.
     game_running: Mutex<bool>,
+    /// Shown or hidden by hand (the global shortcut) until the next game
+    /// starts or stops; `None` follows the settings.
+    forced: Mutex<Option<bool>>,
 }
 
 /// Checks a settings value against its choices.
@@ -111,6 +114,7 @@ impl Overlay {
             env_path: config_home.join("environment.d/90-unix-guardian-mangohud.conf"),
             settings: Mutex::new(settings),
             game_running: Mutex::new(false),
+            forced: Mutex::new(None),
         }
     }
 
@@ -134,14 +138,33 @@ impl Overlay {
         }
     }
 
+    /// Whether the overlay shows now: by hand, else by the settings.
+    fn visible_now(&self) -> bool {
+        let forced = *self.forced.lock().unwrap_or_else(|e| e.into_inner());
+        let gaming = *self.game_running.lock().unwrap_or_else(|e| e.into_inner());
+        forced.unwrap_or_else(|| Self::visible(&self.settings(), gaming))
+    }
+
     /// Writes the block for the current settings (only if set up).
     fn write(&self) -> Result<(), String> {
         if !self.fps.set_up() {
             return Ok(());
         }
         let s = self.settings();
-        let gaming = *self.game_running.lock().unwrap_or_else(|e| e.into_inner());
-        self.fps.write_block(Some(&block(&s, &self.fps.logging_lines(), Self::visible(&s, gaming))))
+        self.fps.write_block(Some(&block(&s, &self.fps.logging_lines(), self.visible_now())))
+    }
+
+    /// Shows the overlay if hidden, hides it if shown, until the next game
+    /// starts or stops (the global shortcut). MangoHud re-reads its file, so
+    /// a running game follows. Returns whether it shows now.
+    pub fn toggle(&self) -> Result<bool, String> {
+        if !self.fps.set_up() {
+            return Err("The overlay is not set up yet: set it up on the Overlay page or with `ug overlay setup`.".into());
+        }
+        let show = !self.visible_now();
+        *self.forced.lock().unwrap_or_else(|e| e.into_inner()) = Some(show);
+        self.write()?;
+        Ok(show)
     }
 
     pub fn set(&self, s: OverlaySettings) -> Result<(), String> {
@@ -161,8 +184,7 @@ impl Overlay {
     pub fn set_up(&self, on: bool) -> Result<(), String> {
         if on {
             let s = self.settings();
-            let gaming = *self.game_running.lock().unwrap_or_else(|e| e.into_inner());
-            self.fps.write_block(Some(&block(&s, &self.fps.logging_lines(), Self::visible(&s, gaming))))?;
+            self.fps.write_block(Some(&block(&s, &self.fps.logging_lines(), self.visible_now())))?;
             self.set_every_game(s.every_game)
         } else {
             self.fps.write_block(None)?;
@@ -195,7 +217,9 @@ impl Overlay {
             }
             *g = gaming;
         }
-        if self.settings().show == "gaming" {
+        // A game starting or stopping ends a choice made by hand.
+        let was_forced = self.forced.lock().unwrap_or_else(|e| e.into_inner()).take().is_some();
+        if self.settings().show == "gaming" || was_forced {
             if let Err(e) = self.write() {
                 tracing::warn!(error = %e, "could not update the overlay");
             }
@@ -245,6 +269,23 @@ mod tests {
         assert!(!conf(&o).contains("no_display"), "game running: shown");
         o.follow(false);
         assert!(conf(&o).contains("no_display"));
+    }
+
+    #[test]
+    fn the_shortcut_shows_or_hides_it_until_the_next_game_starts_or_stops() {
+        let (_d, o) = fixture();
+        assert!(o.toggle().unwrap_err().contains("not set up"));
+        o.set_up(true).unwrap();
+        o.follow(true);
+        assert!(!conf(&o).contains("no_display"));
+        assert!(!o.toggle().unwrap(), "hidden mid-game");
+        assert!(conf(&o).contains("no_display"));
+        assert!(o.toggle().unwrap(), "and shown again");
+        assert!(!conf(&o).contains("no_display"));
+        o.toggle().unwrap();
+        o.follow(false);
+        o.follow(true);
+        assert!(!conf(&o).contains("no_display"), "the next game shows it as the settings say");
     }
 
     #[test]

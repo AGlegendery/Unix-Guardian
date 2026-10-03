@@ -355,6 +355,32 @@ pub struct PlaytimeEntry {
     pub last_played_unix_ms: u64,
 }
 
+/// One global shortcut: what it does and the keys the desktop gave it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ShortcutInfo {
+    /// `open-window`, `toggle-overlay` or `toggle-gamemode`.
+    pub id: String,
+    pub description: String,
+    /// As the desktop describes it, e.g. "Meta+Shift+O"; "" when not bound.
+    pub trigger: String,
+}
+
+/// Global shortcuts through the desktop's GlobalShortcuts portal.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ShortcutsState {
+    /// The user turned them on (they stay off until then).
+    pub enabled: bool,
+    /// `off`, `connecting`, `waiting` (for the desktop's confirmation),
+    /// `active`, `unavailable` (no portal) or `failed`.
+    pub status: String,
+    /// Why they are unavailable or failed, and what to do instead.
+    pub problem: String,
+    pub shortcuts: Vec<ShortcutInfo>,
+    /// Game mode turned "on" or "off" by hand (shortcut or `ug shortcut`);
+    /// "" when it follows the games.
+    pub gamemode_by_hand: String,
+}
+
 /// A Steam game's launch options, and Unix Guardian's part in them.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct LaunchInfo {

@@ -468,6 +468,22 @@ pub mod agent {
         fn visible(&self) -> zbus::Result<bool>;
     }
 
+    /// Global shortcuts (the desktop's GlobalShortcuts portal) and the
+    /// actions behind them.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Shortcuts",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Shortcuts {
+        fn state(&self) -> zbus::Result<ShortcutsState>;
+        /// Turns them on (the desktop may ask the user to confirm the keys)
+        /// or off. Remembered.
+        fn set_enabled(&self, on: bool) -> zbus::Result<()>;
+        /// Does what a shortcut does, now; returns what happened.
+        fn run(&self, id: &str) -> zbus::Result<String>;
+    }
+
     /// The in-game overlay (MangoHud), set up and styled by Unix Guardian.
     #[zbus::proxy(
         interface = "org.unixguardian.Agent1.Overlay",

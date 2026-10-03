@@ -180,6 +180,20 @@ export interface OverlayState {
   every_game_active: boolean;
   game_running: boolean;
 }
+export interface ShortcutInfo {
+  id: "open-window" | "toggle-overlay" | "toggle-gamemode";
+  description: string;
+  /** As the desktop describes it ("Meta+Shift+O"); "" when not bound. */
+  trigger: string;
+}
+export interface ShortcutsState {
+  enabled: boolean;
+  status: "off" | "connecting" | "waiting" | "active" | "unavailable" | "failed";
+  problem: string;
+  shortcuts: ShortcutInfo[];
+  /** Game mode turned "on" or "off" by hand; "" when it follows the games. */
+  gamemode_by_hand: "" | "on" | "off";
+}
 export interface FpsSession {
   game: string;
   started_unix_ms: number;
@@ -411,6 +425,9 @@ const tauriApi = {
   overlayState: () => invoke<OverlayState>("overlay_state"),
   overlaySet: (settings: OverlaySettings) => invoke<void>("overlay_set", { settings }),
   overlaySetUp: (on: boolean) => invoke<void>("overlay_set_up", { on }),
+  shortcutsState: () => invoke<ShortcutsState>("shortcuts_state"),
+  shortcutsSetEnabled: (on: boolean) => invoke<void>("shortcuts_set_enabled", { on }),
+  shortcutsRun: (id: string) => invoke<string>("shortcuts_run", { id }),
   fpsSessions: (sinceUnixMs: number) => invoke<FpsSession[]>("fps_sessions", { sinceUnixMs }),
   forgetFpsSessions: () => invoke<number>("forget_fps_sessions"),
   gpuOffload: () => invoke<GpuOffload[]>("gpu_offload"),

@@ -306,3 +306,27 @@ pub fn local_date(ms: u64) -> String {
     };
     format!("{:04}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
 }
+
+/// `org.unixguardian.Agent1.Shortcuts`
+pub struct ShortcutsIface {
+    pub shortcuts: Arc<crate::shortcuts::Shortcuts>,
+    pub core: Shared,
+    pub overlay: Arc<crate::overlay::Overlay>,
+}
+
+#[zbus::interface(name = "org.unixguardian.Agent1.Shortcuts")]
+impl ShortcutsIface {
+    async fn state(&self) -> ug_proto::ShortcutsState {
+        let mut s = self.shortcuts.state();
+        s.gamemode_by_hand = lock(&self.core).gamemode_by_hand().to_string();
+        s
+    }
+
+    async fn set_enabled(&self, on: bool) -> zbus::fdo::Result<()> {
+        self.shortcuts.set_enabled(on).await.map_err(zbus::fdo::Error::Failed)
+    }
+
+    async fn run(&self, id: &str) -> zbus::fdo::Result<String> {
+        crate::shortcuts::perform(id, &self.core, &self.overlay).await.map_err(zbus::fdo::Error::Failed)
+    }
+}

@@ -915,7 +915,7 @@ async fn launch(tag: &str, argv: Vec<OsString>) -> Result<(), String> {
 
 /// Opens the window; if it is already open it comes to the front (the window
 /// is single-instance).
-async fn open_window() -> Result<(), String> {
+pub async fn open_window() -> Result<(), String> {
     let app = find_program("ug-app").ok_or("The Unix Guardian window (ug-app) is not installed. Try `ug tui` in a terminal.")?;
     launch("window", vec![app.into()]).await
 }

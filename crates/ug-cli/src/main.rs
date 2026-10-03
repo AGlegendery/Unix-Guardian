@@ -10,7 +10,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy};
+use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy, ShortcutsProxy};
 use ug_proto::daemon::{CoolingProxy, DaemonProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{GpuCapabilities, Inventory, PowerWatch, Snapshot};
 
@@ -144,6 +144,14 @@ enum Command {
     Overlay {
         #[command(subcommand)]
         command: Option<OverlayCommand>,
+    },
+    /// Global shortcuts (the desktop's GlobalShortcuts portal). Without an
+    /// argument shows them; `on`/`off` binds or unbinds them (the desktop may
+    /// ask to confirm the keys); `open-window`, `toggle-overlay` or
+    /// `toggle-gamemode` does what that shortcut does, for binding in a
+    /// desktop without the portal.
+    Shortcut {
+        action: Option<String>,
     },
     /// Frame statistics of recent game sessions (from MangoHud's log).
     Fps {
@@ -499,6 +507,7 @@ async fn run() -> Result<()> {
         Command::Traffic { days } => return traffic(days, cli.json).await,
         Command::Ping { seconds } => return ping(seconds, cli.json).await,
         Command::Overlay { command } => return overlay(command, cli.json).await,
+        Command::Shortcut { action } => return shortcut(action, cli.json).await,
         Command::Tray { hide } => return tray(hide).await,
         Command::Quit => {
             let conn = agent_conn().await?;
@@ -542,7 +551,7 @@ async fn run() -> Result<()> {
         Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
         Command::Net { command, all } => net(&conn, command, all, cli.json).await,
         Command::Fans { curve, auto, mode } => fans(&conn, curve, auto, mode, cli.json).await,
-        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Tray { .. } | Command::Quit | Command::Fps { .. } | Command::Run { .. } | Command::Tui => {
+        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Shortcut { .. } | Command::Tray { .. } | Command::Quit | Command::Fps { .. } | Command::Run { .. } | Command::Tui => {
             unreachable!("handled above")
         }
     }
@@ -1022,6 +1031,55 @@ async fn overlay(command: Option<OverlayCommand>, json: bool) -> Result<()> {
         if s.every_game { "on" } else { "off (or add `mangohud %command%` to a Steam game's launch options)" },
         if s.every_game && !st.every_game_active { " — takes effect at your next login" } else { "" }
     );
+    Ok(())
+}
+
+async fn shortcut(action: Option<String>, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let s = ShortcutsProxy::new(&conn).await?;
+    match action.as_deref() {
+        None => {}
+        Some("on") => s.set_enabled(true).await.map_err(agent_hint)?,
+        Some("off") => s.set_enabled(false).await.map_err(agent_hint)?,
+        Some(id) => {
+            println!("{}", s.run(id).await.map_err(agent_hint)?);
+            return Ok(());
+        }
+    }
+    if action.as_deref() == Some("on") {
+        // Binding waits for the desktop (and maybe the user's confirmation).
+        for _ in 0..20 {
+            let st = s.state().await.map_err(agent_hint)?;
+            if st.status != "connecting" && st.status != "waiting" {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+    }
+    let st = s.state().await.map_err(agent_hint)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&st)?);
+        return Ok(());
+    }
+    let status = match st.status.as_str() {
+        "off" => "off (ug shortcut on)",
+        "connecting" => "connecting to the desktop",
+        "waiting" => "waiting for you to confirm the keys in the desktop's dialog",
+        "active" => "on",
+        "unavailable" => "not offered by this desktop",
+        _ => "failed",
+    };
+    println!("Shortcuts   {status}");
+    if !st.problem.is_empty() {
+        println!("            {}", st.problem);
+    }
+    for k in &st.shortcuts {
+        let keys = if k.trigger.is_empty() { "-" } else { k.trigger.as_str() };
+        println!("  {:<16} {:<20} {}", k.id, keys, k.description);
+    }
+    if !st.gamemode_by_hand.is_empty() {
+        println!("Game mode   turned {} by hand", st.gamemode_by_hand);
+    }
     Ok(())
 }
 

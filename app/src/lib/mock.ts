@@ -4,7 +4,7 @@
 // that runs inside Tauri.
 
 import data from "./preview-data.json";
-import type { AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, ShortcutsState, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -13,6 +13,17 @@ let alarm = 0;
 const bat: BatteryCare = { supported: true, method: "vendor-long-life", adjustable: false, mode: "off", limit: 80, capacity: 100, status: "Full", reason: "" };
 const watches: PowerWatch[] = [];
 let t = 0;
+const shortcuts: ShortcutsState = {
+  enabled: false,
+  status: "off",
+  problem: "",
+  gamemode_by_hand: "",
+  shortcuts: [
+    { id: "open-window", description: "Open Unix Guardian", trigger: "Meta+Shift+U" },
+    { id: "toggle-overlay", description: "Show or hide the in-game overlay", trigger: "Meta+Shift+O" },
+    { id: "toggle-gamemode", description: "Turn game mode on or off", trigger: "Meta+Shift+G" },
+  ],
+};
 let fpsSetUp = false;
 let fanMode = 1;
 let trayVisible = true;
@@ -365,6 +376,18 @@ export const mockApi = {
   },
   overlaySetUp: async (on: boolean) => {
     fpsSetUp = on;
+  },
+  shortcutsState: async (): Promise<ShortcutsState> => ({ ...shortcuts, shortcuts: shortcuts.shortcuts.map((k) => ({ ...k, trigger: shortcuts.enabled ? k.trigger : "" })) }),
+  shortcutsSetEnabled: async (on: boolean) => {
+    shortcuts.enabled = on;
+    shortcuts.status = on ? "active" : "off";
+  },
+  shortcutsRun: async (id: string) => {
+    if (id === "toggle-gamemode") {
+      shortcuts.gamemode_by_hand = shortcuts.gamemode_by_hand === "on" ? "" : "on";
+      return shortcuts.gamemode_by_hand === "on" ? "Game mode on." : "Game mode off.";
+    }
+    return "Done.";
   },
   fpsSessions: async (since: number) => fpsLog.filter((s) => s.started_unix_ms >= since),
   forgetFpsSessions: async () => {

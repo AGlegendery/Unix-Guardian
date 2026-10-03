@@ -78,7 +78,15 @@ pub fn draw(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         2 => system(app, f, inner),
         3 => monitoring(app, f, inner),
         4 => ping_page(app, f, inner),
-        5 => overlay_page(app, f, inner),
+        5 => {
+            tabs(app, f, Rect { height: 1, ..inner }, &["Overlay", "Global shortcuts"]);
+            let body = Rect { y: inner.y + 2, height: inner.height.saturating_sub(2), ..inner };
+            if app.tab == 1 {
+                shortcuts_page(app, f, body);
+            } else {
+                overlay_page(app, f, body);
+            }
+        }
         6 => playtime_page(app, f, inner),
         p => {
             let text = vec![
@@ -1553,6 +1561,86 @@ fn overlay_page(app: &mut App, f: &mut Frame, r: Rect) {
     }
 }
 
+/// Global shortcuts through the desktop's portal: row 0 turns them on or
+/// off, the others do what each shortcut does, now.
+fn shortcuts_page(app: &mut App, f: &mut Frame, r: Rect) {
+    let t = app.theme;
+    let lines = vec![
+        Line::from(Span::styled(
+            "Keys that work anywhere on the desktop, even with a game in front. The desktop owns them: it asks you to confirm them the first time, and they can be changed in its own shortcut settings.",
+            t.faint(),
+        )),
+        Line::from(""),
+    ];
+    let Some(st) = app.shortcuts.value.clone() else {
+        let msg = app.shortcuts.error.clone().unwrap_or_else(|| "Reading…".into());
+        f.render_widget(Paragraph::new(Span::styled(msg, t.muted())), r);
+        return;
+    };
+    let mut h = 0;
+    for l in lines {
+        let n = (l.width() as u16).div_ceil(r.width.max(1)).max(1);
+        f.render_widget(Paragraph::new(l).wrap(Wrap { trim: true }), Rect { y: r.y + h, height: n, ..r });
+        h += n;
+    }
+    let status = match st.status.as_str() {
+        "off" => "off",
+        "connecting" => "connecting to the desktop…",
+        "waiting" => "confirm the keys in the desktop's dialog",
+        "active" => "on",
+        "unavailable" => "not offered by this desktop",
+        _ => "could not bind them",
+    };
+    app.rows = 1 + st.shortcuts.len();
+    let on = Line::from(vec![
+        Span::styled(format!(" {:<34}", "Use global shortcuts"), t.text()),
+        Span::styled(format!("‹ {} ›", if st.enabled { "on" } else { "off" }), t.accent()),
+        Span::styled(format!("  {status}"), t.muted()),
+    ]);
+    row(app, f, Rect { y: r.y + h, height: 1, ..r }, 0, on);
+    let fallback = st.status == "unavailable" || st.status == "failed";
+    for (i, k) in st.shortcuts.iter().enumerate() {
+        let keys = if k.trigger.is_empty() { "no key".to_string() } else { k.trigger.clone() };
+        let mut spans = vec![Span::styled(format!(" {:<34}", k.description), t.text()), Span::styled(format!("{keys:<18}"), t.accent())];
+        if fallback {
+            spans.push(Span::styled(format!("ug shortcut {}", k.id), t.muted()));
+        }
+        row(app, f, Rect { y: r.y + h + 1 + i as u16, height: 1, ..r }, i + 1, Line::from(spans));
+    }
+    let mut notes = Vec::new();
+    if st.status == "failed" && !st.problem.is_empty() {
+        notes.push(st.problem.clone());
+    }
+    if fallback {
+        notes.push("Bind the commands above in your desktop's own shortcut settings instead.".into());
+    }
+    match st.gamemode_by_hand.as_str() {
+        "on" => notes.push("Game mode is on by hand; it stays on until you turn it off.".into()),
+        "off" => notes.push("Game mode is off by hand until the running games close.".into()),
+        _ => {}
+    }
+    notes.push("Enter on a shortcut runs it now.".into());
+    let y = r.y + h + 2 + st.shortcuts.len() as u16;
+    if y < r.bottom() {
+        let text: Vec<Line> = notes.into_iter().map(|n| Line::from(Span::styled(n, t.faint()))).collect();
+        f.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), Rect { y, height: r.bottom() - y, ..r });
+    }
+}
+
+fn activate_shortcut(app: &mut App, i: usize) {
+    let Some(st) = app.shortcuts.value.clone() else { return };
+    let r = if i == 0 {
+        let on = !st.enabled;
+        app.bus.shortcuts_set_enabled(on).map(|_| if on { "Asking the desktop for the keys…" } else { "Global shortcuts off." }.to_string())
+    } else if let Some(k) = st.shortcuts.get(i - 1) {
+        app.bus.shortcut_run(&k.id)
+    } else {
+        return;
+    };
+    report(app, r);
+    app.shortcuts.invalidate();
+}
+
 /// ←→ on an overlay row.
 fn step_overlay(app: &mut App, d: i32) {
     let Some(st) = app.overlay.value.clone() else { return };
@@ -1890,7 +1978,8 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (3, 1) => vec![("Tab", "FPS")],
         (3, _) => vec![("Tab", "temperature"), ("Enter", "set up / undo")],
         (4, _) => vec![("Tab", "next tab"), ("Enter", "limit while gaming"), ("b", "block"), ("x", "allow")],
-        (5, _) => vec![("↑↓", "setting"), ("←→", "change"), ("Enter", "next / run")],
+        (5, 1) => vec![("Tab", "overlay"), ("Enter", "on/off / run")],
+        (5, _) => vec![("Tab", "shortcuts"), ("↑↓", "setting"), ("←→", "change"), ("Enter", "next / run")],
         (6, 0) => vec![("Tab", "apps"), ("←→", "period"), ("x", "delete"), ("n", "not a game"), ("i", "import Steam"), ("e", "CSV")],
         (6, _) => vec![("Tab", "games"), ("←→", "period"), ("Enter", "count / stop"), ("x", "delete")],
         (0, _) if gpu_switch(app).is_some() => vec![("←→", "graphics card for programs")],
@@ -1942,7 +2031,7 @@ pub fn step_choice(app: &mut App, d: i32) {
         step_launch_gpu(app, d);
         return;
     }
-    if app.page == 5 {
+    if (app.page, app.tab) == (5, 0) {
         step_overlay(app, d);
         return;
     }
@@ -1973,6 +2062,7 @@ pub fn activate(app: &mut App, i: usize) {
     match (app.page, app.tab) {
         (6, _) => activate_playtime(app, i),
         (1, 1) => activate_tune(app, i),
+        (5, 1) => activate_shortcut(app, i),
         (1, 2) => {
             let _ = i;
             write_launch(app);
