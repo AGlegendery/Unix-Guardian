@@ -176,6 +176,14 @@ enum Command {
         /// Look on GitHub now.
         #[arg(long)]
         check: bool,
+        /// Download the new version, check its signature and install it
+        /// (asks for the password).
+        #[arg(long, conflicts_with_all = ["check", "rollback"])]
+        install: bool,
+        /// Go back to the version before the last update (asks for the
+        /// password).
+        #[arg(long, conflicts_with = "check")]
+        rollback: bool,
     },
     /// Record the screen and the game's sound (gpu-screen-recorder). Without
     /// a command shows the recorder.
@@ -646,7 +654,15 @@ async fn run() -> Result<()> {
         Command::Settings { notifications, scan_interval, close_window_on_game, check_updates } => {
             return settings(notifications, scan_interval, close_window_on_game, check_updates, cli.json).await
         }
-        Command::Update { check } => return update(check, cli.json).await,
+        Command::Update { check, install, rollback } => {
+            return if install {
+                update_install(cli.json).await
+            } else if rollback {
+                update_rollback(cli.json).await
+            } else {
+                update(check, cli.json).await
+            }
+        }
         Command::Tray { hide } => return tray(hide).await,
         Command::Quit => {
             let conn = agent_conn().await?;
@@ -705,6 +721,12 @@ async fn agent_conn() -> Result<zbus::Connection> {
 fn agent_hint(e: zbus::Error) -> anyhow::Error {
     if let Some(m) = ug_proto::outdated_peer(&e.to_string()) {
         return anyhow::anyhow!("{m}");
+    }
+    // The agent answered and said why: it is running, so no hint.
+    if let zbus::Error::MethodError(name, Some(m), _) = &e {
+        if matches!(name.as_str(), "org.freedesktop.DBus.Error.Failed" | "org.freedesktop.DBus.Error.InvalidArgs") {
+            return anyhow::anyhow!("{m}");
+        }
     }
     anyhow::anyhow!("{e}\nIs ug-agent running in this session? It starts with your desktop login.")
 }
@@ -1301,9 +1323,68 @@ async fn update(check: bool, json: bool) -> Result<()> {
     println!("Release page   {}", st.url);
     match st.kind.as_str() {
         "package" | "development" => println!("Update it with: {}", st.how),
-        "tarball" if st.can_install => println!("Unix Guardian can install it for you (coming next)."),
+        "tarball" if st.can_install => println!("Install it with: ug update --install"),
         "tarball" => println!("This release has no signed tarball; download it from the release page and run its install.sh."),
         _ => println!("This copy runs from a build folder; build the new version from source."),
+    }
+    Ok(())
+}
+
+/// Starts the install and follows it until it ends. The update restarts
+/// the agent, so a lost connection is waited out.
+async fn update_install(json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let p = ug_proto::agent::UpdateProxy::new(&conn).await?;
+    let before = p.state().await.map_err(agent_hint)?;
+    p.install().await.map_err(agent_hint)?;
+    if !json {
+        println!("Installing {}: downloading, then the service asks for your password.", before.name);
+    }
+    let mut shown = String::from("downloading");
+    let mut lost = 0;
+    let st = loop {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let st = match ug_proto::agent::UpdateProxy::new(&agent_conn().await?).await?.state().await {
+            Ok(st) => st,
+            // The install restarts the agent; wait for the new one.
+            Err(_) if lost < 60 => {
+                lost += 1;
+                continue;
+            }
+            Err(e) => return Err(agent_hint(e)),
+        };
+        if st.step.is_empty() {
+            break st;
+        }
+        if !json && st.step != shown {
+            println!("{}", if st.step == "installing" { "Checking the signature and installing…" } else { st.step.as_str() });
+            shown = st.step.clone();
+        }
+    };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&st)?);
+        return Ok(());
+    }
+    if !st.problem.is_empty() {
+        anyhow::bail!("{}", st.problem);
+    }
+    if !st.result.is_empty() {
+        println!("{}", st.result);
+    }
+    if st.current != before.current {
+        println!("Unix Guardian is now {} (it was {}). ug update --rollback goes back.", st.current, before.current);
+    }
+    Ok(())
+}
+
+async fn update_rollback(json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let p = ug_proto::agent::UpdateProxy::new(&conn).await?;
+    let msg = p.rollback().await.map_err(agent_hint)?;
+    if json {
+        println!("{}", serde_json::to_string(&msg)?);
+    } else {
+        println!("{msg}");
     }
     Ok(())
 }

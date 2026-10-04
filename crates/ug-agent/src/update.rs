@@ -135,7 +135,15 @@ impl Updater {
     pub fn begin_install(self: &std::sync::Arc<Self>, daemon_session: bool) -> Result<(), String> {
         let s = self.state();
         if !s.can_install {
-            return Err(if s.latest.is_empty() { "There is nothing newer to install.".into() } else { format!("Update this copy with: {}", s.how) });
+            return Err(if s.latest.is_empty() {
+                "There is nothing newer to install.".into()
+            } else if !s.how.is_empty() {
+                format!("Update this copy with: {}", s.how)
+            } else if s.kind == "tarball" {
+                "This release has no signed tarball; download it from the release page and run its install.sh.".into()
+            } else {
+                "This copy runs from a build folder; build the new version from source.".into()
+            });
         }
         if !s.step.is_empty() {
             return Err("It is being installed already.".into());
