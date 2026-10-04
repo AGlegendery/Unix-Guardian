@@ -11,6 +11,7 @@
 //! runs anyway and can start this window on demand.
 
 mod bus;
+mod testlab;
 
 /// Sets an environment variable unless the user already chose a value.
 fn default_env(key: &str, value: &str) {
@@ -69,6 +70,7 @@ fn main() {
                     }
                 }
             }
+            testlab::recover_in_background();
             if let (Some(path), Some(w)) = (open, app.get_webview_window("main")) {
                 let path: String = path.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '/' || *c == '-').collect();
                 let _ = w.eval(&format!("if (location.hash !== '#{path}') {{ location.hash = '{path}'; location.reload(); }}"));
@@ -180,6 +182,9 @@ fn main() {
             bus::set_fan_mode,
             bus::power_profile,
             bus::set_power_profile,
+            testlab::testlab_run,
+            testlab::testlab_recover,
+            testlab::testlab_save,
             open_terminal_interface,
             report_bug,
         ])

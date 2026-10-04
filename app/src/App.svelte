@@ -4,7 +4,7 @@
   import Mark from "./lib/ui/Mark.svelte";
   import {
     Activity, Bug, ChevronsLeft, ChevronsRight, Clock, Gamepad2, Layers, LayoutDashboard, Power,
-    Eye, RefreshCw, Settings, SquareTerminal, Video, Wifi, Wrench,
+    Eye, FlaskConical, RefreshCw, Settings, SquareTerminal, Video, Wifi, Wrench,
   } from "@lucide/svelte";
   import type { Component } from "svelte";
   import { api, errorText, type Overview } from "./lib/api";
@@ -15,6 +15,7 @@
   import Monitoring from "./pages/Monitoring.svelte";
   import Ping from "./pages/Ping.svelte";
   import BugReport from "./pages/BugReport.svelte";
+  import TestLab from "./pages/TestLab.svelte";
   import Overlay from "./pages/Overlay.svelte";
   import Playtime from "./pages/Playtime.svelte";
   import SettingsPage from "./pages/Settings.svelte";
@@ -35,11 +36,12 @@
     ["recorder", Video],
     ["drivers", Wrench],
     ["bugreport", Bug],
+    ["testlab", FlaskConical],
     ["updates", RefreshCw],
     ["settings", Settings],
   ];
   // Built so far; every other page says plainly that it is not.
-  const built = new Set<Page>(["dashboard", "gamemode", "system", "monitoring", "ping", "overlay", "playtime", "bugreport", "settings", "drivers", "recorder", "updates"]);
+  const built = new Set<Page>(["dashboard", "gamemode", "system", "monitoring", "ping", "overlay", "playtime", "bugreport", "settings", "drivers", "recorder", "updates", "testlab"]);
 
   // `#gamemode` in the URL opens that page (handy in the browser preview).
   const fromHash = location.hash.slice(1).split("/")[0] as Page;
@@ -192,6 +194,8 @@
       <SettingsPage {overview} />
     {:else if page === "bugreport"}
       <BugReport />
+    {:else if page === "testlab"}
+      <TestLab />
     {:else}
       <section class="unbuilt-page">
         <h1>{t().nav[page]}</h1>

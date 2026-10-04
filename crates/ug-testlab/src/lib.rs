@@ -200,6 +200,18 @@ mod tests {
         assert_eq!(utc_stamp(951_782_400_000), "2000-02-29 00:00 UTC");
     }
 
+    /// The window runs the lab on Tauri's multi-threaded runtime, which
+    /// needs a future that can move between threads.
+    #[test]
+    fn a_run_can_be_spawned_on_a_multi_threaded_runtime() {
+        fn is_send<T: Send>(_: &T) {}
+        let opts = Options::new("test", true);
+        let run = run(&opts, |_| {});
+        is_send(&run);
+        let rec = recover(&opts);
+        is_send(&rec);
+    }
+
     #[test]
     fn every_step_has_a_unique_id() {
         let mut ids: Vec<&str> = STEPS.iter().map(|s| s.0).collect();

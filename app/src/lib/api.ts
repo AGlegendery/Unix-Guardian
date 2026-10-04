@@ -621,7 +621,41 @@ const tauriApi = {
   playtimeImported: () => invoke<PlaytimeEntry[]>("playtime_imported"),
   forgetImported: () => invoke<number>("playtime_forget_imported"),
   onSample: (f: (s: Snapshot) => void): Promise<UnlistenFn> => listen<Snapshot>("sample", (e) => f(e.payload)),
+  testlabRun: () => invoke<TestlabReport>("testlab_run"),
+  /** What an interrupted test left and was now put back, in sentences. */
+  testlabRecover: () => invoke<string[]>("testlab_recover"),
+  /** Saves the report into Downloads; returns its path. */
+  testlabSave: (text: string) => invoke<string>("testlab_save", { text }),
+  onTestlabProgress: (f: (p: TestlabProgress) => void): Promise<UnlistenFn> => listen<TestlabProgress>("testlab-progress", (e) => f(e.payload)),
 };
+
+export interface TestlabProgress {
+  /** Steps finished so far. */
+  done: number;
+  total: number;
+  /** Stable step id, translated by the page (labels.testlab.steps). */
+  id: string;
+  label: string;
+}
+
+export interface TestlabCheck {
+  area: string;
+  name: string;
+  status: "pass" | "warn" | "fail" | "skip" | "info";
+  detail: string;
+}
+
+export interface TestlabReport {
+  /** The whole report, personal details already removed. */
+  text: string;
+  passed: number;
+  warned: number;
+  failed: number;
+  skipped: number;
+  /** Changes that could not be put back (normally none). */
+  leftovers: string[];
+  checks: TestlabCheck[];
+}
 
 /** Inside Tauri, the real bridge; in a plain browser (design preview), a
  * replay of captured readings that says so on screen. */

@@ -5,7 +5,7 @@
 
 import data from "./preview-data.json";
 import driverReport from "./preview-driver.json";
-import type { RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, UpdateState, TrafficBucket, DriverReport, DriverPlan, DriverOp, ShortcutsState, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { TestlabProgress, TestlabReport, RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, UpdateState, TrafficBucket, DriverReport, DriverPlan, DriverOp, ShortcutsState, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 // The captured profiles predate the screen and notification settings.
@@ -723,4 +723,58 @@ export const mockApi = {
     listeners.add(f);
     return () => listeners.delete(f);
   },
+  // The test lab: walks the real step ids, a step every 250 ms.
+  testlabRun: async (): Promise<TestlabReport> => {
+    const ids = ["recover", "env", "services", "sensors", "speed", "gpu", "cpu-bench", "gamemode", "profiles", "games", "playtime", "history", "ping", "power", "fans", "net", "overlay", "recorder", "misc", "drivers", "cleanup"];
+    for (let i = 0; i < ids.length; i++) {
+      labListeners.forEach((f) => f({ done: i, total: ids.length, id: ids[i], label: ids[i] }));
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    labListeners.forEach((f) => f({ done: ids.length, total: ids.length, id: "done", label: "Done" }));
+    return { text: sampleReport, passed: 31, warned: 3, failed: 0, skipped: 2, leftovers: [], checks: [] };
+  },
+  testlabRecover: async (): Promise<string[]> => [],
+  testlabSave: async (_text: string) => "/home/you/Downloads/unix-guardian-test-report-2026-10-04-15-40.txt",
+  onTestlabProgress: async (f: (p: TestlabProgress) => void) => {
+    labListeners.add(f);
+    return () => labListeners.delete(f);
+  },
 };
+
+const labListeners = new Set<(p: TestlabProgress) => void>();
+const sampleReport = `Unix Guardian test lab report
+=============================
+Made 2026-10-04 15:40 UTC, took 41 s. Report format 1.
+Personal details were removed (home folder, user and host names, disk IDs,
+MAC and IP addresses). Please read it before sending.
+
+RESULT: 31 passed, 3 warnings, 0 failed, 2 skipped
+
+THIS COMPUTER
+  App           Unix Guardian 0.1.0-beta.1 (window)
+  Distribution  Parrot Security 7.3 (echo) 7.3 (id parrot, Apt, tier One)
+  Kernel        7.0.13+parrot7-amd64
+  Desktop       KDE on wayland
+  CPU           12th Gen Intel(R) Core(TM) i5-12450HX — 12 threads, 8 cores
+  GPU 2         NVIDIA GeForce RTX 3050 6GB Laptop GPU at 0000:01:00.0, driver nvidia 550.163.01
+
+CHECKS
+  [PASS] service: reachable — version 0.1.0-beta.1, protocol 1, 4 ms
+  [PASS] sensors: CPU temperature — 52.0 °C
+  [WARN] sensors: GPU 0000:00:02.0 — reads: nothing
+  [PASS] game mode: turn on — applied: CPU set to performance on 12 cores
+  [PASS] game mode: CPU settings back as they were — governor powersave
+  [SKIP] recorder: gpu-screen-recorder — not set up
+
+MEASUREMENTS
+  CPU one thread   182 M rounds/s
+  CPU all threads  1032 M rounds/s on 12 threads (5.7× one thread)
+
+NOT TESTED AUTOMATICALLY (needs a manual test)
+  - GPU tuning (power limit, clock offsets): asks for the administrator password
+
+PUT BACK
+  Everything the test turned on was turned off again.
+
+Send this report to unixguardian@atomicmail.io
+`;
