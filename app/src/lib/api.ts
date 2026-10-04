@@ -209,6 +209,31 @@ export interface AgentSettings {
   /** Seconds between looks for running games, 1 to 10. */
   scan_interval_s: number;
   close_window_on_game: boolean;
+  /** Look for a new version once a day. */
+  check_updates: boolean;
+}
+export interface UpdateState {
+  current: string;
+  /** The newer release's tag; "" when this is the newest. */
+  latest: string;
+  name: string;
+  /** Release notes, Markdown as written on GitHub. */
+  notes: string;
+  url: string;
+  published: string;
+  /** How this copy was installed. */
+  kind: "package" | "tarball" | "development" | "none";
+  /** For package and development: the command that updates it. */
+  how: string;
+  can_install: boolean;
+  /** 0: never checked. */
+  checked_unix_ms: number;
+  checking: boolean;
+  step: "" | "downloading" | "installing";
+  result: string;
+  /** The version a rollback returns to; "" when there is none. */
+  previous: string;
+  problem: string;
 }
 export interface SettingsState {
   settings: AgentSettings;
@@ -535,6 +560,10 @@ const tauriApi = {
   driverKeep: (opId: string) => invoke<void>("driver_keep", { opId }),
   settingsState: () => invoke<SettingsState>("settings_state"),
   settingsSet: (settings: AgentSettings) => invoke<void>("settings_set", { settings }),
+  updateState: () => invoke<UpdateState>("update_state"),
+  updateCheck: () => invoke<UpdateState>("update_check"),
+  updateInstall: () => invoke<void>("update_install"),
+  updateRollback: () => invoke<string>("update_rollback"),
   reportBug: (context: string) => invoke<void>("report_bug", { context }),
   battery: () => invoke<BatteryCare>("battery"),
   setBatteryCare: (mode: string, limit: number) => invoke<void>("set_battery_care", { mode, limit }),

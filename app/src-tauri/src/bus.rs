@@ -807,6 +807,31 @@ pub async fn settings_set(bus: State<'_, Bus>, settings: ug_proto::AgentSettings
 }
 
 #[tauri::command]
+pub async fn update_state(bus: State<'_, Bus>) -> Res<ug_proto::UpdateState> {
+    let u = ug_proto::agent::UpdateProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    u.state().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn update_check(bus: State<'_, Bus>) -> Res<ug_proto::UpdateState> {
+    let u = ug_proto::agent::UpdateProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    u.check().await.map_err(agent_err)
+}
+
+/// Starts the download and install; `update_state` follows it.
+#[tauri::command]
+pub async fn update_install(bus: State<'_, Bus>) -> Res<()> {
+    let u = ug_proto::agent::UpdateProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    u.install().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn update_rollback(bus: State<'_, Bus>) -> Res<String> {
+    let u = ug_proto::agent::UpdateProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    u.rollback().await.map_err(agent_err)
+}
+
+#[tauri::command]
 pub async fn traffic(bus: State<'_, Bus>, since_unix_ms: u64) -> Res<Vec<DayTraffic>> {
     let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;
     m.traffic(since_unix_ms).await.map_err(agent_err)

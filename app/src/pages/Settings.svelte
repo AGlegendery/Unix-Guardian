@@ -100,6 +100,13 @@
       <p class="small">{t().settings.closeWindowNote}</p>
     </div>
     <div class="field">
+      <div class="row">
+        <span>{t().settings.checkUpdates}</span>
+        <Switch checked={st.settings.check_updates} label={t().settings.checkUpdates} onchange={(v) => change({ check_updates: v })} />
+      </div>
+      <p class="small">{t().settings.checkUpdatesNote}</p>
+    </div>
+    <div class="field">
       <span>{t().settings.scan}</span>
       {#if st.scan_interval_fixed}
         <p><b>{st.settings.scan_interval_s} {t().settings.seconds}</b></p>

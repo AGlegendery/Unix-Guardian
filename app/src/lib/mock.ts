@@ -5,7 +5,7 @@
 
 import data from "./preview-data.json";
 import driverReport from "./preview-driver.json";
-import type { RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, DriverReport, DriverPlan, DriverOp, ShortcutsState, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, UpdateState, DriverReport, DriverPlan, DriverOp, ShortcutsState, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -15,7 +15,26 @@ const bat: BatteryCare = { supported: true, method: "vendor-long-life", adjustab
 const watches: PowerWatch[] = [];
 let t = 0;
 const driverOps: DriverOp[] = [];
-let agentSettings: AgentSettings = { notifications: true, scan_interval_s: 2, close_window_on_game: false };
+let agentSettings: AgentSettings = { notifications: true, scan_interval_s: 2, close_window_on_game: false, check_updates: true };
+// `?update=none` previews an up-to-date copy.
+const updateNone = typeof location !== "undefined" && location.search.includes("update=none");
+const update: UpdateState = {
+  current: "0.1.0-beta.1",
+  latest: updateNone ? "" : "v0.1.0-beta.2",
+  name: updateNone ? "" : "Unix Guardian 0.1.0 beta 2",
+  notes: updateNone ? "" : "## What's new\n\n- Updates install from the window, the terminal interface and `ug update --install`.\n- The driver troubleshooter knows more Wi-Fi cards.\n\n## Fixed\n\n- The Settings page no longer turns the daily update check back on.",
+  url: "https://github.com/AGlegendery/Unix-Guardian/releases",
+  published: "2026-10-04T10:00:00Z",
+  kind: "tarball",
+  how: "",
+  can_install: !updateNone,
+  checked_unix_ms: Date.now() - 3 * 3600_000,
+  checking: false,
+  step: "",
+  result: "",
+  previous: "",
+  problem: "",
+};
 // `?recorder=missing` previews the recorder before Set up.
 const recorderMissing = typeof location !== "undefined" && location.search.includes("recorder=missing");
 const recorder: RecorderState = {
@@ -424,6 +443,32 @@ export const mockApi = {
     if (!op) throw "There is no driver change to undo.";
     op.log.push("Removed the file (preview)");
     op.state = "undone";
+  },
+  updateState: async (): Promise<UpdateState> => ({ ...update }),
+  updateCheck: async (): Promise<UpdateState> => {
+    await new Promise((r) => setTimeout(r, 900));
+    update.checked_unix_ms = Date.now();
+    return { ...update };
+  },
+  updateInstall: async () => {
+    if (!update.can_install) throw "There is nothing newer to install.";
+    update.step = "downloading";
+    setTimeout(() => (update.step = "installing"), 2500);
+    setTimeout(() => {
+      update.step = "";
+      update.previous = update.current;
+      update.current = update.latest.replace(/^v/, "");
+      update.result = `Installed ${update.latest} (preview).`;
+      update.latest = "";
+      update.can_install = false;
+    }, 5000);
+  },
+  updateRollback: async () => {
+    if (!update.previous) throw "There is no earlier version to go back to.";
+    const back = update.previous;
+    update.previous = "";
+    update.current = back;
+    return `Back to ${back} (preview).`;
   },
   settingsState: async (): Promise<SettingsState> => ({
     settings: { ...agentSettings },
