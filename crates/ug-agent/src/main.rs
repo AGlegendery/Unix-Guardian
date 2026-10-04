@@ -244,6 +244,9 @@ async fn main() -> Result<()> {
         tokio::task::spawn_blocking(move || {
             let mut core = AgentCore::new(SysRoot::real(), &home, &ug_core::paths::user_config(), playtime, uid);
             core.set_test_run(test_run);
+            // In the data folder, not the runtime one: test runs give the
+            // agent a scratch data folder, so they never touch this file.
+            core.keep_paused_in(ug_core::paths::user_data().join("paused.json"));
             core
         })
         .await?,

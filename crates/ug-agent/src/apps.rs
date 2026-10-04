@@ -5,8 +5,14 @@
 //! and `SIGCONT` resumes it exactly where it stopped. Its CPU and GPU use drop
 //! to zero while paused, which is the point. Only the user's own processes are
 //! touched, so no privilege is involved.
+//!
+//! The list of paused processes is also kept in a file, written before each
+//! `SIGSTOP`: an agent that crashes, is killed or is replaced by an update
+//! while a game runs would otherwise leave those apps frozen until the user
+//! found and killed them. The next agent resumes them first thing.
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 use ug_hw::SysRoot;
 
 /// Processes this agent paused, so exactly those — and only those — are
@@ -14,9 +20,40 @@ use ug_hw::SysRoot;
 #[derive(Debug, Default)]
 pub struct Paused {
     pids: BTreeSet<(i32, u64)>,
+    /// Where the list is kept across a crash; none in tests.
+    file: Option<PathBuf>,
 }
 
 impl Paused {
+    /// Keeps the list in `file`, and resumes what an earlier agent left
+    /// paused there. Returns how many were resumed.
+    pub fn keep_in(&mut self, root: &SysRoot, file: PathBuf) -> usize {
+        let left: Vec<(i32, u64)> = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        self.file = Some(file);
+        self.pids.extend(left);
+        let n = self.resume_all(root);
+        if n > 0 {
+            tracing::warn!(count = n, "resumed apps an earlier agent had paused and not resumed");
+        }
+        n
+    }
+
+    fn save(&self) {
+        let Some(f) = &self.file else { return };
+        let r = if self.pids.is_empty() {
+            match std::fs::remove_file(f) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+                _ => Ok(()),
+            }
+        } else {
+            let v: Vec<&(i32, u64)> = self.pids.iter().collect();
+            ug_core::paths::write_atomic(f, serde_json::to_string(&v).unwrap_or_default().as_bytes())
+        };
+        if let Err(e) = r {
+            tracing::warn!(error = %e, file = %f.display(), "could not record paused apps");
+        }
+    }
+
     /// Pauses every process of `uid` whose name matches one of `names`
     /// (compared to `comm`, case-insensitively). Returns the names paused.
     pub fn pause_matching(&mut self, root: &SysRoot, uid: u32, names: &[String], protect: &[i32]) -> Vec<String> {
@@ -36,12 +73,18 @@ impl Paused {
             if already_stopped(root, pid) {
                 continue; // not ours to resume later
             }
+            // On disk before the stop, so a crash right after it still
+            // leaves the way back.
+            self.pids.insert((pid, p.start_ticks));
+            self.save();
             // SAFETY: kill with a valid signal number has no memory-safety preconditions.
             if unsafe { libc::kill(pid, libc::SIGSTOP) } == 0 {
-                self.pids.insert((pid, p.start_ticks));
                 if !hit.contains(&p.comm) {
                     hit.push(p.comm.clone());
                 }
+            } else {
+                self.pids.remove(&(pid, p.start_ticks));
+                self.save();
             }
         }
         if !hit.is_empty() {
@@ -65,6 +108,7 @@ impl Paused {
                 _ => {}
             }
         }
+        self.save();
         if n > 0 {
             tracing::info!(count = n, "resumed paused applications");
         }
@@ -138,6 +182,35 @@ mod tests {
             let _ = c.kill();
             let _ = c.wait();
         }
+    }
+
+    #[test]
+    fn apps_paused_by_an_agent_that_died_are_resumed_by_the_next_one() {
+        let uid = unsafe { libc::getuid() };
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("paused.json");
+        // Resumed and killed even if an assertion fails: a stopped stray
+        // would outlive the test.
+        struct Reap(Child);
+        impl Drop for Reap {
+            fn drop(&mut self) {
+                unsafe { libc::kill(self.0.id() as i32, libc::SIGCONT) };
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let app = Reap(spawn_named("ugfakechatcrash"));
+        let app = &app.0;
+        let mut first = Paused::default();
+        assert_eq!(first.keep_in(&SysRoot::real(), file.clone()), 0);
+        first.pause_matching(&SysRoot::real(), uid, &["ugfakechatcrash".into()], &[]);
+        assert!(wait_state(app.id(), 'T'));
+        drop(first); // the agent is killed: no resume_all
+
+        let mut next = Paused::default();
+        assert_eq!(next.keep_in(&SysRoot::real(), file.clone()), 1);
+        assert!(wait_state(app.id(), 'S'), "running again");
+        assert!(!file.exists(), "nothing left to resume");
     }
 
     #[test]

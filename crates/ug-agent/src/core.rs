@@ -294,6 +294,12 @@ impl AgentCore {
         }
     }
 
+    /// Keeps the list of paused apps in `file` and resumes what a crashed
+    /// agent left paused there.
+    pub fn keep_paused_in(&mut self, file: std::path::PathBuf) -> usize {
+        self.paused.keep_in(&self.root, file)
+    }
+
     /// Records the end of every running session, for a clean shutdown.
     pub fn shutdown(&mut self, wall_ms: u64) {
         self.heartbeat(wall_ms);
