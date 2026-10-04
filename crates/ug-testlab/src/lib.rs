@@ -14,10 +14,10 @@
 //! - Everything turned on is verified, then turned off; the undo is on disk
 //!   before the change ([`journal`]), and the next start puts back whatever an
 //!   interrupted run left ([`recover`]).
-//! - Nothing that touches the whole session or the compositor
-//!   (`environment.d`, `/etc/environment`), no log-out or restart, no package
-//!   installs, nothing behind a password prompt: those are listed as
-//!   "needs a manual test" (the 2026-10-04 incident, see 05-findings).
+//! - Nothing that touches the whole desktop session or the compositor (the
+//!   places `ug_core::session_env` lists), no log-out or restart, no
+//!   package installs, nothing behind a password prompt: those are listed
+//!   as "needs a manual test" (the 2026-10-04 incident, see 05-findings).
 //! - Personal identifiers are removed from the whole text ([`scrub`]), and
 //!   nothing is ever sent: the user copies or saves it.
 
