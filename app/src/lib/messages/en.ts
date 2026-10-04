@@ -274,7 +274,7 @@ export const en = {
     or: "or at",
   },
   mon: {
-    averages: "Averages",
+    avg: "average",
     peak: "peak",
     title: "Monitoring",
     tabs: { fps: "FPS", thermal: "Temperature and power", traffic: "Internet traffic" },

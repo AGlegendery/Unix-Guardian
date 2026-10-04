@@ -276,7 +276,7 @@ export const fa: typeof en = {
     or: "یا ساعت",
   },
   mon: {
-    averages: "میانگین‌ها",
+    avg: "میانگین",
     peak: "بیشینه",
     title: "مانیتورینگ",
     tabs: { fps: "مانیتورینگ FPS", thermal: "دما و مصرف", traffic: "ترافیک اینترنت" },

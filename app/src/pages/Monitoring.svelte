@@ -155,40 +155,19 @@
       ...(hasGpu ? [{ label: t().mon.gpu, color: GPU, values: points.map(gpu) }] : []),
     ];
   }
-  // The history views: every reading the live view shows, as an average
-  // and a peak over the range, and as a chart.
-  type Metric = { label: string; unit: string; digits: number; get: (p: HistoryPoint) => number | null };
-  const metrics = $derived<Metric[]>([
-    { label: `${t().mon.temp} · ${t().mon.cpu}`, unit: "°", digits: 0, get: (p) => p.cpu_temp_c },
-    { label: `${t().mon.temp} · ${t().mon.gpu}`, unit: "°", digits: 0, get: (p) => p.gpu_temp_c },
-    { label: `${t().mon.load} · ${t().mon.cpu}`, unit: "٪", digits: 0, get: (p) => p.cpu_load_pct },
-    { label: `${t().mon.load} · ${t().mon.gpu}`, unit: "٪", digits: 0, get: (p) => p.gpu_load_pct },
-    { label: `${t().mon.power} · ${t().mon.cpu}`, unit: ` ${t().unit.w}`, digits: 1, get: (p) => p.cpu_w },
-    { label: `${t().mon.power} · ${t().mon.gpu}`, unit: ` ${t().unit.w}`, digits: 1, get: (p) => p.gpu_w },
-    { label: t().mon.live.cpuMax, unit: ` ${t().unit.mhz}`, digits: 0, get: (p) => p.cpu_mhz },
-    { label: `${t().mon.live.clocks} · ${t().mon.gpu}`, unit: ` ${t().unit.mhz}`, digits: 0, get: (p) => p.gpu_mhz },
-    { label: t().mon.live.ram, unit: ` ${t().unit.gb}`, digits: 1, get: (p) => p.mem_used_kb / 1_048_576 },
-    { label: t().mon.live.swap, unit: ` ${t().unit.gb}`, digits: 2, get: (p) => (p.swap_used_kb == null ? null : p.swap_used_kb / 1_048_576) },
-    { label: `${t().mon.live.network} · ${t().mon.down}`, unit: " MB/s", digits: 2, get: (p) => mb(p.net_rx_bps) },
-    { label: `${t().mon.live.network} · ${t().mon.up}`, unit: " MB/s", digits: 2, get: (p) => mb(p.net_tx_bps) },
-    { label: `${t().mon.live.disk} · ${t().mon.live.read}`, unit: " MB/s", digits: 1, get: (p) => mb(p.disk_read_bps) },
-    { label: `${t().mon.live.disk} · ${t().mon.live.write}`, unit: " MB/s", digits: 1, get: (p) => mb(p.disk_write_bps) },
-    { label: t().mon.live.busy, unit: "٪", digits: 0, get: (p) => p.disk_busy_pct },
-    { label: t().mon.live.load1, unit: "", digits: 2, get: (p) => p.load_avg_1 },
-    { label: t().mon.live.procs, unit: "", digits: 0, get: (p) => p.processes },
-    { label: t().mon.live.battery, unit: ` ${t().unit.w}`, digits: 1, get: (p) => p.battery_w },
-  ]);
+  // Under each history chart: each line's average and peak over the range.
+  type Stat = [label: string, get: (p: HistoryPoint) => number | null, unit: string, digits: number];
   function mb(v: number | null): number | null {
     return v == null ? null : v / 1e6;
   }
-  const summary = $derived(
-    metrics
-      .map((m) => {
-        const vals = points.map(m.get).filter((v): v is number => v != null && Number.isFinite(v));
-        return { m, n: vals.length, avg: vals.reduce((a, b) => a + b, 0) / Math.max(1, vals.length), peak: Math.max(...vals) };
+  function figures(list: Stat[]) {
+    return list
+      .map(([label, get, unit, digits]) => {
+        const vals = points.map(get).filter((v): v is number => v != null && Number.isFinite(v));
+        return { label, unit, digits, n: vals.length, avg: vals.reduce((x, y) => x + y, 0) / Math.max(1, vals.length), peak: Math.max(...vals) };
       })
-      .filter((r) => r.n > 0),
-  );
+      .filter((r) => r.n > 0);
+  }
   const timeStyle = $derived(range === "week" ? "weekday" : "clock");
   function series(a: [string, string, (p: HistoryPoint) => number | null], b?: [string, string, (p: HistoryPoint) => number | null]) {
     const one = (x: [string, string, (p: HistoryPoint) => number | null]) => ({ label: x[0], color: x[1], values: points.map(x[2]) });
@@ -203,6 +182,14 @@
     return new Intl.DateTimeFormat(locale.current === "fa" ? "fa-IR" : "en-GB", { weekday: "short" }).format(new Date(date + "T12:00"));
   }
 </script>
+
+{#snippet stats(list: Stat[])}
+  <p class="figs">
+    {#each figures(list) as f (f.label)}
+      <span><b>{f.label}</b> {t().mon.avg} <bdi>{num(f.avg, f.digits)}{f.unit}</bdi> · {t().mon.peak} <bdi>{num(f.peak, f.digits)}{f.unit}</bdi></span>
+    {/each}
+  </p>
+{/snippet}
 
 <header class="head">
   <h1>{t().mon.title}</h1>
@@ -369,55 +356,52 @@
   {:else if loaded && points.length < 2}
     <section class="card"><p class="muted">{t().mon.empty}</p></section>
   {:else}
-    <section class="card">
-      <h2>{t().mon.averages} <small class="muted">{t().mon.ranges[range]}</small></h2>
-      <div class="avg-grid">
-        {#each summary as r (r.m.label)}
-          <div class="avg">
-            <span class="label">{r.m.label}</span>
-            <b>{num(r.avg, r.m.digits)}<small>{r.m.unit}</small></b>
-            <span class="peak">{t().mon.peak} {num(r.peak, r.m.digits)}{r.m.unit}</span>
-          </div>
-        {/each}
-      </div>
-    </section>
     <div class="charts">
       <section class="card">
         <h2>{t().mon.temp}</h2>
         <LineChart {times} series={pair((p) => p.cpu_temp_c, (p) => p.gpu_temp_c)} waiting="" mode="history" height={160} {timeStyle} />
+        {@render stats([[t().mon.cpu, (p) => p.cpu_temp_c, "°", 0], [t().mon.gpu, (p) => p.gpu_temp_c, "°", 0]])}
       </section>
       <section class="card">
         <h2>{t().mon.load}</h2>
         <LineChart {times} series={pair((p) => p.cpu_load_pct, (p) => p.gpu_load_pct)} waiting="" unit="٪" range={[0, 100]} mode="history" height={160} {timeStyle} />
+        {@render stats([[t().mon.cpu, (p) => p.cpu_load_pct, "٪", 0], [t().mon.gpu, (p) => p.gpu_load_pct, "٪", 0]])}
       </section>
       <section class="card">
         <h2>{t().mon.power}</h2>
         <LineChart {times} series={pair((p) => p.cpu_w, (p) => p.gpu_w)} waiting="" unit={` ${t().unit.w}`} range={[0, 30]} mode="history" height={160} {timeStyle} />
+        {@render stats([[t().mon.cpu, (p) => p.cpu_w, ` ${t().unit.w}`, 1], [t().mon.gpu, (p) => p.gpu_w, ` ${t().unit.w}`, 1]])}
       </section>
       <section class="card">
         <h2>{t().mon.live.clocks} <small class="muted">{t().unit.mhz}</small></h2>
         <LineChart {times} series={series([t().mon.live.cpuMax, CPU, (p) => p.cpu_mhz], [t().mon.live.gpuClock, GPU, (p) => p.gpu_mhz])} waiting="" unit="" range={[0, 3000]} mode="history" height={160} {timeStyle} />
+        {@render stats([[t().mon.live.cpuMax, (p) => p.cpu_mhz, ` ${t().unit.mhz}`, 0], [t().mon.live.gpuClock, (p) => p.gpu_mhz, ` ${t().unit.mhz}`, 0]])}
       </section>
       <section class="card">
         <h2>{t().mon.live.memory} <small class="muted">{t().unit.gb}</small></h2>
         <LineChart {times} series={series([t().mon.live.ram, CPU, (p) => p.mem_used_kb / 1_048_576], [t().mon.live.swap, GPU, (p) => (p.swap_used_kb == null ? null : p.swap_used_kb / 1_048_576)])} waiting="" unit="" digits={1} mode="history" height={160} {timeStyle} />
+        {@render stats([[t().mon.live.ram, (p) => p.mem_used_kb / 1_048_576, ` ${t().unit.gb}`, 1], [t().mon.live.swap, (p) => (p.swap_used_kb == null ? null : p.swap_used_kb / 1_048_576), ` ${t().unit.gb}`, 2]])}
       </section>
       <section class="card">
         <h2>{t().mon.live.network} <small class="muted">MB/s</small></h2>
         <LineChart {times} series={series([t().mon.down, CPU, (p) => mb(p.net_rx_bps)], [t().mon.up, GPU, (p) => mb(p.net_tx_bps)])} waiting="" unit="" digits={2} range={[0, 1]} mode="history" height={160} {timeStyle} />
+        {@render stats([[t().mon.down, (p) => mb(p.net_rx_bps), " MB/s", 2], [t().mon.up, (p) => mb(p.net_tx_bps), " MB/s", 2]])}
       </section>
       <section class="card">
         <h2>{t().mon.live.disk} <small class="muted">MB/s</small></h2>
         <LineChart {times} series={series([t().mon.live.read, CPU, (p) => mb(p.disk_read_bps)], [t().mon.live.write, GPU, (p) => mb(p.disk_write_bps)])} waiting="" unit="" digits={1} range={[0, 5]} mode="history" height={160} {timeStyle} />
+        {@render stats([[t().mon.live.read, (p) => mb(p.disk_read_bps), " MB/s", 1], [t().mon.live.write, (p) => mb(p.disk_write_bps), " MB/s", 1], [t().mon.live.busy, (p) => p.disk_busy_pct, "٪", 0]])}
       </section>
       <section class="card">
         <h2>{t().mon.live.load1}</h2>
         <LineChart {times} series={series([t().mon.live.load1, CPU, (p) => p.load_avg_1])} waiting="" unit="" digits={2} range={[0, 4]} mode="history" height={160} {timeStyle} />
+        {@render stats([[t().mon.live.load1, (p) => p.load_avg_1, "", 2], [t().mon.live.procs, (p) => p.processes, "", 0]])}
       </section>
       {#if points.some((p) => p.battery_w != null)}
         <section class="card">
           <h2>{t().mon.live.battery}</h2>
           <LineChart {times} series={series([t().mon.live.battery, CPU, (p) => p.battery_w])} waiting="" unit={` ${t().unit.w}`} digits={1} range={[0, 20]} mode="history" height={160} {timeStyle} />
+        {@render stats([[t().mon.live.battery, (p) => p.battery_w, ` ${t().unit.w}`, 1]])}
         </section>
       {/if}
     </div>
@@ -532,10 +516,7 @@
   .seg.down { background: #8f6af2; }
   .bar-val { font-size: 0.72rem; color: var(--text-2); white-space: nowrap; }
   .bar-day { font-size: 0.75rem; color: var(--text-3); }
-  .avg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
-  .avg { display: grid; gap: 2px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--card-2); min-width: 0; }
-  .avg .label { color: var(--text-2); font-size: 0.78rem; }
-  .avg b { font-size: 1.2rem; font-weight: 800; }
-  .avg b small { font-size: 0.75rem; font-weight: 500; color: var(--text-2); }
-  .avg .peak { color: var(--text-3); font-size: 0.75rem; }
+  .figs { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0 0; font-size: 0.78rem; color: var(--text-3); }
+  .figs b { color: var(--text-2); font-weight: 600; }
+  .figs bdi { color: var(--text); }
 </style>
