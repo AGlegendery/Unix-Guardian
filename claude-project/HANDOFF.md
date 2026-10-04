@@ -93,7 +93,7 @@ need sudo, pushing, P7+).
    (`Profiles.SetGameMode`, `ug profile on|off`, TUI `g`).
 3. ✅ Monitoring: hour/day/week averages with charts for everything the
    Live view shows (history table needs the extra columns).
-4. ○ Playtime: more precise charts, more features.
+4. ✅ Playtime: charts by game per day, day sessions, hours of day, figures.
 5. ○ Profiles: more options, each can be turned on at once (part done
    in 2; still: new options, custom profiles, pause_apps editing).
 
