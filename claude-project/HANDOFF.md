@@ -139,7 +139,8 @@ opened half way down, stuck in WebKitGTK); each page now opens at its top.
   disk UUID `ba83246d-…` and MAC `b8:1e:a4:…` from history with
   git filter-repo (replacements: the fakes already in HEAD) before the repo
   goes public. A venv with filter-repo was made in the session scratchpad.
-- Then: push, make public, `git push origin v0.1.0-beta.1` (tag from
+- **2026-10-04 09:55 the user said: do NOT make the repo public and do not
+  release yet; they have more changes first.** Later, when they say so: push, make public, `git push origin v0.1.0-beta.1` (tag from
   `scripts/release.sh` is not made yet; version already 0.1.0-beta.1, so
   tag with `git tag -a v0.1.0-beta.1`), check the draft release, publish.
 
