@@ -119,8 +119,10 @@ After reinstalling, the window showed "Signature mismatch": an autostarted
 agent from before the update kept the bus name. Fixed (new agent takes over
 from an outdated one; clear message in CLI and window). Seen on the real
 gpu-screen-recorder for the first time: `--list-capture-options` gives
-`eDP-1` and several `/dev/video0` lines (cameras) and no `portal` here;
-the capture list needs deduplicating and camera lines filtered. Next.
+`eDP-1`, `region`, nine `/dev/video0|…` camera modes and `portal`;
+cameras and duplicates are now left out (test with the real lines). Also
+fixed: switching pages kept the shared scroll area's position (a new page
+opened half way down, stuck in WebKitGTK); each page now opens at its top.
 
 ## In progress
 

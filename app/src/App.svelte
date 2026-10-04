@@ -43,6 +43,14 @@
   // `#gamemode` in the URL opens that page (handy in the browser preview).
   const fromHash = location.hash.slice(1).split("/")[0] as Page;
   let page = $state<Page>(pages.some(([p]) => p === fromHash) ? fromHash : "dashboard");
+  // One scroll area serves every page, so a new page would open at the
+  // last page's scroll position, half way down and, in WebKitGTK, stuck
+  // there until resized (2026-10-04). Each page opens at its top.
+  let content = $state<HTMLElement | null>(null);
+  $effect(() => {
+    page;
+    if (content) content.scrollTop = 0;
+  });
   let overview = $state<Overview | null>(null);
 
   // A narrow sidebar with icons only; remembered on this computer.
@@ -155,7 +163,7 @@
     </div>
   </nav>
 
-  <main class="content">
+  <main class="content" bind:this={content}>
     {#if loadError}
       <Problem text={loadError} />
     {/if}

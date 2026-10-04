@@ -61,18 +61,27 @@ pub fn find_engine(home: &Path) -> Option<Engine> {
 
 /// `--list-capture-options` lines: `portal`, `screen`, `DP-1|2560x1440`;
 /// window and region capture need more than a name, so they are left out.
+/// Cameras (`/dev/video0|1280x720@30hz|mjpeg`, one line per mode) are
+/// left out: this records the screen. Each name is offered once.
 pub fn parse_captures(out: &str) -> Vec<(String, Option<(u32, u32)>)> {
-    out.lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !matches!(*l, "window" | "focused" | "region"))
-        .map(|l| match l.split_once('|') {
+    let mut v: Vec<(String, Option<(u32, u32)>)> = Vec::new();
+    for l in out.lines().map(str::trim) {
+        if l.is_empty() || l.starts_with("/dev/") || matches!(l, "window" | "focused" | "region") {
+            continue;
+        }
+        let c = match l.split_once('|') {
             Some((name, res)) => {
+                let res = res.split('|').next().unwrap_or(res);
                 let wh = res.split_once('x').and_then(|(w, h)| Some((w.trim().parse().ok()?, h.trim().parse().ok()?)));
                 (name.to_string(), wh)
             }
             None => (l.to_string(), None),
-        })
-        .collect()
+        };
+        if !v.iter().any(|x| x.0 == c.0) {
+            v.push(c);
+        }
+    }
+    v
 }
 
 /// About how many megabytes a minute takes: gpu-screen-recorder's quality
@@ -718,6 +727,15 @@ mod tests {
         assert!(install_failure(&["error: No remote refs found for 'x'".into()]).starts_with("flatpak install failed: error: No remote"));
         assert_eq!(parse_progress("Installing 3/7… ██▍   42%  1.2 MB/s  00:30"), Some((3, 7, 42)));
         assert_eq!(parse_progress("Looking for matches…"), None);
+    }
+
+    /// The real gpu-screen-recorder 5 (Flatpak) on the laptop, 2026-10-04:
+    /// the webcam came back as nine `/dev/video0` choices.
+    #[test]
+    fn cameras_are_not_offered_and_nothing_twice() {
+        let real = "eDP-1|1920x1080\nregion\n/dev/video0|1280x720@30hz|mjpeg\n/dev/video0|1280x720@10hz|yuyv\n\
+                    /dev/video0|640x480@30hz|mjpeg\nportal\neDP-1|1920x1080\n";
+        assert_eq!(parse_captures(real), [("eDP-1".to_string(), Some((1920, 1080))), ("portal".into(), None)]);
     }
 
     #[test]
