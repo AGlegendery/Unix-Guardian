@@ -1006,7 +1006,7 @@ mod tests {
         app.refresh();
         assert!(render(&mut app, 120, 34).contains("Cannot reach the session bus"), "says why when there is no agent");
         app.settings.store(Ok(ug_proto::SettingsState {
-            settings: ug_proto::AgentSettings { notifications: false, scan_interval_s: 5, close_window_on_game: true },
+            settings: ug_proto::AgentSettings { notifications: false, scan_interval_s: 5, close_window_on_game: true, check_updates: true },
             agent_version: "0.1.0".into(),
             config_dir: "/home/u/.config/unix-guardian".into(),
             data_dir: "/home/u/.local/share/unix-guardian".into(),
