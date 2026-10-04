@@ -103,6 +103,18 @@
     </defaults>
   </action>
 
+  <action id="org.unixguardian.update.install">
+    <description>Install a new version of Unix Guardian, or go back to the earlier one</description>
+    <description xml:lang="fa">نصب نسخه‌ی جدید Unix Guardian، یا برگشتن به نسخه‌ی قبلی</description>
+    <message>Authentication is required to update Unix Guardian.</message>
+    <message xml:lang="fa">برای به‌روزرسانی Unix Guardian احراز هویت لازم است.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+  </action>
+
   <action id="org.unixguardian.daemon.debug">
     <description>Change Unix Guardian diagnostic settings</description>
     <description xml:lang="fa">تغییر تنظیمات عیب‌یابی Unix Guardian</description>

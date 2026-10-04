@@ -70,6 +70,11 @@ if live; then
   systemctl restart unix-guardiand.service
   systemctl --global enable ug-agent.service
   command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t /usr/local/share/icons/hicolor 2>/dev/null || true
+  # Each logged-in user's agent restarts with the new program; a new agent
+  # also takes over from an old one started some other way.
+  for u in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $2}'); do
+    systemctl --user -M "$u@" restart ug-agent.service 2>/dev/null || true
+  done
 fi
 echo "Installed. The agent starts at your next login, or now (as yourself, no sudo):"
 echo "  systemctl --user daemon-reload && systemctl --user start ug-agent"

@@ -435,6 +435,13 @@ pub struct UpdateState {
     /// When the last check finished (0: never), and whether one runs now.
     pub checked_unix_ms: u64,
     pub checking: bool,
+    /// Installing: `downloading`, `installing` (waiting for the password
+    /// and the daemon), or "".
+    pub step: String,
+    /// What the last install or rollback did.
+    pub result: String,
+    /// The version a rollback returns to; "" when there is none.
+    pub previous: String,
     /// Why the last check failed; "" when it did not.
     pub problem: String,
 }

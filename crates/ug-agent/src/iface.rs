@@ -379,6 +379,15 @@ impl SettingsIface {
 /// `org.unixguardian.Agent1.Update`
 pub struct UpdateIface {
     pub updater: Arc<crate::update::Updater>,
+    pub daemon_session: bool,
+}
+
+impl UpdateIface {
+    async fn daemon(&self) -> zbus::fdo::Result<ug_proto::daemon::UpdateProxy<'static>> {
+        let conn = if self.daemon_session { zbus::Connection::session().await } else { zbus::Connection::system().await }
+            .map_err(|e| zbus::fdo::Error::Failed(format!("The Unix Guardian service is not reachable ({e}).")))?;
+        ug_proto::daemon::UpdateProxy::new(&conn).await.map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
+    }
 }
 
 #[zbus::interface(name = "org.unixguardian.Agent1.Update")]
@@ -387,10 +396,27 @@ impl UpdateIface {
         self.updater.state()
     }
 
+    async fn install(&self) -> zbus::fdo::Result<()> {
+        self.updater.begin_install(self.daemon_session).map_err(zbus::fdo::Error::Failed)
+    }
+
+    async fn rollback(&self) -> zbus::fdo::Result<String> {
+        self.daemon().await?.rollback().await.map_err(|e| match e {
+            zbus::Error::MethodError(_, Some(m), _) => zbus::fdo::Error::Failed(m),
+            e => zbus::fdo::Error::Failed(e.to_string()),
+        })
+    }
+
     async fn check(&self) -> zbus::fdo::Result<ug_proto::UpdateState> {
         let u = Arc::clone(&self.updater);
-        let (s, _) = tokio::task::spawn_blocking(move || u.check(now_ms())).await.map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
-        Ok(s)
+        tokio::task::spawn_blocking(move || u.check(now_ms())).await.map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        // Whether there is a version to go back to, from the service.
+        if let Ok(d) = self.daemon().await {
+            if let Ok(p) = d.previous().await {
+                self.updater.set_previous(p);
+            }
+        }
+        Ok(self.updater.state())
     }
 }
 

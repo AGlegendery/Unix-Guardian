@@ -304,6 +304,21 @@ pub mod daemon {
         fn set_fan_mode(&self, mode: i32) -> zbus::Result<()>;
     }
 
+    /// Installing a release the user chose, and going back.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Daemon1.Update",
+        default_service = "org.unixguardian.Daemon1",
+        default_path = "/org/unixguardian/Daemon1"
+    )]
+    pub trait Update {
+        /// The version a rollback returns to; "" when there is none.
+        fn previous(&self) -> zbus::Result<String>;
+        /// Checks the tarball's signature and installs it (polkit).
+        fn install(&self, tarball: &str, signature: &str) -> zbus::Result<String>;
+        /// Puts the version from before the last update back (polkit).
+        fn rollback(&self) -> zbus::Result<String>;
+    }
+
     /// The graphics driver troubleshooter's changes. Diagnosis itself runs in
     /// the caller (`ug_driver::diagnose`), so it works with the daemon down.
     #[zbus::proxy(
@@ -535,6 +550,11 @@ pub mod agent {
         fn state(&self) -> zbus::Result<UpdateState>;
         /// Checks now and returns the result.
         fn check(&self) -> zbus::Result<UpdateState>;
+        /// Downloads the new release and has the service install it (it
+        /// asks for the password); `State` follows the steps.
+        fn install(&self) -> zbus::Result<()>;
+        /// Goes back to the version before the last update (password).
+        fn rollback(&self) -> zbus::Result<String>;
     }
 
     /// The agent's own settings.

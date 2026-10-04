@@ -23,6 +23,10 @@ struct Saved {
 
 pub struct Updater {
     file: PathBuf,
+    /// Where downloads go: `~/.cache/unix-guardian/update`.
+    cache: PathBuf,
+    /// The newer release's tarball and signature URLs.
+    assets: Mutex<Option<(String, String, String)>>,
     root: PathBuf,
     etc: PathBuf,
     state: Mutex<UpdateState>,
@@ -41,7 +45,20 @@ impl Updater {
             checked_unix_ms: saved.checked_unix_ms,
             ..Default::default()
         };
-        Updater { file, root: root.into(), etc: root.join("etc/unix-guardian"), state: Mutex::new(state), saved: Mutex::new(saved) }
+        let cache = std::env::var_os("XDG_CACHE_HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache"))
+            .join("unix-guardian/update");
+        Updater {
+            file,
+            cache,
+            assets: Mutex::new(None),
+            root: root.into(),
+            etc: root.join("etc/unix-guardian"),
+            state: Mutex::new(state),
+            saved: Mutex::new(saved),
+        }
     }
 
     pub fn state(&self) -> UpdateState {
@@ -82,8 +99,11 @@ impl Updater {
                 s.notes = newest.and_then(|r| r.body.clone()).unwrap_or_default();
                 s.url = newest.map(|r| r.html_url.clone()).unwrap_or_default();
                 s.published = newest.and_then(|r| r.published_at.clone()).unwrap_or_default();
-                s.can_install = kind == InstallKind::Tarball
-                    && newest.and_then(|r| update::tarball_assets(r, std::env::consts::ARCH)).is_some_and(|(_, sig, _)| sig.is_some());
+                let files = newest.and_then(|r| update::tarball_assets(r, std::env::consts::ARCH)).and_then(|(tar, sig, _)| {
+                    Some((tar.browser_download_url.clone(), sig?.browser_download_url.clone(), tar.name.clone()))
+                });
+                s.can_install = kind == InstallKind::Tarball && files.is_some() && update::trusted_key(&self.etc).is_some();
+                *self.assets.lock().unwrap_or_else(|e| e.into_inner()) = files;
                 let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
                 if !s.latest.is_empty() && saved.told != s.latest {
                     saved.told = s.latest.clone();
@@ -98,6 +118,80 @@ impl Updater {
             }
         }
         (s.clone(), tell)
+    }
+}
+
+impl Updater {
+    fn set(&self, f: impl FnOnce(&mut UpdateState)) {
+        f(&mut self.state.lock().unwrap_or_else(|e| e.into_inner()));
+    }
+
+    pub fn set_previous(&self, v: String) {
+        self.set(|s| s.previous = v);
+    }
+
+    /// Starts the install: download the tarball and its signature, then
+    /// the service checks and installs them (asking for the password).
+    pub fn begin_install(self: &std::sync::Arc<Self>, daemon_session: bool) -> Result<(), String> {
+        let s = self.state();
+        if !s.can_install {
+            return Err(if s.latest.is_empty() { "There is nothing newer to install.".into() } else { format!("Update this copy with: {}", s.how) });
+        }
+        if !s.step.is_empty() {
+            return Err("It is being installed already.".into());
+        }
+        let Some((tar, sig, name)) = self.assets.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
+            return Err("Check for updates first.".into());
+        };
+        self.set(|s| {
+            s.step = "downloading".into();
+            s.result.clear();
+            s.problem.clear();
+        });
+        let me = std::sync::Arc::clone(self);
+        tokio::spawn(async move {
+            let r = me.install(daemon_session, &tar, &sig, &name).await;
+            me.set(|s| {
+                s.step.clear();
+                match r {
+                    Ok(m) => s.result = m,
+                    Err(e) => s.problem = e,
+                }
+            });
+        });
+        Ok(())
+    }
+
+    async fn install(&self, daemon_session: bool, tar: &str, sig: &str, name: &str) -> Result<String, String> {
+        std::fs::create_dir_all(&self.cache).map_err(|e| format!("{}: {e}", self.cache.display()))?;
+        let (tar_path, sig_path) = (self.cache.join(name), self.cache.join(format!("{name}.minisig")));
+        for (url, path) in [(tar, &tar_path), (sig, &sig_path)] {
+            let out = tokio::process::Command::new("curl")
+                .args(["--fail", "--silent", "--show-error", "--location", "--max-time", "1800", "--output"])
+                .arg(path)
+                .arg(url)
+                .stdin(std::process::Stdio::null())
+                .output()
+                .await
+                .map_err(|e| format!("curl is needed to download the update ({e})"))?;
+            if !out.status.success() {
+                return Err(format!("The download failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
+            }
+        }
+        self.set(|s| s.step = "installing".into());
+        let conn = if daemon_session { zbus::Connection::session().await } else { zbus::Connection::system().await }
+            .map_err(|e| format!("The Unix Guardian service is not reachable ({e})."))?;
+        let d = ug_proto::daemon::UpdateProxy::new(&conn).await.map_err(|e| e.to_string())?;
+        let msg = d
+            .install(&tar_path.to_string_lossy(), &sig_path.to_string_lossy())
+            .await
+            .map_err(|e| match e {
+                zbus::Error::MethodError(_, Some(m), _) => m,
+                e => e.to_string(),
+            })?;
+        let _ = std::fs::remove_file(&tar_path);
+        let _ = std::fs::remove_file(&sig_path);
+        Ok(msg)
     }
 }
 

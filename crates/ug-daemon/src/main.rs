@@ -32,6 +32,7 @@ mod power;
 mod rtc;
 mod sampler;
 mod schedule;
+mod update;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -292,6 +293,22 @@ async fn main() -> Result<()> {
         )
         .await
         .context("serving the driver interface")?;
+    // Updates: a development run installs only into its --sysroot tree.
+    conn.object_server()
+        .at(
+            DAEMON_OBJECT_PATH,
+            update::UpdateIface {
+                root: args.sysroot.clone().unwrap_or_else(|| "/".into()),
+                scratch: args.sysroot.is_some(),
+                refused: (args.sysroot.is_none() && (args.session || !privileged))
+                    .then(|| "This development service runs on the real system, so it never installs updates; start it with --sysroot to try one on a scratch tree.".to_string()),
+                dir: state_dir.join("updates"),
+                gate: gate.clone(),
+                busy: Default::default(),
+            },
+        )
+        .await
+        .context("serving the update interface")?;
     let backend_for_battery = Arc::clone(&backend);
     tokio::spawn(power::run(conn.clone(), schedule, Arc::clone(&backend), schedule_changed));
     tokio::spawn(power::watch(watches, observer, backend, watches_changed));

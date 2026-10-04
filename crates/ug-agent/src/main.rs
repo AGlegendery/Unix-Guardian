@@ -257,7 +257,7 @@ async fn main() -> Result<()> {
         .serve_at(AGENT_OBJECT_PATH, iface::RecorderIface { recorder: Arc::clone(&recorder) })?
         .serve_at(AGENT_OBJECT_PATH, PingIface { pinger: pinger.clone() })?
         .serve_at(AGENT_OBJECT_PATH, SettingsIface { settings: Arc::clone(&settings) })?
-        .serve_at(AGENT_OBJECT_PATH, iface::UpdateIface { updater: Arc::clone(&updater) })?
+        .serve_at(AGENT_OBJECT_PATH, iface::UpdateIface { updater: Arc::clone(&updater), daemon_session: args.daemon_session })?
         .serve_at(
             AGENT_OBJECT_PATH,
             ShortcutsIface {
