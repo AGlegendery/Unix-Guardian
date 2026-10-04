@@ -143,6 +143,7 @@ impl AgentCore {
         // Off with no game running is simply back to following the games.
         self.by_hand = if on { Some(true) } else if self.running.is_empty() { None } else { Some(false) };
         tracing::info!(on, "game mode turned by hand");
+        self.resume_if_off();
         on
     }
 
@@ -161,7 +162,17 @@ impl AgentCore {
         }
         self.by_hand = if on { Some(true) } else if self.running.is_empty() { None } else { Some(false) };
         tracing::info!(on, profile = %self.by_hand_profile, "game mode set by hand");
+        self.resume_if_off();
         Ok(())
+    }
+
+    /// Game mode turned off by hand during a game: the apps it paused are
+    /// what the user most likely wants back (that chat they could not
+    /// answer), so they resume now rather than when the game ends.
+    fn resume_if_off(&mut self) {
+        if self.by_hand == Some(false) {
+            self.paused.resume_all(&self.root);
+        }
     }
 
     /// "on" or "off" when game mode was turned by hand, else "".
@@ -662,6 +673,37 @@ mod tests {
         let s = c.playtime().summary(0);
         assert_eq!(s[0].key, "steam:730");
         assert_eq!(s[0].seconds, 90);
+    }
+
+    #[test]
+    fn turning_game_mode_off_by_hand_during_a_game_resumes_the_paused_apps() {
+        let fs = TestFs::new();
+        let cfg = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(cfg.path().join("profiles")).unwrap();
+        std::fs::write(cfg.path().join("profiles/competitive.toml"), "pause_apps = [\"ugchatoff\"]\n").unwrap();
+        // A real process to stop and continue, described in the fake /proc.
+        let mut chat = std::process::Command::new("sleep").arg("30").spawn().unwrap();
+        let pid = chat.id() as i32;
+        let state = || {
+            let s = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+            s[s.rfind(')').unwrap() + 2..].chars().next().unwrap()
+        };
+        let wait = |want: char| (0..100).any(|_| {
+            std::thread::sleep(Duration::from_millis(10));
+            state() == want
+        });
+        fs.process(&FakeProc { pid, comm: "ugchatoff", ..Default::default() });
+        let mut c = core(&fs, cfg.path());
+        fs.process(&FakeProc { pid: 10, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+        c.tick(Instant::now(), 0);
+        let paused = wait('T');
+        c.set_gamemode(false, "").unwrap();
+        let resumed = wait('S');
+        unsafe { libc::kill(pid, libc::SIGCONT) };
+        let _ = chat.kill();
+        let _ = chat.wait();
+        assert!(paused, "the competitive profile pauses the chat app");
+        assert!(resumed, "off by hand brings it back while the game runs on");
     }
 
     #[test]
