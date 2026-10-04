@@ -53,6 +53,8 @@ futures-lite = "2"
 rusqlite = { version = "0.40", features = ["bundled"] }
 yaml-rust2 = "0.13"
 libc = "0.2"
+minisign-verify = "0.3"
+minisign = "0.10"
 
 [profile.release]
 opt-level = "s"

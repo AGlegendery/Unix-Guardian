@@ -168,6 +168,33 @@ pub fn newest<'a>(releases: &'a [Release], current: &str) -> Option<&'a Release>
         .map(|(_, r)| r)
 }
 
+/// The minisign public key releases are signed with. `None` until the
+/// project has one: then nothing is installed, only told about.
+pub const PUBLIC_KEY: Option<&str> = None;
+
+/// The key a download must be signed with: `public_key` in
+/// `<etc>/update.toml` (root's file; tests use it), else [`PUBLIC_KEY`].
+pub fn trusted_key(etc: &Path) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Conf {
+        public_key: Option<String>,
+    }
+    std::fs::read_to_string(etc.join("update.toml"))
+        .ok()
+        .and_then(|t| toml::from_str::<Conf>(&t).ok())
+        .and_then(|c| c.public_key)
+        .filter(|k| !k.trim().is_empty())
+        .or(PUBLIC_KEY.map(String::from))
+}
+
+/// Checks a download against its minisign signature (`.minisig` text) and
+/// the trusted public key (base64, as `minisign -G` prints it).
+pub fn verify(data: &[u8], signature: &str, key: &str) -> Result<(), String> {
+    let pk = minisign_verify::PublicKey::from_base64(key.trim()).map_err(|e| format!("the update key is not usable ({e})"))?;
+    let sig = minisign_verify::Signature::decode(signature).map_err(|e| format!("the signature file is not readable ({e})"))?;
+    pk.verify(data, &sig, false).map_err(|_| "The download does not match its signature: it was changed or damaged, so it is not installed.".to_string())
+}
+
 /// How this copy was installed, which decides how it is updated.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallKind {
@@ -311,6 +338,23 @@ mod tests {
         std::fs::create_dir_all(d.path().join("var/lib/dpkg/info")).unwrap();
         std::fs::write(d.path().join("var/lib/dpkg/info/unix-guardian.list"), "").unwrap();
         assert!(matches!(install_kind(d.path()), InstallKind::Package(c) if c.contains("apt")));
+    }
+
+    #[test]
+    fn only_a_download_signed_with_the_trusted_key_passes() {
+        let kp = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let other = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
+        let data = b"the release tarball";
+        let sig = minisign::sign(None, &kp.sk, &data[..], None, None).unwrap().to_string();
+        let key = kp.pk.to_base64();
+        assert_eq!(verify(data, &sig, &key), Ok(()));
+        assert!(verify(b"the release tarbalL", &sig, &key).unwrap_err().contains("does not match"));
+        assert!(verify(data, &sig, &other.pk.to_base64()).is_err(), "another key");
+        assert!(verify(data, "garbage", &key).unwrap_err().contains("not readable"));
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(trusted_key(d.path()), PUBLIC_KEY.map(String::from));
+        std::fs::write(d.path().join("update.toml"), format!("public_key = \"{key}\"\n")).unwrap();
+        assert_eq!(trusted_key(d.path()), Some(key));
     }
 
     #[test]
