@@ -160,8 +160,8 @@ export interface CoolingState { fans: FanInfo[]; fan_mode: number; fan_modes: [n
 export interface AutoTuneStatus { running: boolean; step: number; steps: number; message: string; summary: string; ok: boolean }
 
 export interface GpuOffload { pci: string; vendor: string; boot_vga: boolean; launch_options: string }
-/** The GPU programs start on; `pending` until the next login. */
-export interface GpuDefault { chosen: string; active: string; pending: boolean }
+/** The GPU `ug run` starts programs on (never session-wide). */
+export interface GpuDefault { chosen: string }
 
 export interface OverlaySettings {
   show: "gaming" | "always" | "off";

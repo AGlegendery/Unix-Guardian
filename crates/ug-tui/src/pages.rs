@@ -491,7 +491,7 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
     // Tiles: the GPU, the processor, memory, network. With two GPUs the
     // GPU tile starts with the card switch and shows the chosen card.
     let switch = gpu_switch(app);
-    let gpu_lines: Vec<Line> = if let Some((names, chosen, pending)) = &switch {
+    let gpu_lines: Vec<Line> = if let Some((names, chosen)) = &switch {
         let gpus = app.gpu_switch.value.as_ref().map(|v| v.0.clone()).unwrap_or_default();
         let pci = &gpus[*chosen].pci;
         let name = |pci: &str| inv.as_ref().and_then(|i| i.gpus.iter().find(|g| g.pci == pci)).map(|g| short_name(&g.name)).unwrap_or_else(|| pci.to_string());
@@ -503,9 +503,7 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
             None => Line::from(Span::styled("—", t.title())),
         };
         let other = &gpus[1 - *chosen];
-        let note = if *pending {
-            Line::from(Span::styled("from your next login", Style::default().fg(t.accent)))
-        } else {
+        let note = {
             let o = s.gpus.iter().find(|g| g.pci == other.pci);
             let state = match o {
                 Some(g) if g.asleep => "asleep".to_string(),
@@ -563,7 +561,7 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         }
         // The switch sits in the tile's top border, like the window's
         // icon: "⇄ Intel"; a click (or ←/→) switches to the other card.
-        if let Some((names, chosen, _)) = &switch {
+        if let Some((names, chosen)) = &switch {
             let c = cols[0];
             let text = format!(" ⇄ {} ", names[*chosen]);
             let w = text.chars().count() as u16;
@@ -637,8 +635,8 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
 }
 
 /// The card switch, when there are two GPUs: their short names (boot GPU
-/// first), the chosen one, and whether it waits for the next login.
-fn gpu_switch(app: &App) -> Option<(Vec<String>, usize, bool)> {
+/// first) and the chosen one.
+fn gpu_switch(app: &App) -> Option<(Vec<String>, usize)> {
     let (gpus, st) = app.gpu_switch.value.as_ref()?;
     if gpus.len() != 2 {
         return None;
@@ -655,23 +653,23 @@ fn gpu_switch(app: &App) -> Option<(Vec<String>, usize, bool)> {
         })
         .collect();
     let chosen = gpus.iter().position(|g| g.pci == st.chosen).unwrap_or(0);
-    Some((names, chosen, st.pending))
+    Some((names, chosen))
 }
 
-/// Makes GPU `i` of the switch the one programs start on.
+/// Makes GPU `i` of the switch the one `ug run` starts programs on.
 fn choose_gpu(app: &mut App, i: usize) {
     let Some((gpus, st)) = app.gpu_switch.value.clone() else { return };
     let Some(g) = gpus.get(i) else { return };
     if g.pci == st.chosen {
         return;
     }
-    let r = ug_core::gpu_default::set(&ug_core::gpu_default::config_home(), g)
-        .map(|_| "Programs opened after your next login start on this card; `ug run` uses it now.".to_string())
+    let r = ug_core::gpu_default::set(&ug_core::paths::user_config(), g)
+        .map(|_| "Programs Unix Guardian starts (`ug run`) use this card; the desktop is not changed.".to_string())
         .map_err(|e| e.to_string());
     report(app, r);
     app.gpu_switch.invalidate();
     // Shown at once, not at the next refresh.
-    let st = ug_core::gpu_default::state(&ug_core::gpu_default::config_home(), &gpus);
+    let st = ug_core::gpu_default::state(&ug_core::paths::user_config(), &gpus);
     app.gpu_switch.store(Ok((gpus, st)));
 }
 
@@ -2535,7 +2533,7 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (5, _) => vec![("Tab", "shortcuts"), ("↑↓", "setting"), ("←→", "change"), ("Enter", "next / run")],
         (6, 0) => vec![("Tab", "apps"), ("←→", "period"), ("x", "delete"), ("n", "not a game"), ("i", "import Steam"), ("e", "CSV")],
         (6, _) => vec![("Tab", "games"), ("←→", "period"), ("Enter", "count / stop"), ("x", "delete")],
-        (0, _) if gpu_switch(app).is_some() => vec![("←→", "graphics card for programs")],
+        (0, _) if gpu_switch(app).is_some() => vec![("←→", "card for ug run")],
         _ => vec![],
     }
 }
@@ -2571,7 +2569,7 @@ pub fn set_choice(app: &mut App, i: usize) {
 
 pub fn step_choice(app: &mut App, d: i32) {
     if app.page == 0 {
-        if let Some((_, chosen, _)) = gpu_switch(app) {
+        if let Some((_, chosen)) = gpu_switch(app) {
             choose_gpu(app, (chosen as i32 + d).clamp(0, 1) as usize);
         }
         return;

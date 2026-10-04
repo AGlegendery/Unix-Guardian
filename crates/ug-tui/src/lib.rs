@@ -231,7 +231,7 @@ impl App {
                 }
                 if self.gpu_switch.due() {
                     let gpus = ug_hw::gpu_use::gpus(&ug_hw::SysRoot::real());
-                    let st = ug_core::gpu_default::state(&ug_core::gpu_default::config_home(), &gpus);
+                    let st = ug_core::gpu_default::state(&ug_core::paths::user_config(), &gpus);
                     self.gpu_switch.store(Ok((gpus, st)));
                 }
                 self.refresh_games();

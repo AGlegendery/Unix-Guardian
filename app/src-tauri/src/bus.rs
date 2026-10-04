@@ -672,28 +672,26 @@ pub fn gpu_offload() -> Vec<GpuOffload> {
         .collect()
 }
 
-/// The dashboard's card switch: the GPU programs start on (see
-/// `ug_core::gpu_default`). Per-user files only, so neither the agent nor
-/// the daemon is involved.
+/// The dashboard's card switch: the GPU the programs Unix Guardian starts
+/// use (see `ug_core::gpu_default`; never session-wide). A per-user file
+/// only, so neither the agent nor the daemon is involved.
 #[derive(Serialize)]
 pub struct GpuDefault {
     chosen: String,
-    active: String,
-    pending: bool,
 }
 
 #[tauri::command]
 pub fn gpu_default() -> GpuDefault {
     let gpus = ug_hw::gpu_use::gpus(&ug_hw::SysRoot::real());
-    let st = ug_core::gpu_default::state(&ug_core::gpu_default::config_home(), &gpus);
-    GpuDefault { chosen: st.chosen, active: st.active, pending: st.pending }
+    let st = ug_core::gpu_default::state(&ug_core::paths::user_config(), &gpus);
+    GpuDefault { chosen: st.chosen }
 }
 
 #[tauri::command]
 pub fn set_gpu_default(pci: String) -> Res<GpuDefault> {
     let gpus = ug_hw::gpu_use::gpus(&ug_hw::SysRoot::real());
     let gpu = gpus.iter().find(|g| g.pci == pci).ok_or_else(|| format!("no GPU at {pci}"))?;
-    ug_core::gpu_default::set(&ug_core::gpu_default::config_home(), gpu).map_err(|e| e.to_string())?;
+    ug_core::gpu_default::set(&ug_core::paths::user_config(), gpu).map_err(|e| e.to_string())?;
     Ok(gpu_default())
 }
 

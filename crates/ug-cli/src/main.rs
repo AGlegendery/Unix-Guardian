@@ -527,12 +527,21 @@ enum GpuCommand {
         /// PCI address; defaults to the active GPU.
         pci: Option<String>,
     },
-    /// Show or choose the GPU programs start on (the dashboard's card
-    /// switch). Takes effect for programs opened after the next login;
-    /// `ug run` uses it at once.
+    /// Show or choose the GPU the programs Unix Guardian starts use (the
+    /// dashboard's card switch): `ug run` without `--gpu`. Never changes
+    /// the desktop or programs started elsewhere.
     Default {
         /// integrated, discrete, nvidia, amd, intel, or a PCI address.
         gpu: Option<String>,
+    },
+    /// Start one application on the discrete GPU from its menu entry: a
+    /// per-user copy of its .desktop file with PrefersNonDefaultGPU=true.
+    App {
+        /// The entry's name, e.g. blender or org.kde.krita (.desktop optional).
+        id: String,
+        /// Remove Unix Guardian's copy again (back to the system's choice).
+        #[arg(long)]
+        off: bool,
     },
     /// Show or change which GPU tuning acts on.
     Active {
@@ -598,11 +607,14 @@ async fn run() -> Result<()> {
         return tui(cli.session);
     }
     if let Command::Run { gpu, steam, command } = &cli.command {
-        let gpu = gpu.clone().or_else(|| ug_core::gpu_default::chosen(&ug_core::gpu_default::config_home()));
+        let gpu = gpu.clone().or_else(|| ug_core::gpu_default::chosen(&ug_core::paths::user_config()));
         return run_on_gpu(gpu.as_deref().unwrap_or("discrete"), *steam, command);
     }
     if let Command::Gpu { command: GpuCommand::Default { gpu } } = &cli.command {
         return default_gpu(gpu.as_deref(), cli.json);
+    }
+    if let Command::Gpu { command: GpuCommand::App { id, off } } = &cli.command {
+        return gpu_app(id, *off);
     }
     if let Command::Driver { command: DriverCommand::Snapshot } = cli.command {
         return driver_snapshot();
@@ -1056,19 +1068,19 @@ async fn steam_launch(
     Ok(())
 }
 
-/// Shows or sets the GPU programs start on. Per-user, so no daemon.
+/// Shows or sets the GPU `ug run` starts programs on. Per-user, so no daemon.
 fn default_gpu(want: Option<&str>, json: bool) -> Result<()> {
     use ug_core::gpu_default;
     let root = ug_hw::SysRoot::real();
     let gpus = ug_hw::gpu_use::gpus(&root);
-    let home = gpu_default::config_home();
+    let ug = ug_core::paths::user_config();
     if let Some(want) = want {
         let Some(gpu) = ug_hw::gpu_use::pick(&gpus, want) else {
             anyhow::bail!("no GPU matches {want:?}; see ug gpu list");
         };
-        gpu_default::set(&home, gpu)?;
+        gpu_default::set(&ug, gpu)?;
     }
-    let st = gpu_default::state(&home, &gpus);
+    let st = gpu_default::state(&ug, &gpus);
     let describe = |pci: &str| {
         gpus.iter()
             .find(|g| g.pci == pci)
@@ -1076,17 +1088,67 @@ fn default_gpu(want: Option<&str>, json: bool) -> Result<()> {
             .unwrap_or_else(|| pci.to_string())
     };
     if json {
-        println!("{}", serde_json::json!({ "chosen": st.chosen, "active": st.active, "pending": st.pending }));
+        println!("{}", serde_json::json!({ "chosen": st.chosen }));
         return Ok(());
     }
-    println!("Programs start on {}", describe(&st.chosen));
-    if st.pending {
-        println!("This session still uses {}: the choice applies to programs opened after your next login.", describe(&st.active));
-        println!("`ug run -- <program>` uses it now.");
-    }
+    println!("Programs Unix Guardian starts (`ug run -- <program>`) use {}", describe(&st.chosen));
+    println!("The desktop and programs started elsewhere are not changed; for one app's menu entry use `ug gpu app <name>`.");
     if gpus.len() < 2 {
         println!("This machine has one GPU, so there is nothing to switch.");
     }
+    Ok(())
+}
+
+/// Writes or removes the per-user `.desktop` copy that starts one app on
+/// the discrete GPU.
+fn gpu_app(id: &str, off: bool) -> Result<()> {
+    use ug_core::gpu_default;
+    let name = if id.ends_with(".desktop") { id.to_string() } else { format!("{id}.desktop") };
+    anyhow::ensure!(!name.contains('/'), "give the entry's name, not a path");
+    let user_dir = ug_core::paths::user_data().parent().map(|p| p.join("applications")).unwrap_or_default();
+    let target = user_dir.join(&name);
+    let existing = std::fs::read_to_string(&target).ok();
+    if off {
+        match existing {
+            Some(t) if gpu_default::is_our_override(&t) => {
+                std::fs::remove_file(&target)?;
+                println!("Removed {}; the app starts on the system's choice again.", target.display());
+            }
+            Some(_) => anyhow::bail!("{} was not written by Unix Guardian; leaving it alone", target.display()),
+            None => println!("Unix Guardian has no entry for {name}; nothing to remove."),
+        }
+        return Ok(());
+    }
+    // A user's own copy is edited in place only when it is ours.
+    let source = match &existing {
+        Some(t) if !gpu_default::is_our_override(t) => {
+            anyhow::bail!("{} is your own copy; add PrefersNonDefaultGPU=true to it by hand", target.display())
+        }
+        _ => {
+            let dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+            let flatpak = [
+                ug_core::paths::user_data().parent().map(|p| p.join("flatpak/exports/share")).unwrap_or_default(),
+                "/var/lib/flatpak/exports/share".into(),
+            ];
+            let found = dirs
+                .split(':')
+                .map(std::path::PathBuf::from)
+                .chain(flatpak)
+                .map(|d| d.join("applications").join(&name))
+                .find(|p| p.is_file());
+            match (found, existing) {
+                (Some(p), _) => std::fs::read_to_string(p)?,
+                (None, Some(t)) => t,
+                (None, None) => anyhow::bail!("no application entry {name}; see the names in /usr/share/applications"),
+            }
+        }
+    };
+    let Some(text) = gpu_default::desktop_override(&source) else {
+        anyhow::bail!("{name} has no [Desktop Entry] group");
+    };
+    ug_core::paths::write_atomic(&target, text.as_bytes())?;
+    println!("Wrote {}: the app starts on the discrete GPU from its menu entry.", target.display());
+    println!("Undo with `ug gpu app {id} --off`.");
     Ok(())
 }
 
@@ -2254,7 +2316,7 @@ async fn gpu(
             }
             Ok(())
         }
-        GpuCommand::Default { .. } => unreachable!("handled before connecting to the daemon"),
+        GpuCommand::Default { .. } | GpuCommand::App { .. } => unreachable!("handled before connecting to the daemon"),
         GpuCommand::Active { pci } => {
             match pci {
                 Some(p) => {

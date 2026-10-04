@@ -165,8 +165,9 @@
     <div class="tile-head">
       <span class="ico"><MonitorSmartphone size={18} aria-hidden="true" /></span>
       <h2>{t().parts.gpu}</h2>
-      <!-- The card switch: which GPU programs start on. Only with two cards;
-           the desktop itself stays on the card the panel is wired to. -->
+      <!-- The card switch: which GPU the programs Unix Guardian starts use.
+           Only with two cards; never session-wide, so the desktop stays on
+           the card the panel is wired to. -->
       {#if iGpu && dGpu}
         <div class="gpu-picker" bind:this={gpuPicker}>
           <button
@@ -226,8 +227,6 @@
     {/if}
     {#if gpuErr}
       <p class="hint err">{gpuErr}</p>
-    {:else if gpuDef?.pending}
-      <p class="hint">{t().gpu.afterLogin}</p>
     {/if}
     {#if otherGpu}
       {@const o = sampleFor(otherGpu.pci)}

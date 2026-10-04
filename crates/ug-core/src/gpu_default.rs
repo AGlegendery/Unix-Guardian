@@ -1,76 +1,55 @@
 //! The GPU programs start on: the dashboard's card switch.
 //!
 //! A hybrid laptop cannot move its desktop to the other card without a MUX
-//! (the panel is wired to the integrated GPU), so the switch changes where
-//! *programs* render, with PRIME render offload. The choice is a file in
-//! `~/.config/environment.d`, which systemd reads when the session starts:
-//! every program opened after the next login inherits it. Programs Unix
-//! Guardian starts itself (`ug run` without `--gpu`) use it at once.
+//! (the panel is wired to the integrated GPU), so the switch only changes
+//! where the programs Unix Guardian starts render, with PRIME render
+//! offload: `ug run` without `--gpu`, and the per-app launchers built from
+//! it. The choice is a one-line file in Unix Guardian's own configuration
+//! (`~/.config/unix-guardian/default-gpu`) and takes effect at once.
 //!
-//! Only render-offload variables go in the file, never ones that move a
-//! program's display or the compositor: NVIDIA's offload variables touch
-//! GLX and Vulkan only, and for a Mesa card only Vulkan is steered
-//! (`MESA_VK_DEVICE_SELECT` without `!`), because a session-wide
-//! `DRI_PRIME` would also put the shell's own EGL drawing on the discrete
-//! card and keep it awake for good. The integrated GPU is the system's own
-//! default, so choosing it removes the file.
+//! **Never session-wide.** The first version wrote the offload variables
+//! into `~/.config/environment.d`, and that broke KDE on the next login
+//! (2026-10-04, see `claude-project/05-findings.md`): systemd's user
+//! manager reads `environment.d`, KWin and plasmashell are user services,
+//! and `__NV_PRIME_RENDER_OFFLOAD=1` steers **EGL** as well as GLX and
+//! Vulkan, so the compositor itself rendered on the NVIDIA card while the
+//! panel hangs off the Intel one: a black Wayland desktop, garbled X11.
+//! No GPU variable may be written to `environment.d`, `/etc/environment`,
+//! `plasma-workspace/env`, `~/.profile` or anything else the whole session
+//! reads. Per program only: `ug run`, a `.desktop` entry with
+//! `PrefersNonDefaultGPU` (see [`desktop_override`]), Steam launch options.
+//!
+//! [`retire_legacy`] moves the old version's file out of `environment.d`.
 
 use std::path::{Path, PathBuf};
 use ug_hw::gpu_use::Gpu;
 
-/// Written into the file as well, so a program can tell which choice its
-/// session started with.
+/// The variable the old file also carried, so a session could tell which
+/// choice it started with.
 pub const MARK: &str = "UG_DEFAULT_GPU";
 
-/// The file, under the user's configuration home (`~/.config`).
-pub fn file(config_home: &Path) -> PathBuf {
-    config_home.join("environment.d/90-unix-guardian-gpu.conf")
+/// The file holding the choice, in Unix Guardian's configuration directory.
+pub fn file(ug_config: &Path) -> PathBuf {
+    ug_config.join("default-gpu")
 }
 
-/// The session variables that start programs on `gpu`.
-pub fn session_env(gpu: &Gpu) -> Vec<(String, String)> {
-    let mut v: Vec<(String, String)> = if gpu.driver == "nvidia" {
-        [("__NV_PRIME_RENDER_OFFLOAD", "1"), ("__GLX_VENDOR_LIBRARY_NAME", "nvidia"), ("__VK_LAYER_NV_optimus", "NVIDIA_only")]
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .to_vec()
-    } else {
-        vec![("MESA_VK_DEVICE_SELECT".into(), format!("{:04x}:{:04x}", gpu.vendor, gpu.device))]
-    };
-    v.push((MARK.into(), gpu.pci.clone()));
-    v
-}
-
-/// The PCI address chosen in the file; `None` is the system's default.
-pub fn chosen(config_home: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(file(config_home)).ok()?;
-    text.lines()
-        .find_map(|l| l.trim().strip_prefix(MARK)?.strip_prefix('=').map(|v| v.trim().to_string()))
-        .filter(|v| !v.is_empty())
-}
-
-/// The choice this session started with (from its environment).
-pub fn active() -> Option<String> {
-    std::env::var(MARK).ok().filter(|v| !v.is_empty())
+/// The PCI address chosen; `None` is the system's default.
+pub fn chosen(ug_config: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(file(ug_config)).ok()?;
+    Some(text.trim().to_string()).filter(|v| !v.is_empty())
 }
 
 /// Makes `gpu` the default. The boot GPU is the system's own default, so
 /// choosing it removes the file instead of writing one.
-pub fn set(config_home: &Path, gpu: &Gpu) -> std::io::Result<()> {
-    let path = file(config_home);
+pub fn set(ug_config: &Path, gpu: &Gpu) -> std::io::Result<()> {
+    let path = file(ug_config);
     if gpu.boot_vga {
         return match std::fs::remove_file(&path) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
         };
     }
-    let mut text = String::from(
-        "# Written by Unix Guardian: programs render on this GPU (PRIME render offload).\n\
-         # Choose the integrated GPU in Unix Guardian (or delete this file) to undo.\n",
-    );
-    for (k, v) in session_env(gpu) {
-        text.push_str(&format!("{k}={v}\n"));
-    }
-    crate::paths::write_atomic(&path, text.as_bytes())
+    crate::paths::write_atomic(&path, format!("{}\n", gpu.pci).as_bytes())
 }
 
 /// The switch's state, for the window, the TUI and the CLI.
@@ -78,32 +57,118 @@ pub fn set(config_home: &Path, gpu: &Gpu) -> std::io::Result<()> {
 pub struct State {
     /// The chosen GPU's PCI address (the boot GPU when nothing is chosen).
     pub chosen: String,
-    /// The GPU this session's programs start on.
-    pub active: String,
-    /// The choice takes effect at the next login.
-    pub pending: bool,
 }
 
-pub fn state(config_home: &Path, gpus: &[Gpu]) -> State {
-    state_for(config_home, gpus, active())
-}
-
-/// `state`, with the session's choice given rather than read from the
-/// environment.
-fn state_for(config_home: &Path, gpus: &[Gpu], active: Option<String>) -> State {
+pub fn state(ug_config: &Path, gpus: &[Gpu]) -> State {
     let boot = gpus.iter().find(|g| g.boot_vga).or(gpus.first()).map(|g| g.pci.clone()).unwrap_or_default();
-    let chosen = chosen(config_home);
-    State {
-        pending: chosen != active,
-        chosen: chosen.unwrap_or_else(|| boot.clone()),
-        active: active.unwrap_or(boot),
-    }
+    State { chosen: chosen(ug_config).unwrap_or(boot) }
 }
 
-/// `~/.config`, the directory `environment.d` lives in.
+/// `~/.config`, the directory `environment.d` and `applications` overrides
+/// are found under.
 pub fn config_home() -> PathBuf {
     crate::paths::user_config().parent().map(Path::to_path_buf).unwrap_or_default()
 }
+
+/// The old version's session-wide file.
+pub fn legacy_file(config_home: &Path) -> PathBuf {
+    config_home.join("environment.d/90-unix-guardian-gpu.conf")
+}
+
+/// What [`retire_legacy`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Retired {
+    /// Where the old file was moved to.
+    pub moved_to: PathBuf,
+    /// The variables it set, so the caller can drop them from the running
+    /// user manager (with `Linger=yes` it outlives a logout).
+    pub vars: Vec<String>,
+}
+
+/// Moves the old version's `environment.d` file aside, if it is there and
+/// is ours (it carries [`MARK`]). Never deletes it, and never touches any
+/// other file; the choice it held is kept as the per-program default.
+/// `stamp` makes the new name unique (the caller passes the time).
+pub fn retire_legacy(config_home: &Path, ug_config: &Path, stamp: &str) -> std::io::Result<Option<Retired>> {
+    let path = legacy_file(config_home);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let vars: Vec<(String, String)> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with('#'))
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+        .collect();
+    let Some(pci) = vars.iter().find(|(k, _)| k == MARK).map(|(_, v)| v.clone()) else {
+        // Not written by Unix Guardian: not ours to move.
+        return Ok(None);
+    };
+    let dir = ug_config.join("retired");
+    std::fs::create_dir_all(&dir)?;
+    let moved_to = dir.join(format!("90-unix-guardian-gpu.conf.{stamp}"));
+    std::fs::rename(&path, &moved_to)?;
+    if !pci.is_empty() && chosen(ug_config).is_none() {
+        crate::paths::write_atomic(&file(ug_config), format!("{pci}\n").as_bytes())?;
+    }
+    Ok(Some(Retired { moved_to, vars: vars.into_iter().map(|(k, _)| k).collect() }))
+}
+
+/// Marks an application entry Unix Guardian wrote, so only those are ever
+/// removed again.
+const DESKTOP_MARK: &str = "X-UnixGuardian-Gpu=true";
+
+/// A per-user copy of an application's `.desktop` entry that asks the
+/// desktop to start it on the discrete GPU (`PrefersNonDefaultGPU`, which
+/// KDE and GNOME honour through switcheroo-control; KDE's older key too).
+/// `None` when the entry has no `[Desktop Entry]` group.
+pub fn desktop_override(original: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut in_main = false;
+    let mut seen_main = false;
+    for line in original.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            if in_main {
+                out.push_str(&format!("PrefersNonDefaultGPU=true\nX-KDE-RunOnDiscreteGpu=true\n{DESKTOP_MARK}\n"));
+            }
+            in_main = t == "[Desktop Entry]";
+            seen_main |= in_main;
+        } else if in_main
+            && ["PrefersNonDefaultGPU", "X-KDE-RunOnDiscreteGpu", "X-UnixGuardian-Gpu"]
+                .iter()
+                .any(|k| t.split_once('=').is_some_and(|(key, _)| key.trim() == *k))
+        {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    if in_main {
+        out.push_str(&format!("PrefersNonDefaultGPU=true\nX-KDE-RunOnDiscreteGpu=true\n{DESKTOP_MARK}\n"));
+    }
+    seen_main.then_some(out)
+}
+
+/// Whether an entry is one [`desktop_override`] wrote.
+pub fn is_our_override(text: &str) -> bool {
+    text.lines().any(|l| l.trim() == DESKTOP_MARK)
+}
+
+/// Every place that applies to the whole session and must never get a GPU
+/// or overlay variable from Unix Guardian, relative to the home directory.
+/// Tests check writers against it.
+pub const SESSION_WIDE: [&str; 6] = [
+    ".config/environment.d",
+    ".config/plasma-workspace/env",
+    ".profile",
+    ".pam_environment",
+    ".xprofile",
+    ".xsessionrc",
+];
 
 #[cfg(test)]
 mod tests {
@@ -121,15 +186,39 @@ mod tests {
         gpu("0000:00:02.0", 0x8086, 0x9a60, true, "i915")
     }
 
+    /// Every file under `dir`, relative to it.
+    fn files(dir: &Path) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut todo = vec![dir.to_path_buf()];
+        while let Some(d) = todo.pop() {
+            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                if e.path().is_dir() {
+                    todo.push(e.path());
+                } else {
+                    out.push(e.path().strip_prefix(dir).unwrap().display().to_string());
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// The bug of 2026-10-04: choosing NVIDIA wrote `__NV_PRIME_RENDER_OFFLOAD`
+    /// into `environment.d`, and KWin rendered on the wrong card.
     #[test]
-    fn choosing_nvidia_writes_its_offload_variables_and_the_mark() {
-        let dir = tempfile::tempdir().unwrap();
-        set(dir.path(), &nvidia()).unwrap();
-        let text = std::fs::read_to_string(file(dir.path())).unwrap();
-        assert!(text.contains("__NV_PRIME_RENDER_OFFLOAD=1\n"));
-        assert!(text.contains("__VK_LAYER_NV_optimus=NVIDIA_only\n"));
-        assert!(!text.contains("DRI_PRIME"), "would move the shell's own drawing too");
-        assert_eq!(chosen(dir.path()).as_deref(), Some("0000:01:00.0"));
+    fn choosing_nvidia_writes_nothing_the_session_reads() {
+        let home = tempfile::tempdir().unwrap();
+        let ug = home.path().join(".config/unix-guardian");
+        set(&ug, &nvidia()).unwrap();
+        let written = files(home.path());
+        assert_eq!(written, [".config/unix-guardian/default-gpu"]);
+        for f in &written {
+            assert!(!SESSION_WIDE.iter().any(|s| f.starts_with(s)), "{f} is read by the whole session");
+            let text = std::fs::read_to_string(home.path().join(f)).unwrap();
+            assert!(!text.contains("__NV_") && !text.contains("__GLX_") && !text.contains("__VK_"), "{f}: {text}");
+        }
+        assert_eq!(chosen(&ug).as_deref(), Some("0000:01:00.0"));
+        assert_eq!(state(&ug, &[intel(), nvidia()]).chosen, "0000:01:00.0");
     }
 
     #[test]
@@ -139,30 +228,67 @@ mod tests {
         set(dir.path(), &intel()).unwrap();
         assert!(!file(dir.path()).exists());
         assert_eq!(chosen(dir.path()), None);
+        assert_eq!(state(dir.path(), &[intel(), nvidia()]).chosen, "0000:00:02.0");
         // And again, with nothing to remove.
         set(dir.path(), &intel()).unwrap();
     }
 
+    const OLD: &str = "# Written by Unix Guardian: programs render on this GPU (PRIME render offload).\n\
+        # Choose the integrated GPU in Unix Guardian (or delete this file) to undo.\n\
+        __NV_PRIME_RENDER_OFFLOAD=1\n__GLX_VENDOR_LIBRARY_NAME=nvidia\n\
+        __VK_LAYER_NV_optimus=NVIDIA_only\nUG_DEFAULT_GPU=0000:01:00.0\n";
+
     #[test]
-    fn a_mesa_card_is_steered_for_vulkan_only() {
-        let amd = gpu("0000:03:00.0", 0x1002, 0x73ff, false, "amdgpu");
-        let env = session_env(&amd);
-        assert_eq!(env[0], ("MESA_VK_DEVICE_SELECT".to_string(), "1002:73ff".to_string()));
-        assert!(env.iter().all(|(k, _)| k != "DRI_PRIME"));
+    fn the_old_session_file_is_moved_aside_and_its_choice_kept() {
+        let home = tempfile::tempdir().unwrap();
+        let config = home.path().join(".config");
+        let ug = config.join("unix-guardian");
+        std::fs::create_dir_all(config.join("environment.d")).unwrap();
+        std::fs::write(legacy_file(&config), OLD).unwrap();
+        // The repair session's own folder must not be touched.
+        std::fs::create_dir_all(config.join("environment.d.disabled")).unwrap();
+        std::fs::write(config.join("environment.d.disabled/90-unix-guardian-gpu.conf"), OLD).unwrap();
+
+        let r = retire_legacy(&config, &ug, "20261004T120000").unwrap().unwrap();
+        assert!(!legacy_file(&config).exists());
+        assert_eq!(r.moved_to, ug.join("retired/90-unix-guardian-gpu.conf.20261004T120000"));
+        assert_eq!(std::fs::read_to_string(&r.moved_to).unwrap(), OLD, "moved, not rewritten");
+        assert_eq!(r.vars, ["__NV_PRIME_RENDER_OFFLOAD", "__GLX_VENDOR_LIBRARY_NAME", "__VK_LAYER_NV_optimus", MARK]);
+        assert_eq!(chosen(&ug).as_deref(), Some("0000:01:00.0"));
+        assert_eq!(std::fs::read_to_string(config.join("environment.d.disabled/90-unix-guardian-gpu.conf")).unwrap(), OLD);
+        assert!(files(&config.join("environment.d")).is_empty());
+        // Nothing left to do the second time.
+        assert_eq!(retire_legacy(&config, &ug, "x").unwrap(), None);
     }
 
     #[test]
-    fn a_new_choice_is_pending_until_the_next_login() {
-        let dir = tempfile::tempdir().unwrap();
-        let gpus = [intel(), nvidia()];
-        // A session started before anything was chosen.
-        let s = state_for(dir.path(), &gpus, None);
-        assert_eq!((s.chosen.as_str(), s.active.as_str(), s.pending), ("0000:00:02.0", "0000:00:02.0", false));
-        set(dir.path(), &nvidia()).unwrap();
-        let s = state_for(dir.path(), &gpus, None);
-        assert_eq!((s.chosen.as_str(), s.active.as_str(), s.pending), ("0000:01:00.0", "0000:00:02.0", true));
-        // After logging in again.
-        let s = state_for(dir.path(), &gpus, Some("0000:01:00.0".into()));
-        assert!(!s.pending);
+    fn a_file_without_our_mark_is_left_alone() {
+        let home = tempfile::tempdir().unwrap();
+        let config = home.path().join(".config");
+        std::fs::create_dir_all(config.join("environment.d")).unwrap();
+        std::fs::write(legacy_file(&config), "FOO=1\n").unwrap();
+        assert_eq!(retire_legacy(&config, &config.join("unix-guardian"), "x").unwrap(), None);
+        assert!(legacy_file(&config).exists());
+        // And no file at all.
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(retire_legacy(empty.path(), &empty.path().join("ug"), "x").unwrap(), None);
+    }
+
+    #[test]
+    fn a_desktop_override_asks_for_the_discrete_gpu_in_the_main_group_only() {
+        let orig = "[Desktop Entry]\nName=Blender\nExec=blender %F\nPrefersNonDefaultGPU=false\n\n\
+                    [Desktop Action new]\nName=New\nExec=blender --new\n";
+        let o = desktop_override(orig).unwrap();
+        let main = o.split("[Desktop Action new]").next().unwrap();
+        assert!(main.contains("PrefersNonDefaultGPU=true\n"));
+        assert!(!main.contains("PrefersNonDefaultGPU=false"));
+        assert!(main.contains("Exec=blender %F\n"));
+        assert!(o.contains("[Desktop Action new]\nName=New\nExec=blender --new\n"));
+        assert_eq!(o.matches("PrefersNonDefaultGPU").count(), 1);
+        assert!(is_our_override(&o));
+        assert!(!is_our_override(orig));
+        // Twice gives the same file.
+        assert_eq!(desktop_override(&o).unwrap(), o);
+        assert_eq!(desktop_override("[Other]\nA=b\n"), None);
     }
 }

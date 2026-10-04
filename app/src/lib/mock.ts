@@ -70,7 +70,7 @@ let ptSessions: PlaytimeSession[] = (() => {
   }
   return out;
 })();
-let gpuDefault: GpuDefault = { chosen: "0000:00:02.0", active: "0000:00:02.0", pending: false };
+let gpuDefault: GpuDefault = { chosen: "0000:00:02.0" };
 let ppdProfile = "balanced";
 const fanCurves: Record<string, [number, number][]> = {};
 const zeroTune: GpuTune = { power_limit_w: 0, core_offset_mhz: 0, mem_offset_mhz: 0 };
@@ -486,7 +486,7 @@ export const mockApi = {
   },
   gpuDefault: async () => ({ ...gpuDefault }),
   setGpuDefault: async (pci: string) => {
-    gpuDefault = { ...gpuDefault, chosen: pci, pending: pci !== gpuDefault.active };
+    gpuDefault = { chosen: pci };
     return { ...gpuDefault };
   },
   gpuOffload: async () => [
