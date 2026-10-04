@@ -187,6 +187,10 @@ fn a_change_that_cannot_be_made_is_reported_not_claimed() {
                 "sys/devices/system/cpu/cpufreq/policy0/scaling_governor", "sys/devices/system/cpu/cpufreq/policy1/scaling_governor"] {
         std::fs::set_permissions(fs.root().join(rel), std::fs::Permissions::from_mode(0o444)).unwrap();
     }
+    // Root (CI containers) writes read-only files anyway: nothing to test.
+    if std::fs::OpenOptions::new().write(true).open(fs.root().join("proc/sys/vm/swappiness")).is_ok() {
+        return;
+    }
     let mut t = tuner(&fs, FakeUnits::default());
     let r = t.enter(&Request { cpu_performance: true, memory_tuning: true, ..Default::default() }, UID);
     assert!(r.applied.is_empty(), "nothing was changed, so nothing may be reported as done: {r:?}");
