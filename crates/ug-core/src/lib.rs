@@ -10,3 +10,4 @@ pub mod logging;
 pub mod paths;
 pub mod profile;
 pub mod session_env;
+pub mod update;
