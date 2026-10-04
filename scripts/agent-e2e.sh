@@ -49,13 +49,14 @@ until_() { local d=$((SECONDS+$1)); shift; until eval "$@"; do (( SECONDS < d ))
 mkdir -p "$XDG_CONFIG_HOME/environment.d" "$XDG_CONFIG_HOME/environment.d.disabled"
 printf '__NV_PRIME_RENDER_OFFLOAD=1\n__GLX_VENDOR_LIBRARY_NAME=nvidia\nUG_DEFAULT_GPU=0000:01:00.0\n' \
   | tee "$XDG_CONFIG_HOME/environment.d/90-unix-guardian-gpu.conf" > "$XDG_CONFIG_HOME/environment.d.disabled/90-unix-guardian-gpu.conf"
+printf '# Written by Unix Guardian: load MangoHud into Vulkan games.\nMANGOHUD=1\n' > "$XDG_CONFIG_HOME/environment.d/90-unix-guardian-mangohud.conf"
 "$W/bin/ugfakechat" 300 & chat=$!
 HOME="$W/home" "$B/ug-agent" --quiet --log warn & agent=$!
 trap 'kill $agent $chat ${game:-} ${other:-} ${editor:-} ${fakesteam:-} 2>/dev/null; rm -rf "$W"' EXIT
 until_ 15 "'$B/ug' game running >/dev/null 2>&1" || { echo "FAIL  agent did not start"; exit 1; }
 
-check "the old session-wide GPU file is moved out of environment.d" "[ -z \"\$(ls -A '$XDG_CONFIG_HOME/environment.d')\" ]"
-check "it is kept, not deleted" "grep -q __NV_PRIME '$XDG_CONFIG_HOME'/unix-guardian/retired/90-unix-guardian-gpu.conf.*"
+check "the old session-wide GPU and MangoHud files are moved out of environment.d" "[ -z \"\$(ls -A '$XDG_CONFIG_HOME/environment.d')\" ]"
+check "they are kept, not deleted" "grep -q __NV_PRIME '$XDG_CONFIG_HOME'/unix-guardian/retired/90-unix-guardian-gpu.conf.* && grep -q MANGOHUD '$XDG_CONFIG_HOME'/unix-guardian/retired/90-unix-guardian-mangohud.conf.*"
 check "environment.d.disabled is left alone" "[ -f '$XDG_CONFIG_HOME/environment.d.disabled/90-unix-guardian-gpu.conf' ]"
 check "the choice is kept for ug run" "grep -qx 0000:01:00.0 '$XDG_CONFIG_HOME/unix-guardian/default-gpu'"
 

@@ -223,7 +223,7 @@ async fn main() -> Result<()> {
         history::History::open(&ug_core::paths::user_data().join("agent.db")).context("opening the monitoring history")?,
     );
     let test_run = std::env::var("UG_TEST_RUN").ok().filter(|t| !t.is_empty());
-    let retired = retire_session_gpu(test_run.is_some());
+    let retired = retire_session_files(test_run.is_some());
     let core: Shared = Arc::new(Mutex::new(
         tokio::task::spawn_blocking(move || {
             let mut core = AgentCore::new(SysRoot::real(), &home, &ug_core::paths::user_config(), playtime, uid);
@@ -237,7 +237,6 @@ async fn main() -> Result<()> {
     let config_home = ug_core::paths::user_config().parent().map(|p| p.to_path_buf()).unwrap_or_default();
     let overlay = Arc::new(overlay::Overlay::new(
         fps::Fps::for_user(&config_home, &ug_core::paths::user_data()),
-        &config_home,
         &ug_core::paths::user_config(),
     ));
     let (announce_tx, mut announce_rx) = tokio::sync::mpsc::unbounded_channel::<Outcome>();
@@ -350,15 +349,16 @@ async fn main() -> Result<()> {
             }
         });
     }
-    // The old card switch's session-wide file was moved aside: say so, since
-    // it is what broke the desktop (see `ug_core::gpu_default`).
-    if let (Some(r), false) = (&retired, args.quiet) {
+    // Old session-wide files were moved aside: say so, since the card
+    // switch's is what broke the desktop (see `ug_core::session_env`).
+    if !retired.is_empty() && !args.quiet {
+        let moved: Vec<String> = retired.iter().map(|r| r.moved_to.display().to_string()).collect();
         let body = format!(
-            "Unix Guardian no longer sets the graphics card for the whole session; that setting could break the desktop. \
-             It was moved to {}. Programs started with ug run still use the card you chose.",
-            r.moved_to.display()
+            "Unix Guardian no longer sets the graphics card or MangoHud for the whole session; that could break the desktop. \
+             The old settings were moved to {}. Programs started with ug run still use the card you chose.",
+            moved.join(", ")
         );
-        notify::show(&conn, "Graphics card setting moved", &body, &[]).await;
+        notify::show(&conn, "Old session-wide settings moved", &body, &[]).await;
     }
     let mut daemon = DaemonLink::new(args.daemon_session);
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
@@ -570,28 +570,37 @@ async fn watch_dismissals(
     }
 }
 
-/// Moves the old card switch's `environment.d` file aside (it put KWin on
-/// the NVIDIA card, 2026-10-04) and drops its variables from the running
-/// user manager, which with `Linger=yes` keeps them across a logout. Only
-/// the variables that file set are removed; nothing is ever added. Not
-/// during a test run, which must not reach the real user manager.
-fn retire_session_gpu(test_run: bool) -> Option<ug_core::gpu_default::Retired> {
+/// Moves the files older versions wrote into `environment.d` aside: the
+/// card switch's (it put KWin on the NVIDIA card, 2026-10-04) and the
+/// overlay's `MANGOHUD=1`. Then drops exactly their variables from the
+/// running user manager, which with `Linger=yes` keeps them across a
+/// logout; nothing is ever added. Not during a test run, which must not
+/// reach the real user manager. See `ug_core::session_env`.
+fn retire_session_files(test_run: bool) -> Vec<ug_core::session_env::Retired> {
     let config_home = ug_core::gpu_default::config_home();
-    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    let r = match ug_core::gpu_default::retire_legacy(&config_home, &ug_core::paths::user_config(), &stamp.to_string()) {
-        Ok(Some(r)) => r,
-        Ok(None) => return None,
-        Err(e) => {
-            tracing::warn!(error = %e, "could not move the old session-wide GPU file aside");
-            return None;
-        }
-    };
-    tracing::warn!(to = %r.moved_to.display(), "moved the old session-wide GPU file out of environment.d");
-    if !test_run && !r.vars.is_empty() {
-        let out = std::process::Command::new("systemctl").args(["--user", "unset-environment"]).args(&r.vars).output();
-        if let Err(e) = out {
-            tracing::warn!(error = %e, "could not drop the old GPU variables from the user manager");
+    let ug = ug_core::paths::user_config();
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0).to_string();
+    let results = [
+        ug_core::gpu_default::retire_legacy(&config_home, &ug, &stamp),
+        ug_core::session_env::retire(&config_home, &ug, ug_core::session_env::LEGACY_FILES[1], &stamp),
+    ];
+    let mut out = Vec::new();
+    for r in results {
+        match r {
+            Ok(Some(r)) => {
+                tracing::warn!(to = %r.moved_to.display(), "moved an old session-wide file out of environment.d");
+                out.push(r);
+            }
+            Ok(None) => {}
+            Err(e) => tracing::warn!(error = %e, "could not move an old session-wide file aside"),
         }
     }
-    Some(r)
+    let vars: Vec<&str> = out.iter().flat_map(|r| r.vars.iter().map(|(k, _)| k.as_str())).collect();
+    if !test_run && !vars.is_empty() {
+        let out = std::process::Command::new("systemctl").args(["--user", "unset-environment"]).args(&vars).output();
+        if let Err(e) = out {
+            tracing::warn!(error = %e, "could not drop the old variables from the user manager");
+        }
+    }
+    out
 }

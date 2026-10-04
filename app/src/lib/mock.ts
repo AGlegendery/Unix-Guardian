@@ -77,7 +77,7 @@ const zeroTune: GpuTune = { power_limit_w: 0, core_offset_mhz: 0, mem_offset_mhz
 let tuneKept: GpuTune = { ...zeroTune };
 let tuneTrial: GpuTune | null = null;
 let autoStatus: AutoTuneStatus = { running: false, step: 0, steps: 0, message: "", summary: "", ok: false };
-let overlay: OverlaySettings = { show: "gaming", layout: "card", position: "top-left", size: "medium", opacity_pct: 50, toggle_key: "Alt_L+o", every_game: false };
+let overlay: OverlaySettings = { show: "gaming", layout: "card", position: "top-left", size: "medium", opacity_pct: 50, toggle_key: "Alt_L+o" };
 let fpsLog: FpsSession[] = [
   { game: "cs2", started_unix_ms: Date.now() - 3 * 3600e3, duration_s: 3120, frames: 440000, avg_fps: 141, low_1pct_fps: 96, low_01pct_fps: 71, p99_frametime_ms: 10.4, stutters: 4 },
   { game: "eldenring", started_unix_ms: Date.now() - 26 * 3600e3, duration_s: 5400, frames: 320000, avg_fps: 59.6, low_1pct_fps: 44, low_01pct_fps: 22, p99_frametime_ms: 22.7, stutters: 57 },
@@ -381,7 +381,7 @@ export const mockApi = {
   reportBug: async () => {
     throw "The preview cannot open a mail program. Write to unixguardian@atomicmail.io.";
   },
-  overlayState: async (): Promise<OverlayState> => ({ settings: { ...overlay }, installed: true, set_up: fpsSetUp, install_hint: "", every_game_active: false, game_running: false }),
+  overlayState: async (): Promise<OverlayState> => ({ settings: { ...overlay }, installed: true, set_up: fpsSetUp, install_hint: "", game_running: false }),
   overlaySet: async (s: OverlaySettings) => {
     overlay = { ...s };
   },

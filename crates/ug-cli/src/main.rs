@@ -304,9 +304,6 @@ enum OverlayCommand {
         /// The key that shows and hides it in game, e.g. Alt_L+o.
         #[arg(long)]
         key: Option<String>,
-        /// Load MangoHud into every Vulkan game (after the next login).
-        #[arg(long, value_parser = ["on", "off"])]
-        every_game: Option<String>,
     },
 }
 
@@ -1183,7 +1180,7 @@ async fn overlay(command: Option<OverlayCommand>, json: bool) -> Result<()> {
             println!("MangoHud's configuration is back as it was.");
             return Ok(());
         }
-        Some(OverlayCommand::Set { show, layout, position, size, opacity, key, every_game }) => {
+        Some(OverlayCommand::Set { show, layout, position, size, opacity, key }) => {
             let mut s = o.state().await.map_err(agent_hint)?.settings;
             if let Some(v) = show { s.show = v; }
             if let Some(v) = layout { s.layout = v; }
@@ -1191,7 +1188,6 @@ async fn overlay(command: Option<OverlayCommand>, json: bool) -> Result<()> {
             if let Some(v) = size { s.size = v; }
             if let Some(v) = opacity { s.opacity_pct = v; }
             if let Some(v) = key { s.toggle_key = v; }
-            if let Some(v) = every_game { s.every_game = v == "on"; }
             o.set(&s).await.map_err(agent_hint)?;
         }
     }
@@ -1209,11 +1205,7 @@ async fn overlay(command: Option<OverlayCommand>, json: bool) -> Result<()> {
     println!("Shows       {}", match s.show.as_str() { "gaming" => "only while a game runs", "always" => "always", _ => "never (FPS is still recorded)" });
     println!("Layout      {}, {}, {} size, background {} %", s.layout, s.position, s.size, s.opacity_pct);
     println!("Key         {} shows and hides it in game", s.toggle_key);
-    println!(
-        "Every game  {}{}",
-        if s.every_game { "on" } else { "off (or add `mangohud %command%` to a Steam game's launch options)" },
-        if s.every_game && !st.every_game_active { " — takes effect at your next login" } else { "" }
-    );
+    println!("Games       per game: `mangohud %command%` in a Steam game's launch options, or `mangohud <game>`");
     Ok(())
 }
 

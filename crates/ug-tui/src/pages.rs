@@ -1503,7 +1503,7 @@ fn live(app: &mut App, f: &mut Frame, r: Rect) {
 }
 
 /// The overlay's settings, one row each; ←→ changes the selected one.
-const OVERLAY_ROWS: [&str; 7] = ["Show", "Layout", "Position", "Size", "Background", "Every Vulkan game", "Remove Unix Guardian's setup"];
+const OVERLAY_ROWS: [&str; 6] = ["Show", "Layout", "Position", "Size", "Background", "Remove Unix Guardian's setup"];
 
 fn overlay_page(app: &mut App, f: &mut Frame, r: Rect) {
     let t = app.theme;
@@ -1547,11 +1547,6 @@ fn overlay_page(app: &mut App, f: &mut Frame, r: Rect) {
         s.position.clone(),
         s.size.clone(),
         format!("{} %", s.opacity_pct),
-        if s.every_game {
-            if st.every_game_active { "on".into() } else { "on (from your next login)".into() }
-        } else {
-            "off (or add `mangohud %command%` to a Steam game)".into()
-        },
         "Enter".into(),
     ];
     app.rows = OVERLAY_ROWS.len();
@@ -1563,7 +1558,10 @@ fn overlay_page(app: &mut App, f: &mut Frame, r: Rect) {
     if y < r.y + r.height {
         f.render_widget(
             Paragraph::new(Span::styled(
-                format!("In game, {} shows and hides it (change it with: ug overlay set --key Alt_L+o).", s.toggle_key),
+                format!(
+                    "In game, {} shows and hides it (ug overlay set --key Alt_L+o). Load it per game: `mangohud %command%` in Steam.",
+                    s.toggle_key
+                ),
                 t.faint(),
             )),
             Rect { y, height: 1, ..r },
@@ -2204,7 +2202,6 @@ fn step_overlay(app: &mut App, d: i32) {
         2 => s.position = cycle(&s.position, &["top-left", "top-center", "top-right", "bottom-right", "bottom-left"]),
         3 => s.size = cycle(&s.size, &["small", "medium", "large"]),
         4 => s.opacity_pct = (s.opacity_pct as i32 + 10 * d).clamp(0, 100) as u8,
-        5 => s.every_game = !s.every_game,
         _ => return,
     }
     let r = app.bus.overlay_set(&s);
@@ -2645,9 +2642,6 @@ pub fn activate(app: &mut App, i: usize) {
             if !st.set_up {
                 let r = app.bus.overlay_set_up(true);
                 report(app, r.map(|_| "Overlay set up.".to_string()));
-            } else if i == 5 {
-                step_overlay(app, 1);
-                return;
             } else if i == OVERLAY_ROWS.len() - 1 {
                 let r = app.bus.overlay_set_up(false);
                 report(app, r.map(|_| "MangoHud's configuration is back as it was.".to_string()));

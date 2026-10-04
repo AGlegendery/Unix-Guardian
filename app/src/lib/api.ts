@@ -170,14 +170,12 @@ export interface OverlaySettings {
   size: "small" | "medium" | "large";
   opacity_pct: number;
   toggle_key: string;
-  every_game: boolean;
 }
 export interface OverlayState {
   settings: OverlaySettings;
   installed: boolean;
   set_up: boolean;
   install_hint: string;
-  every_game_active: boolean;
   game_running: boolean;
 }
 export interface DriverFact { key: string; value: string }

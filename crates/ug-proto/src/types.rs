@@ -807,9 +807,6 @@ pub struct OverlaySettings {
     /// MangoHud key names, e.g. `Alt_L+o` (shows and hides the overlay
     /// while the game has focus).
     pub toggle_key: String,
-    /// Load MangoHud into every Vulkan game (`MANGOHUD=1` in the session;
-    /// takes effect at the next login).
-    pub every_game: bool,
 }
 
 impl Default for OverlaySettings {
@@ -821,7 +818,6 @@ impl Default for OverlaySettings {
             size: "medium".into(),
             opacity_pct: 50,
             toggle_key: "Alt_L+o".into(),
-            every_game: false,
         }
     }
 }
@@ -835,9 +831,6 @@ pub struct OverlayState {
     pub set_up: bool,
     /// The command that installs MangoHud here.
     pub install_hint: String,
-    /// `MANGOHUD=1` is in this session's environment now (a login after
-    /// turning `every_game` on).
-    pub every_game_active: bool,
     /// A game is running, so `gaming` means shown right now.
     pub game_running: bool,
 }

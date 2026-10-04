@@ -5,7 +5,6 @@
   import ShortcutsCard from "../lib/ShortcutsCard.svelte";
   import Problem from "../lib/ui/Problem.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
-  import Switch from "../lib/ui/Switch.svelte";
 
   let ov = $state<OverlayState | null>(null);
   let snap = $state<Snapshot | null>(null);
@@ -154,16 +153,9 @@
         <p class="small">{t().overlay.keyNote}</p>
       </div>
       <div class="field">
-        <div class="switchrow">
-          <span>{t().overlay.everyGame}</span>
-          <Switch checked={s.every_game} label={t().overlay.everyGame} onchange={(v) => change({ every_game: v })} />
-        </div>
-        {#if s.every_game && !ov.every_game_active}
-          <p class="small">{t().overlay.everyGamePending}</p>
-        {:else if !s.every_game}
-          <p class="small">{t().overlay.everyGameNote}</p>
-          <code class="cmd" dir="ltr">mangohud %command%</code>
-        {/if}
+        <span>{t().overlay.everyGame}</span>
+        <p class="small">{t().overlay.everyGameNote}</p>
+        <code class="cmd" dir="ltr">mangohud %command%</code>
       </div>
       {#if saved}<p class="saved" role="status">{t().overlay.saved}</p>{/if}
       <button class="btn" onclick={() => setUp(false)}>{t().overlay.undo}</button>

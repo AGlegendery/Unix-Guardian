@@ -399,9 +399,8 @@ export const en = {
     key: "Show and hide in game",
     keyPress: "Press the keys…",
     keyNote: "Works while the game has focus (MangoHud reads it inside the game).",
-    everyGame: "Load into every Vulkan game",
-    everyGameNote: "Sets MANGOHUD=1 for your session; takes effect at your next login. Without it, add this to a Steam game's launch options:",
-    everyGamePending: "On; takes effect at your next login.",
+    everyGame: "Load it into a game",
+    everyGameNote: "Per game, never for the whole desktop: add this to a Steam game's launch options (or start other games with mangohud).",
     saved: "Saved. A running game shows the change within a second.",
   },
   recorder: {

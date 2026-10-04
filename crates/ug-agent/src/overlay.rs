@@ -27,8 +27,6 @@ const GPU: &str = "C98500";
 pub struct Overlay {
     pub fps: Fps,
     settings_path: PathBuf,
-    /// `~/.config/environment.d/90-unix-guardian-mangohud.conf`.
-    env_path: PathBuf,
     settings: Mutex<OverlaySettings>,
     /// The last "game running" this block was written for.
     game_running: Mutex<bool>,
@@ -101,7 +99,7 @@ pub fn block(s: &OverlaySettings, logging: &str, visible: bool) -> String {
 }
 
 impl Overlay {
-    pub fn new(fps: Fps, config_home: &std::path::Path, ug_config: &std::path::Path) -> Overlay {
+    pub fn new(fps: Fps, ug_config: &std::path::Path) -> Overlay {
         let settings_path = ug_config.join("overlay.json");
         let settings = std::fs::read_to_string(&settings_path)
             .ok()
@@ -111,7 +109,6 @@ impl Overlay {
         Overlay {
             fps,
             settings_path,
-            env_path: config_home.join("environment.d/90-unix-guardian-mangohud.conf"),
             settings: Mutex::new(settings),
             game_running: Mutex::new(false),
             forced: Mutex::new(None),
@@ -133,7 +130,6 @@ impl Overlay {
             installed: self.fps.installed(),
             set_up: self.fps.set_up(),
             install_hint: self.fps.install_hint(),
-            every_game_active: std::env::var("MANGOHUD").is_ok_and(|v| v == "1"),
             game_running: gaming,
         }
     }
@@ -174,36 +170,20 @@ impl Overlay {
         }
         let json = serde_json::to_string_pretty(&s).expect("settings serialize");
         std::fs::write(&self.settings_path, json).map_err(|e| format!("{}: {e}", self.settings_path.display()))?;
-        self.set_every_game(s.every_game)?;
         *self.settings.lock().unwrap_or_else(|e| e.into_inner()) = s;
         self.write()
     }
 
-    /// Adds (or removes) our MangoHud block; removing also withdraws the
-    /// session variable, so nothing of ours is left.
+    /// Adds (or removes) our MangoHud block. MangoHud is loaded per game
+    /// (Steam launch options, `mangohud <game>`), never with `MANGOHUD=1`
+    /// for the whole session: that reaches every Vulkan program, GTK 4
+    /// apps included (see `ug_core::session_env`).
     pub fn set_up(&self, on: bool) -> Result<(), String> {
         if on {
             let s = self.settings();
-            self.fps.write_block(Some(&block(&s, &self.fps.logging_lines(), self.visible_now())))?;
-            self.set_every_game(s.every_game)
+            self.fps.write_block(Some(&block(&s, &self.fps.logging_lines(), self.visible_now())))
         } else {
-            self.fps.write_block(None)?;
-            self.set_every_game(false)
-        }
-    }
-
-    fn set_every_game(&self, on: bool) -> Result<(), String> {
-        if on {
-            if let Some(d) = self.env_path.parent() {
-                std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
-            }
-            std::fs::write(&self.env_path, "# Written by Unix Guardian: load MangoHud into Vulkan games.\nMANGOHUD=1\n")
-                .map_err(|e| format!("{}: {e}", self.env_path.display()))
-        } else {
-            match std::fs::remove_file(&self.env_path) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
-                _ => Ok(()),
-            }
+            self.fps.write_block(None)
         }
     }
 
@@ -240,7 +220,7 @@ mod tests {
         };
         std::fs::create_dir_all(d.path().join("root/usr/share/vulkan/implicit_layer.d")).unwrap();
         std::fs::write(d.path().join("root/usr/share/vulkan/implicit_layer.d/MangoHud.json"), "{}").unwrap();
-        let o = Overlay::new(fps, &d.path().join("config"), &d.path().join("config/unix-guardian"));
+        let o = Overlay::new(fps, &d.path().join("config/unix-guardian"));
         (d, o)
     }
 
@@ -298,7 +278,6 @@ mod tests {
         assert!(!conf(&o).contains("no_display"), "always: shown even without a game");
         let again = Overlay::new(
             Fps { folder: o.fps.folder.clone(), config: o.fps.config.clone(), root: o.fps.root.clone() },
-            &d.path().join("config"),
             &d.path().join("config/unix-guardian"),
         );
         assert_eq!(again.settings(), s);
@@ -307,17 +286,24 @@ mod tests {
         assert_eq!(o.settings(), s, "a refused change changes nothing");
     }
 
+    /// Nothing the overlay writes may land where the whole session reads
+    /// it: `MANGOHUD=1` there loads MangoHud into every Vulkan program.
     #[test]
-    fn every_game_writes_the_session_variable_and_undo_removes_everything() {
+    fn setting_up_and_changing_the_overlay_writes_nothing_session_wide() {
         let (d, o) = fixture();
         std::fs::create_dir_all(o.fps.config.parent().unwrap()).unwrap();
         std::fs::write(&o.fps.config, "fps_limit=144\n").unwrap();
         o.set_up(true).unwrap();
-        o.set(OverlaySettings { every_game: true, ..Default::default() }).unwrap();
-        let env = d.path().join("config/environment.d/90-unix-guardian-mangohud.conf");
-        assert!(std::fs::read_to_string(&env).unwrap().contains("MANGOHUD=1"));
+        // An overlay.json from the old version still says every_game.
+        o.set(OverlaySettings { show: "always".into(), ..Default::default() }).unwrap();
+        let old = r#"{"show":"gaming","layout":"card","position":"top-left","size":"medium","opacity_pct":50,"toggle_key":"Alt_L+o","every_game":true}"#;
+        assert!(serde_json::from_str::<OverlaySettings>(old).is_ok(), "an old overlay.json still loads");
+        // The fixture's `config` is `~/.config`, its root the home.
+        for s in ug_core::session_env::SESSION_WIDE {
+            let p = d.path().join(s.replacen(".config", "config", 1));
+            assert!(!p.exists(), "{s} was written");
+        }
         o.set_up(false).unwrap();
-        assert!(!env.exists());
         assert_eq!(conf(&o), "fps_limit=144\n", "the user's own line is all that is left");
     }
 

@@ -21,6 +21,9 @@
 //!
 //! [`retire_legacy`] moves the old version's file out of `environment.d`.
 
+use crate::session_env::Retired;
+#[cfg(test)]
+use crate::session_env::SESSION_WIDE;
 use std::path::{Path, PathBuf};
 use ug_hw::gpu_use::Gpu;
 
@@ -72,49 +75,21 @@ pub fn config_home() -> PathBuf {
 
 /// The old version's session-wide file.
 pub fn legacy_file(config_home: &Path) -> PathBuf {
-    config_home.join("environment.d/90-unix-guardian-gpu.conf")
+    config_home.join("environment.d").join(crate::session_env::LEGACY_FILES[0])
 }
 
-/// What [`retire_legacy`] did.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Retired {
-    /// Where the old file was moved to.
-    pub moved_to: PathBuf,
-    /// The variables it set, so the caller can drop them from the running
-    /// user manager (with `Linger=yes` it outlives a logout).
-    pub vars: Vec<String>,
-}
-
-/// Moves the old version's `environment.d` file aside, if it is there and
-/// is ours (it carries [`MARK`]). Never deletes it, and never touches any
-/// other file; the choice it held is kept as the per-program default.
-/// `stamp` makes the new name unique (the caller passes the time).
+/// Moves the old version's `environment.d` file aside (see
+/// [`crate::session_env::retire`]) and keeps the choice it held as the
+/// per-program default.
 pub fn retire_legacy(config_home: &Path, ug_config: &Path, stamp: &str) -> std::io::Result<Option<Retired>> {
-    let path = legacy_file(config_home);
-    let text = match std::fs::read_to_string(&path) {
-        Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    let vars: Vec<(String, String)> = text
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.starts_with('#'))
-        .filter_map(|l| l.split_once('='))
-        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
-        .collect();
-    let Some(pci) = vars.iter().find(|(k, _)| k == MARK).map(|(_, v)| v.clone()) else {
-        // Not written by Unix Guardian: not ours to move.
+    let Some(r) = crate::session_env::retire(config_home, ug_config, crate::session_env::LEGACY_FILES[0], stamp)? else {
         return Ok(None);
     };
-    let dir = ug_config.join("retired");
-    std::fs::create_dir_all(&dir)?;
-    let moved_to = dir.join(format!("90-unix-guardian-gpu.conf.{stamp}"));
-    std::fs::rename(&path, &moved_to)?;
+    let pci = r.vars.iter().find(|(k, _)| k == MARK).map(|(_, v)| v.as_str()).unwrap_or("");
     if !pci.is_empty() && chosen(ug_config).is_none() {
         crate::paths::write_atomic(&file(ug_config), format!("{pci}\n").as_bytes())?;
     }
-    Ok(Some(Retired { moved_to, vars: vars.into_iter().map(|(k, _)| k).collect() }))
+    Ok(Some(r))
 }
 
 /// Marks an application entry Unix Guardian wrote, so only those are ever
@@ -157,18 +132,6 @@ pub fn desktop_override(original: &str) -> Option<String> {
 pub fn is_our_override(text: &str) -> bool {
     text.lines().any(|l| l.trim() == DESKTOP_MARK)
 }
-
-/// Every place that applies to the whole session and must never get a GPU
-/// or overlay variable from Unix Guardian, relative to the home directory.
-/// Tests check writers against it.
-pub const SESSION_WIDE: [&str; 6] = [
-    ".config/environment.d",
-    ".config/plasma-workspace/env",
-    ".profile",
-    ".pam_environment",
-    ".xprofile",
-    ".xsessionrc",
-];
 
 #[cfg(test)]
 mod tests {
@@ -253,7 +216,8 @@ mod tests {
         assert!(!legacy_file(&config).exists());
         assert_eq!(r.moved_to, ug.join("retired/90-unix-guardian-gpu.conf.20261004T120000"));
         assert_eq!(std::fs::read_to_string(&r.moved_to).unwrap(), OLD, "moved, not rewritten");
-        assert_eq!(r.vars, ["__NV_PRIME_RENDER_OFFLOAD", "__GLX_VENDOR_LIBRARY_NAME", "__VK_LAYER_NV_optimus", MARK]);
+        let names: Vec<&str> = r.vars.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(names, ["__NV_PRIME_RENDER_OFFLOAD", "__GLX_VENDOR_LIBRARY_NAME", "__VK_LAYER_NV_optimus", MARK]);
         assert_eq!(chosen(&ug).as_deref(), Some("0000:01:00.0"));
         assert_eq!(std::fs::read_to_string(config.join("environment.d.disabled/90-unix-guardian-gpu.conf")).unwrap(), OLD);
         assert!(files(&config.join("environment.d")).is_empty());
