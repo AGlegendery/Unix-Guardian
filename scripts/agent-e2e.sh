@@ -44,10 +44,20 @@ check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fai
 state() { awk '{print $3}' "/proc/$1/stat" 2>/dev/null; }
 until_() { local d=$((SECONDS+$1)); shift; until eval "$@"; do (( SECONDS < d )) || return 1; sleep 0.2; done; }
 
+# The old card switch's session-wide file (it broke KDE, 2026-10-04): the
+# agent moves it aside at start and leaves environment.d.disabled alone.
+mkdir -p "$XDG_CONFIG_HOME/environment.d" "$XDG_CONFIG_HOME/environment.d.disabled"
+printf '__NV_PRIME_RENDER_OFFLOAD=1\n__GLX_VENDOR_LIBRARY_NAME=nvidia\nUG_DEFAULT_GPU=0000:01:00.0\n' \
+  | tee "$XDG_CONFIG_HOME/environment.d/90-unix-guardian-gpu.conf" > "$XDG_CONFIG_HOME/environment.d.disabled/90-unix-guardian-gpu.conf"
 "$W/bin/ugfakechat" 300 & chat=$!
 HOME="$W/home" "$B/ug-agent" --quiet --log warn & agent=$!
 trap 'kill $agent $chat ${game:-} ${other:-} ${editor:-} ${fakesteam:-} 2>/dev/null; rm -rf "$W"' EXIT
 until_ 15 "'$B/ug' game running >/dev/null 2>&1" || { echo "FAIL  agent did not start"; exit 1; }
+
+check "the old session-wide GPU file is moved out of environment.d" "[ -z \"\$(ls -A '$XDG_CONFIG_HOME/environment.d')\" ]"
+check "it is kept, not deleted" "grep -q __NV_PRIME '$XDG_CONFIG_HOME'/unix-guardian/retired/90-unix-guardian-gpu.conf.*"
+check "environment.d.disabled is left alone" "[ -f '$XDG_CONFIG_HOME/environment.d.disabled/90-unix-guardian-gpu.conf' ]"
+check "the choice is kept for ug run" "grep -qx 0000:01:00.0 '$XDG_CONFIG_HOME/unix-guardian/default-gpu'"
 
 # The user unit and the XDG autostart fallback may both start an agent; the
 # second must step aside without failing, or systemd would keep restarting it.
