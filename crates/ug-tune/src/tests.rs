@@ -248,3 +248,50 @@ fn a_crash_during_the_game_restores_network_settings_on_the_next_start() {
     assert_eq!(get(&fs, "proc/sys/net/ipv4/tcp_fastopen"), "1");
     assert!(t2.units.wifi_saving.borrow().contains("wlan0"));
 }
+
+thread_local! {
+    static NICE: std::cell::RefCell<std::collections::HashMap<i32, i32>> = Default::default();
+}
+
+fn fake_nice(t: &mut Tuner<FakeUnits>) {
+    t.nice = Nice {
+        get: |tid| NICE.with(|n| n.borrow().get(&tid).copied()),
+        set: |tid, v| NICE.with(|n| n.borrow_mut().insert(tid, v).is_some()),
+    };
+}
+
+/// Game mode can end while the game runs on (off by hand, another profile,
+/// the test lab); the game must not keep the raised priority.
+#[test]
+fn a_game_still_running_gets_its_priority_back_when_game_mode_ends() {
+    let fs = machine();
+    fs.process(&FakeProc { pid: 90, comm: "game", start_ticks: 5000, ..Default::default() });
+    for tid in [90, 91] {
+        fs.write(format!("proc/90/task/{tid}/stat"), "");
+    }
+    NICE.with(|n| *n.borrow_mut() = [(90, 0), (91, 5)].into());
+    let mut t = tuner(&fs, FakeUnits::default());
+    fake_nice(&mut t);
+    let r = t.enter(&Request { cpu_priority: true, pids: vec![90], ..Default::default() }, UID);
+    assert!(r.applied.iter().any(|l| l.contains("2 threads")), "{r:?}");
+    assert_eq!(NICE.with(|n| (n.borrow()[&90], n.borrow()[&91])), (-10, -10));
+    t.leave();
+    assert_eq!(NICE.with(|n| (n.borrow()[&90], n.borrow()[&91])), (0, 5), "each thread's own value back");
+}
+
+#[test]
+fn a_reused_process_id_is_never_given_another_processs_priority() {
+    let fs = machine();
+    fs.process(&FakeProc { pid: 90, comm: "game", start_ticks: 5000, ..Default::default() });
+    fs.write("proc/90/task/90/stat", "");
+    NICE.with(|n| *n.borrow_mut() = [(90, 0)].into());
+    let mut t = tuner(&fs, FakeUnits::default());
+    fake_nice(&mut t);
+    t.enter(&Request { cpu_priority: true, pids: vec![90], ..Default::default() }, UID);
+    // The game exits and another program gets its process id.
+    fs.process(&FakeProc { pid: 90, comm: "other", start_ticks: 9000, ..Default::default() });
+    NICE.with(|n| n.borrow_mut().insert(90, 19));
+    let r = t.leave();
+    assert_eq!(NICE.with(|n| n.borrow()[&90]), 19, "the new process keeps its own priority");
+    assert!(r.skipped.is_empty(), "{r:?}");
+}

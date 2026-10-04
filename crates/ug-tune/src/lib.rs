@@ -7,9 +7,11 @@
 //! that was there before, never an assumed default: a user who had set
 //! `swappiness` to 30 gets 30 back, not 60.
 //!
-//! Two changes need no undo entry because the kernel reverts them itself: the
+//! One change needs no undo entry because the kernel reverts it itself: the
 //! idle-state hold on `/dev/cpu_dma_latency` ends when its file descriptor
-//! closes, and a thread's nice value dies with the thread.
+//! closes. The game's thread priorities do have one: game mode can end while
+//! the game runs on (turned off by hand, another profile, the test lab), and
+//! the game must not keep its raised priority after that.
 
 pub mod units;
 
@@ -56,6 +58,10 @@ enum Undo {
     Autogroup { id: String, previous: i32 },
     /// Turn Wi-Fi power saving back on.
     WifiPowerSave { iface: String },
+    /// Put back a process's thread priorities: `(thread id, nice)`. Only
+    /// while the process is the same one (its start time), so a reused
+    /// process id is never touched.
+    ThreadNice { pid: i32, start: u64, threads: Vec<(i32, i32)> },
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -99,12 +105,24 @@ pub struct Tuner<U: Units> {
     undo: Vec<Undo>,
     latency: Option<File>,
     active: bool,
+    /// Reads and sets a thread's nice value; replaced in tests, where the
+    /// threads are fake and an unprivileged user could not lower one anyway.
+    nice: Nice,
 }
+
+#[derive(Clone, Copy)]
+struct Nice {
+    get: fn(i32) -> Option<i32>,
+    set: fn(i32, i32) -> bool,
+}
+
+/// The nice value game threads get.
+const GAME_NICE: i32 = -10;
 
 impl<U: Units> Tuner<U> {
     /// Creates a tuner, first undoing anything a previous run left applied.
     pub fn new(root: SysRoot, state_path: PathBuf, units: U) -> (Self, Report) {
-        let mut t = Tuner { root, state_path, units, undo: Vec::new(), latency: None, active: false };
+        let mut t = Tuner { root, state_path, units, undo: Vec::new(), latency: None, active: false, nice: Nice { get: nice_of, set: set_nice } };
         let leftovers: Persisted = std::fs::read_to_string(&t.state_path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -386,11 +404,20 @@ impl<U: Units> Tuner<U> {
                 r.skipped.push(format!("Priority: process {pid} does not belong to you."));
                 continue;
             }
-            for tid in tasks(&self.root, pid) {
-                // SAFETY: setpriority has no memory-safety preconditions.
-                if unsafe { libc::setpriority(libc::PRIO_PROCESS, tid as libc::id_t, -10) } == 0 {
-                    threads += 1;
+            let before: Vec<(i32, i32)> = tasks(&self.root, pid).into_iter().filter_map(|tid| Some((tid, (self.nice.get)(tid)?))).collect();
+            if let (Some(start), false) = (start_time(&self.root, pid), before.is_empty()) {
+                self.record(Undo::ThreadNice { pid, start, threads: before.clone() });
+                let mut raised = 0;
+                for &(tid, _) in &before {
+                    if (self.nice.set)(tid, GAME_NICE) {
+                        raised += 1;
+                    }
                 }
+                if raised == 0 {
+                    self.undo.pop();
+                    self.persist();
+                }
+                threads += raised;
             }
             if let Some((id, nice)) = autogroup(&self.root, pid) {
                 if !groups.contains(&id) && nice > -10 {
@@ -431,6 +458,17 @@ impl<U: Units> Tuner<U> {
                 Undo::WifiPowerSave { iface } => {
                     !self.root.join(format!("sys/class/net/{iface}")).exists()
                         || self.units.set_wifi_power_save(iface, true).is_ok()
+                }
+                Undo::ThreadNice { pid, start, threads } => {
+                    // Gone, or a different process under the same id: the
+                    // game ended and took its priorities with it.
+                    if start_time(&self.root, *pid) != Some(*start) {
+                        true
+                    } else {
+                        let alive = tasks(&self.root, *pid);
+                        let set = self.nice.set;
+                        threads.iter().filter(|(tid, _)| alive.contains(tid)).all(|&(tid, nice)| set(tid, nice))
+                    }
                 }
                 Undo::Autogroup { id, previous } => {
                     // The game has usually exited; any surviving member of the
@@ -509,6 +547,30 @@ fn policies(root: &SysRoot) -> Vec<PathBuf> {
 fn owner(root: &SysRoot, pid: i32) -> Option<u32> {
     let s = std::fs::read_to_string(root.join(format!("proc/{pid}/status"))).ok()?;
     s.lines().find_map(|l| l.strip_prefix("Uid:"))?.split_whitespace().next()?.parse().ok()
+}
+
+/// A thread's nice value. getpriority can return -1 legitimately, so errno
+/// tells a failure apart.
+fn nice_of(tid: i32) -> Option<i32> {
+    // SAFETY: errno is thread-local; getpriority has no memory-safety
+    // preconditions.
+    unsafe {
+        *libc::__errno_location() = 0;
+        let n = libc::getpriority(libc::PRIO_PROCESS, tid as libc::id_t);
+        (*libc::__errno_location() == 0).then_some(n)
+    }
+}
+
+fn set_nice(tid: i32, nice: i32) -> bool {
+    // SAFETY: setpriority has no memory-safety preconditions.
+    unsafe { libc::setpriority(libc::PRIO_PROCESS, tid as libc::id_t, nice) == 0 }
+}
+
+/// When a process started (clock ticks since boot, field 22 of its stat):
+/// with the pid, it names one process for good.
+fn start_time(root: &SysRoot, pid: i32) -> Option<u64> {
+    let s = std::fs::read_to_string(root.join(format!("proc/{pid}/stat"))).ok()?;
+    s.rsplit_once(')')?.1.split_whitespace().nth(19)?.parse().ok()
 }
 
 fn tasks(root: &SysRoot, pid: i32) -> Vec<i32> {
