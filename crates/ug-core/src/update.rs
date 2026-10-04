@@ -168,9 +168,10 @@ pub fn newest<'a>(releases: &'a [Release], current: &str) -> Option<&'a Release>
         .map(|(_, r)| r)
 }
 
-/// The minisign public key releases are signed with. `None` until the
-/// project has one: then nothing is installed, only told about.
-pub const PUBLIC_KEY: Option<&str> = None;
+/// The minisign public key releases are signed with (made 2026-10-04;
+/// the secret key and its password are the repository's MINISIGN_KEY and
+/// MINISIGN_PASSWORD secrets, and the owner's offline copy).
+pub const PUBLIC_KEY: Option<&str> = Some("RWT9lQkAygfnHaPrOJctcDYWLCHT9FJGJYvPmQFVGJ87XDCorbjmrKK+");
 
 /// The key a download must be signed with: `public_key` in
 /// `<etc>/update.toml` (root's file; tests use it), else [`PUBLIC_KEY`].
@@ -355,6 +356,14 @@ mod tests {
         assert_eq!(trusted_key(d.path()), PUBLIC_KEY.map(String::from));
         std::fs::write(d.path().join("update.toml"), format!("public_key = \"{key}\"\n")).unwrap();
         assert_eq!(trusted_key(d.path()), Some(key));
+    }
+
+    /// A file signed with the project's real key (by examples/sign).
+    #[test]
+    fn the_project_key_checks_its_own_signatures() {
+        let sig = "untrusted comment: signature from rsign secret key\nRUT9lQkAygfnHadElaRd8rMxFXsWYby390CFebe93nOxML3qS/rwhK3sRuUUvvrVkyupyQIZttR+XWc5Xbv0FPV7KzEReGPgxAI=\ntrusted comment: file:f\nw4zARz60rCaLguygCpe9/5zFjm0hNsCUkY7V4cjEv5qnfCTieQMW3vVVkH+55HQ8xXpC82j/njAL6lcFD+YUBA==\n";
+        assert_eq!(verify(b"hi\n", sig, PUBLIC_KEY.unwrap()), Ok(()));
+        assert!(verify(b"ho\n", sig, PUBLIC_KEY.unwrap()).is_err());
     }
 
     #[test]
