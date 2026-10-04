@@ -371,6 +371,8 @@ export interface Profile {
   pause_services: boolean;
   network_tuning: boolean;
   power_profile: boolean;
+  keep_screen_on: boolean;
+  do_not_disturb: boolean;
   pause_apps: string[];
   games: string[];
 }
@@ -511,6 +513,10 @@ const tauriApi = {
   gameModeHand: () => invoke<[string, string]>("game_mode_hand"),
   /** On now with a profile ("" = the last one used), or off. */
   setGameMode: (on: boolean, profile: string) => invoke<void>("set_game_mode", { on, profile }),
+  setPauseApps: (profile: string, apps: string[]) => invoke<void>("set_pause_apps", { profile, apps }),
+  /** A copy of `from` ("" = balanced) under a new name. */
+  createProfile: (profile: string, from: string) => invoke<void>("create_profile", { profile, from }),
+  deleteProfile: (profile: string) => invoke<void>("delete_profile", { profile }),
   powerCaps: () => invoke<PowerCapability[]>("power_caps"),
   powerNow: (action: PowerAction) => invoke<void>("power_now", { action }),
   powerSchedule: (action: PowerAction, atUnixMs: number, repeat: string) =>

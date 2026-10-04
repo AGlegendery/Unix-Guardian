@@ -642,5 +642,16 @@ pub mod agent {
         /// Game mode on now with a profile (empty: the last one chosen), or
         /// off. On applies at the next tick, with or without a game.
         fn set_game_mode(&self, on: bool, profile: &str) -> zbus::Result<()>;
+
+        /// The apps a profile pauses while a game runs, by program name.
+        fn set_pause_apps(&self, profile: &str, apps: &[&str]) -> zbus::Result<()>;
+
+        /// A new profile of the user's own, a copy of `from` (empty:
+        /// balanced) to change from there.
+        fn create(&self, profile: &str, from: &str) -> zbus::Result<()>;
+
+        /// Deletes one of the user's own profiles; its games go back to the
+        /// profile the game database suggests.
+        fn delete(&self, profile: &str) -> zbus::Result<()>;
     }
 }

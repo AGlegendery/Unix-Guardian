@@ -42,6 +42,12 @@ pub struct Profile {
     /// its performance profile while playing: on laptops that also means the
     /// firmware's performance fan and power mode.
     pub power_profile: bool,
+    /// Keep the screen on and the computer awake while playing (a hold on
+    /// the desktop's screen saver, released when game mode ends).
+    pub keep_screen_on: bool,
+    /// Hold the desktop's notifications while playing (KDE Plasma; other
+    /// desktops ignore it), Unix Guardian's own included.
+    pub do_not_disturb: bool,
     /// Applications to pause (SIGSTOP) while playing, by executable name, e.g.
     /// `["discord", "steamwebhelper"]`. Resumed exactly as they were after.
     pub pause_apps: Vec<String>,
@@ -61,6 +67,8 @@ impl Default for Profile {
             pause_services: true,
             network_tuning: true,
             power_profile: true,
+            keep_screen_on: true,
+            do_not_disturb: false,
             pause_apps: Vec::new(),
         }
     }
@@ -72,6 +80,7 @@ pub fn builtin() -> Vec<Profile> {
         Profile {
             id: "competitive".into(),
             cpu_no_idle_states: true,
+            do_not_disturb: true,
             ..Profile::default()
         },
         Profile {
@@ -181,7 +190,7 @@ pub fn is_builtin(id: &str) -> bool {
 }
 
 /// The on/off settings a profile has, by their file and wire names.
-pub const OPTIONS: [&str; 8] = [
+pub const OPTIONS: [&str; 10] = [
     "cpu_performance",
     "cpu_no_idle_states",
     "cpu_preferred_cores",
@@ -190,7 +199,90 @@ pub const OPTIONS: [&str; 8] = [
     "pause_services",
     "network_tuning",
     "power_profile",
+    "keep_screen_on",
+    "do_not_disturb",
 ];
+
+/// A profile name a file can carry: letters, digits, `-` and `_`.
+fn valid_id(id: &str) -> Result<(), String> {
+    if id.is_empty() || id.len() > 40 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err(format!("{id:?} is not a valid profile name (letters, digits, - and _ only)"));
+    }
+    Ok(())
+}
+
+/// Reads the user's file for a profile as a table (empty when there is
+/// none), changes it, checks it still loads, and writes it atomically.
+fn edit_file(config_dir: &Path, id: &str, change: impl FnOnce(&mut toml::Table)) -> Result<(), String> {
+    valid_id(id)?;
+    let dir = config_dir.join("profiles");
+    let path = dir.join(format!("{id}.toml"));
+    let mut table = match std::fs::read_to_string(&path) {
+        Ok(s) => s
+            .parse::<toml::Table>()
+            .map_err(|e| format!("{} does not parse, so it was not changed: {e}", path.display()))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => toml::Table::new(),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    change(&mut table);
+    let text = toml::to_string(&table).map_err(|e| e.to_string())?;
+    // Never write a file the loader would then skip as broken.
+    toml::from_str::<Profile>(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let tmp = dir.join(format!(".{id}.toml.tmp"));
+    std::fs::write(&tmp, text)
+        .and_then(|()| std::fs::rename(&tmp, &path))
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The apps a profile pauses while playing, by executable name; empty
+/// names and duplicates are dropped.
+pub fn set_pause_apps(config_dir: &Path, id: &str, apps: &[String]) -> Result<(), String> {
+    let mut list: Vec<String> = Vec::new();
+    for a in apps.iter().map(|a| a.trim()).filter(|a| !a.is_empty()) {
+        if a.contains('/') {
+            return Err(format!("{a:?}: give the program's name, not a path"));
+        }
+        if !list.iter().any(|x| x == a) {
+            list.push(a.to_string());
+        }
+    }
+    edit_file(config_dir, id, |t| {
+        t.insert("pause_apps".into(), toml::Value::Array(list.into_iter().map(toml::Value::String).collect()));
+    })
+}
+
+/// A new profile of the user's own, starting as a copy of `from`.
+pub fn create_profile(config_dir: &Path, id: &str, from: &Profile) -> Result<(), String> {
+    valid_id(id)?;
+    let (existing, _) = Profiles::load(config_dir);
+    if existing.get(id).is_some() {
+        return Err(format!("there is already a profile named {id:?}"));
+    }
+    let mut copy = from.clone();
+    copy.id = id.to_string();
+    let table = toml::Table::try_from(&copy).map_err(|e| e.to_string())?;
+    edit_file(config_dir, id, |t| *t = table)
+}
+
+/// Deletes one of the user's own profiles; games that used it go back to
+/// the profile the game database suggests. Built-in profiles stay.
+pub fn delete_profile(config_dir: &Path, id: &str) -> Result<(), String> {
+    valid_id(id)?;
+    if is_builtin(id) {
+        return Err(format!("{id} is built in and cannot be deleted; its settings can be changed"));
+    }
+    let path = config_dir.join("profiles").join(format!("{id}.toml"));
+    std::fs::remove_file(&path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => format!("there is no profile of yours named {id:?}"),
+        _ => format!("{}: {e}", path.display()),
+    })?;
+    let (p, _) = Profiles::load(config_dir);
+    for (game, _) in p.per_game().iter().filter(|(_, pid)| *pid == id) {
+        set_game_profile(config_dir, game, None)?;
+    }
+    Ok(())
+}
 
 /// Turns one setting of a profile on or off by writing it into the user's
 /// `profiles/<id>.toml`; everything else already in that file (`pause_apps`,
@@ -203,27 +295,9 @@ pub fn set_profile_option(config_dir: &Path, id: &str, option: &str, value: bool
     if !OPTIONS.contains(&option) {
         return Err(format!("unknown setting {option:?}; settings are: {}", OPTIONS.join(", ")));
     }
-    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
-        return Err(format!("{id:?} is not a valid profile name (letters, digits, - and _ only)"));
-    }
-    let dir = config_dir.join("profiles");
-    let path = dir.join(format!("{id}.toml"));
-    let mut table = match std::fs::read_to_string(&path) {
-        Ok(s) => s
-            .parse::<toml::Table>()
-            .map_err(|e| format!("{} does not parse, so it was not changed: {e}", path.display()))?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => toml::Table::new(),
-        Err(e) => return Err(format!("{}: {e}", path.display())),
-    };
-    table.insert(option.to_string(), toml::Value::Boolean(value));
-    let text = toml::to_string(&table).map_err(|e| e.to_string())?;
-    // Never write a file the loader would then skip as broken.
-    toml::from_str::<Profile>(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let tmp = dir.join(format!(".{id}.toml.tmp"));
-    std::fs::write(&tmp, text)
-        .and_then(|()| std::fs::rename(&tmp, &path))
-        .map_err(|e| format!("{}: {e}", path.display()))
+    edit_file(config_dir, id, |t| {
+        t.insert(option.to_string(), toml::Value::Boolean(value));
+    })
 }
 
 /// Records which profile a game runs with in `config_dir/games.toml`, or with
@@ -380,6 +454,39 @@ mod tests {
         std::fs::write(d.path().join("profiles/mine.toml"), broken).unwrap();
         assert!(set_profile_option(d.path(), "mine", "cpu_priority", true).unwrap_err().contains("not changed"));
         assert_eq!(std::fs::read_to_string(d.path().join("profiles/mine.toml")).unwrap(), broken);
+    }
+
+    #[test]
+    fn a_profile_of_ones_own_is_made_from_another_and_deleted_with_its_games() {
+        let d = dir();
+        let (p, _) = Profiles::load(d.path());
+        create_profile(d.path(), "night", p.get("quiet").unwrap()).unwrap();
+        set_game_profile(d.path(), "steam:730", Some("night")).unwrap();
+        set_pause_apps(d.path(), "night", &["discord".into(), " discord ".into(), "".into(), "steamwebhelper".into()]).unwrap();
+        let (p, problems) = Profiles::load(d.path());
+        assert!(problems.is_empty(), "{problems:?}");
+        let n = p.get("night").unwrap();
+        assert!(!n.cpu_performance, "a copy of quiet");
+        assert_eq!(n.pause_apps, vec!["discord", "steamwebhelper"]);
+        assert!(create_profile(d.path(), "night", n).unwrap_err().contains("already"));
+        assert!(create_profile(d.path(), "quiet", n).unwrap_err().contains("already"));
+        assert!(set_pause_apps(d.path(), "night", &["/usr/bin/x".into()]).is_err());
+        assert!(delete_profile(d.path(), "balanced").unwrap_err().contains("built in"));
+        delete_profile(d.path(), "night").unwrap();
+        let (p, _) = Profiles::load(d.path());
+        assert!(p.get("night").is_none());
+        assert!(p.per_game().is_empty(), "its games went back to their suggestion");
+        assert!(delete_profile(d.path(), "night").unwrap_err().contains("no profile"));
+    }
+
+    #[test]
+    fn the_new_settings_have_defaults_and_can_be_changed() {
+        let d = dir();
+        let (p, _) = Profiles::load(d.path());
+        assert!(p.get("balanced").unwrap().keep_screen_on && !p.get("balanced").unwrap().do_not_disturb);
+        assert!(p.get("competitive").unwrap().do_not_disturb);
+        set_profile_option(d.path(), "balanced", "do_not_disturb", true).unwrap();
+        assert!(Profiles::load(d.path()).0.get("balanced").unwrap().do_not_disturb);
     }
 
     #[test]

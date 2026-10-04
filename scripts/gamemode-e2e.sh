@@ -52,7 +52,7 @@ original() { [ "$(gov)" = powersave ] && [ "$(epp)" = balance_power ] && [ "$(sw
 "$B/ug-daemon" --session --sysroot "$W/root" --state-dir "$W/state" --log warn 2>"$W/daemon.log" & daemon=$!
 until_ 20 "'$B/ug' --session gpu active >/dev/null 2>&1" || { echo "FAIL  daemon did not start"; exit 1; }
 "$B/ug-agent" --daemon-session --quiet --log info 2>"$W/agent.log" & agent=$!
-trap 'kill $daemon $agent ${game:-} 2>/dev/null; rm -rf "$W"' EXIT
+trap 'kill $daemon $agent ${game:-} ${fake:-} 2>/dev/null; rm -rf "$W"' EXIT
 until_ 15 "'$B/ug' game running >/dev/null 2>&1" || { echo "FAIL  agent did not start"; exit 1; }
 
 check "starts from the machine's own settings" original
@@ -72,12 +72,21 @@ kill "$game"; wait "$game" 2>/dev/null
 check "the game ending turns game mode off" "until_ 10 \"active | grep -q false\""
 check "every setting is exactly as before" original
 
+# The desktop's screen saver and notifications, as KDE offers them.
+python3 "$(dirname "$0")/fake-desktop-holds.py" "$W/holds" & fake=$!
+until_ 5 "[ -e '$W/holds' ]"
 # By hand, without a game: any profile at once, then off.
 check "ug profile on turns game mode on without a game" "'$B/ug' profile on quiet | grep -q 'quiet profile' && until_ 8 \"active | grep -q true\""
 check "with that profile's settings (quiet: no CPU performance mode)" "[ \"\$(gov)\" = powersave ] && [ \"\$(swp)\" = 60 ]"
+check "quiet keeps the screen on but lets notifications through" "until_ 6 \"grep -q screen '$W/holds'\" && ! grep -q notifications '$W/holds'"
 check "switching profile applies at once" "'$B/ug' profile on competitive >/dev/null && until_ 6 \"[ \\\"\\\$(gov)\\\" = performance ]\""
+check "competitive also holds notifications" "until_ 6 \"grep -q notifications '$W/holds'\" && grep -q screen '$W/holds'"
 check "an unknown profile is refused" "! '$B/ug' profile on nope 2>/dev/null"
 check "ug profile off puts everything back" "'$B/ug' profile off >/dev/null && until_ 8 \"active | grep -q false\" && original"
+check "a profile of one's own: made, given apps to pause, listed, turned on, deleted" "'$B/ug' profile new night --from quiet >/dev/null && '$B/ug' profile pause-apps night discord >/dev/null && '$B/ug' profile list | grep -A12 '^night' | grep -q 'pause apps .*discord' && '$B/ug' profile on night | grep -q 'night profile' && '$B/ug' profile off >/dev/null && '$B/ug' profile delete night >/dev/null && ! '$B/ug' profile list | grep -q '^night' && [ ! -e '$W/cfg/unix-guardian/profiles/night.toml' ]"
+check "a built-in profile cannot be deleted" "! '$B/ug' profile delete balanced 2>/dev/null"
+check "and releases the desktop holds" "until_ 6 \"! [ -s '$W/holds' ]\""
+kill $fake 2>/dev/null
 
 SteamAppId=730 bash -c 'exec -a cs2 sleep 120' & game=$!
 until_ 8 "active | grep -q true"

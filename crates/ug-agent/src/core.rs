@@ -333,6 +333,8 @@ impl AgentCore {
                 pause_services: p.pause_services,
                 network_tuning: p.network_tuning,
                 power_profile: p.power_profile,
+                keep_screen_on: p.keep_screen_on,
+                do_not_disturb: p.do_not_disturb,
                 pause_apps: p.pause_apps.clone(),
                 games: self.profiles.per_game().iter().filter(|(_, id)| **id == p.id).map(|(k, _)| k.clone()).collect(),
             })
@@ -380,6 +382,41 @@ impl AgentCore {
         ug_core::profile::set_profile_option(&self.config_dir, id, option, value)?;
         self.profiles = Profiles::load(&self.config_dir).0;
         Ok(())
+    }
+
+    /// Which apps a profile pauses while playing.
+    pub fn set_pause_apps(&mut self, id: &str, apps: &[String]) -> Result<(), String> {
+        self.known_profile(id)?;
+        ug_core::profile::set_pause_apps(&self.config_dir, id, apps)?;
+        self.profiles = Profiles::load(&self.config_dir).0;
+        Ok(())
+    }
+
+    /// A profile of the user's own, copied from `from`.
+    pub fn create_profile(&mut self, id: &str, from: &str) -> Result<(), String> {
+        let base = self.known_profile(if from.is_empty() { "balanced" } else { from })?;
+        ug_core::profile::create_profile(&self.config_dir, id, &base)?;
+        self.profiles = Profiles::load(&self.config_dir).0;
+        Ok(())
+    }
+
+    /// Deletes one of the user's own profiles. Game mode by hand that used
+    /// it goes on with balanced; games go back to their suggestion.
+    pub fn delete_profile(&mut self, id: &str) -> Result<(), String> {
+        ug_core::profile::delete_profile(&self.config_dir, id)?;
+        self.profiles = Profiles::load(&self.config_dir).0;
+        if self.by_hand_profile == id {
+            self.by_hand_profile = "balanced".into();
+        }
+        Ok(())
+    }
+
+    fn known_profile(&self, id: &str) -> Result<ug_core::profile::Profile, String> {
+        let (fresh, _) = Profiles::load(&self.config_dir);
+        fresh.get(id).cloned().ok_or_else(|| {
+            let known: Vec<&str> = fresh.all().iter().map(|p| p.id.as_str()).collect();
+            format!("no profile named {id:?}; available: {}", known.join(", "))
+        })
     }
 
     /// A GameMode `RegisterGame` call.
@@ -544,15 +581,22 @@ impl AgentCore {
     /// Whether a running game's profile asks for the performance power
     /// profile, and that game's name.
     pub fn power_profile_wanted(&self) -> (bool, String) {
+        self.flag_wanted(|p| p.power_profile)
+    }
+
+    /// Whether game mode's profiles (by hand, or a running game's) ask for a
+    /// setting the agent itself holds (screen on, do not disturb), and for
+    /// what: "game mode (turned on by hand)" or the game's name.
+    pub fn flag_wanted(&self, flag: fn(&ug_core::profile::Profile) -> bool) -> (bool, String) {
         if self.by_hand == Some(false) {
             return (false, String::new());
         }
-        if self.by_hand == Some(true) && self.profiles.get(&self.by_hand_profile).is_some_and(|p| p.power_profile) {
+        if self.by_hand == Some(true) && self.profiles.get(&self.by_hand_profile).is_some_and(flag) {
             return (true, "game mode (turned on by hand)".into());
         }
         self.running
             .values()
-            .find(|r| self.profiles.get(&r.info.profile).is_some_and(|p| p.power_profile))
+            .find(|r| self.profiles.get(&r.info.profile).is_some_and(flag))
             .map(|r| (true, r.info.name.clone()))
             .unwrap_or_default()
     }

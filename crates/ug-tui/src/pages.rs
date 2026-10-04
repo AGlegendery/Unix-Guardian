@@ -10,7 +10,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Axis, Block, BorderType, Borders, Chart, Dataset, GraphType, Paragraph, Wrap};
 use ratatui::Frame;
 
-const OPTIONS: [(&str, &str, &str); 8] = [
+const OPTIONS: [(&str, &str, &str); 10] = [
     ("cpu_performance", "CPU at full speed", "Governor and energy preference set to performance."),
     ("cpu_no_idle_states", "No clock drops between frames", "Keeps the CPU out of deep sleep states between frames."),
     ("cpu_preferred_cores", "Game on the fastest cores", "Performance cores (Intel) or V-Cache cores (AMD X3D)."),
@@ -19,6 +19,8 @@ const OPTIONS: [(&str, &str, &str); 8] = [
     ("pause_services", "Background updates held", "Package updates and indexing wait until you stop playing."),
     ("network_tuning", "Network tuned for low ping", "Wi-Fi power saving off, TCP Fast Open, smaller send queue, BBR."),
     ("power_profile", "Performance power profile", "The system's performance profile (and the laptop's performance fan mode) while playing."),
+    ("keep_screen_on", "Screen kept on", "No screen lock, dimming or sleep while playing."),
+    ("do_not_disturb", "Do not disturb", "Desktop notifications held while playing (KDE Plasma), Unix Guardian's too."),
 ];
 const WHEN: [(&str, u64); 6] = [("Now", 0), ("in 15 min", 15), ("in 30 min", 30), ("in 1 h", 60), ("in 2 h", 120), ("in 4 h", 240)];
 const ACTIONS: [(&str, &str); 5] = [
@@ -615,7 +617,7 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         ),
     ])];
     if let Some(p) = profile {
-        let flags = [p.cpu_performance, p.cpu_no_idle_states, p.cpu_preferred_cores, p.cpu_priority, p.memory_tuning, p.pause_services, p.network_tuning, p.power_profile];
+        let flags = [p.cpu_performance, p.cpu_no_idle_states, p.cpu_preferred_cores, p.cpu_priority, p.memory_tuning, p.pause_services, p.network_tuning, p.power_profile, p.keep_screen_on, p.do_not_disturb];
         for ((_, label, _), on) in OPTIONS.iter().zip(flags) {
             gm.push(Line::from(vec![
                 Span::styled(if on { "■ " } else { "□ " }, Style::default().fg(if on { t.accent } else { t.faint })),
@@ -755,7 +757,7 @@ fn game_mode(app: &mut App, f: &mut Frame, r: Rect) {
     choices(app, f, Rect { y: r.y + 2, height: 1, ..r }, "Profile", &names, chosen);
     let t = app.theme;
     let p = profiles[chosen].clone();
-    let flags = [p.cpu_performance, p.cpu_no_idle_states, p.cpu_preferred_cores, p.cpu_priority, p.memory_tuning, p.pause_services, p.network_tuning, p.power_profile];
+    let flags = [p.cpu_performance, p.cpu_no_idle_states, p.cpu_preferred_cores, p.cpu_priority, p.memory_tuning, p.pause_services, p.network_tuning, p.power_profile, p.keep_screen_on, p.do_not_disturb];
     let has_preferred = app.inventory.value.as_ref().is_some_and(|i| i.cpu.has_vcache || !i.cpu.p_cores.is_empty());
     let mut y = r.y + 4;
     for (i, ((key, label, explain), on)) in OPTIONS.iter().zip(flags).enumerate() {

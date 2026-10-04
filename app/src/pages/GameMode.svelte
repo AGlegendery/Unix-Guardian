@@ -19,11 +19,18 @@
   let error = $state<string | null>(null);
   let savedAt = $state(0);
   let now = $state(Date.now());
+  // Game mode by hand: "on" | "off" | "" and the profile it uses.
+  let hand = $state<[string, string]>(["", "balanced"]);
+  let busy = $state(false);
+  let naming = $state<string | null>(null);
+  let newApp = $state("");
+  let armedDelete = $state(false);
 
   const load = () => {
     if (document.hidden) return;
     api.gamesRunning().then((r) => (running = r)).catch((e) => (error = errorText(e)));
     api.profiles().then((p) => (profiles = p)).catch((e) => (error = errorText(e)));
+    api.gameModeHand().then((h) => (hand = h)).catch(() => {});
     now = Date.now();
   };
   $effect(() => {
@@ -47,7 +54,54 @@
   const hasPreferred = $derived(!!cpu && (cpu.has_vcache || cpu.p_cores.length > 0));
 
   const cpuOptions = ["cpu_performance", "cpu_no_idle_states", "cpu_preferred_cores", "cpu_priority", "memory_tuning"] as const;
-  type Opt = (typeof cpuOptions)[number] | "pause_services" | "network_tuning" | "power_profile";
+  type Opt = (typeof cpuOptions)[number] | "pause_services" | "network_tuning" | "power_profile" | "keep_screen_on" | "do_not_disturb";
+  const gmOn = $derived(hand[0] === "on" || (hand[0] !== "off" && (!!game || !!overview?.gamemode_active)));
+
+  /** Runs a change, then reloads the profiles and the by-hand state. */
+  async function act(f: () => Promise<unknown>) {
+    busy = true;
+    try {
+      await f();
+      [profiles, hand] = await Promise.all([api.profiles(), api.gameModeHand()]);
+      savedAt = Date.now();
+      error = null;
+    } catch (e) {
+      error = errorText(e);
+    } finally {
+      busy = false;
+    }
+  }
+  // The name field takes the keyboard as soon as it opens.
+  const focus = (el: HTMLInputElement) => el.focus();
+  const turnOn = (id: string) => act(() => api.setGameMode(true, id));
+  const turnOff = () => act(() => api.setGameMode(false, ""));
+  async function createProfile() {
+    const name = naming?.trim() ?? "";
+    if (!name) return;
+    await act(() => api.createProfile(name, selected));
+    if (!error) {
+      selected = name;
+      naming = null;
+    }
+  }
+  function deleteProfile() {
+    if (!profile || profile.builtin) return;
+    if (!armedDelete) {
+      armedDelete = true;
+      setTimeout(() => (armedDelete = false), 4000);
+      return;
+    }
+    armedDelete = false;
+    const id = profile.id;
+    act(() => api.deleteProfile(id)).then(() => (selected = "balanced"));
+  }
+  function addApp() {
+    if (!profile || !newApp.trim()) return;
+    const apps = [...profile.pause_apps, newApp.trim()];
+    newApp = "";
+    act(() => api.setPauseApps(profile.id, apps));
+  }
+  const removeApp = (a: string) => profile && act(() => api.setPauseApps(profile.id, profile.pause_apps.filter((x) => x !== a)));
 
   async function setOption(opt: Opt, value: boolean) {
     if (!profile) return;
@@ -103,8 +157,11 @@
 
 <header class="head">
   <h1>{t().gmp.title}</h1>
-  <span class="state-pill" class:on={!!game || overview?.gamemode_active}>{game || overview?.gamemode_active ? t().gm.on : t().gm.off}</span>
-  <span class="chip">{t().gm.selection}: <b>{t().gm.automatic}</b></span>
+  <span class="state-pill" class:on={gmOn}>{gmOn ? t().gm.on : t().gm.off}</span>
+  <span class="chip">{t().gm.selection}: <b>{hand[0] === "on" ? t().gmp.onByHand(label(hand[1])) : hand[0] === "off" ? t().gm.offByHand : t().gm.automatic}</b></span>
+  {#if gmOn}
+    <button class="act" disabled={busy} onclick={turnOff}>{t().gm.turnOff}</button>
+  {/if}
   {#if savedAt && now - savedAt < 4000}
     <span class="saved" role="status">{t().gmp.saved}</span>
   {/if}
@@ -152,6 +209,28 @@
       />
     </div>
     <p class="hint">{t().gmp.profilesHint}</p>
+    {#if profile}
+      <div class="profile-actions">
+        {#if hand[0] === "on" && hand[1] === profile.id}
+          <button class="act" disabled={busy} onclick={turnOff}>{t().gm.turnOff}</button>
+        {:else}
+          <button class="act primary" disabled={busy} onclick={() => turnOn(profile.id)}>{t().gmp.turnOnWith(label(profile.id))}</button>
+        {/if}
+        {#if naming === null}
+          <button class="act" disabled={busy} onclick={() => (naming = "")}>{t().gmp.newProfile}</button>
+        {:else}
+          <form class="naming" onsubmit={(e) => { e.preventDefault(); createProfile(); }}>
+            <input dir="ltr" bind:value={naming} use:focus placeholder={t().gmp.newName} aria-label={t().gmp.newName} autocomplete="off" spellcheck="false" />
+            <button class="act primary" type="submit" disabled={busy || !naming.trim()}>{t().gmp.create}</button>
+            <button class="act" type="button" onclick={() => (naming = null)}>{t().gmp.cancel}</button>
+            <span class="row-hint">{t().gmp.copyOf(label(profile.id))}</span>
+          </form>
+        {/if}
+        {#if !profile.builtin}
+          <button class="act danger" class:armed={armedDelete} disabled={busy} onclick={deleteProfile}>{armedDelete ? t().gmp.deleteConfirm : t().gmp.deleteProfile}</button>
+        {/if}
+      </div>
+    {/if}
 
     <div class="when">
       <span class="muted">{t().gmp.when}</span>
@@ -186,14 +265,25 @@
           {@render row("pause_services", profile.pause_services, null)}
           {@render row("network_tuning", profile.network_tuning, null)}
           {@render row("power_profile", profile.power_profile, null)}
+          {@render row("keep_screen_on", profile.keep_screen_on, null)}
+          {@render row("do_not_disturb", profile.do_not_disturb, null)}
           <div class="row static">
-            <div>
+            <div class="grow">
               <p class="row-title">{t().gmp.pauseApps}</p>
               {#if profile.pause_apps.length}
-                <p class="apps">{#each profile.pause_apps as a}<span class="chip ltr">{a}</span>{/each}</p>
+                <p class="apps">
+                  {#each profile.pause_apps as a (a)}
+                    <span class="chip ltr">{a}<button class="x" disabled={busy} aria-label={`${t().ping.remove} ${a}`} onclick={() => removeApp(a)}>✕</button></span>
+                  {/each}
+                </p>
               {:else}
                 <p class="row-hint">{t().gmp.pauseAppsNone}</p>
               {/if}
+              <form class="naming" onsubmit={(e) => { e.preventDefault(); addApp(); }}>
+                <input dir="ltr" bind:value={newApp} placeholder={t().gmp.pauseAppsAdd} aria-label={t().gmp.pauseAppsAdd} autocomplete="off" spellcheck="false" />
+                <button class="act" type="submit" disabled={busy || !newApp.trim()}>{t().gmp.add}</button>
+              </form>
+              <p class="row-hint">{t().gmp.pauseAppsHint}</p>
             </div>
           </div>
         {:else}
@@ -376,4 +466,17 @@
   .launch-btn:hover, .launch-btn.open { color: var(--accent-text); background: var(--accent-soft); }
   .launch-btn:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .game-list li.launch-row { display: block; padding: 0; background: none; }
+  .act { all: unset; display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 10px; background: var(--card-2); color: var(--text); font-size: 0.85rem; cursor: pointer; }
+  .act.primary { background: var(--accent); color: #fff; font-weight: 600; }
+  .act.danger { color: var(--danger); }
+  .act.armed { background: color-mix(in oklab, var(--danger) 16%, transparent); font-weight: 600; }
+  .act:disabled { opacity: 0.5; cursor: default; }
+  .act:focus-visible, .x:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  .profile-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0 12px; }
+  .naming { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  .naming input { min-width: 0; flex: 1 1 12em; padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--card-2); color: var(--text); font: inherit; font-size: 0.85rem; }
+  .naming input:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+  .grow { flex: 1; min-width: 0; }
+  .x { all: unset; margin-inline-start: 6px; cursor: pointer; color: var(--text-3); font-size: 0.75rem; }
+  .x:hover { color: var(--danger); }
 </style>

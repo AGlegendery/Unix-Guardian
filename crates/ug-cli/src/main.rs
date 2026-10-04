@@ -385,12 +385,24 @@ enum ProfileCommand {
     On { profile: Option<String> },
     /// Turn game mode off (while a game runs: until it stops).
     Off,
+    /// A new profile of your own, a copy of another (default: balanced).
+    New {
+        profile: String,
+        #[arg(long)]
+        from: Option<String>,
+    },
+    /// Delete a profile of your own; its games go back to their suggestion.
+    Delete { profile: String },
+    /// The apps a profile pauses while you play, e.g.
+    /// `ug profile pause-apps balanced discord steamwebhelper`; none clears it.
+    PauseApps { profile: String, apps: Vec<String> },
     /// Turn one setting of a profile on or off, e.g.
     /// `ug profile option quiet cpu_priority off`.
     Option {
         profile: String,
         /// cpu_performance, cpu_no_idle_states, cpu_preferred_cores,
-        /// cpu_priority, memory_tuning, pause_services, network_tuning or power_profile.
+        /// cpu_priority, memory_tuning, pause_services, network_tuning,
+        /// power_profile, keep_screen_on or do_not_disturb.
         setting: String,
         #[arg(value_parser = ["on", "off"])]
         value: String,
@@ -1995,6 +2007,8 @@ async fn profile(command: ProfileCommand, json: bool) -> Result<()> {
                 println!("    pause update services  {}", on(p.pause_services));
                 println!("    network tuning         {}", on(p.network_tuning));
                 println!("    performance profile    {}", on(p.power_profile));
+                println!("    keep the screen on     {}", on(p.keep_screen_on));
+                println!("    do not disturb         {}", on(p.do_not_disturb));
                 if !p.pause_apps.is_empty() {
                     println!("    pause apps             {}", p.pause_apps.join(", "));
                 }
@@ -2020,6 +2034,27 @@ async fn profile(command: ProfileCommand, json: bool) -> Result<()> {
         ProfileCommand::Off => {
             profiles.set_game_mode(false, "").await.map_err(agent_hint)?;
             println!("Game mode off.");
+        }
+        ProfileCommand::New { profile, from } => {
+            let from = from.unwrap_or_default();
+            profiles.create(&profile, &from).await.map_err(agent_error)?;
+            println!(
+                "Made {profile}, a copy of {}. Change it with: ug profile option {profile} <setting> on|off",
+                if from.is_empty() { "balanced" } else { &from }
+            );
+        }
+        ProfileCommand::Delete { profile } => {
+            profiles.delete(&profile).await.map_err(agent_error)?;
+            println!("Deleted {profile}; its games are back on the profile the game database suggests.");
+        }
+        ProfileCommand::PauseApps { profile, apps } => {
+            let list: Vec<&str> = apps.iter().map(String::as_str).collect();
+            profiles.set_pause_apps(&profile, &list).await.map_err(agent_error)?;
+            if apps.is_empty() {
+                println!("{profile} pauses no apps.");
+            } else {
+                println!("{profile} pauses {} while you play.", apps.join(", "));
+            }
         }
         ProfileCommand::Reset { game } => {
             profiles.set_game_profile(&game, "").await.map_err(agent_error)?;

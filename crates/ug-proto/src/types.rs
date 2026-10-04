@@ -517,6 +517,10 @@ pub struct ProfileInfo {
     pub pause_services: bool,
     pub network_tuning: bool,
     pub power_profile: bool,
+    /// Screen kept on and no sleep while playing.
+    pub keep_screen_on: bool,
+    /// The desktop's notifications held while playing (KDE Plasma).
+    pub do_not_disturb: bool,
     pub pause_apps: Vec<String>,
     /// Game keys the user chose this profile for. Games that use it because
     /// the database suggests it are not listed.

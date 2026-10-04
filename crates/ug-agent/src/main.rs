@@ -15,6 +15,7 @@ mod fps;
 mod gamemode;
 mod health;
 mod history;
+mod holds;
 mod iface;
 mod keys;
 mod notify;
@@ -332,6 +333,8 @@ async fn main() -> Result<()> {
     }
     let mut offered = std::collections::HashSet::new();
     let mut holder = ppd::Holder::new();
+    let mut screen_on = holds::Hold::new(holds::Kind::ScreenOn);
+    let mut dnd = holds::Hold::new(holds::Kind::DoNotDisturb);
     // power-profiles-daemon lives on the system bus even when the Unix
     // Guardian daemon is a development one on the session bus.
     let system_bus = if args.daemon_session { None } else { zbus::Connection::system().await.ok() };
@@ -344,7 +347,9 @@ async fn main() -> Result<()> {
     let mut ticker = scan_ticker(&settings);
     let mut settings_changed = settings.watch();
     // Notifications: off with --quiet, else as the Settings page says.
-    let notify_on = || !args.quiet && settings.get().notifications;
+    // Do not disturb holds Unix Guardian's own notifications too.
+    let quiet_now = std::sync::atomic::AtomicBool::new(false);
+    let notify_on = || !args.quiet && settings.get().notifications && !quiet_now.load(std::sync::atomic::Ordering::Relaxed);
     let mut had_game = false;
     let mut heartbeat = tokio::time::interval(Duration::from_secs(60));
     let mut rescan = tokio::time::interval(Duration::from_secs(600));
@@ -411,6 +416,11 @@ async fn main() -> Result<()> {
                 overlay.follow(!lock(&core).running().is_empty());
                 let (wanted, game) = lock(&core).power_profile_wanted();
                 holder.sync(system_bus.as_ref(), wanted, &game).await;
+                let (wanted, why) = lock(&core).flag_wanted(|p| p.keep_screen_on);
+                screen_on.sync(&conn, wanted, &format!("Playing: {why}")).await;
+                let (wanted, why) = lock(&core).flag_wanted(|p| p.do_not_disturb);
+                dnd.sync(&conn, wanted, &format!("Playing: {why}")).await;
+                quiet_now.store(dnd.held(), std::sync::atomic::Ordering::Relaxed);
             }
             Some(o) = announce_rx.recv() => announce(&conn, o, notify_on(), &pending_dismissals).await,
             Ok(()) = settings_changed.changed() => ticker = scan_ticker(&settings),

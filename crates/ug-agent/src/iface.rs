@@ -213,6 +213,18 @@ impl ProfilesIface {
     async fn set_game_mode(&self, on: bool, profile: &str) -> zbus::fdo::Result<()> {
         lock(&self.core).set_gamemode(on, profile).map_err(zbus::fdo::Error::InvalidArgs)
     }
+
+    async fn set_pause_apps(&self, profile: &str, apps: Vec<String>) -> zbus::fdo::Result<()> {
+        lock(&self.core).set_pause_apps(profile, &apps).map_err(zbus::fdo::Error::InvalidArgs)
+    }
+
+    async fn create(&self, profile: &str, from: &str) -> zbus::fdo::Result<()> {
+        lock(&self.core).create_profile(profile.trim(), from.trim()).map_err(zbus::fdo::Error::InvalidArgs)
+    }
+
+    async fn delete(&self, profile: &str) -> zbus::fdo::Result<()> {
+        lock(&self.core).delete_profile(profile.trim()).map_err(zbus::fdo::Error::InvalidArgs)
+    }
 }
 
 /// `org.unixguardian.Agent1.Monitor`

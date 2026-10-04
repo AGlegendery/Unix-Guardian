@@ -8,7 +8,8 @@ import driverReport from "./preview-driver.json";
 import type { RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, UpdateState, TrafficBucket, DriverReport, DriverPlan, DriverOp, ShortcutsState, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
-const profiles = structuredClone(data.profiles) as Profile[];
+// The captured profiles predate the screen and notification settings.
+const profiles: Profile[] = structuredClone(data.profiles).map((p) => ({ ...p, pause_apps: [] as string[], games: [] as string[], keep_screen_on: true, do_not_disturb: p.id === "competitive" }));
 const jobs: PowerJob[] = [];
 let alarm = 0;
 const bat: BatteryCare = { supported: true, method: "vendor-long-life", adjustable: false, mode: "off", limit: 80, capacity: 100, status: "Full", reason: "" };
@@ -219,6 +220,23 @@ export const mockApi = {
   setGameProfile: async (key: string, profile: string) => {
     for (const p of profiles) p.games = p.games.filter((g) => g !== key);
     if (profile) profiles.find((p) => p.id === profile)?.games.push(key);
+  },
+  setPauseApps: async (profile: string, apps: string[]) => {
+    const p = profiles.find((x) => x.id === profile);
+    if (!p) throw `no profile named "${profile}"`;
+    p.pause_apps = [...new Set(apps.map((a) => a.trim()).filter(Boolean))];
+  },
+  createProfile: async (profile: string, from: string) => {
+    if (!/^[A-Za-z0-9_-]{1,40}$/.test(profile)) throw `"${profile}" is not a valid profile name (letters, digits, - and _ only)`;
+    if (profiles.some((p) => p.id === profile)) throw `there is already a profile named "${profile}"`;
+    const base = profiles.find((p) => p.id === (from || "balanced"))!;
+    profiles.push({ ...structuredClone(base), id: profile, builtin: false, games: [] });
+  },
+  deleteProfile: async (profile: string) => {
+    const i = profiles.findIndex((p) => p.id === profile && !p.builtin);
+    if (i < 0) throw `${profile} is built in and cannot be deleted`;
+    profiles.splice(i, 1);
+    if (hand[1] === profile) hand = [hand[0], "balanced"];
   },
   setProfileOption: async (profile: string, option: string, value: boolean) => {
     const p = profiles.find((x) => x.id === profile) as unknown as Record<string, unknown> | undefined;

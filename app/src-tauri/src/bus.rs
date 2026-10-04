@@ -230,6 +230,25 @@ pub async fn set_game_mode(bus: State<'_, Bus>, on: bool, profile: String) -> Re
 }
 
 #[tauri::command]
+pub async fn set_pause_apps(bus: State<'_, Bus>, profile: String, apps: Vec<String>) -> Res<()> {
+    let p = ProfilesProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    let list: Vec<&str> = apps.iter().map(String::as_str).collect();
+    p.set_pause_apps(&profile, &list).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn create_profile(bus: State<'_, Bus>, profile: String, from: String) -> Res<()> {
+    let p = ProfilesProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.create(&profile, &from).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn delete_profile(bus: State<'_, Bus>, profile: String) -> Res<()> {
+    let p = ProfilesProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.delete(&profile).await.map_err(agent_err)
+}
+
+#[tauri::command]
 pub async fn set_profile_option(bus: State<'_, Bus>, profile: String, option: String, value: bool) -> Res<()> {
     let p = ProfilesProxy::new(bus.agent().await?).await.map_err(agent_err)?;
     p.set_option(&profile, &option, value).await.map_err(agent_err)
