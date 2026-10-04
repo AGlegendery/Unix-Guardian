@@ -91,7 +91,7 @@ need sudo, pushing, P7+).
    hour by hour): `Monitor.TrafficBuckets`, `ug traffic --day`.
 2. ✅ Dashboard game mode button + any profile on by hand
    (`Profiles.SetGameMode`, `ug profile on|off`, TUI `g`).
-3. ○ Monitoring: hour/day/week averages with charts for everything the
+3. ✅ Monitoring: hour/day/week averages with charts for everything the
    Live view shows (history table needs the extra columns).
 4. ○ Playtime: more precise charts, more features.
 5. ○ Profiles: more options, each can be turned on at once (part done
