@@ -97,6 +97,7 @@ check "both games are seen to stop" "until_ 10 \"'$B/ug' game running | grep -q 
 check "the paused app runs again" "until_ 4 \"[ \\\"\$(state $chat)\\\" != T ]\""
 check "playtime was recorded for both" "'$B/ug' playtime | grep -q 'Counter-Strike 2' && '$B/ug' playtime | grep -q 'sleep'"
 check "the agent serves monitoring history (empty without a daemon)" "'$B/ug' history --hours 1 >/dev/null && '$B/ug' traffic >/dev/null"
+check "traffic hour by hour and a bad date is refused" "'$B/ug' traffic --day today | grep -q '00:00' && ! '$B/ug' traffic --day 2026-13-40 2>/dev/null && '$B/ug' traffic | grep -q 'Last 30 days\|No traffic'"
 check "playtime exports as CSV, one row per session" "'$B/ug' playtime --csv | grep -q '^Counter-Strike 2,steam:730,' && [ \"\$('$B/ug' playtime --csv | head -1)\" = game,key,started,ended,minutes ]"
 check "the CSV export ends cleanly when the reader stops early" "'$B/ug' playtime --csv 2>&1 | head -1 >/dev/null; [ \"\${PIPESTATUS[0]}\" = 0 ]"
 

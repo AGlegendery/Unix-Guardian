@@ -1377,7 +1377,18 @@ fn monitoring(app: &mut App, f: &mut Frame, r: Rect) {
             ]));
             lines.push(Line::from(""));
         }
-        let days = app.traffic.value.clone().unwrap_or_default();
+        let (month, hour, today) = app.traffic.value.clone().unwrap_or_default();
+        let sum = |n: usize| month.iter().rev().take(n).fold((0, 0), |(r, t), d| (r + d.rx_bytes, t + d.tx_bytes));
+        lines.push(Line::from(Span::styled("Internet use", app.theme.title())));
+        for (name, (rx, tx)) in [("Last hour", hour), ("Today", today), ("Last 7 days", sum(7)), ("Last 30 days", sum(30))] {
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {name:<14}"), app.theme.muted()),
+                Span::styled(format!("{:>10}", size(rx + tx)), app.theme.text()),
+                Span::styled(format!("   ↓ {}  ↑ {}", size(rx), size(tx)), app.theme.faint()),
+            ]));
+        }
+        lines.push(Line::from(""));
+        let days: Vec<_> = month.iter().rev().take(7).rev().cloned().collect();
         let max = days.iter().map(|d| d.rx_bytes + d.tx_bytes).max().unwrap_or(1).max(1);
         lines.push(Line::from(Span::styled("Traffic per day (download █, upload ▒)", app.theme.title())));
         for d in &days {
@@ -1395,8 +1406,17 @@ fn monitoring(app: &mut App, f: &mut Frame, r: Rect) {
             lines.push(Line::from(Span::styled("No traffic recorded yet.", app.theme.muted())));
         }
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("Traffic per app: `ug net` (its page comes with ping stability).", app.theme.faint())));
+        lines.push(Line::from(Span::styled("One day hour by hour: `ug traffic --day YYYY-MM-DD`. Traffic per app: Ping stability → Internet control, or `ug net`.", app.theme.faint())));
         f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body);
+    }
+}
+
+/// 1.25 GB, 340.2 MB, 12 KB.
+fn size(b: u64) -> String {
+    match b {
+        1_000_000_000.. => format!("{:.2} GB", b as f64 / 1e9),
+        1_000_000.. => format!("{:.1} MB", b as f64 / 1e6),
+        _ => format!("{} KB", b / 1000),
     }
 }
 

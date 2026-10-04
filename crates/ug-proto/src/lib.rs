@@ -472,6 +472,10 @@ pub mod agent {
         /// Bytes received and sent per local day since `since_unix_ms`.
         fn traffic(&self, since_unix_ms: u64) -> zbus::Result<Vec<DayTraffic>>;
 
+        /// Bytes received and sent in equal buckets from `since_unix_ms`
+        /// (an hour each from local midnight: a day's hours).
+        fn traffic_buckets(&self, since_unix_ms: u64, until_unix_ms: u64, bucket_ms: u64) -> zbus::Result<Vec<TrafficBucket>>;
+
         /// The running game's FPS, read from MangoHud's log.
         fn fps(&self) -> zbus::Result<FpsReading>;
 

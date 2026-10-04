@@ -222,6 +222,11 @@ impl MonitorIface {
         tokio::task::spawn_blocking(move || h.traffic(since_unix_ms, local_date)).await.unwrap_or_default()
     }
 
+    async fn traffic_buckets(&self, since_unix_ms: u64, until_unix_ms: u64, bucket_ms: u64) -> Vec<ug_proto::TrafficBucket> {
+        let h = Arc::clone(&self.history);
+        tokio::task::spawn_blocking(move || h.traffic_buckets(since_unix_ms, until_unix_ms, bucket_ms)).await.unwrap_or_default()
+    }
+
     /// The running game's FPS from MangoHud's log.
     async fn fps(&self) -> ug_proto::FpsReading {
         let o = Arc::clone(&self.overlay);

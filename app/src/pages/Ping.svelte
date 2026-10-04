@@ -8,6 +8,7 @@
   import { num, rate } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import LineChart from "../lib/LineChart.svelte";
+  import TrafficUsage from "../lib/TrafficUsage.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
 
   type Tab = "ping" | "control";
@@ -274,6 +275,7 @@
     {/if}
   </section>
 {:else}
+  <TrafficUsage />
   <section class="card">
     <div class="row-head">
       <h2>{t().ping.apps}</h2>

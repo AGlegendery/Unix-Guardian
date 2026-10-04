@@ -119,6 +119,7 @@ fn main() {
             bus::set_battery_care,
             bus::history,
             bus::traffic,
+            bus::traffic_buckets,
             bus::extra,
             bus::fps,
             bus::set_up_fps,

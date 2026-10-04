@@ -5,7 +5,7 @@
 
 import data from "./preview-data.json";
 import driverReport from "./preview-driver.json";
-import type { RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, UpdateState, DriverReport, DriverPlan, DriverOp, ShortcutsState, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, UpdateState, TrafficBucket, DriverReport, DriverPlan, DriverOp, ShortcutsState, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 const profiles = structuredClone(data.profiles) as Profile[];
@@ -16,6 +16,19 @@ const watches: PowerWatch[] = [];
 let t = 0;
 const driverOps: DriverOp[] = [];
 let agentSettings: AgentSettings = { notifications: true, scan_interval_s: 2, close_window_on_game: false, check_updates: true };
+// Made-up hourly traffic for a local day: quiet nights, busy evenings, the
+// same numbers every time for the same hour.
+function mockHours(dayMs: number): TrafficBucket[] {
+  const d = new Date(dayMs);
+  d.setHours(0, 0, 0, 0);
+  return Array.from({ length: 24 }, (_, h) => {
+    const start = d.getTime() + h * 3_600_000;
+    const seed = Math.abs(Math.sin(start / 3_600_000)) ;
+    const busy = h < 7 ? 0.05 : h < 17 ? 0.4 : 1;
+    const end = start > Date.now() ? 0 : 1;
+    return { start_unix_ms: start, rx_bytes: Math.round(end * busy * (0.1 + seed) * 6e8), tx_bytes: Math.round(end * busy * (0.05 + seed / 4) * 1e8) };
+  });
+}
 // `?update=none` previews an up-to-date copy.
 const updateNone = typeof location !== "undefined" && location.search.includes("update=none");
 const update: UpdateState = {
@@ -340,12 +353,33 @@ export const mockApi = {
         mem_used_kb: 18e6 + w * 4e6,
       };
     }),
-  traffic: async (): Promise<DayTraffic[]> =>
-    Array.from({ length: 7 }, (_, i) => ({
-      date: new Date(Date.now() - (6 - i) * 864e5).toISOString().slice(0, 10),
-      rx_bytes: [2.1, 5.4, 1.2, 8.8, 3.3, 0.9, 4.2][i] * 1e9,
-      tx_bytes: [0.3, 0.6, 0.2, 1.1, 0.4, 0.1, 0.5][i] * 1e9,
-    })),
+  traffic: async (sinceUnixMs: number): Promise<DayTraffic[]> => {
+    const n = Math.min(90, Math.max(1, Math.ceil((Date.now() - sinceUnixMs) / 864e5)));
+    return Array.from({ length: n }, (_, i) => {
+      const day = new Date(Date.now() - (n - 1 - i) * 864e5);
+      const hours = mockHours(day.getTime());
+      return {
+        date: `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`,
+        rx_bytes: hours.reduce((a, h) => a + h.rx_bytes, 0),
+        tx_bytes: hours.reduce((a, h) => a + h.tx_bytes, 0),
+      };
+    });
+  },
+  trafficBuckets: async (since: number, until: number, bucket: number): Promise<TrafficBucket[]> => {
+    const out: TrafficBucket[] = [];
+    for (let t = since; t < until && out.length < 2000; t += bucket) {
+      let rx = 0, tx = 0;
+      for (const h of mockHours(t)) {
+        if (h.start_unix_ms + 3_600_000 > t && h.start_unix_ms < t + bucket && h.start_unix_ms <= Date.now()) {
+          const share = Math.min(1, bucket / 3_600_000);
+          rx += h.rx_bytes * share;
+          tx += h.tx_bytes * share;
+        }
+      }
+      out.push({ start_unix_ms: t, rx_bytes: Math.round(rx), tx_bytes: Math.round(tx) });
+    }
+    return out;
+  },
   extra: async (): Promise<ExtraSample> => ({
     ts_unix_ms: Date.now(),
     per_core_mhz: base.cpu.per_core_load.map((_, i) => Math.round(1800 + Math.random() * 2200 + (i < 8 ? 400 : 0))),

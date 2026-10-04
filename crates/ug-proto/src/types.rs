@@ -648,6 +648,14 @@ pub struct DayTraffic {
     pub tx_bytes: u64,
 }
 
+/// Internet traffic in one bucket of time (an hour of a day, say).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct TrafficBucket {
+    pub start_unix_ms: u64,
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+}
+
 /// Ping statistics over a window of samples.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
 pub struct PingStats {

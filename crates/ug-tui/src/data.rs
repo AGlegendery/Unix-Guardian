@@ -449,6 +449,16 @@ impl Bus {
         self.rt.block_on(async { MonitorProxy::new(c).await?.traffic(since_ms).await }).map_err(|e| msg(e, "agent"))
     }
 
+    /// Bytes (down, up) between two times, from the agent's minute history.
+    pub fn traffic_total(&self, since_ms: u64, until_ms: u64) -> Result<(u64, u64), String> {
+        let c = self.agent()?;
+        let b = self
+            .rt
+            .block_on(async { MonitorProxy::new(c).await?.traffic_buckets(since_ms, until_ms, until_ms.saturating_sub(since_ms).max(60_000)).await })
+            .map_err(|e| msg(e, "agent"))?;
+        Ok(b.iter().fold((0, 0), |(r, t), x| (r + x.rx_bytes, t + x.tx_bytes)))
+    }
+
     pub fn power_caps(&self) -> Result<Vec<PowerCapability>, String> {
         let c = self.daemon()?;
         self.rt.block_on(async { PowerProxy::new(c).await?.capabilities().await }).map_err(|e| msg(e, "service"))

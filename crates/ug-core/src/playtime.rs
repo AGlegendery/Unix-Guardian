@@ -34,6 +34,31 @@ pub fn local_midnight_ms() -> u64 {
     }
 }
 
+/// Local midnight of a `YYYY-MM-DD` date, and of the day after (its end;
+/// a day with a clock change is 23 or 25 hours), as Unix milliseconds.
+pub fn local_day_ms(date: &str) -> Option<(u64, u64)> {
+    let mut it = date.split('-').map(|p| p.parse::<i32>().ok());
+    let (Some(Some(y)), Some(Some(m)), Some(Some(d)), None) = (it.next(), it.next(), it.next(), it.next()) else {
+        return None;
+    };
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    let at = |day: i32| {
+        // SAFETY: mktime only reads and normalises the struct we pass.
+        unsafe {
+            let mut tm: libc::tm = std::mem::zeroed();
+            tm.tm_year = y - 1900;
+            tm.tm_mon = m - 1;
+            tm.tm_mday = day;
+            tm.tm_isdst = -1;
+            libc::mktime(&mut tm)
+        }
+    };
+    let (a, b) = (at(d), at(d + 1));
+    (a >= 0 && b > a).then(|| (a as u64 * 1000, b as u64 * 1000))
+}
+
 /// `2026-09-30 21:04:05` in local time, which spreadsheets read as a date.
 pub fn local_time(unix_ms: u64) -> String {
     // SAFETY: localtime_r writes only into the struct we pass.
@@ -107,6 +132,16 @@ fn downloads_from(user_dirs: &str, home: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_local_day_is_found_from_its_date() {
+        let (a, b) = local_day_ms("2026-10-04").unwrap();
+        assert!((23 * 3_600_000..=25 * 3_600_000).contains(&(b - a)));
+        assert_eq!(&local_time(a)[..], "2026-10-04 00:00:00");
+        for bad in ["2026-13-01", "2026-10", "x", "2026-10-04-1"] {
+            assert!(local_day_ms(bad).is_none(), "{bad}");
+        }
+    }
 
     #[test]
     fn csv_fields_are_quoted_only_when_needed() {

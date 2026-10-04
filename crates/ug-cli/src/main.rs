@@ -128,10 +128,14 @@ enum Command {
         #[arg(long, default_value_t = 24)]
         hours: u32,
     },
-    /// Internet traffic per day.
+    /// Internet use: the last hour, today, 7 and 30 days, then per day.
+    /// --day shows one day hour by hour.
     Traffic {
         #[arg(long, default_value_t = 7)]
         days: u32,
+        /// A day to show hour by hour: YYYY-MM-DD, or "today".
+        #[arg(long)]
+        day: Option<String>,
     },
     /// Ping to the router, the DNS server and the running game's server.
     Ping {
@@ -646,7 +650,7 @@ async fn run() -> Result<()> {
         Command::Playtime { today, week, forget, csv, command: None } => return playtime(today, week, forget, csv, cli.json).await,
         Command::Profile { command } => return profile(command, cli.json).await,
         Command::History { hours } => return history(hours, cli.json).await,
-        Command::Traffic { days } => return traffic(days, cli.json).await,
+        Command::Traffic { days, day } => return traffic(days, day, cli.json).await,
         Command::Ping { seconds } => return ping(seconds, cli.json).await,
         Command::Overlay { command } => return overlay(command, cli.json).await,
         Command::Shortcut { action, args } => return shortcut(action, args, cli.json).await,
@@ -955,21 +959,64 @@ async fn history(hours: u32, json: bool) -> Result<()> {
     Ok(())
 }
 
-async fn traffic(days: u32, json: bool) -> Result<()> {
+async fn traffic(days: u32, day: Option<String>, json: bool) -> Result<()> {
     let conn = agent_conn().await?;
     let m = MonitorProxy::new(&conn).await?;
-    let t = m.traffic(now_ms().saturating_sub(days as u64 * 86_400_000)).await.map_err(agent_hint)?;
-    if json {
-        println!("{}", serde_json::to_string_pretty(&t)?);
+    let size = |b: u64| if b >= 1_000_000_000 { format!("{:.2} GB", b as f64 / 1e9) } else { format!("{:.1} MB", b as f64 / 1e6) };
+    if let Some(day) = day {
+        let (start, end) = if day == "today" {
+            let a = ug_core::playtime::local_midnight_ms();
+            (a, a + 86_400_000)
+        } else {
+            ug_core::playtime::local_day_ms(&day).with_context(|| format!("{day:?} is not a date like 2026-10-04"))?
+        };
+        let hours = m.traffic_buckets(start, end, 3_600_000).await.map_err(agent_hint)?;
+        if json {
+            println!("{}", serde_json::to_string_pretty(&hours)?);
+            return Ok(());
+        }
+        let (rx, tx) = hours.iter().fold((0, 0), |(r, t), h| (r + h.rx_bytes, t + h.tx_bytes));
+        println!("{}: down {}, up {}", &ug_core::playtime::local_time(start)[..10], size(rx), size(tx));
+        let most = hours.iter().map(|h| h.rx_bytes + h.tx_bytes).max().unwrap_or(0).max(1);
+        for h in hours.iter().filter(|h| h.start_unix_ms <= now_ms()) {
+            let bar = "█".repeat(((h.rx_bytes + h.tx_bytes) * 30 / most) as usize);
+            println!(
+                "  {}  down {:>10}  up {:>10}  {bar}",
+                &ug_core::playtime::local_time(h.start_unix_ms)[11..16],
+                size(h.rx_bytes),
+                size(h.tx_bytes)
+            );
+        }
         return Ok(());
     }
-    if t.is_empty() {
+    let now = now_ms();
+    let month = m.traffic(now.saturating_sub(30 * 86_400_000)).await.map_err(agent_hint)?;
+    let hour = m.traffic_buckets(now.saturating_sub(3_600_000), now, 3_600_000).await.map_err(agent_hint)?;
+    let today = m.traffic_buckets(ug_core::playtime::local_midnight_ms(), now, 86_400_000).await.map_err(agent_hint)?;
+    let sum = |v: &[ug_proto::DayTraffic], n: usize| {
+        v.iter().rev().take(n).fold((0u64, 0u64), |(r, t), d| (r + d.rx_bytes, t + d.tx_bytes))
+    };
+    let one = |v: &[ug_proto::TrafficBucket]| v.iter().fold((0u64, 0u64), |(r, t), d| (r + d.rx_bytes, t + d.tx_bytes));
+    let t = m.traffic(now.saturating_sub(days as u64 * 86_400_000)).await.map_err(agent_hint)?;
+    if json {
+        let summary = serde_json::json!({
+            "last_hour": one(&hour), "today": one(&today), "last_7_days": sum(&month, 7), "last_30_days": sum(&month, 30), "days": t,
+        });
+        println!("{}", serde_json::to_string_pretty(&summary)?);
+        return Ok(());
+    }
+    if t.is_empty() && month.is_empty() {
         println!("No traffic recorded yet.");
+        return Ok(());
     }
-    let mb = |b: u64| b as f64 / 1e6;
+    for (name, (rx, tx)) in [("Last hour", one(&hour)), ("Today", one(&today)), ("Last 7 days", sum(&month, 7)), ("Last 30 days", sum(&month, 30))] {
+        println!("{name:<13} {:>10} ({} down, {} up)", size(rx + tx), size(rx), size(tx));
+    }
+    println!();
     for d in t {
-        println!("{}  down {:>9.1} MB  up {:>9.1} MB", d.date, mb(d.rx_bytes), mb(d.tx_bytes));
+        println!("{}  down {:>10}  up {:>10}", d.date, size(d.rx_bytes), size(d.tx_bytes));
     }
+    println!("\nOne day hour by hour: ug traffic --day YYYY-MM-DD");
     Ok(())
 }
 

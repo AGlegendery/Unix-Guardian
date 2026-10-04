@@ -84,7 +84,8 @@ pub struct App {
     pub jobs: Cached<(Vec<PowerJob>, Vec<PowerWatch>)>,
     pub battery: Cached<BatteryCare>,
     pub history: Cached<Vec<HistoryPoint>>,
-    pub traffic: Cached<Vec<DayTraffic>>,
+    /// The last 30 days, and (down, up) for the last hour and today.
+    pub traffic: Cached<(Vec<DayTraffic>, (u64, u64), (u64, u64))>,
     /// The live monitor's last two minutes: one snapshot and one extra
     /// reading a second, only while it is on screen.
     pub live: VecDeque<(Snapshot, ExtraSample)>,
@@ -315,7 +316,11 @@ impl App {
                     self.snapshot.store(r);
                 }
                 if self.tab == 1 && self.traffic.due() {
-                    let r = self.bus.traffic(data::now_ms().saturating_sub(7 * 86_400_000));
+                    let now = data::now_ms();
+                    let today = ug_core::playtime::local_midnight_ms();
+                    let r = self.bus.traffic(now.saturating_sub(30 * 86_400_000)).and_then(|d| {
+                        Ok((d, self.bus.traffic_total(now.saturating_sub(3_600_000), now)?, self.bus.traffic_total(today, now)?))
+                    });
                     self.traffic.store(r);
                 }
             }

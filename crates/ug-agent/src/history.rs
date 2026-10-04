@@ -11,7 +11,7 @@
 use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Mutex;
-use ug_proto::{DayTraffic, FpsSession, HistoryPoint, Snapshot};
+use ug_proto::{DayTraffic, FpsSession, HistoryPoint, Snapshot, TrafficBucket};
 
 const KEEP_MS: u64 = 90 * 24 * 3_600_000;
 
@@ -190,17 +190,21 @@ impl History {
         .unwrap_or_default()
     }
 
-    /// Bytes received and sent per local day, from the cumulative counters.
-    /// `day_of` maps a timestamp to its local date.
-    pub fn traffic(&self, since_ms: u64, day_of: impl Fn(u64) -> String) -> Vec<DayTraffic> {
+    /// Byte counts between consecutive readings, each at the later reading's
+    /// time: only where the interface stayed the same and its counters moved
+    /// forward (a reboot or another interface starts a new baseline).
+    fn deltas(&self, since_ms: u64, until_ms: u64) -> Vec<(u64, u64, u64)> {
         let c = self.conn();
-        let Ok(mut stmt) =
-            c.prepare("SELECT ts_ms, iface, rx_total, tx_total FROM samples WHERE ts_ms >= ?1 ORDER BY ts_ms")
-        else {
+        // The reading just before `since` is the first delta's baseline.
+        let Ok(mut stmt) = c.prepare(
+            "SELECT ts_ms, iface, rx_total, tx_total FROM samples
+              WHERE ts_ms >= COALESCE((SELECT MAX(ts_ms) FROM samples WHERE ts_ms < ?1), ?1) AND ts_ms <= ?2
+              ORDER BY ts_ms",
+        ) else {
             return Vec::new();
         };
         let rows: Vec<(u64, String, u64, u64)> = stmt
-            .query_map(params![since_ms as i64], |r| {
+            .query_map(params![since_ms as i64, until_ms.min(i64::MAX as u64) as i64], |r| {
                 Ok((
                     r.get::<_, i64>(0)? as u64,
                     r.get::<_, Option<String>>(1)?.unwrap_or_default(),
@@ -210,22 +214,46 @@ impl History {
             })
             .map(|rows| rows.flatten().collect())
             .unwrap_or_default();
+        rows.windows(2)
+            .filter(|w| w[1].0 >= since_ms && w[0].1 == w[1].1 && w[1].2 >= w[0].2 && w[1].3 >= w[0].3)
+            .map(|w| (w[1].0, w[1].2 - w[0].2, w[1].3 - w[0].3))
+            .collect()
+    }
+
+    /// Bytes received and sent per local day, from the cumulative counters.
+    /// `day_of` maps a timestamp to its local date.
+    pub fn traffic(&self, since_ms: u64, day_of: impl Fn(u64) -> String) -> Vec<DayTraffic> {
         let mut out: Vec<DayTraffic> = Vec::new();
-        let mut prev: Option<&(u64, String, u64, u64)> = None;
-        for row in &rows {
-            if let Some(p) = prev {
-                // Same interface and counters moving forward: a real delta.
-                if p.1 == row.1 && row.2 >= p.2 && row.3 >= p.3 {
-                    let day = day_of(row.0);
-                    if out.last().map(|d| &d.date) != Some(&day) {
-                        out.push(DayTraffic { date: day, rx_bytes: 0, tx_bytes: 0 });
-                    }
-                    let d = out.last_mut().expect("just pushed");
-                    d.rx_bytes += row.2 - p.2;
-                    d.tx_bytes += row.3 - p.3;
-                }
+        for (ts, rx, tx) in self.deltas(since_ms, u64::MAX) {
+            let day = day_of(ts);
+            if out.last().map(|d| &d.date) != Some(&day) {
+                out.push(DayTraffic { date: day, rx_bytes: 0, tx_bytes: 0 });
             }
-            prev = Some(row);
+            let d = out.last_mut().expect("just pushed");
+            d.rx_bytes += rx;
+            d.tx_bytes += tx;
+        }
+        out
+    }
+
+    /// Bytes received and sent in equal buckets of `bucket_ms` from `since`
+    /// (so a caller's local midnight gives local hours). Every bucket up to
+    /// `until` is returned, empty ones as zero; at most 2000.
+    pub fn traffic_buckets(&self, since_ms: u64, until_ms: u64, bucket_ms: u64) -> Vec<TrafficBucket> {
+        let bucket = bucket_ms.max(60_000);
+        let n = (until_ms.saturating_sub(since_ms)).div_ceil(bucket).clamp(1, 2000);
+        let mut out: Vec<TrafficBucket> =
+            (0..n).map(|i| TrafficBucket { start_unix_ms: since_ms + i * bucket, rx_bytes: 0, tx_bytes: 0 }).collect();
+        for (ts, rx, tx) in self.deltas(since_ms, until_ms) {
+            // A delta at `since` itself was mostly used before it.
+            if ts == since_ms {
+                continue;
+            }
+            let i = ((ts - since_ms - 1) / bucket) as usize;
+            if let Some(b) = out.get_mut(i) {
+                b.rx_bytes += rx;
+                b.tx_bytes += tx;
+            }
         }
         out
     }
@@ -308,6 +336,28 @@ mod tests {
         assert_eq!(t.len(), 2);
         assert_eq!((t[0].rx_bytes, t[0].tx_bytes), (5_000, 300));
         assert_eq!((t[1].rx_bytes, t[1].tx_bytes), (2_000, 500));
+    }
+
+    #[test]
+    fn traffic_in_buckets_counts_each_delta_once_and_keeps_empty_buckets() {
+        let h = History::in_memory();
+        h.record(&snap(0, 40.0, 1_000, 100, "wlan0"), None);
+        h.record(&snap(MIN, 40.0, 5_000, 300, "wlan0"), None);
+        h.record(&snap(2 * MIN, 40.0, 6_000, 400, "wlan0"), None);
+        h.record(&snap(3 * MIN, 40.0, 50, 10, "wlan0"), None); // rebooted
+        h.record(&snap(4 * MIN, 40.0, 2_050, 510, "wlan0"), None);
+        // Two-minute buckets from the first minute: (1, 3], (3, 5], (5, 7].
+        let b = h.traffic_buckets(MIN, 7 * MIN, 2 * MIN);
+        assert_eq!(b.len(), 3);
+        assert_eq!(b[0].start_unix_ms, MIN);
+        // The delta ending at `since` belongs before it.
+        assert_eq!((b[0].rx_bytes, b[0].tx_bytes), (1_000, 100));
+        assert_eq!((b[1].rx_bytes, b[1].tx_bytes), (2_000, 500));
+        assert_eq!((b[2].rx_bytes, b[2].tx_bytes), (0, 0));
+        // The whole range adds up to the daily total.
+        let all = h.traffic_buckets(0, 4 * MIN, 4 * MIN);
+        let day = h.traffic(0, |_| "d".into());
+        assert_eq!((all[0].rx_bytes, all[0].tx_bytes), (day[0].rx_bytes, day[0].tx_bytes));
     }
 
     #[test]
