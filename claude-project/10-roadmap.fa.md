@@ -684,7 +684,7 @@ unix-guardian/
 #### 6.1 — تزریق MangoHud  `agent` · ۳ روز
 
 - تشخیص نصب: پکیج بومی یا Flatpak (`org.freedesktop.Platform.VulkanLayer.MangoHud`)؛ اگر نبود، راهنمای نصب برای هر توزیع.
-- فعال‌سازی: `MANGOHUD=1` در محیط بازی. سه مسیر تزریق: (۱) نوشتن launch option در Steam (`localconfig.vdf`) با تأیید کاربر، (۲) wrapper در پروفایل Lutris/Heroic، (۳) `MANGOHUD=1` سراسری در `~/.config/environment.d/` برای بازی‌های دستی.
+- فعال‌سازی: `MANGOHUD=1` در محیط بازی. سه مسیر تزریق: (۱) نوشتن launch option در Steam (`localconfig.vdf`) با تأیید کاربر، (۲) wrapper در پروفایل Lutris/Heroic، ~~(۳) `MANGOHUD=1` سراسری در `~/.config/environment.d/` برای بازی‌های دستی.~~ (حذف شد، ۲۰۲۶-۱۰-۰۴: متغیر سراسری روی کل سشن اثر می‌گذارد؛ ببینید 05-findings.md)
 - برای Flatpak Steam: اعطای دسترسی لایه با `flatpak override` — با تأیید صریح.
 
 **پذیرش:** در ۵ بازی (Steam native، Proton، Flatpak Steam، Lutris، Heroic) اورلی ظاهر می‌شود.

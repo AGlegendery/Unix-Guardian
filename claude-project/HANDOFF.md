@@ -6,7 +6,7 @@ in minutes. **Update this file after every finished item and commit it.**
 Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 `05-findings.md`, `07-conventions.md`, `03-architecture.md`.
 
-Last updated: 2026-10-03 (shortcut recorder).
+Last updated: 2026-10-04 (card switch incident fixed in code).
 
 ## Where we are
 
@@ -84,6 +84,27 @@ last commit; the user still has to reinstall (sudo) to try them for real.
 
 After the queue: see "Next steps" in `04-status.md` (real-install checks that
 need sudo, pushing, P7+).
+
+## Incident 2026-10-04 (top priority, read 05-findings "Incident")
+
+The card switch (`edd4115`) wrote NVIDIA offload variables into
+`~/.config/environment.d`; at the next login KWin/plasmashell rendered on
+the RTX 3050 and KDE broke (black Wayland, garbled X11). Another session
+repaired the machine (file moved to `~/.config/environment.d.disabled/`,
+Plasma config restored from `~/kde_backup_20261004_085231`, pre-restore
+copy in `~/kde_before_restore_20261004_100905`; never touch those or the
+restored config). Fixed in code, one commit per task:
+1. ✅ `db263c4` switch is per program only (`~/.config/unix-guardian/default-gpu`,
+   `ug run`, `ug gpu app <name>` → `.desktop` copy with PrefersNonDefaultGPU).
+2. ✅ `3001a61` agent moves an old environment.d file to
+   `~/.config/unix-guardian/retired/`, unsets its variables, notifies.
+3. ✅ notes (this, 04-status, 05-findings, 02-decisions, CLAUDE.md).
+4. ✅ `4ebaef1` overlay's session-wide `MANGOHUD=1` option removed (same pattern).
+5. ✅ `1970c79` guard test over the whole workspace + unit tests.
+6. Recorder Set up (flatpak install) failures: see below.
+**Still needed from the user:** reinstall (release build) and a real
+logout/login on Plasma Wayland and X11, then `ug gpu default` and the
+dashboard switch. Not "done" before that.
 
 ## In progress
 

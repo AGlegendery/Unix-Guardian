@@ -41,6 +41,12 @@ Development daemon (no root, never touches real services):
   installed agent is rebuilt with `UG_TEST_RUN` support, stop it around test
   runs (`systemctl --user stop ug-agent`): it sees the fake games and tunes the
   real machine. Afterwards check `ug playtime` for test entries.
+- Never write GPU or MangoHud variables where the whole session reads them
+  (`environment.d`, `/etc/environment`, `plasma-workspace/env`, `~/.profile`):
+  on 2026-10-04 the card switch's `environment.d` file put KWin on the NVIDIA
+  card and broke KDE. Per program only. Anything touching the session or the
+  compositor is not done until the user has done a real logout/login (ask;
+  never run logout or reboot yourself).
 - The UI must never animate endlessly: WebKitGTK repaints at 60 fps and one
   pulsing dot measured as a full CPU core.
 - `dev-install.sh` copies `target/release` and `app/src-tauri/target/release`

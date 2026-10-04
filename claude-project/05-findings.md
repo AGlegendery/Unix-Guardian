@@ -155,6 +155,75 @@ one is encoded in code and tests now; keep them in mind when extending nearby.
     `crashhelper`) lose to the program matched by its own name or with the
     most processes.
 
+## Incident 2026-10-04: the card switch broke KDE
+
+**Never write GPU or overlay variables where the whole session reads
+them** (`~/.config/environment.d`, `/etc/environment`,
+`~/.config/plasma-workspace/env`, `~/.profile`, `~/.pam_environment`, …).
+Per program only: `ug run`, a `.desktop` copy with `PrefersNonDefaultGPU`,
+Steam launch options. Enforced by `ug_core::session_env` and the guard test
+`crates/ug-core/tests/no_session_wide_writes.rs`.
+
+What happened (from the logs and files; written up by the repair session):
+- 2026-10-03 12:12 `edd4115` added the card switch. It wrote
+  `~/.config/environment.d/90-unix-guardian-gpu.conf` with
+  `__NV_PRIME_RENDER_OFFLOAD=1`, `__GLX_VENDOR_LIBRARY_NAME=nvidia`,
+  `__VK_LAYER_NV_optimus=NVIDIA_only`, `UG_DEFAULT_GPU=0000:01:00.0`.
+  04-status said "not yet tried across a real re-login". At 20:49 the user
+  chose NVIDIA. (The recorder Set up failing that evening was unrelated.)
+- 2026-10-04 07:05, first login after it: Plasma Wayland black (windows
+  showed only their borders, glitches on every movement); Plasma X11
+  garbled textures; XFCE fine (it does not go through the systemd user
+  environment). ~14 reboots and generic "fixes" followed (restarting all
+  units, wiping caches, rewriting kwinrc to XRender with compositing off,
+  a plasma-rescue script that moved all Plasma config to
+  `~/kde_backup_20261004_085231` and reinstalled mesa/kwin/sddm, edits to
+  `/etc/environment` and modprobe, installing XFCE). None helped, because
+  the cause was not found. The user's panels, widgets, themes and KWin
+  effects were lost.
+- Repair: the file was moved (not deleted) to
+  `~/.config/environment.d.disabled/`, `systemctl --user daemon-reexec`,
+  reboot; Plasma config restored from the backup (state before restoring:
+  `~/kde_before_restore_20261004_100905`); kwinrc deliberately not
+  restored (the backup's copy was the broken XRender one), so the old KWin
+  effects are gone. The `/etc/environment` (`KWIN_DRM_USE_MODIFIERS=0`,
+  `__GLX_VENDOR_LIBRARY_NAME=mesa`) and `nvidia-drm modeset=1 fbdev=1`
+  edits were left in place (harmless). Do not touch the backups or the
+  restored config.
+
+Why it broke:
+1. The module's comment was wrong: "NVIDIA's offload variables touch GLX
+   and Vulkan only". `__NV_PRIME_RENDER_OFFLOAD=1` also steers **EGL**
+   (NVIDIA's docs: EGL programs need only that variable). KWin on Wayland
+   and Qt Quick (plasmashell, apps) all draw through EGL.
+2. systemd's user manager reads `environment.d`, and
+   `plasma-kwin_wayland.service`, `plasma-kwin_x11.service` and plasmashell
+   are user services: the compositor itself rendered on the RTX 3050 while
+   the panel is wired to the Intel UHD (no MUX). On X11
+   `__GLX_VENDOR_LIBRARY_NAME=nvidia` made KWin use NVIDIA's GLX on an
+   Intel screen. `__VK_LAYER_NV_optimus=NVIDIA_only` hid the Intel GPU from
+   every Vulkan program.
+3. `Linger=yes`: the user manager outlives a logout and keeps the
+   variables; even with the file gone they stayed until `daemon-reexec` or
+   a reboot. (So the agent's migration also runs
+   `systemctl --user unset-environment` for exactly the moved variables.)
+4. `__GLX_VENDOR_LIBRARY_NAME=mesa` in `/etc/environment` only fixed GLX;
+   EGL and Vulkan still went to NVIDIA.
+Hardware and drivers were fine: Mesa 26.1.2, NVIDIA 550.163.01 (kernel
+module and userspace match, DKMS built for both kernels), kernel 7.0.13.
+
+The same pattern existed in the overlay's "Load into every Vulkan game"
+(`MANGOHUD=1` in `environment.d/90-unix-guardian-mangohud.conf`: every
+Vulkan program, GTK 4 apps included, would load MangoHud) and in a Driver
+Fix command (`LIBVA_DRIVER_NAME=nvidia` into `/etc/environment`). All three
+are gone; the agent moves the two old files to
+`~/.config/unix-guardian/retired/` at start and notifies.
+
+**Lesson:** anything that changes the session or the compositor is not done
+until the user has logged out and in for real (Claude never runs logout or
+reboot; it asks). A "takes effect at the next login" feature was shipped
+without that test.
+
 ## Bugs that only running the code revealed (all fixed, all with tests)
 
 | Bug | Cause | Fix |

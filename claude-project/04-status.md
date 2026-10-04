@@ -141,14 +141,25 @@ P6 is merged into `main` (`fc9a5a4`). On `p5-gpu`:
   Not done: GPU thermal-throttle reason (NVML) is not read; the window's
   Wayland app_id vs the .desktop name was not checked.
 
-- ✅ Card switch (2026-10-03): the dashboard GPU tile's "in use" label is
-  now a two-way switch (window + TUI; hidden with one GPU) for the GPU
-  *programs* start on: `ug_core::gpu_default` writes PRIME offload
-  variables (GLX/Vulkan only, never DRI_PRIME) to
-  `~/.config/environment.d/90-unix-guardian-gpu.conf`; integrated = no
-  file. Applies after the next login (`UG_DEFAULT_GPU` tells the UIs);
-  `ug run` without `--gpu` uses it at once; `ug gpu default`. The desktop
-  stays on Intel (no MUX). Not yet tried across a real re-login.
+- ✅ Card switch, **redesigned 2026-10-04 after it broke KDE** (see
+  05-findings "Incident 2026-10-04"). The first version (2026-10-03,
+  `edd4115`) wrote NVIDIA offload variables to
+  `~/.config/environment.d/90-unix-guardian-gpu.conf`; its comment claimed
+  they touch GLX and Vulkan only, which is wrong (`__NV_PRIME_RENDER_OFFLOAD`
+  steers EGL too), so KWin and plasmashell rendered on the RTX 3050.
+  Now (window + TUI switch, `ug gpu default`): the choice is
+  `~/.config/unix-guardian/default-gpu` and applies only to programs Unix
+  Guardian starts (`ug run` without `--gpu`), at once, no login needed.
+  One app's menu entry: `ug gpu app <name> [--off]` writes a per-user
+  `~/.local/share/applications/<name>.desktop` copy with
+  `PrefersNonDefaultGPU=true` + `X-KDE-RunOnDiscreteGpu=true` (marked
+  `X-UnixGuardian-Gpu=true`; only marked copies are removed). switcheroo-
+  control runs on the laptop, so KDE honours it. Not in the window/TUI yet.
+  The agent moves an old environment.d file to
+  `~/.config/unix-guardian/retired/` at start, keeps its choice, unsets its
+  variables in the user manager and notifies (agent-e2e checks it; it
+  never touches `environment.d.disabled`). **Not yet tried on the real
+  desktop across a real logout/login.**
 
 - ✅ Playtime page (2026-10-03, P2.9 UI): window + TUI page 7 — today /
   week / all, tiles (time, games, most played), per-game share bars,
@@ -198,7 +209,8 @@ P6 is merged into `main` (`fc9a5a4`). On `p5-gpu`:
 P4 is merged into `main` (`dc1fdfa`). On `p6-overlay`:
 - ✅ 6.2/6.4 agent: `overlay.rs` (settings in `overlay.json` → Unix
   Guardian's marked block in MangoHud.conf; only-while-gaming rewrites it
-  on game start/stop; every-game = `~/.config/environment.d/90-unix-guardian-mangohud.conf`),
+  on game start/stop; the session-wide every-game option (`MANGOHUD=1` in
+  environment.d) was removed 2026-10-04, see 05-findings incident),
   `Agent1.Overlay` (State/Set/SetUp). MangoHud logs every frame
   (`log_interval=0`); `fps::session_stats` turns a log idle 15 s into a
   stored session (avg, 1 %/0.1 % lows from p99/p99.9 frame time, capped at
