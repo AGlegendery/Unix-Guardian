@@ -432,6 +432,18 @@ export interface HistoryPoint {
   gpu_load_pct: number | null;
   gpu_w: number | null;
   mem_used_kb: number;
+  cpu_mhz: number | null;
+  gpu_mhz: number | null;
+  swap_used_kb: number | null;
+  disk_read_bps: number | null;
+  disk_write_bps: number | null;
+  disk_busy_pct: number | null;
+  net_rx_bps: number | null;
+  net_tx_bps: number | null;
+  load_avg_1: number | null;
+  processes: number | null;
+  battery_pct: number | null;
+  battery_w: number | null;
 }
 
 export interface DayTraffic {

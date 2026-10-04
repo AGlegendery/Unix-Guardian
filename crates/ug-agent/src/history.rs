@@ -11,7 +11,7 @@
 use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Mutex;
-use ug_proto::{DayTraffic, FpsSession, HistoryPoint, Snapshot, TrafficBucket};
+use ug_proto::{DayTraffic, ExtraSample, FpsSession, HistoryPoint, Snapshot, TrafficBucket};
 
 const KEEP_MS: u64 = 90 * 24 * 3_600_000;
 
@@ -65,6 +65,16 @@ impl History {
                  PRIMARY KEY (started_ms, game)
              );",
         )?;
+        // Columns added after the first release; an existing table gets them
+        // empty (older readings simply have no value there).
+        for col in ["cpu_mhz", "gpu_mhz", "swap_kb", "disk_r", "disk_w", "disk_busy", "load1", "procs", "bat_pct", "bat_w"] {
+            let has = conn
+                .prepare("SELECT 1 FROM pragma_table_info('samples') WHERE name = ?1")?
+                .exists(params![col])?;
+            if !has {
+                conn.execute_batch(&format!("ALTER TABLE samples ADD COLUMN {col} REAL"))?;
+            }
+        }
         Ok(History { conn: Mutex::new(conn) })
     }
 
@@ -125,12 +135,17 @@ impl History {
     }
 
     /// Stores a reading. `gpu_pci` picks the GPU charted (the one that works:
-    /// the caller passes the discrete one only while it is awake).
-    pub fn record(&self, s: &Snapshot, gpu_pci: Option<&str>) {
+    /// the caller passes the discrete one only while it is awake). `extra`
+    /// adds disks, load, processes and the battery when the service gave it.
+    pub fn record(&self, s: &Snapshot, gpu_pci: Option<&str>, extra: Option<&ExtraSample>) {
         let g = gpu_pci.and_then(|pci| s.gpus.iter().find(|g| g.pci == pci));
         let mem_used = s.mem.total_kb.saturating_sub(s.mem.available_kb);
+        let e = |f: fn(&ExtraSample) -> f64| extra.and_then(|x| nan_to_null(f(x)));
         let r = self.conn().execute(
-            "INSERT OR REPLACE INTO samples VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT OR REPLACE INTO samples
+               (ts_ms, cpu_temp, cpu_load, cpu_w, gpu_temp, gpu_load, gpu_w, mem_used_kb, iface, rx_total, tx_total,
+                cpu_mhz, gpu_mhz, swap_kb, disk_r, disk_w, disk_busy, load1, procs, bat_pct, bat_w)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
             params![
                 s.ts_unix_ms as i64,
                 nan_to_null(s.cpu.temp_c),
@@ -143,6 +158,16 @@ impl History {
                 s.net.iface,
                 s.net.rx_total_bytes as i64,
                 s.net.tx_total_bytes as i64,
+                (s.cpu.freq_max_mhz > 0).then_some(s.cpu.freq_max_mhz as f64),
+                g.and_then(|g| (g.core_clock_mhz > 0).then_some(g.core_clock_mhz as f64)),
+                s.mem.swap_used_kb as f64,
+                e(|x| x.disk_read_bps as f64),
+                e(|x| x.disk_write_bps as f64),
+                e(|x| x.disk_busy_pct),
+                e(|x| x.load_avg_1),
+                e(|x| x.processes as f64),
+                e(|x| x.battery_pct),
+                e(|x| x.battery_w),
             ],
         );
         if let Err(e) = r {
@@ -157,15 +182,34 @@ impl History {
 
     /// Readings between `since` and `until`, averaged into at most `points`
     /// equal buckets. Missing readings stay missing (NaN), never zero.
+    /// Internet speeds come from the byte counters between consecutive
+    /// readings (same interface, counters moving forward, at most three
+    /// minutes apart), so they are averages, not instants.
     pub fn range(&self, since_ms: u64, until_ms: u64, points: u32) -> Vec<HistoryPoint> {
         let points = points.clamp(2, 2000) as u64;
         let bucket = ((until_ms.saturating_sub(since_ms)) / points).max(60_000) as i64;
         let c = self.conn();
         let mut stmt = match c.prepare(
-            "SELECT (ts_ms / ?3) * ?3, AVG(cpu_temp), AVG(cpu_load), AVG(cpu_w),
-                    AVG(gpu_temp), AVG(gpu_load), AVG(gpu_w), AVG(mem_used_kb)
-               FROM samples WHERE ts_ms >= ?1 AND ts_ms <= ?2
-           GROUP BY 1 ORDER BY 1",
+            "WITH d AS (
+                 SELECT *,
+                        LAG(ts_ms) OVER w AS p_ts, LAG(iface) OVER w AS p_if,
+                        LAG(rx_total) OVER w AS p_rx, LAG(tx_total) OVER w AS p_tx
+                   FROM samples WHERE ts_ms >= ?1 - 180000 AND ts_ms <= ?2
+                 WINDOW w AS (ORDER BY ts_ms)),
+             r AS (
+                 SELECT *,
+                        CASE WHEN iface = p_if AND rx_total >= p_rx AND tx_total >= p_tx
+                                  AND ts_ms - p_ts BETWEEN 1 AND 180000
+                             THEN (rx_total - p_rx) * 1000.0 / (ts_ms - p_ts) END AS rx_bps,
+                        CASE WHEN iface = p_if AND rx_total >= p_rx AND tx_total >= p_tx
+                                  AND ts_ms - p_ts BETWEEN 1 AND 180000
+                             THEN (tx_total - p_tx) * 1000.0 / (ts_ms - p_ts) END AS tx_bps
+                   FROM d WHERE ts_ms >= ?1)
+             SELECT (ts_ms / ?3) * ?3, AVG(cpu_temp), AVG(cpu_load), AVG(cpu_w),
+                    AVG(gpu_temp), AVG(gpu_load), AVG(gpu_w), AVG(mem_used_kb),
+                    AVG(cpu_mhz), AVG(gpu_mhz), AVG(swap_kb), AVG(disk_r), AVG(disk_w), AVG(disk_busy),
+                    AVG(rx_bps), AVG(tx_bps), AVG(load1), AVG(procs), AVG(bat_pct), AVG(bat_w)
+               FROM r GROUP BY 1 ORDER BY 1",
         ) {
             Ok(s) => s,
             Err(e) => {
@@ -174,7 +218,7 @@ impl History {
             }
         };
         let f = |v: Option<f64>| v.unwrap_or(f64::NAN);
-        stmt.query_map(params![since_ms as i64, until_ms as i64, bucket], |r| {
+        stmt.query_map(params![since_ms as i64, until_ms.min(i64::MAX as u64) as i64, bucket], |r| {
             Ok(HistoryPoint {
                 ts_unix_ms: r.get::<_, i64>(0)? as u64,
                 cpu_temp_c: f(r.get(1)?),
@@ -184,6 +228,18 @@ impl History {
                 gpu_load_pct: f(r.get(5)?),
                 gpu_w: f(r.get(6)?),
                 mem_used_kb: r.get::<_, Option<f64>>(7)?.unwrap_or(0.0) as u64,
+                cpu_mhz: f(r.get(8)?),
+                gpu_mhz: f(r.get(9)?),
+                swap_used_kb: f(r.get(10)?),
+                disk_read_bps: f(r.get(11)?),
+                disk_write_bps: f(r.get(12)?),
+                disk_busy_pct: f(r.get(13)?),
+                net_rx_bps: f(r.get(14)?),
+                net_tx_bps: f(r.get(15)?),
+                load_avg_1: f(r.get(16)?),
+                processes: f(r.get(17)?),
+                battery_pct: f(r.get(18)?),
+                battery_w: f(r.get(19)?),
             })
         })
         .map(|rows| rows.flatten().collect())
@@ -304,9 +360,9 @@ mod tests {
     fn readings_are_averaged_into_buckets_and_gaps_stay_missing() {
         let h = History::in_memory();
         for (i, t) in [40.0, 50.0, 60.0, 70.0].into_iter().enumerate() {
-            h.record(&snap(i as u64 * MIN, t, 0, 0, "wlan0"), None);
+            h.record(&snap(i as u64 * MIN, t, 0, 0, "wlan0"), None, None);
         }
-        h.record(&snap(10 * MIN, f64::NAN, 0, 0, "wlan0"), None);
+        h.record(&snap(10 * MIN, f64::NAN, 0, 0, "wlan0"), None, None);
         let pts = h.range(0, 12 * MIN, 6); // 2-minute buckets
         assert_eq!(pts[0].cpu_temp_c, 45.0);
         assert_eq!(pts[1].cpu_temp_c, 65.0);
@@ -316,9 +372,45 @@ mod tests {
     }
 
     #[test]
+    fn every_live_reading_is_kept_and_speeds_come_from_the_counters() {
+        let h = History::in_memory();
+        let x = ExtraSample { disk_read_bps: 2_000_000, disk_busy_pct: 10.0, load_avg_1: 1.5, processes: 300, battery_pct: f64::NAN, battery_w: f64::NAN, ..Default::default() };
+        h.record(&snap(0, 40.0, 0, 0, "wlan0"), None, Some(&x));
+        h.record(&snap(MIN, 40.0, 6_000_000, 600_000, "wlan0"), None, Some(&x));
+        h.record(&snap(2 * MIN, 40.0, 18_000_000, 600_000, "wlan0"), None, None);
+        let pts = h.range(0, 3 * MIN, 3);
+        assert!(pts[0].net_rx_bps.is_nan(), "no speed without a reading before");
+        assert_eq!(pts[1].net_rx_bps, 100_000.0, "6 MB in a minute");
+        assert_eq!(pts[1].net_tx_bps, 10_000.0);
+        assert_eq!(pts[2].net_rx_bps, 200_000.0);
+        assert_eq!((pts[0].disk_read_bps, pts[0].load_avg_1, pts[0].processes), (2_000_000.0, 1.5, 300.0));
+        assert!(pts[2].disk_read_bps.is_nan(), "no extra reading: missing, not zero");
+        assert!(pts[0].battery_pct.is_nan(), "no battery");
+        // The first bucket's speed uses the reading just before the range.
+        assert_eq!(h.range(MIN, 3 * MIN, 2)[0].net_rx_bps, 100_000.0);
+    }
+
+    #[test]
+    fn a_table_from_an_older_version_gets_the_new_columns() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE samples (ts_ms INTEGER PRIMARY KEY, cpu_temp REAL, cpu_load REAL, cpu_w REAL, gpu_temp REAL,
+             gpu_load REAL, gpu_w REAL, mem_used_kb INTEGER, iface TEXT, rx_total INTEGER, tx_total INTEGER);
+             INSERT INTO samples VALUES (0, 50, 10, 5, NULL, NULL, NULL, 100, 'wlan0', 0, 0);",
+        )
+        .unwrap();
+        let h = History::init(c).unwrap();
+        h.record(&snap(MIN, 60.0, 0, 0, "wlan0"), None, None);
+        let pts = h.range(0, 2 * MIN, 2);
+        assert_eq!(pts[0].cpu_temp_c, 50.0, "old readings are kept");
+        assert!(pts[0].cpu_mhz.is_nan());
+        assert_eq!(pts[1].cpu_temp_c, 60.0);
+    }
+
+    #[test]
     fn the_working_gpu_is_charted() {
         let h = History::in_memory();
-        h.record(&snap(0, 40.0, 0, 0, "wlan0"), Some("0000:01:00.0"));
+        h.record(&snap(0, 40.0, 0, 0, "wlan0"), Some("0000:01:00.0"), None);
         assert_eq!(h.range(0, MIN, 10)[0].gpu_temp_c, 60.0);
     }
 
@@ -326,12 +418,12 @@ mod tests {
     fn daily_traffic_is_exact_and_survives_a_counter_reset() {
         let h = History::in_memory();
         let day = |ts: u64| if ts < 3 * MIN { "d1".to_string() } else { "d2".to_string() };
-        h.record(&snap(0, 40.0, 1_000, 100, "wlan0"), None);
-        h.record(&snap(MIN, 40.0, 5_000, 300, "wlan0"), None);
-        h.record(&snap(2 * MIN, 40.0, 6_000, 400, "wlan0"), None);
-        h.record(&snap(3 * MIN, 40.0, 50, 10, "wlan0"), None); // rebooted: counters reset
-        h.record(&snap(4 * MIN, 40.0, 2_050, 510, "wlan0"), None);
-        h.record(&snap(5 * MIN, 40.0, 900, 900, "eth0"), None); // switched interface
+        h.record(&snap(0, 40.0, 1_000, 100, "wlan0"), None, None);
+        h.record(&snap(MIN, 40.0, 5_000, 300, "wlan0"), None, None);
+        h.record(&snap(2 * MIN, 40.0, 6_000, 400, "wlan0"), None, None);
+        h.record(&snap(3 * MIN, 40.0, 50, 10, "wlan0"), None, None); // rebooted: counters reset
+        h.record(&snap(4 * MIN, 40.0, 2_050, 510, "wlan0"), None, None);
+        h.record(&snap(5 * MIN, 40.0, 900, 900, "eth0"), None, None); // switched interface
         let t = h.traffic(0, day);
         assert_eq!(t.len(), 2);
         assert_eq!((t[0].rx_bytes, t[0].tx_bytes), (5_000, 300));
@@ -341,11 +433,11 @@ mod tests {
     #[test]
     fn traffic_in_buckets_counts_each_delta_once_and_keeps_empty_buckets() {
         let h = History::in_memory();
-        h.record(&snap(0, 40.0, 1_000, 100, "wlan0"), None);
-        h.record(&snap(MIN, 40.0, 5_000, 300, "wlan0"), None);
-        h.record(&snap(2 * MIN, 40.0, 6_000, 400, "wlan0"), None);
-        h.record(&snap(3 * MIN, 40.0, 50, 10, "wlan0"), None); // rebooted
-        h.record(&snap(4 * MIN, 40.0, 2_050, 510, "wlan0"), None);
+        h.record(&snap(0, 40.0, 1_000, 100, "wlan0"), None, None);
+        h.record(&snap(MIN, 40.0, 5_000, 300, "wlan0"), None, None);
+        h.record(&snap(2 * MIN, 40.0, 6_000, 400, "wlan0"), None, None);
+        h.record(&snap(3 * MIN, 40.0, 50, 10, "wlan0"), None, None); // rebooted
+        h.record(&snap(4 * MIN, 40.0, 2_050, 510, "wlan0"), None, None);
         // Two-minute buckets from the first minute: (1, 3], (3, 5], (5, 7].
         let b = h.traffic_buckets(MIN, 7 * MIN, 2 * MIN);
         assert_eq!(b.len(), 3);
@@ -363,8 +455,8 @@ mod tests {
     #[test]
     fn old_readings_are_pruned() {
         let h = History::in_memory();
-        h.record(&snap(0, 40.0, 0, 0, "wlan0"), None);
-        h.record(&snap(KEEP_MS + 2 * MIN, 40.0, 0, 0, "wlan0"), None);
+        h.record(&snap(0, 40.0, 0, 0, "wlan0"), None, None);
+        h.record(&snap(KEEP_MS + 2 * MIN, 40.0, 0, 0, "wlan0"), None, None);
         h.prune(KEEP_MS + 3 * MIN);
         assert_eq!(h.range(0, KEEP_MS * 2, 100).len(), 1);
     }

@@ -358,6 +358,18 @@ export const mockApi = {
         gpu_load_pct: i % 40 < 12 ? 40 + w * 50 : null,
         gpu_w: i % 40 < 12 ? 20 + w * 40 : null,
         mem_used_kb: 18e6 + w * 4e6,
+        cpu_mhz: 2400 + w * 2000,
+        gpu_mhz: i % 40 < 12 ? 900 + w * 900 : null,
+        swap_used_kb: 2e5 + w * 1e5,
+        disk_read_bps: (0.5 + w * 4) * 1e6,
+        disk_write_bps: (0.2 + w) * 1e6,
+        disk_busy_pct: 2 + w * 15,
+        net_rx_bps: (0.05 + w * w * 2) * 1e6,
+        net_tx_bps: (0.01 + w * 0.1) * 1e6,
+        load_avg_1: 0.5 + w * 3,
+        processes: 380 + w * 40,
+        battery_pct: null,
+        battery_w: null,
       };
     }),
   traffic: async (sinceUnixMs: number): Promise<DayTraffic[]> => {

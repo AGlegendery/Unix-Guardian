@@ -949,18 +949,41 @@ async fn history(hours: u32, json: bool) -> Result<()> {
         return Ok(());
     }
     let f = |v: f64, unit: &str| if v.is_nan() { "—".to_string() } else { format!("{v:.0}{unit}") };
-    println!("{:<17} {:>8} {:>8} {:>8} {:>8} {:>8}", "time", "CPU °C", "CPU %", "CPU W", "GPU °C", "GPU %");
-    for p in pts {
+    let mbs = |v: f64| if v.is_nan() { "—".to_string() } else { format!("{:.2}", v / 1e6) };
+    println!(
+        "{:<17} {:>7} {:>6} {:>6} {:>7} {:>6} {:>7} {:>9} {:>9} {:>9}",
+        "time", "CPU °C", "CPU %", "CPU W", "GPU °C", "GPU %", "RAM GB", "down MB/s", "disk MB/s", "load avg"
+    );
+    for p in &pts {
         println!(
-            "{:<17} {:>8} {:>8} {:>8} {:>8} {:>8}",
+            "{:<17} {:>7} {:>6} {:>6} {:>7} {:>6} {:>7.1} {:>9} {:>9} {:>9}",
             &local_time(p.ts_unix_ms)[..16],
             f(p.cpu_temp_c, ""),
             f(p.cpu_load_pct, ""),
             f(p.cpu_w, ""),
             f(p.gpu_temp_c, ""),
-            f(p.gpu_load_pct, "")
+            f(p.gpu_load_pct, ""),
+            p.mem_used_kb as f64 / 1_048_576.0,
+            mbs(p.net_rx_bps),
+            mbs(p.disk_read_bps + p.disk_write_bps),
+            if p.load_avg_1.is_nan() { "—".to_string() } else { format!("{:.2}", p.load_avg_1) },
         );
     }
+    // Averages over the whole range, missing readings left out.
+    let avg = |g: fn(&ug_proto::HistoryPoint) -> f64| {
+        let v: Vec<f64> = pts.iter().map(g).filter(|x| !x.is_nan()).collect();
+        if v.is_empty() { f64::NAN } else { v.iter().sum::<f64>() / v.len() as f64 }
+    };
+    println!(
+        "\nAverage: CPU {} °C {} % {} W, GPU {} °C {} %, internet down {} MB/s up {} MB/s",
+        f(avg(|p| p.cpu_temp_c), ""),
+        f(avg(|p| p.cpu_load_pct), ""),
+        f(avg(|p| p.cpu_w), ""),
+        f(avg(|p| p.gpu_temp_c), ""),
+        f(avg(|p| p.gpu_load_pct), ""),
+        mbs(avg(|p| p.net_rx_bps)),
+        mbs(avg(|p| p.net_tx_bps)),
+    );
     Ok(())
 }
 

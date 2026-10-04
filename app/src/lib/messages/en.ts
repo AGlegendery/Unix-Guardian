@@ -258,6 +258,8 @@ export const en = {
     or: "or at",
   },
   mon: {
+    averages: "Averages",
+    peak: "peak",
     title: "Monitoring",
     tabs: { fps: "FPS", thermal: "Temperature and power", traffic: "Internet traffic" },
     ranges: { live: "Live", hour: "Last hour", day: "Today", week: "This week" } as Record<string, string>,

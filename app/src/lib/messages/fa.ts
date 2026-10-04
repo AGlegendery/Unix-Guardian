@@ -260,6 +260,8 @@ export const fa: typeof en = {
     or: "یا ساعت",
   },
   mon: {
+    averages: "میانگین‌ها",
+    peak: "بیشینه",
     title: "مانیتورینگ",
     tabs: { fps: "مانیتورینگ FPS", thermal: "دما و مصرف", traffic: "ترافیک اینترنت" },
     ranges: { live: "زنده", hour: "یک ساعت اخیر", day: "امروز", week: "این هفته" },

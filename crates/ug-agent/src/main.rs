@@ -176,10 +176,12 @@ impl DaemonLink {
         let Some(conn) = self.conn.clone() else { return };
         let Ok(d) = ug_proto::daemon::DaemonProxy::new(&conn).await else { return };
         let Ok(s) = d.snapshot().await else { return };
+        // An older service has no Extra: the reading is stored without it.
+        let extra = d.extra().await.ok();
         let gpu = s.gpus.iter().find(|g| !g.asleep && !g.temp_c.is_nan()).map(|g| g.pci.clone());
         let h = Arc::clone(history);
         let _ = tokio::task::spawn_blocking(move || {
-            h.record(&s, gpu.as_deref());
+            h.record(&s, gpu.as_deref(), extra.as_ref());
             if s.ts_unix_ms % (24 * 3_600_000) < 60_000 {
                 h.prune(s.ts_unix_ms);
             }

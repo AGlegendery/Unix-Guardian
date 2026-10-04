@@ -637,6 +637,22 @@ pub struct HistoryPoint {
     pub gpu_load_pct: f64,
     pub gpu_w: f64,
     pub mem_used_kb: u64,
+    /// Highest CPU core clock and the working GPU's core clock, MHz.
+    pub cpu_mhz: f64,
+    pub gpu_mhz: f64,
+    pub swap_used_kb: f64,
+    /// Disks (whole disks summed) and the busiest disk's busy time.
+    pub disk_read_bps: f64,
+    pub disk_write_bps: f64,
+    pub disk_busy_pct: f64,
+    /// Internet, from the interface's byte counters between readings.
+    pub net_rx_bps: f64,
+    pub net_tx_bps: f64,
+    pub load_avg_1: f64,
+    pub processes: f64,
+    /// NaN without a battery; watts positive while draining.
+    pub battery_pct: f64,
+    pub battery_w: f64,
 }
 
 /// Internet traffic on one local day.
