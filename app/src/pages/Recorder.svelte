@@ -4,6 +4,7 @@
   import { api, errorText, type RecorderAction, type RecorderSettings, type RecorderState } from "../lib/api";
   import { num } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
+  import GaugeLoader from "../lib/ui/GaugeLoader.svelte";
   import Problem from "../lib/ui/Problem.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
   import Switch from "../lib/ui/Switch.svelte";
@@ -75,7 +76,25 @@
       <h2>{t().recorder.missing}</h2>
       <p class="muted">{t().recorder.missingWhy}</p>
       {#if st.mode === "installing"}
-        <p role="status">{t().recorder.installing}</p>
+        <!-- Flatpak's own progress; until it reports any, the busy gauge
+             (which stops by itself, see GaugeLoader). -->
+        <div class="install">
+          {#if st.setup_step}
+            <GaugeLoader variant="progress" value={st.setup_pct} size={56} label={t().recorder.installing} />
+          {:else}
+            <GaugeLoader size={56} label={t().recorder.installing} />
+          {/if}
+          <div class="install-text">
+            <p role="status">
+              {t().recorder.installing}
+              {#if st.setup_step}<b dir="ltr">{st.setup_pct}%</b>{/if}
+            </p>
+            <div class="bar" aria-hidden="true"><span style="width: {st.setup_pct}%"></span></div>
+            <p class="small">
+              {st.setup_step ? t().recorder.installStep.replace("{s}", st.setup_step) : t().recorder.installStarting}
+            </p>
+          </div>
+        </div>
       {:else if st.can_set_up}
         <button class="btn primary" onclick={() => act("setup")} disabled={busy}>{t().recorder.setUp}</button>
         <p class="small">{t().recorder.setUpNote}</p>
@@ -181,6 +200,11 @@
   .small { color: var(--text-3); font-size: 0.8rem; overflow-wrap: anywhere; }
   .saved { color: var(--accent-text); font-size: 0.85rem; overflow-wrap: anywhere; }
   .top { display: flex; align-items: center; gap: 10px; }
+  .install { display: flex; align-items: center; gap: 16px; width: 100%; }
+  .install-text { flex: 1; display: grid; gap: 6px; min-width: 0; }
+  .install-text b { margin-inline-start: 6px; }
+  .bar { height: 8px; border-radius: 999px; background: var(--card-2); overflow: hidden; }
+  .bar span { display: block; height: 100%; background: var(--accent); border-radius: inherit; transition: width 0.6s ease-out; }
   /* A still dot: the UI never animates endlessly (WebKitGTK repaints at 60 fps). */
   .rec { width: 10px; height: 10px; border-radius: 50%; background: #e5484d; }
   .actions { display: flex; gap: 10px; flex-wrap: wrap; }

@@ -1027,6 +1027,17 @@ mod tests {
         app.recorder.store(Ok(ug_proto::RecorderState { can_set_up: true, mode: "idle".into(), ..Default::default() }));
         let screen = render(&mut app, 120, 34);
         assert!(screen.contains("gpu-screen-recorder is not installed") && screen.contains("Set it up"), "{screen}");
+        // While it installs: Flatpak's progress, as a bar.
+        app.recorder.store(Ok(ug_proto::RecorderState { mode: "installing".into(), ..Default::default() }));
+        assert!(render(&mut app, 120, 34).contains("Asking Flathub what to download"));
+        app.recorder.store(Ok(ug_proto::RecorderState {
+            mode: "installing".into(),
+            setup_pct: 47,
+            setup_step: "4/7".into(),
+            ..Default::default()
+        }));
+        let screen = render(&mut app, 120, 34);
+        assert!(screen.contains("G ━━━━━━━━━━━━━━━───────────────  47 %  step 4/7"), "{screen}");
         app.recorder.store(Ok(ug_proto::RecorderState {
             engine: "flatpak".into(),
             mode: "replay".into(),

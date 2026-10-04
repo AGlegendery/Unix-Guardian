@@ -16,8 +16,10 @@ const watches: PowerWatch[] = [];
 let t = 0;
 const driverOps: DriverOp[] = [];
 let agentSettings: AgentSettings = { notifications: true, scan_interval_s: 2, close_window_on_game: false };
+// `?recorder=missing` previews the recorder before Set up.
+const recorderMissing = typeof location !== "undefined" && location.search.includes("recorder=missing");
 const recorder: RecorderState = {
-  engine: "flatpak", can_set_up: false, mode: "idle", since_unix_ms: 0, file: "", last_saved: "", problem: "",
+  engine: recorderMissing ? "" : "flatpak", can_set_up: recorderMissing, mode: "idle", since_unix_ms: 0, file: "", last_saved: "", problem: "", setup_pct: 0, setup_step: "",
   captures: ["portal", "DP-1", "eDP-1"],
   settings: { quality: "balanced", fps: 60, capture: "", codec: "auto", audio_output: true, audio_mic: false, replay_seconds: 60, folder: "" },
   mb_per_minute: 91, replay_mb: 91, folder: "/home/you/Videos/Unix Guardian",
@@ -469,6 +471,21 @@ export const mockApi = {
       return was === "recording" ? file : "";
     }
     if (what === "save") return (recorder.last_saved = `${recorder.folder}/Replay 2026-10-03 21-01-00.mp4`);
+    if (what === "remove") Object.assign(recorder, { engine: "", can_set_up: true });
+    if (what === "setup") {
+      // Seven steps, as Flatpak reports them, a few seconds in all.
+      Object.assign(recorder, { mode: "installing", setup_pct: 0, setup_step: "" });
+      let i = 0;
+      const id = setInterval(() => {
+        i += 1;
+        if (i > 70) {
+          clearInterval(id);
+          Object.assign(recorder, { mode: "idle", engine: "flatpak", can_set_up: false, setup_pct: 0, setup_step: "" });
+          return;
+        }
+        Object.assign(recorder, { setup_pct: Math.round((i * 100) / 70), setup_step: `${Math.min(7, Math.floor(i / 10) + 1)}/7` });
+      }, 120);
+    }
     return what === "start" ? file : "";
   },
   shortcutsRun: async (id: string) => {

@@ -235,6 +235,9 @@ export interface RecorderState {
   file: string;
   last_saved: string;
   problem: string;
+  /** While installing: the whole install's percent (from Flatpak) and the step ("2/7"; "" before Flatpak says). */
+  setup_pct: number;
+  setup_step: string;
   captures: string[];
   settings: RecorderSettings;
   mb_per_minute: number;

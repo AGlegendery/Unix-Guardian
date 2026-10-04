@@ -412,6 +412,8 @@ export const fa: typeof en = {
     setUp: "راه‌اندازی",
     setUpNote: "Flatpak آن را از Flathub فقط برای شما نصب می‌کند؛ رمز لازم نیست و «حذف» دوباره پاکش می‌کند (ug record remove). حدود چند صد مگابایت دانلود دارد.",
     installing: "در حال نصب… ممکن است چند دقیقه طول بکشد.",
+    installStep: "مرحله‌ی {s} (Flatpak ضبط‌کننده و runtime لازمش را دانلود می‌کند؛ اگر دانلود قطع شد، «راه‌اندازی» دوباره ادامه‌اش می‌دهد).",
+    installStarting: "در حال پرسیدن از Flathub که چه چیزی باید دانلود شود…",
     noFlatpak: "Flatpak نصب نیست، پس gpu-screen-recorder را با مدیر بسته‌ی توزیع نصب کنید.",
     recording: "در حال ضبط",
     replayOn: "{s} ثانیه‌ی آخر نگه داشته می‌شود",

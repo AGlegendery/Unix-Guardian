@@ -410,6 +410,8 @@ export const en = {
     setUp: "Set it up",
     setUpNote: "Installs its Flatpak from Flathub for you only; no password, and Remove takes it away again (ug record remove). It is a download of a few hundred megabytes.",
     installing: "Installing… this can take a few minutes.",
+    installStep: "Step {s} (Flatpak downloads the recorder and the runtime it needs; if the download breaks, Set up again continues it).",
+    installStarting: "Asking Flathub what to download…",
     noFlatpak: "Flatpak is not installed, so install gpu-screen-recorder with your package manager.",
     recording: "Recording",
     replayOn: "Keeping the last {s} seconds",

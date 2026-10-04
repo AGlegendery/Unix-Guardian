@@ -1569,6 +1569,24 @@ fn overlay_page(app: &mut App, f: &mut Frame, r: Rect) {
     }
 }
 
+/// The Set up progress from Flatpak: the G mark, a bar, the percent and
+/// the step; before Flatpak reports any, what it is doing.
+fn install_bar(app: &App, st: &ug_proto::RecorderState) -> Line<'static> {
+    let t = app.theme;
+    if st.setup_step.is_empty() {
+        return Line::from(vec![Span::styled("G ", t.accent()), Span::styled("Asking Flathub what to download…", t.muted())]);
+    }
+    const W: usize = 30;
+    let filled = (st.setup_pct.min(100) as usize * W).div_ceil(100);
+    Line::from(vec![
+        Span::styled("G ", t.accent()),
+        Span::styled("━".repeat(filled), t.accent()),
+        Span::styled("─".repeat(W - filled), t.faint()),
+        Span::styled(format!(" {:>3} %", st.setup_pct), t.title()),
+        Span::styled(format!("  step {}  (a broken download continues on the next Set up)", st.setup_step), t.faint()),
+    ])
+}
+
 /// The recorder's rows: two actions, then the settings.
 const RECORDER_ROWS: [&str; 8] =
     ["Recording", "Replay buffer", "Save the last seconds", "Quality", "Frame rate", "Replay keeps", "The game's sound", "Microphone"];
@@ -1590,6 +1608,7 @@ fn recorder_page(app: &mut App, f: &mut Frame, r: Rect) {
         ];
         if st.mode == "installing" {
             lines.push(Line::from(Span::styled("Installing… this can take a few minutes.", t.accent())));
+            lines.push(install_bar(app, &st));
         } else if !st.can_set_up {
             lines.push(Line::from(Span::styled("Flatpak is not installed, so install gpu-screen-recorder with your package manager.", t.muted())));
         }

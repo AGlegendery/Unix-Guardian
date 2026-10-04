@@ -1,6 +1,9 @@
 <script lang="ts">
   // The G gauge in motion. "busy" loops while something is being waited for;
-  // "intro" draws the mark once at startup and then stands still.
+  // "intro" draws the mark once at startup and then stands still;
+  // "progress" draws the arc and points the needle at `value` (0–100), so
+  // it moves only when the real progress does (a short transition, never a
+  // loop).
   //
   // WebKitGTK repaints the whole window for any running animation, so the
   // loop stops by itself after `maxSeconds` (a wait that long is not going
@@ -11,7 +14,9 @@
     size = 48,
     label = "Loading",
     maxSeconds = 20,
-  }: { variant?: "busy" | "intro"; size?: number; label?: string; maxSeconds?: number } = $props();
+    value = 0,
+  }: { variant?: "busy" | "intro" | "progress"; size?: number; label?: string; maxSeconds?: number; value?: number } = $props();
+  const v = $derived(Math.max(0, Math.min(100, value)));
 
   let resting = $state(false);
   $effect(() => {
@@ -22,7 +27,19 @@
   });
 </script>
 
-<svg class="ga {variant}" class:resting width={size} height={size} viewBox="16 18 68 68" role="img" aria-label={label}>
+<svg
+  class="ga {variant}"
+  class:resting
+  width={size}
+  height={size}
+  viewBox="16 18 68 68"
+  role={variant === "progress" ? "progressbar" : "img"}
+  aria-label={label}
+  aria-valuemin={variant === "progress" ? 0 : undefined}
+  aria-valuemax={variant === "progress" ? 100 : undefined}
+  aria-valuenow={variant === "progress" ? Math.round(v) : undefined}
+  style={variant === "progress" ? `--v: ${v}` : undefined}
+>
   <circle class="glow" cx="50" cy="52" r="10" />
   <path class="arc" pathLength="100" d="M69.8 32.2 A28 28 0 1 0 78 52" />
   <path class="arc2" pathLength="100" d="M69.8 32.2 A28 28 0 1 0 78 52" />
@@ -42,6 +59,10 @@
   .busy .arc2 { opacity: 1; animation: run 1.6s linear infinite; }
   .busy .needle { animation: swing 1.6s ease-in-out infinite alternate; }
   .busy.resting .arc2, .busy.resting .needle { animation: none; }
+  /* The arc runs from the needle's start (-45°) round to 0°, 315° in all. */
+  .progress .arc { opacity: 0.35; }
+  .progress .arc2 { opacity: 1; stroke-dasharray: 100; stroke-dashoffset: calc(100 - var(--v)); transition: stroke-dashoffset 0.6s ease-out; }
+  .progress .needle { transform: rotate(calc(-45deg - var(--v) * 3.15deg)); transition: transform 0.6s ease-out; }
   .intro .arc { animation: draw 1.2s cubic-bezier(0.6, 0, 0.3, 1) 0.15s both; }
   .intro .needle { animation: sweep 1.65s cubic-bezier(0.6, 0, 0.3, 1) 0.15s both; }
   .intro .hub { animation: pop 0.5s cubic-bezier(0.3, 1.6, 0.5, 1) 1.2s both; }
