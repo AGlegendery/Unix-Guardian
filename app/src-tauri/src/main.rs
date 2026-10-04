@@ -87,6 +87,8 @@ fn main() {
             bus::profiles,
             bus::set_game_profile,
             bus::set_profile_option,
+            bus::game_mode_hand,
+            bus::set_game_mode,
             bus::playtime,
             bus::playtime_sessions,
             bus::playtime_forget,

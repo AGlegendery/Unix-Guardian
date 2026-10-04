@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowDown, ArrowLeftRight, ArrowUp, Check, Cpu, Gamepad2, MemoryStick, MonitorSmartphone, Network } from "@lucide/svelte";
+  import { ArrowDown, ArrowLeftRight, ArrowUp, Check, Cpu, Gamepad2, MemoryStick, MonitorSmartphone, Network, Power } from "@lucide/svelte";
   import { api, type GpuDefault, type GpuInfo, type Overview, type PlaytimeEntry, type Profile, type RunningGame, type Snapshot } from "../lib/api";
   import { duration, gib, num, rate } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
@@ -20,6 +20,10 @@
   let gpuErr = $state("");
   let gpuMenu = $state(false);
   let gpuPicker = $state<HTMLElement | null>(null);
+  // Game mode by hand: "on", "off" or "" (follows the games), and its profile.
+  let hand = $state<[string, string]>(["", "balanced"]);
+  let gmBusy = $state(false);
+  let gmErr = $state("");
 
   // The picker closes on a click elsewhere or Escape.
   $effect(() => {
@@ -79,6 +83,7 @@
       api.gamesRunning().then((r) => (running = r)).catch(() => {});
       api.profiles().then((p) => (profiles = p)).catch(() => {});
       api.gpuDefault().then((d) => (gpuDef = d)).catch(() => {});
+      api.gameModeHand().then((h) => (hand = h)).catch(() => {});
     };
     load();
     // Once even when opened hidden, so the card switch is usable at once.
@@ -89,8 +94,21 @@
   });
 
   const game = $derived(running[0] ?? null);
-  const gmOn = $derived(!!game || !!overview?.gamemode_active);
-  const profileId = $derived(game?.profile ?? "balanced");
+  // By hand wins; otherwise it follows the games.
+  const gmOn = $derived(hand[0] === "on" || (hand[0] !== "off" && !!game));
+  const profileId = $derived(game && hand[0] !== "on" ? game.profile : hand[1]);
+  async function setGameMode(on: boolean, profile = "") {
+    gmBusy = true;
+    gmErr = "";
+    try {
+      await api.setGameMode(on, profile);
+      hand = await api.gameModeHand();
+    } catch (e) {
+      gmErr = String(e);
+    } finally {
+      gmBusy = false;
+    }
+  }
   const profile = $derived(profiles.find((p) => p.id === profileId) ?? null);
   const switches = [
     "cpu_performance", "cpu_no_idle_states", "cpu_preferred_cores",
@@ -298,9 +316,28 @@
         {t().gm.waiting}
       {/if}
     </p>
+    <div class="gm-actions">
+      {#if gmOn}
+        <button class="gm-btn" disabled={gmBusy} onclick={() => setGameMode(false)}><Power size={15} aria-hidden="true" /> {t().gm.turnOff}</button>
+      {:else}
+        <button class="gm-btn primary" disabled={gmBusy} onclick={() => setGameMode(true, hand[1])}><Power size={15} aria-hidden="true" /> {t().gm.turnOn}</button>
+      {/if}
+      <div class="gm-profiles" role="radiogroup" aria-label={t().gm.activeProfile}>
+        {#each profiles as p (p.id)}
+          <button
+            role="radio"
+            aria-checked={profileId === p.id}
+            class:on={profileId === p.id}
+            disabled={gmBusy}
+            onclick={() => (gmOn ? setGameMode(true, p.id) : (hand = [hand[0], p.id]))}
+          >{t().gm.profiles[p.id] ?? p.id}</button>
+        {/each}
+      </div>
+    </div>
+    {#if gmErr}<p class="gm-err">{gmErr}</p>{/if}
     <div class="chips">
-      <span class="chip">{t().gm.selection}: <b>{t().gm.automatic}</b></span>
-      <span class="chip">{game ? t().gm.activeProfile : t().gm.defaultProfile}: <b>{t().gm.profiles[profileId] ?? profileId}</b></span>
+      <span class="chip">{t().gm.selection}: <b>{hand[0] === "on" ? t().gm.byHand : hand[0] === "off" ? t().gm.offByHand : t().gm.automatic}</b></span>
+      <span class="chip">{gmOn ? t().gm.activeProfile : t().gm.defaultProfile}: <b>{t().gm.profiles[profileId] ?? profileId}</b></span>
     </div>
     <p class="sub-title">{t().gm.changes}</p>
     <ul class="changes">
@@ -499,6 +536,15 @@
     color: var(--text-2);
   }
   .state-pill.on { background: var(--accent); color: #fff; }
+  .gm-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 4px 0 10px; }
+  .gm-btn { all: unset; display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 10px; background: var(--card-2); font-size: 0.88rem; font-weight: 600; cursor: pointer; }
+  .gm-btn.primary { background: var(--accent); color: white; }
+  .gm-btn:disabled { opacity: 0.55; cursor: default; }
+  .gm-btn:focus-visible, .gm-profiles button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  .gm-profiles { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--card-2); flex-wrap: wrap; }
+  .gm-profiles button { all: unset; padding: 5px 11px; border-radius: 8px; font-size: 0.8rem; color: var(--text-2); cursor: pointer; }
+  .gm-profiles button.on { background: var(--card); color: var(--text); font-weight: 600; }
+  .gm-err { margin: 0 0 8px; color: var(--danger); font-size: 0.82rem; }
   .gm.on { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 55%, transparent); }
   .gm-line { margin: 0 0 12px; color: var(--text-2); font-size: 0.9rem; }
   .gm-line strong { color: var(--text); }

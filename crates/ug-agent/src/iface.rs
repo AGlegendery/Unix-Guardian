@@ -202,6 +202,17 @@ impl ProfilesIface {
     async fn set_option(&self, profile: &str, option: &str, value: bool) -> zbus::fdo::Result<()> {
         lock(&self.core).set_profile_option(profile, option, value).map_err(zbus::fdo::Error::InvalidArgs)
     }
+
+    /// Whether game mode was set by hand ("on", "off" or "") and the
+    /// profile it uses when on by hand.
+    async fn game_mode(&self) -> (String, String) {
+        let c = lock(&self.core);
+        (c.gamemode_by_hand().to_string(), c.by_hand_profile().to_string())
+    }
+
+    async fn set_game_mode(&self, on: bool, profile: &str) -> zbus::fdo::Result<()> {
+        lock(&self.core).set_gamemode(on, profile).map_err(zbus::fdo::Error::InvalidArgs)
+    }
 }
 
 /// `org.unixguardian.Agent1.Monitor`

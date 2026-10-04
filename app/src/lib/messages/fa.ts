@@ -76,6 +76,10 @@ export const fa: typeof en = {
     waiting: "در حال جمع‌کردن عددها…",
   },
   gm: {
+    turnOn: "همین الان روشن کن",
+    turnOff: "خاموش کن",
+    byHand: "روشن با دست",
+    offByHand: "خاموش تا پایان بازی",
     on: "روشن",
     off: "خاموش",
     waiting: "وقتی بازی شروع شود خودش روشن می‌شود",

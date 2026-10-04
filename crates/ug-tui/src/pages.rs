@@ -592,15 +592,20 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
         .split(rows[1]);
     let game = app.running.value.as_ref().and_then(|v| v.first().cloned());
-    let on = game.is_some() || app.gamemode.value == Some(true);
-    let profile_id = game.as_ref().map(|g| g.profile.clone()).unwrap_or_else(|| "balanced".into());
+    let (hand, hand_profile) = app.hand.value.clone().unwrap_or_else(|| (String::new(), "balanced".into()));
+    let on = hand == "on" || (hand != "off" && (game.is_some() || app.gamemode.value == Some(true)));
+    let profile_id = match &game {
+        Some(g) if hand != "on" => g.profile.clone(),
+        _ => hand_profile,
+    };
     let profile = app.profiles.value.as_ref().and_then(|p| p.iter().find(|p| p.id == profile_id).cloned());
     let mut gm = vec![Line::from(vec![
         Span::styled(if on { "On " } else { "Off " }, if on { t.accent() } else { t.muted() }),
         Span::styled(
             match &game {
+                _ if hand == "on" => format!("— on by hand ({profile_id} profile); g turns it off"),
                 Some(g) => format!("— {} ({} profile)", g.name, g.profile),
-                None => format!("— starts with a game ({profile_id} profile)"),
+                None => format!("— starts with a game ({profile_id} profile); g turns it on now"),
             },
             t.muted(),
         ),
@@ -717,7 +722,8 @@ fn game_mode(app: &mut App, f: &mut Frame, r: Rect) {
     }
     app.choice = app.choice.min(profiles.len() - 1);
     let game = app.running.value.as_ref().and_then(|v| v.first().cloned());
-    let on = game.is_some() || app.gamemode.value == Some(true);
+    let hand = app.hand.value.clone().unwrap_or_default();
+    let on = hand.0 == "on" || (hand.0 != "off" && (game.is_some() || app.gamemode.value == Some(true)));
     let head = Line::from(vec![
         Span::styled("Game mode  ", t.title()),
         Span::styled(if on { "On" } else { "Off" }, if on { t.accent() } else { t.muted() }),
@@ -733,7 +739,8 @@ fn game_mode(app: &mut App, f: &mut Frame, r: Rect) {
                     let on = if gpu.is_empty() { String::new() } else { format!(", on {gpu}") };
                     format!("   {} is running ({} profile{on})", g.name, g.profile)
                 }
-                None => "   Starts by itself when a game starts".into(),
+                _ if hand.0 == "on" => format!("   On by hand with the {} profile; g turns it off", hand.1),
+                None => "   Starts by itself when a game starts; g turns it on now with the profile shown".into(),
             },
             t.muted(),
         ),
@@ -2719,7 +2726,7 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
     match (app.page, app.tab) {
         (1, 1) => vec![("Tab", "launch options"), ("←→", "change"), ("Enter", "run")],
         (1, 2) => vec![("Tab", "game mode"), ("↑↓", "game"), ("←→", "card"), ("o", "overlay"), ("Enter", "write"), ("u", "undo")],
-        (1, _) => vec![("Tab", "graphics card"), ("←→", "profile"), ("Enter", "toggle")],
+        (1, _) => vec![("Tab", "graphics card"), ("←→", "profile"), ("Enter", "toggle"), ("g", "game mode now")],
         (2, 0) => vec![("←→", "when"), ("Enter", "run")],
         (2, 1) => vec![("Tab", "next tab"), ("x", "cancel")],
         (2, 3) => vec![("↑↓", "row"), ("←→", "change"), ("Enter", "next")],
@@ -2737,9 +2744,34 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (5, _) => vec![("Tab", "shortcuts"), ("↑↓", "setting"), ("←→", "change"), ("Enter", "next / run")],
         (6, 0) => vec![("Tab", "apps"), ("←→", "period"), ("x", "delete"), ("n", "not a game"), ("i", "import Steam"), ("e", "CSV")],
         (6, _) => vec![("Tab", "games"), ("←→", "period"), ("Enter", "count / stop"), ("x", "delete")],
-        (0, _) if gpu_switch(app).is_some() => vec![("←→", "card for ug run")],
+        (0, _) if gpu_switch(app).is_some() => vec![("g", "game mode"), ("←→", "card for ug run")],
+        (0, _) => vec![("g", "game mode")],
         _ => vec![],
     }
+}
+
+/// g: game mode on now (on the Game mode page with the profile shown), or
+/// off when it is on.
+pub fn toggle_game_mode(app: &mut App) {
+    let game = app.running.value.as_ref().is_some_and(|v| !v.is_empty());
+    let hand = app.hand.value.clone().unwrap_or_default();
+    let on = hand.0 == "on" || (hand.0 != "off" && (game || app.gamemode.value == Some(true)));
+    let profile = if app.page == 1 {
+        app.profiles.value.as_ref().and_then(|p| p.get(app.choice)).map(|p| p.id.clone()).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let r = if on {
+        app.bus.set_game_mode(false, "").map(|_| if game { "Game mode off until the game ends." } else { "Game mode off." }.to_string())
+    } else {
+        app.bus.set_game_mode(true, &profile).map(|_| {
+            let used = if profile.is_empty() { hand.1.clone() } else { profile.clone() };
+            format!("Game mode on with the {used} profile.")
+        })
+    };
+    report(app, r);
+    app.hand.invalidate();
+    app.gamemode.invalidate();
 }
 
 pub fn set_choice(app: &mut App, i: usize) {

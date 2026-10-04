@@ -74,6 +74,10 @@ export const en = {
     waiting: "Collecting readings…",
   },
   gm: {
+    turnOn: "Turn on now",
+    turnOff: "Turn off",
+    byHand: "on by hand",
+    offByHand: "off until the game ends",
     on: "On",
     off: "Off",
     waiting: "Starts by itself when a game starts",

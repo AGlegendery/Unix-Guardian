@@ -634,5 +634,13 @@ pub mod agent {
         /// `("quiet", "cpu_priority", false)`. Written to the user's profile
         /// file; running games pick it up on the next tick.
         fn set_option(&self, profile: &str, option: &str, value: bool) -> zbus::Result<()>;
+
+        /// Whether game mode was set by hand (`on`, `off` or empty: it
+        /// follows the games) and the profile it uses when on by hand.
+        fn game_mode(&self) -> zbus::Result<(String, String)>;
+
+        /// Game mode on now with a profile (empty: the last one chosen), or
+        /// off. On applies at the next tick, with or without a game.
+        fn set_game_mode(&self, on: bool, profile: &str) -> zbus::Result<()>;
     }
 }

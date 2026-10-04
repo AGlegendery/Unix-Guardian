@@ -72,6 +72,13 @@ kill "$game"; wait "$game" 2>/dev/null
 check "the game ending turns game mode off" "until_ 10 \"active | grep -q false\""
 check "every setting is exactly as before" original
 
+# By hand, without a game: any profile at once, then off.
+check "ug profile on turns game mode on without a game" "'$B/ug' profile on quiet | grep -q 'quiet profile' && until_ 8 \"active | grep -q true\""
+check "with that profile's settings (quiet: no CPU performance mode)" "[ \"\$(gov)\" = powersave ] && [ \"\$(swp)\" = 60 ]"
+check "switching profile applies at once" "'$B/ug' profile on competitive >/dev/null && until_ 6 \"[ \\\"\\\$(gov)\\\" = performance ]\""
+check "an unknown profile is refused" "! '$B/ug' profile on nope 2>/dev/null"
+check "ug profile off puts everything back" "'$B/ug' profile off >/dev/null && until_ 8 \"active | grep -q false\" && original"
+
 SteamAppId=730 bash -c 'exec -a cs2 sleep 120' & game=$!
 until_ 8 "active | grep -q true"
 kill -9 "$agent"; wait "$agent" 2>/dev/null

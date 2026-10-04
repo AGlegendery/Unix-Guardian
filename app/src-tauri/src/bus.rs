@@ -218,6 +218,18 @@ pub async fn set_game_profile(bus: State<'_, Bus>, key: String, profile: String)
 
 /// Turns one setting of a profile on or off (`ug profile option`).
 #[tauri::command]
+pub async fn game_mode_hand(bus: State<'_, Bus>) -> Res<(String, String)> {
+    let p = ProfilesProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.game_mode().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn set_game_mode(bus: State<'_, Bus>, on: bool, profile: String) -> Res<()> {
+    let p = ProfilesProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    p.set_game_mode(on, &profile).await.map_err(agent_err)
+}
+
+#[tauri::command]
 pub async fn set_profile_option(bus: State<'_, Bus>, profile: String, option: String, value: bool) -> Res<()> {
     let p = ProfilesProxy::new(bus.agent().await?).await.map_err(agent_err)?;
     p.set_option(&profile, &option, value).await.map_err(agent_err)

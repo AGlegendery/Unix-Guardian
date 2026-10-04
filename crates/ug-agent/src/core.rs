@@ -74,6 +74,8 @@ pub struct AgentCore {
     /// Game mode turned on (`Some(true)`) or off by hand; `None` follows the
     /// games. "Off" lasts until no game runs any more.
     by_hand: Option<bool>,
+    /// The profile game mode uses when turned on by hand.
+    by_hand_profile: String,
     paused: Paused,
 }
 
@@ -117,6 +119,7 @@ impl AgentCore {
             choices_writable,
             test_run: None,
             by_hand: None,
+            by_hand_profile: "balanced".into(),
             paused: Paused::default(),
         }
     }
@@ -143,6 +146,24 @@ impl AgentCore {
         on
     }
 
+    /// Game mode on now with a profile (its settings apply at once, with or
+    /// without a game), or off. `profile` "" keeps the last one chosen.
+    /// Off while a game runs lasts until no game runs; off without one is
+    /// back to following the games.
+    pub fn set_gamemode(&mut self, on: bool, profile: &str) -> Result<(), String> {
+        let profile = profile.trim();
+        if !profile.is_empty() {
+            if self.profiles.get(profile).is_none() {
+                let known: Vec<&str> = self.profiles.all().iter().map(|p| p.id.as_str()).collect();
+                return Err(format!("no profile named {profile:?}; available: {}", known.join(", ")));
+            }
+            self.by_hand_profile = profile.to_string();
+        }
+        self.by_hand = if on { Some(true) } else if self.running.is_empty() { None } else { Some(false) };
+        tracing::info!(on, profile = %self.by_hand_profile, "game mode set by hand");
+        Ok(())
+    }
+
     /// "on" or "off" when game mode was turned by hand, else "".
     pub fn gamemode_by_hand(&self) -> &'static str {
         match self.by_hand {
@@ -153,7 +174,9 @@ impl AgentCore {
     }
 
     /// The profile game mode uses when turned on by hand.
-    const BY_HAND_PROFILE: &'static str = "balanced";
+    pub fn by_hand_profile(&self) -> &str {
+        &self.by_hand_profile
+    }
 
     /// Games become outcomes for the async layer (game mode, signals,
     /// notifications); tracked apps only start and end a playtime session.
@@ -490,7 +513,7 @@ impl AgentCore {
         }
         let mut want: Option<ug_proto::GameModeRequest> = None;
         if self.by_hand == Some(true) {
-            if let Some(p) = self.profiles.get(Self::BY_HAND_PROFILE) {
+            if let Some(p) = self.profiles.get(&self.by_hand_profile) {
                 let w = want.get_or_insert_with(Default::default);
                 w.cpu_performance |= p.cpu_performance;
                 w.cpu_no_idle_states |= p.cpu_no_idle_states;
@@ -524,7 +547,7 @@ impl AgentCore {
         if self.by_hand == Some(false) {
             return (false, String::new());
         }
-        if self.by_hand == Some(true) && self.profiles.get(Self::BY_HAND_PROFILE).is_some_and(|p| p.power_profile) {
+        if self.by_hand == Some(true) && self.profiles.get(&self.by_hand_profile).is_some_and(|p| p.power_profile) {
             return (true, "game mode (turned on by hand)".into());
         }
         self.running
@@ -793,6 +816,25 @@ mod tests {
         c.tick(t0 + Duration::from_secs(10), 10_000);
         c.tick(t0 + Duration::from_secs(14), 14_000);
         assert_eq!(c.gamemode_by_hand(), "", "back to following the games");
+    }
+
+    #[test]
+    fn any_profile_can_be_turned_on_at_once() {
+        let fs = TestFs::new();
+        let cfg = tempfile::tempdir().unwrap();
+        let mut c = core(&fs, cfg.path());
+        c.set_gamemode(true, "competitive").unwrap();
+        assert!(c.gamemode_desired().unwrap().cpu_no_idle_states, "competitive's settings, no game needed");
+        assert_eq!((c.gamemode_by_hand(), c.by_hand_profile()), ("on", "competitive"));
+        c.set_gamemode(true, "quiet").unwrap();
+        assert!(!c.gamemode_desired().unwrap().cpu_performance, "switched to quiet at once");
+        assert!(c.set_gamemode(true, "nope").unwrap_err().contains("available"));
+        assert_eq!(c.by_hand_profile(), "quiet", "a refused name changes nothing");
+        c.set_gamemode(false, "").unwrap();
+        assert_eq!(c.gamemode_desired(), None);
+        // The shortcut turns on the profile chosen last.
+        assert!(c.toggle_gamemode());
+        assert!(!c.gamemode_desired().unwrap().cpu_performance);
     }
 
     #[test]

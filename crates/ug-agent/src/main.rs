@@ -127,6 +127,18 @@ impl DaemonLink {
             self.failed("the Unix Guardian service is not reachable".into(), true);
             return;
         };
+        // The service applies the system-wide settings only when game mode
+        // starts; a different profile while on (by hand, or another game's)
+        // puts everything back first and applies the new settings.
+        let flags = |r: &ug_proto::GameModeRequest| ug_proto::GameModeRequest { pids: Vec::new(), ..r.clone() };
+        if let (Some(w), Some(a)) = (&want, &self.applied) {
+            if flags(w) != flags(a) {
+                tracing::info!("game mode settings changed; re-applying");
+                if let Err(e) = p.leave().await {
+                    tracing::warn!(error = %e, "could not put game mode back before re-applying");
+                }
+            }
+        }
         let result = match &want {
             Some(w) => p.enter(w).await,
             None => p.leave().await,

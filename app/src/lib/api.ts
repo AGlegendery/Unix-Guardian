@@ -495,6 +495,10 @@ const tauriApi = {
   setGameProfile: (key: string, profile: string) => invoke<void>("set_game_profile", { key, profile }),
   setProfileOption: (profile: string, option: string, value: boolean) =>
     invoke<void>("set_profile_option", { profile, option, value }),
+  /** [by hand: "on" | "off" | "" (follows the games), the profile used when on by hand]. */
+  gameModeHand: () => invoke<[string, string]>("game_mode_hand"),
+  /** On now with a profile ("" = the last one used), or off. */
+  setGameMode: (on: boolean, profile: string) => invoke<void>("set_game_mode", { on, profile }),
   powerCaps: () => invoke<PowerCapability[]>("power_caps"),
   powerNow: (action: PowerAction) => invoke<void>("power_now", { action }),
   powerSchedule: (action: PowerAction, atUnixMs: number, repeat: string) =>

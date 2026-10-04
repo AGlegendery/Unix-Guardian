@@ -15,6 +15,8 @@ const bat: BatteryCare = { supported: true, method: "vendor-long-life", adjustab
 const watches: PowerWatch[] = [];
 let t = 0;
 const driverOps: DriverOp[] = [];
+// Game mode turned on by hand in the preview, and the profile it uses.
+let hand: [string, string] = ["", "balanced"];
 let agentSettings: AgentSettings = { notifications: true, scan_interval_s: 2, close_window_on_game: false, check_updates: true };
 // Made-up hourly traffic for a local day: quiet nights, busy evenings, the
 // same numbers every time for the same hour.
@@ -184,7 +186,7 @@ export const mockApi = {
     daemon_error: null,
     daemon_version: "0.1.0",
     agent_error: null,
-    gamemode_active: false,
+    gamemode_active: hand[0] === "on",
     active_gpu: "0000:01:00.0",
   }),
   snapshot: async () => next(),
@@ -199,7 +201,12 @@ export const mockApi = {
     if (timer) clearInterval(timer);
     timer = null;
   },
-  gamemodeActive: async () => false,
+  gamemodeActive: async () => hand[0] === "on",
+  gameModeHand: async (): Promise<[string, string]> => [...hand],
+  setGameMode: async (on: boolean, profile: string) => {
+    if (profile && !profiles.some((p) => p.id === profile)) throw `no profile named "${profile}"`;
+    hand = [on ? "on" : "", profile || hand[1]];
+  },
   gamesRunning: async (): Promise<RunningGame[]> => [],
   // The laptop has no Steam games; two made-up ones show the launch options.
   gamesInstalled: async () => [

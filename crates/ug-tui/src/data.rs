@@ -423,6 +423,17 @@ impl Bus {
         self.rt.block_on(async { ProfilesProxy::new(c).await?.list().await }).map_err(|e| msg(e, "agent"))
     }
 
+    /// Game mode by hand ("on", "off" or "") and the profile it uses.
+    pub fn game_mode_hand(&self) -> Result<(String, String), String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { ProfilesProxy::new(c).await?.game_mode().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn set_game_mode(&self, on: bool, profile: &str) -> Result<(), String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { ProfilesProxy::new(c).await?.set_game_mode(on, profile).await }).map_err(|e| msg(e, "agent"))
+    }
+
     pub fn set_option(&self, profile: &str, option: &str, value: bool) -> Result<(), String> {
         let c = self.agent()?;
         self.rt

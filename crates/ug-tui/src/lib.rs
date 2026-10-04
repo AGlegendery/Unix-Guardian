@@ -75,6 +75,8 @@ pub struct App {
     pub inventory: Cached<Inventory>,
     pub snapshot: Cached<Snapshot>,
     pub gamemode: Cached<bool>,
+    /// Game mode set by hand ("on", "off", "") and the profile it uses.
+    pub hand: Cached<(String, String)>,
     /// (seconds, CPU °C, working GPU °C) for the live temperature chart.
     pub temps: VecDeque<(f64, f64, f64)>,
     pub running: Cached<Vec<RunningGameInfo>>,
@@ -160,6 +162,7 @@ impl App {
             inventory: Cached::new(Duration::from_secs(600)),
             snapshot: Cached::new(LIVE),
             gamemode: Cached::new(SLOW),
+            hand: Cached::new(SLOW),
             temps: VecDeque::new(),
             running: Cached::new(SLOW),
             profiles: Cached::new(SLOW),
@@ -457,6 +460,10 @@ impl App {
             let r = self.bus.gamemode_active();
             self.gamemode.store(r);
         }
+        if self.hand.due() {
+            let r = self.bus.game_mode_hand();
+            self.hand.store(r);
+        }
     }
 
     fn go(&mut self, page: usize) {
@@ -540,6 +547,7 @@ impl App {
                 }
                 KeyCode::Char('o') if (self.page, self.tab) == (1, 2) => pages::toggle_launch_overlay(self),
                 KeyCode::Char('u') if (self.page, self.tab) == (1, 2) => pages::undo_launch(self),
+                KeyCode::Char('g') if self.page == 0 || (self.page, self.tab) == (1, 0) => pages::toggle_game_mode(self),
                 KeyCode::Char('n') if self.page == 6 => pages::not_a_game(self, self.row),
                 KeyCode::Char('i') if self.page == 6 => pages::import_steam(self, false),
                 KeyCode::Char('u') if self.page == 6 => pages::import_steam(self, true),

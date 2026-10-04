@@ -380,6 +380,11 @@ enum ProfileCommand {
     Set { game: String, profile: String },
     /// Return a game to the profile the game database suggests.
     Reset { game: String },
+    /// Turn game mode on now with a profile (default: the last one used),
+    /// with or without a game running, e.g. `ug profile on competitive`.
+    On { profile: Option<String> },
+    /// Turn game mode off (while a game runs: until it stops).
+    Off,
     /// Turn one setting of a profile on or off, e.g.
     /// `ug profile option quiet cpu_priority off`.
     Option {
@@ -1931,6 +1936,15 @@ async fn profile(command: ProfileCommand, json: bool) -> Result<()> {
         ProfileCommand::Option { profile, setting, value } => {
             profiles.set_option(&profile, &setting, value == "on").await.map_err(agent_error)?;
             println!("{profile}: {setting} is now {value}.");
+        }
+        ProfileCommand::On { profile } => {
+            profiles.set_game_mode(true, profile.as_deref().unwrap_or("")).await.map_err(agent_hint)?;
+            let (_, used) = profiles.game_mode().await.map_err(agent_hint)?;
+            println!("Game mode on with the {used} profile. `ug profile off` turns it off.");
+        }
+        ProfileCommand::Off => {
+            profiles.set_game_mode(false, "").await.map_err(agent_hint)?;
+            println!("Game mode off.");
         }
         ProfileCommand::Reset { game } => {
             profiles.set_game_profile(&game, "").await.map_err(agent_error)?;
