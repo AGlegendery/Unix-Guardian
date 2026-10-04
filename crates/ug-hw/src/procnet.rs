@@ -273,7 +273,7 @@ mod tests {
     #[test]
     fn ip_link_details_show_a_tun_device() {
         assert!(is_tun_details("9: xray0: <POINTOPOINT,UP> mtu 1500 link/none promiscuity 0 \\    tun type tun pi off vnet_hdr off persist off"));
-        assert!(!is_tun_details("3: wlp8s0: <BROADCAST,UP> mtu 1500 link/ether b8:1e:a4:97:1e:99 promiscuity 0"));
+        assert!(!is_tun_details("3: wlp8s0: <BROADCAST,UP> mtu 1500 link/ether 02:00:00:00:00:01 promiscuity 0"));
     }
 
     #[test]

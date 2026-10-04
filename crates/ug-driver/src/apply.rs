@@ -915,7 +915,7 @@ mod tests {
                     String::new()
                 }
                 "btrfs inspect-internal" => "533760\n".into(),
-                "findmnt -no" => "ba83246d-75b4-4830-a77d-aa39e9cc26fa\n".into(),
+                "findmnt -no" => "0f0e0d0c-0b0a-4908-8706-050403020100\n".into(),
                 _ => String::new(),
             })
         }
@@ -953,7 +953,7 @@ mod tests {
         let new_fstab = std::fs::read_to_string(fs.root().join("etc/fstab")).unwrap();
         assert_eq!(new_fstab, format!("{fstab}\n/swap/hibernate.swap none swap defaults,pri=-10 0 0\n"));
         let g = std::fs::read_to_string(fs.root().join("etc/default/grub")).unwrap();
-        assert!(g.contains("quiet splash resume=UUID=ba83246d-75b4-4830-a77d-aa39e9cc26fa resume_offset=533760"), "{g}");
+        assert!(g.contains("quiet splash resume=UUID=0f0e0d0c-0b0a-4908-8706-050403020100 resume_offset=533760"), "{g}");
         let r = ran.lock().unwrap().clone();
         let firsts: Vec<String> = r.iter().map(|a| a.iter().take(2).cloned().collect::<Vec<_>>().join(" ")).collect();
         assert_eq!(firsts, ["btrfs filesystem", "swapon /swap/hibernate.swap", "btrfs inspect-internal", "findmnt -no", "update-grub", "update-initramfs -u"]);
