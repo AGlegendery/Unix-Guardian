@@ -124,6 +124,25 @@ cameras and duplicates are now left out (test with the real lines). Also
 fixed: switching pages kept the shared scroll area's position (a new page
 opened half way down, stuck in WebKitGTK); each page now opens at its top.
 
+## Release status (2026-10-04, read first)
+
+- All branches were pushed to github.com/AGlegendery/Unix-Guardian (still
+  PRIVATE). Secrets MINISIGN_KEY / MINISIGN_PASSWORD are set; the key lives
+  in `~/.config/unix-guardian-release/` (never commit it). Public key is in
+  `ug-core/src/update.rs` (`3c10bd0`).
+- First CI run (on `0df99f2`) was red: TUI test fixture (fixed `d9ccae1`),
+  cargo-deny wildcards (fixed `42a2a1d`), and `cargo fmt --check` (1907
+  hunks: the code was never formatted; needs rustfmt, the user must
+  `sudo apt install rustfmt rust-clippy`, then `cargo fmt --all` + clippy).
+- Waiting on the user: (1) permission for `git push` (Claude Code's auto
+  mode denied push and git filter-repo), (2) yes/no on scrubbing the old
+  disk UUID `ba83246d-…` and MAC `b8:1e:a4:…` from history with
+  git filter-repo (replacements: the fakes already in HEAD) before the repo
+  goes public. A venv with filter-repo was made in the session scratchpad.
+- Then: push, make public, `git push origin v0.1.0-beta.1` (tag from
+  `scripts/release.sh` is not made yet; version already 0.1.0-beta.1, so
+  tag with `git tag -a v0.1.0-beta.1`), check the draft release, publish.
+
 ## In progress
 
 The recorder (P7): first part done (see 04-status "P7 Recorder"). Next:
