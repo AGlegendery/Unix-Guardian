@@ -21,6 +21,7 @@ cargo test --workspace
 ./scripts/test-bus.sh ./scripts/power-e2e.sh
 ./scripts/test-bus.sh ./scripts/shortcuts-e2e.sh
 ./scripts/test-bus.sh ./scripts/recorder-e2e.sh
+./scripts/test-bus.sh ./scripts/testlab-e2e.sh
 cd app && npm run check && npm run dev     # UI in a browser, recorded data
 cd app && npx tauri build --no-bundle      # the real window: app/src-tauri/target/release/ug-app
 ```

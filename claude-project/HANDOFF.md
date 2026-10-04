@@ -6,7 +6,7 @@ in minutes. **Update this file after every finished item and commit it.**
 Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 `05-findings.md`, `07-conventions.md`, `03-architecture.md`.
 
-Last updated: 2026-10-04 (self-update finished in CLI, window and TUI; waiting on the user's changes).
+Last updated: 2026-10-04 evening (Test lab done in CLI, window and TUI; see 04-status "Test lab").
 
 ## Where we are
 
@@ -96,6 +96,14 @@ need sudo, pushing, P7+).
 4. ✅ Playtime: charts by game per day, day sessions, hours of day, figures.
 5. ✅ Profiles: screen on, do not disturb, own profiles, pause apps, on at once (was: part done
    in 2; still: new options, custom profiles, pause_apps editing).
+
+## Test lab (2026-10-04 evening) ✅
+
+«آزمایشگاه تست»: window page after Bug report, TUI page 11, `ug testlab`.
+Crate `ug-testlab` (engine, undo journal, scrubber, CPU bench);
+`scripts/testlab-e2e.sh`. Commits `529a895` … (see git log). Release
+binaries and the window were rebuilt afterwards. Still to do: run it on
+the real machine after the reinstall and read the report together.
 
 ## Incident 2026-10-04 (top priority, read 05-findings "Incident")
 

@@ -351,6 +351,42 @@ the ping page against the real agent. Known limits:
 - Not tried on the real desktop yet: needs the reinstall. DND on KDE
   and the screen hold are the parts most worth checking by hand.
 
+## Test lab (2026-10-04 evening, on `p5-gpu`)
+
+Asked by the user: the app is meant for every Linux system but was only
+really run on the dev laptop, so a section that tests and benchmarks
+every feature on the end user's machine and gives a text report to email
+to the bug address. Window page «آزمایشگاه تست» (after Bug report), TUI
+page 11, `ug testlab [--yes] [--out FILE] [--recover]`.
+
+- Crate `ug-testlab`: one engine for all three. 21 steps over the same
+  D-Bus interfaces (`STEPS` in lib.rs). Turned on and then off: game
+  mode (all options, own PID), a profile `ug-testlab-probe`, a tracked
+  app, a power job and wake alarm 300 days ahead, a block rule for a
+  made-up app, settings/overlay saved unchanged, a 3 s recording
+  (deleted; skipped when capture is the portal). Benchmarks: snapshot
+  latency, 2 s + 4 s CPU spin with a self-check and a reading under
+  load, game mode enter/leave, library scan, daemon/agent RSS and CPU.
+- Undo journal (`~/.local/share/unix-guardian/testlab-undo.json`) written
+  before each change; window/TUI start, the page and `--recover` put
+  back what an interrupted run left; flock so one run at a time. Game
+  mode is left to the daemon's own revert-on-disconnect.
+- Never: session-wide/compositor settings, logout/restart, package
+  installs, password prompts (GPU tune, driver fixes): listed under
+  "NOT TESTED AUTOMATICALLY".
+- `scrub.rs` cleans the whole text: home → `~`, user/host as words
+  (host kept when it equals the distro id, e.g. `parrot`), UUID, MAC,
+  IPv4/IPv6, ≥32-char hex. Nothing is sent; Copy / Save (Downloads).
+- Found: `GameMode.Active` and `Power.WakeAlarm` are unsignalled
+  properties, so zbus's caching proxy returns the first read; the lab
+  reads them uncached. Other long-lived proxies reading these would have
+  the same problem (none found in CLI/window: they create a proxy per call).
+- Verified: unit tests (11 + TUI 1), `scripts/testlab-e2e.sh` (24
+  checks, fixture sysroot), TUI driven in tmux, window page in the
+  browser preview. **Not run on the real machine yet** (needs the
+  reinstall; the real service then really changes the governor for a
+  few seconds, by design).
+
 ## Next steps, in order
 
 1. **Finish the real install (needs sudo).** Done and verified (see the table
