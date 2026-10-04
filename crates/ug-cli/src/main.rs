@@ -692,6 +692,9 @@ async fn agent_conn() -> Result<zbus::Connection> {
 }
 
 fn agent_hint(e: zbus::Error) -> anyhow::Error {
+    if let Some(m) = ug_proto::outdated_peer(&e.to_string()) {
+        return anyhow::anyhow!("{m}");
+    }
     anyhow::anyhow!("{e}\nIs ug-agent running in this session? It starts with your desktop login.")
 }
 

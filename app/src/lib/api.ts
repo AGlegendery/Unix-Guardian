@@ -4,6 +4,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { t } from "./i18n.svelte";
 
 export interface CpuSample {
   load_pct: number | null;
@@ -570,5 +571,7 @@ export const api: typeof tauriApi =
 
 /** The commands reject with the Rust side's sentence; anything else is a bug. */
 export function errorText(e: unknown): string {
-  return typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
+  const text = typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
+  // An agent or service from before an update answers with its old types.
+  return text.includes("Signature mismatch") ? `${t().outdatedPeer}\n(${text})` : text;
 }

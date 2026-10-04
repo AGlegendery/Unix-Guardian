@@ -108,6 +108,12 @@ if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
   if pgrep -u "$SUDO_USER" -x ug-app >/dev/null; then
     pkill -u "$SUDO_USER" -x ug-app && echo "closed the old Unix Guardian window; open it again to see the new version"
   fi
+  # An agent started by the XDG autostart entry is not the unit's, so a
+  # restart of the unit would leave it running the old program (the new
+  # agent steps aside for it): stop the outdated ones first.
+  for p in $stale; do
+    [ "$(cat "/proc/$p/comm" 2>/dev/null)" = ug-agent ] && kill "$p" 2>/dev/null
+  done
   if systemctl --user -M "$SUDO_USER@" daemon-reload 2>/dev/null \
      && systemctl --user -M "$SUDO_USER@" restart ug-agent.service 2>/dev/null; then
     echo "restarted $SUDO_USER's agent with the new version"

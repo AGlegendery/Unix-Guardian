@@ -150,4 +150,17 @@ check "games are still found at the new interval" "until_ 8 \"'$B/ug' game runni
 kill $game; wait $game 2>/dev/null
 check "an interval out of range is refused" "! '$B/ug' settings --scan-interval 60 2>/dev/null && '$B/ug' settings | grep -q 'every   3 s'"
 
+# An agent whose program was replaced while it ran (an update) must not
+# stay in charge: the next agent stops it and takes over (2026-10-04, the
+# window got "Signature mismatch" from an old autostarted agent).
+kill $agent; wait $agent 2>/dev/null
+cp "$B/ug-agent" "$W/old-agent"
+HOME="$W/home" "$W/old-agent" --quiet --log warn & agent=$!
+until_ 15 "'$B/ug' game running >/dev/null 2>&1" || echo "FAIL  the old agent did not start"
+rm "$W/old-agent"
+HOME="$W/home" "$B/ug-agent" --quiet --log warn & newagent=$!
+check "a new agent stops one whose program was replaced" "until_ 15 \"! kill -0 $agent 2>/dev/null\""
+check "and serves in its place" "until_ 10 \"'$B/ug' game running >/dev/null 2>&1\" && kill -0 $newagent"
+kill $newagent 2>/dev/null; wait $newagent 2>/dev/null
+
 echo; [ "$fails" -eq 0 ] && echo "agent-e2e: OK" || { echo "agent-e2e: $fails failed"; exit 1; }

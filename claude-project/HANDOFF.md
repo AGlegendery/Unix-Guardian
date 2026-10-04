@@ -115,6 +115,13 @@ stale (built before the fix); rebuild it before anything is shared.
 logout/login on Plasma Wayland and X11, then `ug gpu default` and the
 dashboard switch. Not "done" before that.
 
+After reinstalling, the window showed "Signature mismatch": an autostarted
+agent from before the update kept the bus name. Fixed (new agent takes over
+from an outdated one; clear message in CLI and window). Seen on the real
+gpu-screen-recorder for the first time: `--list-capture-options` gives
+`eDP-1` and several `/dev/video0` lines (cameras) and no `portal` here;
+the capture list needs deduplicating and camera lines filtered. Next.
+
 ## In progress
 
 The recorder (P7): first part done (see 04-status "P7 Recorder"). Next:

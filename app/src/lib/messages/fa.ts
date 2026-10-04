@@ -3,6 +3,7 @@ import type { en } from "./en";
 export const fa: typeof en = {
   app: "Unix Guardian",
   preview: "پیش‌نمایش: عددهای ضبط‌شده، نه زنده",
+  outdatedPeer: "یونیکس گاردین به‌روز شده، ولی agent یا سرویسِ نسخه‌ی قبل هنوز در حال اجراست. آن را دوباره راه‌اندازی کنید: systemctl --user restart ug-agent (و برای سرویس: sudo systemctl restart unix-guardiand)، یا یک بار از حساب خارج و دوباره وارد شوید.",
   side: { collapse: "جمع کردن نوار کناری", expand: "باز کردن نوار کناری" },
   bug: {
     email: "unixguardian@atomicmail.io",

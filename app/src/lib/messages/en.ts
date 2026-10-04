@@ -4,6 +4,7 @@ export const en = {
   terminal: "Terminal interface",
   showTray: "Show tray icon",
   side: { collapse: "Collapse the sidebar", expand: "Expand the sidebar" },
+  outdatedPeer: "Unix Guardian was updated, but an agent or service from before the update is still running. Restart it: systemctl --user restart ug-agent (and for the service: sudo systemctl restart unix-guardiand), or log out and in again.",
   bug: {
     email: "unixguardian@atomicmail.io",
     link: "Report a bug",

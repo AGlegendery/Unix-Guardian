@@ -272,13 +272,12 @@ async fn main() -> Result<()> {
     // second one steps aside and exits successfully, so systemd does not keep
     // restarting it; zbus's default flags would instead let it take the name
     // from the agent that is already tracking the running game.
-    match conn.request_name_with_flags(AGENT_BUS_NAME, zbus::fdo::RequestNameFlags::DoNotQueue.into()).await {
-        Ok(zbus::fdo::RequestNameReply::PrimaryOwner) => {}
-        Ok(_) | Err(zbus::Error::NameTaken) => {
-            tracing::info!("another agent is already running in this session; leaving it in charge");
-            return Ok(());
-        }
-        Err(e) => return Err(e).context("claiming org.unixguardian.Agent1"),
+    // An agent whose program file was replaced (an update while it ran) is
+    // asked to stop instead: left in charge it would answer the updated
+    // window with its old types ("Signature mismatch", 2026-10-04).
+    if !claim_name(&conn).await? {
+        tracing::info!("another agent is already running in this session; leaving it in charge");
+        return Ok(());
     }
 
     if !args.no_gamemode {
@@ -603,4 +602,60 @@ fn retire_session_files(test_run: bool) -> Vec<ug_core::session_env::Retired> {
         }
     }
     out
+}
+
+/// Claims the agent's bus name. Taken by an up-to-date agent: false. Taken
+/// by one running a program file that has since been replaced: that one is
+/// stopped (SIGTERM, so it ends game mode and saves playtime) and the name
+/// claimed once it is free.
+async fn claim_name(conn: &zbus::Connection) -> Result<bool> {
+    let flags = zbus::fdo::RequestNameFlags::DoNotQueue.into();
+    let mut stopped = None;
+    for _ in 0..50 {
+        match conn.request_name_with_flags(AGENT_BUS_NAME, flags).await {
+            Ok(zbus::fdo::RequestNameReply::PrimaryOwner) => return Ok(true),
+            Ok(_) | Err(zbus::Error::NameTaken) => {}
+            Err(e) => return Err(e).context("claiming org.unixguardian.Agent1"),
+        }
+        if stopped.is_none() {
+            let Some(pid) = outdated_owner(conn).await else { return Ok(false) };
+            tracing::warn!(pid, "an agent from before the update is running; stopping it");
+            // SAFETY: kill(2) on a process of this user, checked above.
+            unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+            stopped = Some(pid);
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    tracing::warn!("the old agent did not stop within 10 s");
+    Ok(false)
+}
+
+/// The pid of the agent holding the name, if it is this user's and runs a
+/// program file that has been replaced or removed.
+async fn outdated_owner(conn: &zbus::Connection) -> Option<u32> {
+    let dbus = zbus::fdo::DBusProxy::new(conn).await.ok()?;
+    let name = zbus::names::BusName::try_from(AGENT_BUS_NAME).ok()?;
+    let pid = dbus.get_connection_unix_process_id(name).await.ok()?;
+    let proc = std::path::PathBuf::from(format!("/proc/{pid}"));
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: getuid cannot fail.
+    if std::fs::metadata(&proc).ok()?.uid() != unsafe { libc::getuid() } {
+        return None;
+    }
+    let exe = std::fs::read_link(proc.join("exe")).ok()?;
+    replaced(&exe.to_string_lossy()).then_some(pid)
+}
+
+/// The kernel marks a running program whose file was replaced or removed.
+fn replaced(exe_link: &str) -> bool {
+    exe_link.ends_with(" (deleted)")
+}
+
+#[cfg(test)]
+mod claim_tests {
+    #[test]
+    fn a_replaced_program_is_recognised() {
+        assert!(super::replaced("/usr/local/bin/ug-agent (deleted)"));
+        assert!(!super::replaced("/usr/local/bin/ug-agent"));
+    }
 }

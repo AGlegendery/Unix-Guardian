@@ -25,6 +25,17 @@ pub mod types;
 
 pub use types::*;
 
+/// When a D-Bus error says the other side sends or expects different
+/// types (a program updated while the agent or daemon kept running the old
+/// version), what to tell the user instead of the raw signature.
+pub fn outdated_peer(error: &str) -> Option<&'static str> {
+    error.contains("Signature mismatch").then_some(
+        "Unix Guardian was updated, but an agent or service from before the update is still running. \
+         Restart it: systemctl --user restart ug-agent (and for the service: sudo systemctl restart unix-guardiand), \
+         or log out and in again.",
+    )
+}
+
 /// Well-known bus name of the privileged daemon (system bus).
 pub const DAEMON_BUS_NAME: &str = "org.unixguardian.Daemon1";
 /// Object path the daemon's interfaces hang off.
