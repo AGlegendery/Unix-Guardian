@@ -6,7 +6,7 @@ in minutes. **Update this file after every finished item and commit it.**
 Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 `05-findings.md`, `07-conventions.md`, `03-architecture.md`.
 
-Last updated: 2026-10-04 (card switch incident fixed in code; recorder Set up progress).
+Last updated: 2026-10-04 (self-update finished in CLI, window and TUI; waiting on the user's changes).
 
 ## Where we are
 
@@ -139,6 +139,11 @@ opened half way down, stuck in WebKitGTK); each page now opens at its top.
   disk UUID `ba83246d-…` and MAC `b8:1e:a4:…` from history with
   git filter-repo (replacements: the fakes already in HEAD) before the repo
   goes public. A venv with filter-repo was made in the session scratchpad.
+- 2026-10-04 (later session): the self-update is done in all three front
+  ends (`ug update --install|--rollback`, window Updates page, TUI page
+  11, daily-check switch in both Settings pages; see 04-status
+  "Self-update"). The questions above plus "what changes do you want?"
+  were asked again in the thread; no answer yet. Next: the user's changes.
 - **2026-10-04 09:55 the user said: do NOT make the repo public and do not
   release yet; they have more changes first.** Later, when they say so: push, make public, `git push origin v0.1.0-beta.1` (tag from
   `scripts/release.sh` is not made yet; version already 0.1.0-beta.1, so

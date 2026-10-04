@@ -306,6 +306,25 @@ the ping page against the real agent. Known limits:
 - CAKE and automatic bandwidth detection (roadmap 4.3 "ضد bufferbloat") are
   not built: only per-app HTB caps with fq_codel leaves.
 
+## Self-update and releases (2026-10-04, on `p5-gpu`)
+
+- `ug-core::update`: GitHub Releases feed (`UG_UPDATE_FEED` for tests),
+  version compare, install kind (package / tarball / development / none),
+  minisign verification with the embedded public key.
+- Agent1.Update: daily check (Settings `check_updates`, on by default),
+  one notification per release; `Install` downloads tarball + signature
+  into `~/.cache/unix-guardian/update` and calls Daemon1.Update.Install
+  (polkit `org.unixguardian.update.install`, password every time), which
+  verifies, keeps the old files for `Rollback`, runs install.sh as its own
+  unit. Only tarball installs are updated; packages/dev get the command.
+- Front ends: `ug update [--check|--install|--rollback]`, window Updates
+  page + Settings switch, TUI page 11 + Settings row. agent-e2e covers
+  check and a refused install; a real signed install has never run (no
+  release exists yet).
+- Releases: `scripts/release.sh VERSION`, `.github/workflows/release.yml`
+  drafts a signed release on a pushed `v*` tag. Nothing published; the
+  user said to hold the public repo and the release.
+
 ## Next steps, in order
 
 1. **Finish the real install (needs sudo).** Done and verified (see the table
