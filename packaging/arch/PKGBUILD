@@ -5,6 +5,8 @@
 # PKGBUILD builds from GitHub.
 pkgname=unix-guardian
 pkgver=0.1.0beta1
+# The release tag without its v (scripts/release.sh sets both).
+_tag=0.1.0-beta.1
 pkgrel=1
 pkgdesc="Linux gaming utility: game mode, monitoring, GPU tuning, playtime and MangoHud setup"
 arch=('x86_64')
@@ -21,11 +23,11 @@ optdepends=(
 )
 install=unix-guardian.install
 options=('!lto')
-source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$_tag.tar.gz")
 sha256sums=('SKIP')
 
 # GitHub names the folder after the repository.
-_src() { cd "$srcdir/Unix-Guardian-$pkgver"; }
+_src() { cd "$srcdir/Unix-Guardian-$_tag"; }
 
 prepare() {
   _src

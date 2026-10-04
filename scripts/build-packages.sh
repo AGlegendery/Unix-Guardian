@@ -14,6 +14,7 @@ umask 022
 here="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$here"
 ver=$(sed -n 's/^pkgver=//p' packaging/arch/PKGBUILD)          # 0.1.0beta1
+tag=$(sed -n 's/^_tag=//p' packaging/arch/PKGBUILD)            # 0.1.0-beta.1
 debver=$(sed -E 's/([0-9])(alpha|beta|rc)/\1~\2/' <<<"$ver")     # 0.1.0~beta1: sorts before 0.1.0
 arch=$(dpkg --print-architecture 2>/dev/null || echo amd64)
 out="$here/dist"
@@ -70,7 +71,7 @@ tar -C "$work" --owner=0 --group=0 -czf "$out/unix-guardian-$ver-x86_64.tar.gz" 
 # --- Arch -----------------------------------------------------------------
 cp packaging/arch/PKGBUILD packaging/arch/unix-guardian.install "$out/arch/"
 # The tarball GitHub would serve for tag v$ver, from the committed tree.
-git archive --format=tar.gz --prefix="Unix-Guardian-$ver/" -o "$out/arch/unix-guardian-$ver.tar.gz" HEAD
+git archive --format=tar.gz --prefix="Unix-Guardian-$tag/" -o "$out/arch/unix-guardian-$ver.tar.gz" HEAD
 
 echo "Built in dist/ (nothing was uploaded):"
 (cd "$out" && find . -type f | sort | sed 's|^\./|  |')
