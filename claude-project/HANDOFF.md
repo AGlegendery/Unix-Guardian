@@ -6,7 +6,7 @@ in minutes. **Update this file after every finished item and commit it.**
 Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 `05-findings.md`, `07-conventions.md`, `03-architecture.md`.
 
-Last updated: 2026-10-04 (card switch incident fixed in code).
+Last updated: 2026-10-04 (card switch incident fixed in code; recorder Set up progress).
 
 ## Where we are
 
@@ -101,7 +101,16 @@ restored config). Fixed in code, one commit per task:
 3. ✅ notes (this, 04-status, 05-findings, 02-decisions, CLAUDE.md).
 4. ✅ `4ebaef1` overlay's session-wide `MANGOHUD=1` option removed (same pattern).
 5. ✅ `1970c79` guard test over the whole workspace + unit tests.
-6. Recorder Set up (flatpak install) failures: see below.
+6. ✅ `b2ba4b8` Set up had not failed: no progress was shown while the
+   ~300 MB runtime downloaded over a flaky link, and the machine was shut
+   down mid-download (05-findings). Now a pty shows Flatpak's real
+   progress; `bc81d0e` G gauge + bar in the window, bar in the TUI. The
+   Flatpak is installed for the user now.
+Release binaries and the window were rebuilt after `bc81d0e`; they have no
+session-wide writer (checked with grep). The installed ones still do
+(`/usr/local/bin/ug`, `ug-app` the GPU file, `ug-agent` the MangoHud one):
+until the reinstall, do not touch the dashboard card switch. `dist/` is
+stale (built before the fix); rebuild it before anything is shared.
 **Still needed from the user:** reinstall (release build) and a real
 logout/login on Plasma Wayland and X11, then `ug gpu default` and the
 dashboard switch. Not "done" before that.

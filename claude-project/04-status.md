@@ -393,8 +393,18 @@ the ping page against the real agent. Known limits:
   MB/minute and buffer memory estimates. `Agent1.Recorder`, `ug record`,
   window page, TUI page 8, shortcuts toggle-recording (Meta+Shift+R) and
   save-replay (Meta+Shift+S). recorder-e2e (stand-in recorder) 15 checks.
-  **Never run with the real gpu-screen-recorder** (not installed on the
-  laptop): its `--list-capture-options` lines and the replay-saved stdout
+  Set up (2026-10-04): `flatpak install --user -y` runs on a pty of its
+  own so Flatpak prints its progress line; the agent parses it
+  (`RecorderState.setup_pct/setup_step`, fixture
+  `crates/ug-agent/testdata/flatpak-install-tty.txt` captured from the real
+  thing); window: G gauge (`GaugeLoader variant="progress"`) + bar; TUI: bar
+  line; `ug record setup` draws it. A broken download is reported plainly.
+  Why the 2026-10-03 Set up "failed": it had not; `--noninteractive` into a
+  pipe prints nothing for minutes while the ~300 MB runtime downloads over a
+  flaky link, and the machine was shut down mid-download (05-findings).
+  **The real Flatpak is now installed for the user** (installed by hand on
+  2026-10-04 while finding this), but the agent has **not yet been run
+  with the real gpu-screen-recorder**: its `--list-capture-options` lines and the replay-saved stdout
   line are from its documentation, check them first. Not done: region
   capture, quality presets measured against real files (±10%), the clip
   library with thumbnails, ffmpeg compression, Telegram (7.4), audio

@@ -224,6 +224,20 @@ until the user has logged out and in for real (Claude never runs logout or
 reboot; it asks). A "takes effect at the next login" feature was shipped
 without that test.
 
+## Recorder Set up on 2026-10-03 (from the journal, 2026-10-04)
+
+The user saw Set up "fail" several times. The journal shows one `flatpak
+install` (pid 720798): remote added 23:10:11, GL, NVIDIA GL, Locale, VAAPI
+runtimes installed by 23:14:48, then `libostree HTTP error … Failure when
+receiving data from the peer` on static deltas of org.freedesktop.Platform
+24.08 (~300 MB) at 23:15, and the session was shut down at 23:17 while it
+was still downloading. Running the same command on 2026-10-04 finished
+(exit 0). Two lessons: Flatpak with `--noninteractive` or into a pipe
+prints no progress at all, so the UI looked stuck (fixed: pty + real
+progress); and `org.freedesktop.Platform.openh264` comes from
+`ciscobinary.openh264.org`, which answers **403** from this network
+(geo-blocked); Flatpak only warns, the recorder does not need it.
+
 ## Bugs that only running the code revealed (all fixed, all with tests)
 
 | Bug | Cause | Fix |
