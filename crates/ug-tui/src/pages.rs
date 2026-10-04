@@ -179,8 +179,12 @@ fn fit(name: &str, w: usize) -> String {
 /// to them.
 fn playtime_page(app: &mut App, f: &mut Frame, r: Rect) {
     let t = app.theme;
-    tabs(app, f, Rect { height: 1, ..r }, &["Games", "Apps"]);
+    tabs(app, f, Rect { height: 1, ..r }, &["Games", "Apps", "Days"]);
     let r = Rect { y: r.y + 2, height: r.height.saturating_sub(2), ..r };
+    if app.tab == 2 {
+        playtime_days(app, f, r);
+        return;
+    }
     let names: Vec<String> = ["Today", "This week", "All time"].map(String::from).to_vec();
     let chosen = app.choice.min(2);
     choices(app, f, Rect { height: 1, ..r }, "Period", &names, chosen);
@@ -1416,6 +1420,61 @@ fn monitoring(app: &mut App, f: &mut Frame, r: Rect) {
         lines.push(Line::from(Span::styled("One day hour by hour: `ug traffic --day YYYY-MM-DD`. Traffic per app: Ping stability → Internet control, or `ug net`.", app.theme.faint())));
         f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body);
     }
+}
+
+/// Playtime → Days: hours per day (7 or 30), the hours of the day played,
+/// and the figures behind them, games only.
+fn playtime_days(app: &mut App, f: &mut Frame, r: Rect) {
+    let t = app.theme;
+    let chosen = app.choice.min(1);
+    choices(app, f, Rect { height: 1, ..r }, "Days", &["7 days".to_string(), "30 days".to_string()], chosen);
+    let Some(all) = app.pt_sessions.value.clone() else {
+        let msg = app.pt_sessions.error.clone().unwrap_or_else(|| "Reading…".into());
+        f.render_widget(Paragraph::new(Span::styled(msg, t.muted())), Rect { y: r.y + 2, height: 1, ..r });
+        return;
+    };
+    let n = [7, 30][chosen];
+    let now = data::now_ms();
+    let first = ug_core::playtime::local_midnight_offset(now, 1 - n as i32);
+    let sessions: Vec<_> = all.into_iter().filter(|s| s.ended_unix_ms > first).collect();
+    let days = ug_core::playtime::per_day(&sessions, now, n);
+    let hours = ug_core::playtime::per_hour(&sessions);
+    let total: u64 = days.iter().map(|d| d.1).sum();
+    let lens: Vec<u64> = sessions.iter().map(|s| (s.ended_unix_ms - s.started_unix_ms) / 1000).collect();
+    let mut fig = vec![
+        Span::styled(" Daily average ", t.muted()),
+        Span::styled(hm(total / n as u64), t.text()),
+        Span::styled(format!("   Days played {}/{n}", days.iter().filter(|d| d.1 >= 60).count()), t.muted()),
+        Span::styled(format!("   Streak {} days", ug_core::playtime::streak(&days)), t.muted()),
+    ];
+    if !lens.is_empty() {
+        fig.push(Span::styled(format!("   Average session {}", hm(lens.iter().sum::<u64>() / lens.len() as u64)), t.muted()));
+        fig.push(Span::styled(format!("   Longest {}", hm(*lens.iter().max().unwrap_or(&0))), t.muted()));
+    }
+    let mut lines = vec![Line::from(fig)];
+    let hmax = hours.iter().copied().max().unwrap_or(0);
+    if hmax > 0 {
+        let peak = hours.iter().position(|h| *h == hmax).unwrap_or(0);
+        let bars = " ▁▂▃▄▅▆▇█";
+        let spark: String = hours.iter().map(|h| bars.chars().nth((h * 8).div_ceil(hmax) as usize).unwrap_or(' ')).collect();
+        lines.push(Line::from(vec![
+            Span::styled(format!(" When you play  {spark}"), Style::default().fg(t.accent)),
+            Span::styled(format!("  0–23 h, most around {peak:02}:00"), t.faint()),
+        ]));
+    }
+    lines.push(Line::from(""));
+    let most = days.iter().map(|d| d.1).max().unwrap_or(0).max(1);
+    let bar_w = (r.width as usize).saturating_sub(24).clamp(6, 60);
+    // Newest first, so today is always on screen.
+    for (ms, secs) in days.iter().rev() {
+        let w = (*secs as usize * bar_w).div_ceil(most as usize);
+        lines.push(Line::from(vec![
+            Span::styled(format!(" {}  ", &ug_core::playtime::local_time(*ms)[..10]), t.muted()),
+            Span::styled(format!("{:>9}  ", hm(*secs)), t.text()),
+            Span::styled("█".repeat(if *secs == 0 { 0 } else { w.max(1) }), Style::default().fg(t.accent)),
+        ]));
+    }
+    f.render_widget(Paragraph::new(lines), Rect { y: r.y + 2, height: r.height.saturating_sub(2), ..r });
 }
 
 /// 1.25 GB, 340.2 MB, 12 KB.
@@ -2742,8 +2801,9 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (5, 1) if app.recording.is_some() => vec![("Tab", "+Meta"), ("Esc", "cancel")],
         (5, 1) => vec![("Tab", "overlay"), ("Enter", "on/off / run"), ("c", "change keys"), ("x", "suggested keys")],
         (5, _) => vec![("Tab", "shortcuts"), ("↑↓", "setting"), ("←→", "change"), ("Enter", "next / run")],
+        (6, 2) => vec![("Tab", "games"), ("←→", "7 / 30 days")],
         (6, 0) => vec![("Tab", "apps"), ("←→", "period"), ("x", "delete"), ("n", "not a game"), ("i", "import Steam"), ("e", "CSV")],
-        (6, _) => vec![("Tab", "games"), ("←→", "period"), ("Enter", "count / stop"), ("x", "delete")],
+        (6, _) => vec![("Tab", "days"), ("←→", "period"), ("Enter", "count / stop"), ("x", "delete")],
         (0, _) if gpu_switch(app).is_some() => vec![("g", "game mode"), ("←→", "card for ug run")],
         (0, _) => vec![("g", "game mode")],
         _ => vec![],
@@ -2839,6 +2899,7 @@ pub fn step_choice(app: &mut App, d: i32) {
         (2, 0) => WHEN.len(),
         (2, 2) => 11,
         (3, 0) => RANGES.len(),
+        (6, 2) => 2,
         (6, _) => 3,
         _ => return,
     };

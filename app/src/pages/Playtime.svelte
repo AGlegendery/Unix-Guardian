@@ -9,6 +9,7 @@
   import { api, errorText, type PlaytimeEntry, type PlaytimeSession, type TrackedApp } from "../lib/api";
   import { num } from "../lib/format";
   import { locale, t } from "../lib/i18n.svelte";
+  import PlaytimeCharts from "../lib/PlaytimeCharts.svelte";
 
   type Range = "today" | "week" | "all";
   type Tab = "games" | "apps";
@@ -25,6 +26,8 @@
   let savedTo = $state<string | null>(null);
   let armed = $state<string | null>(null);
   let busy = $state(false);
+  // A game picked in the list or the legend: the charts show only it.
+  let focus = $state<string | null>(null);
 
   function midnight(ms: number): number {
     const d = new Date(ms);
@@ -81,30 +84,10 @@
   const top = $derived(games[0] ?? null);
   const importedBy = $derived(new Map(imported.map((i) => [i.key, i.seconds])));
 
-  // Seconds played on each of the last seven local days (games only); a
-  // session over midnight counts on both days.
-  const days = $derived.by(() => {
-    const start = midnight(Date.now()) - 6 * DAY;
-    const out = Array.from({ length: 7 }, (_, i) => ({ start: midnight(start + i * DAY + DAY / 2), secs: 0 }));
-    for (const s of sessions) {
-      if (isApp(s.key)) continue;
-      for (const d of out) {
-        const end = d.start + DAY;
-        const overlap = Math.min(s.ended_unix_ms, end) - Math.max(s.started_unix_ms, d.start);
-        if (overlap > 0) d.secs += overlap / 1000;
-      }
-    }
-    return out;
-  });
-  const dayMax = $derived(Math.max(3600, ...days.map((d) => d.secs)));
-
   function hm(secs: number): string {
     if (secs < 60) return t().play.lessThanMin;
     const h = Math.floor(secs / 3600);
     return t().play.hm(h, Math.floor((secs % 3600) / 60));
-  }
-  function weekday(ms: number): string {
-    return new Intl.DateTimeFormat(locale.current === "fa" ? "fa-IR" : "en-US", { weekday: "short" }).format(ms);
   }
   function lastPlayed(ms: number): string {
     return new Intl.DateTimeFormat(locale.current === "fa" ? "fa-IR" : "en-US", { dateStyle: "medium" }).format(ms);
@@ -228,6 +211,8 @@
     </article>
   </section>
 
+  <PlaytimeCharts {focus} onfocus={(k) => (focus = k)} />
+
   <div class="grid">
     <article class="card">
       <h2>{t().play.list}</h2>
@@ -238,7 +223,7 @@
             {@const fromSteam = range === "all" ? (importedBy.get(e.key) ?? 0) : 0}
             <li>
               <div class="row1">
-                <span class="game" dir="auto">{e.name}</span>
+                <button class="game pick" class:on={focus === e.key} dir="auto" title={t().pc.only(e.name)} onclick={() => (focus = focus === e.key ? null : e.key)}>{e.name}</button>
                 {#if e.key.startsWith("exe:")}<span class="chip" title={t().play.guessedWhy}>{t().play.guessed}</span>{/if}
                 <span class="time">{hm(e.seconds)}</span>
                 <span class="pct">{num(pct)}{t().unit.pct}</span>
@@ -270,18 +255,6 @@
       <p class="small">{t().play.how}</p>
     </article>
 
-    <article class="card">
-      <h2>{t().play.days}</h2>
-      <div class="days" role="img" aria-label={t().play.daysHint}>
-        {#each days as d (d.start)}
-          <div class="day" title={`${weekday(d.start)}: ${hm(d.secs)}`}>
-            <span class="col"><span style:--h={d.secs / dayMax}></span></span>
-            <span class="dlabel">{weekday(d.start)}</span>
-          </div>
-        {/each}
-      </div>
-      <p class="small">{t().play.daysHint}</p>
-    </article>
   </div>
 {:else}
   <section class="stats">
@@ -386,8 +359,10 @@
   .stat b { font-size: 1.55rem; font-weight: 800; }
   .stat b.name { font-size: 1.2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .stat small { color: var(--text-2); font-size: 0.82rem; }
-  .grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-  @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+  .pick { all: unset; cursor: pointer; }
+  .pick:hover, .pick.on { color: var(--accent-text); }
+  .pick:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 4px; }
 
   .list { list-style: none; margin: 0; padding: 0; }
   .list li { padding: 12px 0; border-bottom: 1px solid var(--line); display: grid; gap: 7px; }
@@ -414,11 +389,6 @@
   .del:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
   .steam { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 
-  .days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; height: 170px; align-items: end; }
-  .day { display: grid; grid-template-rows: 1fr auto; height: 100%; gap: 6px; justify-items: center; }
-  .col { width: 100%; max-width: 30px; height: 100%; border-radius: 7px; background: var(--card-2); display: flex; align-items: flex-end; overflow: hidden; }
-  .col span { display: block; width: 100%; height: calc(var(--h) * 100%); background: var(--accent); border-radius: 7px; }
-  .dlabel { font-size: 0.72rem; color: var(--text-3); }
 
   .picker { position: relative; }
   .menu {

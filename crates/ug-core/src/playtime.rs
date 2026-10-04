@@ -59,6 +59,86 @@ pub fn local_day_ms(date: &str) -> Option<(u64, u64)> {
     (a >= 0 && b > a).then(|| (a as u64 * 1000, b as u64 * 1000))
 }
 
+/// Local midnight `days` days after the day holding `unix_ms` (negative:
+/// before), as Unix milliseconds; clock changes give 23- or 25-hour days.
+pub fn local_midnight_offset(unix_ms: u64, days: i32) -> u64 {
+    // SAFETY: localtime_r and mktime only touch the struct we pass.
+    unsafe {
+        let t = (unix_ms / 1000) as libc::time_t;
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&t, &mut tm);
+        tm.tm_hour = 0;
+        tm.tm_min = 0;
+        tm.tm_sec = 0;
+        tm.tm_mday += days;
+        tm.tm_isdst = -1;
+        (libc::mktime(&mut tm).max(0) as u64) * 1000
+    }
+}
+
+/// The local hour (0–23) of a time.
+fn local_hour(unix_ms: u64) -> usize {
+    // SAFETY: localtime_r writes only into the struct we pass.
+    unsafe {
+        let t = (unix_ms / 1000) as libc::time_t;
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&t, &mut tm);
+        tm.tm_hour.clamp(0, 23) as usize
+    }
+}
+
+/// Seconds of a session inside `[a, b)`.
+pub fn overlap_s(s: &PlaytimeSession, a: u64, b: u64) -> u64 {
+    s.ended_unix_ms.min(b).saturating_sub(s.started_unix_ms.max(a)) / 1000
+}
+
+/// Seconds played on each of the `n` local days ending today: (that day's
+/// midnight, seconds). A session over midnight counts on both days.
+pub fn per_day(sessions: &[PlaytimeSession], now_ms: u64, n: u32) -> Vec<(u64, u64)> {
+    let n = n.max(1) as i32;
+    (0..n)
+        .map(|i| {
+            let a = local_midnight_offset(now_ms, i - n + 1);
+            let b = local_midnight_offset(now_ms, i - n + 2);
+            (a, sessions.iter().map(|s| overlap_s(s, a, b)).sum())
+        })
+        .collect()
+}
+
+/// Seconds played in each local hour of the day, summed over the sessions.
+pub fn per_hour(sessions: &[PlaytimeSession]) -> [u64; 24] {
+    let mut out = [0u64; 24];
+    for s in sessions {
+        let mut t = s.started_unix_ms;
+        while t < s.ended_unix_ms {
+            // The next whole hour (every zone's offset here is whole minutes,
+            // so stepping to the next minute boundary of a whole hour works).
+            let next = ((t / 3_600_000) + 1) * 3_600_000;
+            let next = (t..=next).step_by(60_000).find(|m| *m > t && local_hour(*m) != local_hour(t)).unwrap_or(next);
+            let end = next.min(s.ended_unix_ms);
+            out[local_hour(t)] += (end - t) / 1000;
+            t = end;
+        }
+    }
+    out
+}
+
+/// Days in a row with at least a minute played, ending today (or
+/// yesterday, when nothing was played yet today).
+pub fn streak(days: &[(u64, u64)]) -> u32 {
+    let mut n = 0;
+    for (i, (_, secs)) in days.iter().enumerate().rev() {
+        if *secs >= 60 {
+            n += 1;
+        } else if i + 1 == days.len() {
+            continue;
+        } else {
+            break;
+        }
+    }
+    n
+}
+
 /// `2026-09-30 21:04:05` in local time, which spreadsheets read as a date.
 pub fn local_time(unix_ms: u64) -> String {
     // SAFETY: localtime_r writes only into the struct we pass.
@@ -132,6 +212,28 @@ fn downloads_from(user_dirs: &str, home: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn session(start: u64, end: u64) -> PlaytimeSession {
+        PlaytimeSession { key: "steam:730".into(), name: "CS2".into(), started_unix_ms: start, ended_unix_ms: end }
+    }
+
+    #[test]
+    fn days_and_hours_split_a_session_where_it_crosses_them() {
+        let (today, _) = local_day_ms(&local_time(local_midnight_ms())[..10]).unwrap();
+        let yesterday = local_midnight_offset(today, -1);
+        // 23:30 yesterday to 00:45 today, and 10:00–10:30 today.
+        let s = [session(today - 1_800_000, today + 2_700_000), session(today + 36_000_000, today + 37_800_000)];
+        let d = per_day(&s, today + 40_000_000, 3);
+        assert_eq!(d.len(), 3);
+        assert_eq!(d[1], (yesterday, 1_800));
+        assert_eq!(d[2], (today, 2_700 + 1_800));
+        let h = per_hour(&s);
+        assert_eq!((h[23], h[0], h[10]), (1_800, 2_700, 1_800));
+        assert_eq!(h.iter().sum::<u64>(), 6_300);
+        assert_eq!(streak(&d), 2);
+        assert_eq!(streak(&[(0, 600), (1, 0)]), 1, "nothing yet today keeps yesterday's streak");
+        assert_eq!(streak(&[(0, 600), (1, 0), (2, 0)]), 0);
+    }
 
     #[test]
     fn a_local_day_is_found_from_its_date() {

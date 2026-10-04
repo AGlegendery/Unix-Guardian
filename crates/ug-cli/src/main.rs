@@ -518,6 +518,16 @@ enum PowerCommand {
 
 #[derive(Subcommand)]
 enum PlaytimeCommand {
+    /// Hours played per day, the hours of the day you play, and figures
+    /// (daily average, sessions, streak).
+    Days {
+        /// How many days, ending today.
+        #[arg(long, default_value_t = 7)]
+        days: u32,
+        /// Only one game, by key (e.g. `steam:730`).
+        #[arg(long)]
+        game: Option<String>,
+    },
     /// Tracked apps, and programs open now that could be tracked.
     Apps,
     /// Count a program's time although it is not a game (never tuned).
@@ -859,6 +869,48 @@ async fn playtime_command(command: PlaytimeCommand, json: bool) -> Result<()> {
     let conn = agent_conn().await?;
     let pt = PlaytimeProxy::new(&conn).await?;
     match command {
+        PlaytimeCommand::Days { days, game } => {
+            let days = days.clamp(1, 366);
+            let now = now_ms();
+            let first = ug_core::playtime::local_midnight_offset(now, 1 - days as i32);
+            let sessions: Vec<_> = pt
+                .sessions(first)
+                .await
+                .map_err(agent_hint)?
+                .into_iter()
+                .filter(|s| !s.key.starts_with("app:") && game.as_ref().is_none_or(|g| &s.key == g))
+                .collect();
+            let per_day = ug_core::playtime::per_day(&sessions, now, days);
+            let hours = ug_core::playtime::per_hour(&sessions);
+            if json {
+                let d: Vec<_> = per_day.iter().map(|(ms, secs)| serde_json::json!({ "date": &local_time(*ms)[..10], "seconds": secs })).collect();
+                println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "days": d, "hours": hours }))?);
+                return Ok(());
+            }
+            let most = per_day.iter().map(|d| d.1).max().unwrap_or(0).max(1);
+            for (ms, secs) in &per_day {
+                let bar = "█".repeat((secs * 30 / most) as usize);
+                println!("{}  {:>8}  {bar}", &local_time(*ms)[..10], hms(*secs));
+            }
+            let total: u64 = per_day.iter().map(|d| d.1).sum();
+            let lens: Vec<u64> = sessions.iter().map(|s| (s.ended_unix_ms - s.started_unix_ms) / 1000).collect();
+            println!();
+            println!("Daily average    {}", hms(total / days as u64));
+            println!("Days played      {} of {days}", per_day.iter().filter(|d| d.1 >= 60).count());
+            if !lens.is_empty() {
+                println!("Average session  {}", hms(lens.iter().sum::<u64>() / lens.len() as u64));
+                println!("Longest session  {}", hms(*lens.iter().max().unwrap_or(&0)));
+            }
+            println!("Streak           {} days", ug_core::playtime::streak(&per_day));
+            let hmax = hours.iter().copied().max().unwrap_or(0);
+            if hmax > 0 {
+                let peak = hours.iter().position(|h| *h == hmax).unwrap_or(0);
+                println!("\nWhen you play (local hour, most around {peak:02}:00)");
+                let bars = " ▁▂▃▄▅▆▇█";
+                let line: String = hours.iter().map(|h| bars.chars().nth((h * 8).div_ceil(hmax) as usize).unwrap_or(' ')).collect();
+                println!("  {line}\n  0     6     12    18   23");
+            }
+        }
         PlaytimeCommand::Apps => {
             let tracked = pt.tracked_apps().await.map_err(agent_hint)?;
             let open = pt.running_programs().await.map_err(agent_hint)?;

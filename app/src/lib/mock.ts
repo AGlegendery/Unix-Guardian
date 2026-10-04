@@ -96,7 +96,7 @@ let ptSessions: PlaytimeSession[] = (() => {
   ];
   const out: PlaytimeSession[] = [];
   const now = Date.now();
-  for (let d = 9; d >= 0; d--) {
+  for (let d = 29; d >= 0; d--) {
     games.forEach(([key, name, mins], i) => {
       if ((d + i) % 3 === 2) return;
       const start = now - d * 86_400_000 - (i + 1) * 3 * 3_600_000;

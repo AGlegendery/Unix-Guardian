@@ -122,6 +122,8 @@ pub struct App {
     pub playtime_extra: Cached<(Vec<ug_proto::TrackedApp>, Vec<ug_proto::PlaytimeEntry>)>,
     /// Programs open now that could be tracked, while the Apps tab is open.
     pub programs: Cached<Vec<ug_proto::TrackedApp>>,
+    /// Game sessions of the last 30 days, for the Playtime page's Days tab.
+    pub pt_sessions: Cached<Vec<ug_proto::PlaytimeSession>>,
     /// The Steam game whose launch options are being edited, and the choice.
     pub launch: Option<pages::LaunchEdit>,
     /// Re-reads the launch options (is Steam still running?) while shown.
@@ -195,6 +197,7 @@ impl App {
             playtime: Cached::new(RARE),
             playtime_extra: Cached::new(RARE),
             programs: Cached::new(Duration::from_secs(10)),
+            pt_sessions: Cached::new(RARE),
             launch: None,
             launch_due: Cached::new(SLOW),
             cooling: Cached::new(Duration::from_secs(3)),
@@ -427,6 +430,11 @@ impl App {
                     let r = self.bus.running_programs();
                     self.programs.store(r);
                 }
+                if self.tab == 2 && self.pt_sessions.due() {
+                    let since = ug_core::playtime::local_midnight_offset(data::now_ms(), -29);
+                    let r = self.bus.playtime_sessions(since).map(|v| v.into_iter().filter(|s| !s.key.starts_with("app:")).collect());
+                    self.pt_sessions.store(r);
+                }
             }
             _ => {}
         }
@@ -486,7 +494,7 @@ impl App {
             4 => 2,
             5 => 2,
             8 => 2,
-            6 => 2,
+            6 => 3,
             _ => 1,
         }
     }
@@ -1090,6 +1098,22 @@ mod tests {
         app.update.store(Ok(u));
         let screen = render(&mut app, 130, 34);
         assert!(screen.contains("up to date") && screen.contains("Go back to 0.0.9"), "{screen}");
+    }
+
+    #[test]
+    fn the_playtime_days_tab_shows_days_hours_and_figures() {
+        let mut app = App::new(Bus::offline());
+        app.go(6);
+        app.tab = 2;
+        let now = data::now_ms();
+        let today = ug_core::playtime::local_midnight_offset(now, 0);
+        let s = |a: u64, b: u64| ug_proto::PlaytimeSession { key: "steam:730".into(), name: "CS2".into(), started_unix_ms: a, ended_unix_ms: b };
+        let yesterday = ug_core::playtime::local_midnight_offset(now, -1);
+        app.pt_sessions.store(Ok(vec![s(yesterday + 3_600_000, yesterday + 3 * 3_600_000)]));
+        let screen = render(&mut app, 120, 34);
+        for want in [&ug_core::playtime::local_time(today)[..10], "2 h", "Days played 1/30", "When you play", "Streak 1 days"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
     }
 
     #[test]
