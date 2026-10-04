@@ -177,7 +177,11 @@ impl Schedule {
         self.next_id += 1;
         self.jobs.push(job.clone());
         self.sort();
-        self.save()?;
+        if let Err(e) = self.save() {
+            // Told it failed, so it must not run either.
+            self.jobs.retain(|j| j.id != job.id);
+            return Err(e);
+        }
         Ok(job)
     }
 
@@ -249,6 +253,17 @@ mod tests {
 
     fn path(d: &tempfile::TempDir) -> PathBuf {
         d.path().join("state/schedule.json")
+    }
+
+    #[test]
+    fn a_job_that_could_not_be_saved_never_runs() {
+        let d = tempfile::tempdir().unwrap();
+        let p = path(&d);
+        std::fs::create_dir_all(&p).unwrap(); // a directory: every save fails
+        let (mut s, _) = Schedule::load(&p, 0);
+        assert!(s.add(Action::PowerOff, H, Repeat::Once, "", 0).is_err());
+        assert!(s.jobs().is_empty());
+        assert!(s.take_due(H, H).0.is_empty(), "nothing powers off");
     }
 
     #[test]

@@ -134,7 +134,11 @@ impl Watches {
         let w = Watch { id: self.next_id, action, condition, note: note.chars().take(200).collect(), holding_since: None };
         self.next_id += 1;
         self.watches.push(w.clone());
-        self.save()?;
+        if let Err(e) = self.save() {
+            // Told it failed, so it must not fire either.
+            self.watches.retain(|x| x.id != w.id);
+            return Err(e);
+        }
         Ok(w)
     }
 
@@ -194,6 +198,17 @@ mod tests {
 
     fn obs(rx: u64, cpu: f64) -> Observation {
         Observation { rx_bps: rx, cpu_pct: Some(cpu), ..Default::default() }
+    }
+
+    #[test]
+    fn a_watch_that_could_not_be_saved_never_fires() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("conditions.json");
+        std::fs::create_dir(&p).unwrap(); // a directory: every save fails
+        let mut w = Watches::load(&p);
+        let c = Condition::CpuIdle { below_pct: 50.0, minutes: 1 };
+        assert!(w.add(crate::schedule::Action::PowerOff, c, "", &obs(0, 10.0)).is_err());
+        assert!(w.observe(&obs(0, 1.0), 0).is_empty() && w.observe(&obs(0, 1.0), 10 * MIN).is_empty());
     }
 
     #[test]

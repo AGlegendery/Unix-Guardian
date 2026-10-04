@@ -76,14 +76,19 @@ impl Rules {
         (Rules { path: path.to_path_buf(), list }, problem)
     }
 
-    fn save(&self) -> Result<(), String> {
+    /// Writes `list` and, only once it is on disk, makes it the rules: a
+    /// rule that could not be saved must not be enforced either, since the
+    /// user was told it failed.
+    fn commit(&mut self, list: Vec<Rule>) -> Result<(), String> {
         if let Some(d) = self.path.parent() {
             std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
         }
         let tmp = self.path.with_extension("tmp");
-        std::fs::write(&tmp, serde_json::to_string_pretty(&self.list).expect("rules serialize"))
+        std::fs::write(&tmp, serde_json::to_string_pretty(&list).expect("rules serialize"))
             .and_then(|_| std::fs::rename(&tmp, &self.path))
-            .map_err(|e| format!("saving {}: {e}", self.path.display()))
+            .map_err(|e| format!("saving {}: {e}", self.path.display()))?;
+        self.list = list;
+        Ok(())
     }
 
     /// Adds or replaces the rule for `rule.app`.
@@ -101,18 +106,19 @@ impl Rules {
             }
         }
         let rule = Rule { app: app.to_string(), ..rule };
-        self.list.retain(|r| !r.app.eq_ignore_ascii_case(&rule.app));
-        self.list.push(rule);
-        self.save()
+        let mut list = self.list.clone();
+        list.retain(|r| !r.app.eq_ignore_ascii_case(&rule.app));
+        list.push(rule);
+        self.commit(list)
     }
 
     pub fn remove(&mut self, app: &str) -> Result<bool, String> {
-        let before = self.list.len();
-        self.list.retain(|r| !r.app.eq_ignore_ascii_case(app.trim()));
-        if self.list.len() == before {
+        let mut list = self.list.clone();
+        list.retain(|r| !r.app.eq_ignore_ascii_case(app.trim()));
+        if list.len() == self.list.len() {
             return Ok(false);
         }
-        self.save().map(|_| true)
+        self.commit(list).map(|_| true)
     }
 }
 
@@ -181,6 +187,21 @@ impl Policy {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_rule_that_cannot_be_saved_is_not_enforced_either() {
+        let d = tempfile::tempdir().unwrap();
+        // A directory where the file should be: every save fails.
+        let path = d.path().join("rules.json");
+        std::fs::create_dir(&path).unwrap();
+        let (mut r, _) = Rules::load(&path);
+        let rule = Rule { app: "firefox".into(), block: true, up_kbps: 0, down_kbps: 0, when: When::Always };
+        assert!(r.set(rule.clone()).is_err());
+        assert!(r.list.is_empty(), "told it failed, so not applied");
+        r.list.push(rule);
+        assert!(r.remove("firefox").is_err());
+        assert_eq!(r.list.len(), 1, "a removal that was not saved leaves the rule");
+    }
     use super::*;
 
     fn rule(app: &str, block: bool, up: u32, when: When) -> Rule {
