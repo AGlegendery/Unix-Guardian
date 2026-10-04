@@ -90,6 +90,7 @@ pub fn draw(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         }
         6 => playtime_page(app, f, inner),
         7 => recorder_page(app, f, inner),
+        10 => updates_page(app, f, inner),
         11 => settings_page(app, f, inner),
         8 => {
             tabs(app, f, Rect { height: 1, ..inner }, &["Check", "Changes made"]);
@@ -2102,8 +2103,14 @@ fn activate_driver_op(app: &mut App, i: usize) {
 
 /// The agent's settings, the tray icon and global shortcuts, one row each,
 /// then what this installation is.
-const SETTINGS_ROWS: [&str; 5] =
-    ["Notifications", "Close the window when a game starts", "Look for games every", "Tray icon", "Global shortcuts"];
+const SETTINGS_ROWS: [&str; 6] = [
+    "Notifications",
+    "Close the window when a game starts",
+    "Look for games every",
+    "Look for updates daily",
+    "Tray icon",
+    "Global shortcuts",
+];
 const SCAN_STEPS: [u32; 4] = [1, 2, 5, 10];
 
 fn settings_page(app: &mut App, f: &mut Frame, r: Rect) {
@@ -2126,6 +2133,7 @@ fn settings_page(app: &mut App, f: &mut Frame, r: Rect) {
         yes(s.notifications).to_string(),
         yes(s.close_window_on_game).to_string(),
         if st.scan_interval_fixed { format!("{} s (set by ug-agent --scan-interval)", s.scan_interval_s) } else { format!("{} s", s.scan_interval_s) },
+        yes(s.check_updates).to_string(),
         match app.tray.value {
             Some(true) => "shown".into(),
             Some(false) => "hidden".into(),
@@ -2143,7 +2151,8 @@ fn settings_page(app: &mut App, f: &mut Frame, r: Rect) {
         0 => "When a game is found, when a background download could be limited, and when a shortcut is used.",
         1 => "The window's web view gives its memory back to the game; this terminal interface stays open.",
         2 => "Sooner means game mode starts sooner, for a little more CPU time.",
-        3 => "Hidden, it comes back from here or with `ug tray`; Unix Guardian keeps running either way.",
+        3 => "Once a day Unix Guardian asks GitHub for a newer version and tells you once. It never installs anything by itself.",
+        4 => "Hidden, it comes back from here or with `ug tray`; Unix Guardian keeps running either way.",
         _ => "Keys that work anywhere; the desktop asks to confirm them. Overlay → Global shortcuts shows and changes the keys.",
     };
     let service = app.daemon_version.value.clone().unwrap_or_else(|| "not reachable".into());
@@ -2163,6 +2172,161 @@ fn settings_page(app: &mut App, f: &mut Frame, r: Rect) {
     if y < r.bottom() {
         f.render_widget(Paragraph::new(about).wrap(Wrap { trim: true }), Rect { y, height: r.bottom() - y, ..r });
     }
+}
+
+/// The Updates page's actions, in order, for the state shown.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum UpdateAction {
+    Check,
+    Install,
+    Rollback,
+}
+
+fn update_actions(u: &ug_proto::UpdateState) -> Vec<UpdateAction> {
+    let mut a = vec![UpdateAction::Check];
+    if u.step.is_empty() {
+        if u.can_install {
+            a.push(UpdateAction::Install);
+        }
+        if !u.previous.is_empty() {
+            a.push(UpdateAction::Rollback);
+        }
+    }
+    a
+}
+
+/// This version, the last check, the new release and how to get it.
+fn updates_page(app: &mut App, f: &mut Frame, r: Rect) {
+    let t = app.theme;
+    f.render_widget(Paragraph::new(Span::styled("Updates", t.title())), Rect { height: 1, ..r });
+    let Some(u) = app.update.value.clone() else {
+        let msg = app.update.error.clone().unwrap_or_else(|| "Reading…".into());
+        f.render_widget(Paragraph::new(Span::styled(msg, t.muted())).wrap(Wrap { trim: true }), Rect { y: r.y + 2, height: 3, ..r });
+        return;
+    };
+    let mut head = vec![Line::from(vec![Span::styled(" This version   ", t.muted()), Span::styled(u.current.clone(), t.text())])];
+    let checked = if u.checked_unix_ms == 0 { "not yet".to_string() } else { ago(u.checked_unix_ms) };
+    head.push(Line::from(vec![Span::styled(" Last checked   ", t.muted()), Span::styled(checked, t.text())]));
+    if !u.previous.is_empty() {
+        head.push(Line::from(vec![Span::styled(" Previous       ", t.muted()), Span::styled(u.previous.clone(), t.text())]));
+    }
+    let status = if !u.step.is_empty() {
+        Span::styled(
+            if u.step == "downloading" { " Downloading the new version…" } else { " Checking its signature and installing; your password is asked for." },
+            t.text(),
+        )
+    } else if !u.problem.is_empty() {
+        Span::styled(format!(" {}", u.problem), t.warn_style())
+    } else if !u.result.is_empty() {
+        Span::styled(format!(" {}", u.result), t.text())
+    } else if u.checked_unix_ms != 0 && u.latest.is_empty() {
+        Span::styled(" Unix Guardian is up to date.", t.text())
+    } else {
+        Span::raw("")
+    };
+    head.push(Line::from(status));
+    let mut y = r.y + 2;
+    let h = head.len() as u16;
+    f.render_widget(Paragraph::new(head), Rect { y, height: h.min(r.bottom().saturating_sub(y)), ..r });
+    y += h + 1;
+
+    let actions = update_actions(&u);
+    app.rows = actions.len();
+    for (i, a) in actions.iter().enumerate() {
+        if y >= r.bottom() {
+            return;
+        }
+        let label = match a {
+            UpdateAction::Check => "Check now".to_string(),
+            UpdateAction::Install => format!("Install {}", if u.name.is_empty() { &u.latest } else { &u.name }),
+            UpdateAction::Rollback => format!("Go back to {}", u.previous),
+        };
+        row(app, f, Rect { y, height: 1, ..r }, i, Line::from(Span::styled(format!(" {label}"), t.text())));
+        y += 1;
+    }
+    y += 1;
+
+    let mut body: Vec<Line> = Vec::new();
+    match actions.get(app.row) {
+        Some(UpdateAction::Install) => body.push(Line::from(Span::styled(
+            "The download is checked against Unix Guardian's signing key before anything is installed; the version you have now is kept, so you can go back.",
+            t.faint(),
+        ))),
+        Some(UpdateAction::Rollback) => {
+            body.push(Line::from(Span::styled("Puts the version from before the last update back; your password is asked for.", t.faint())))
+        }
+        _ => body.push(Line::from(Span::styled(
+            "Looks on GitHub now. Once a day this happens by itself (Settings); nothing is installed without you.",
+            t.faint(),
+        ))),
+    }
+    if !u.latest.is_empty() {
+        body.push(Line::from(""));
+        let mut title = vec![Span::styled(format!(" New version: {}", if u.name.is_empty() { &u.latest } else { &u.name }), t.title())];
+        if u.published.len() >= 10 {
+            title.push(Span::styled(format!("  ({})", &u.published[..10]), t.muted()));
+        }
+        body.push(Line::from(title));
+        if u.step.is_empty() && !u.can_install {
+            let how = match u.kind.as_str() {
+                "package" | "development" => format!(" Update this copy with: {}", u.how),
+                "tarball" => " This release has no signed download for this install; get it from the release page and run its install.sh.".into(),
+                _ => " This copy runs from a build folder; build the new version from source.".into(),
+            };
+            body.push(Line::from(Span::styled(how, t.warn_style())));
+        }
+        for l in u.notes.lines().map(str::trim_end).filter(|l| !l.trim().is_empty()) {
+            let l = l.trim_start();
+            let text = if let Some(h) = l.strip_prefix('#') {
+                Span::styled(format!(" {}", h.trim_start_matches('#').trim()), t.text())
+            } else if let Some(i) = l.strip_prefix("- ").or_else(|| l.strip_prefix("* ")) {
+                Span::styled(format!("   • {}", i.replace("**", "").replace('`', "")), t.muted())
+            } else {
+                Span::styled(format!(" {}", l.replace("**", "").replace('`', "")), t.muted())
+            };
+            body.push(Line::from(text));
+        }
+        if !u.url.is_empty() {
+            body.push(Line::from(vec![Span::styled(" Release page   ", t.muted()), Span::styled(u.url.clone(), t.text())]));
+        }
+    }
+    if y < r.bottom() {
+        f.render_widget(Paragraph::new(body).wrap(Wrap { trim: false }), Rect { y, height: r.bottom() - y, ..r });
+    }
+}
+
+/// "5 minutes ago" for a time in the past.
+fn ago(ms: u64) -> String {
+    let m = data::now_ms().saturating_sub(ms) / 60_000;
+    match m {
+        0 => "just now".into(),
+        1..=59 => format!("{m} minutes ago"),
+        60..=1439 => format!("{} hours ago", m / 60),
+        _ => format!("{} days ago", m / 1440),
+    }
+}
+
+/// Enter on an Updates row.
+fn activate_update(app: &mut App, i: usize) {
+    let Some(u) = app.update.value.clone() else { return };
+    let r = match update_actions(&u).get(i) {
+        Some(UpdateAction::Check) => app.bus.update_check().and_then(|s| {
+            let r = if !s.problem.is_empty() {
+                Err(s.problem.clone())
+            } else if s.latest.is_empty() {
+                Ok("Unix Guardian is up to date.".to_string())
+            } else {
+                Ok(format!("{} is out.", if s.name.is_empty() { &s.latest } else { &s.name }))
+            };
+            app.update.store(Ok(s));
+            r
+        }),
+        Some(UpdateAction::Install) => app.bus.update_install().map(|_| "Downloading; the service will ask for your password.".to_string()),
+        Some(UpdateAction::Rollback) => app.bus.update_rollback(),
+        None => return,
+    };
+    report(app, r);
+    app.update.invalidate();
 }
 
 /// ←→ or Enter on a settings row.
@@ -2185,6 +2349,10 @@ fn step_settings(app: &mut App, d: i32) {
             app.bus.settings_set(&s).map(|_| format!("Looking for games every {} s.", s.scan_interval_s))
         }
         3 => {
+            s.check_updates = !s.check_updates;
+            app.bus.settings_set(&s).map(|_| format!("Daily update check {}.", if s.check_updates { "on" } else { "off" }))
+        }
+        4 => {
             let on = app.tray.value != Some(true);
             let r = app.bus.tray_set(on).map(|_| if on { "Tray icon shown." } else { "Tray icon hidden." }.to_string());
             app.tray.invalidate();
@@ -2641,6 +2809,7 @@ pub fn activate(app: &mut App, i: usize) {
         (7, _) => activate_recorder(app, i),
         (8, 0) => activate_driver(app, i),
         (8, _) => activate_driver_op(app, i),
+        (10, _) => activate_update(app, i),
         (11, _) => {
             let _ = i;
             step_settings(app, 1);

@@ -167,6 +167,28 @@ impl Bus {
         self.rt.block_on(async { SettingsProxy::new(c).await?.set(s).await }).map_err(|e| msg(e, "agent"))
     }
 
+    pub fn update_state(&self) -> Result<ug_proto::UpdateState, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { ug_proto::agent::UpdateProxy::new(c).await?.state().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    /// Looks on GitHub now (waits for the answer).
+    pub fn update_check(&self) -> Result<ug_proto::UpdateState, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { ug_proto::agent::UpdateProxy::new(c).await?.check().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    /// Starts the download and install; `update_state` follows it.
+    pub fn update_install(&self) -> Result<(), String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { ug_proto::agent::UpdateProxy::new(c).await?.install().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn update_rollback(&self) -> Result<String, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { ug_proto::agent::UpdateProxy::new(c).await?.rollback().await }).map_err(|e| msg(e, "agent"))
+    }
+
     /// The daemon's version, for the Settings page.
     pub fn daemon_version(&self) -> Result<String, String> {
         let c = self.daemon()?;

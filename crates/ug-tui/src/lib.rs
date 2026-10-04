@@ -41,7 +41,7 @@ pub const PAGES: [(&str, &str, bool); 12] = [
     ("Recorder", "Rec", true),
     ("Drivers", "Drivers", true),
     ("Bug report", "Bugs", false),
-    ("Updates", "Updates", false),
+    ("Updates", "Updates", true),
     ("Settings", "Settings", true),
 ];
 
@@ -100,6 +100,8 @@ pub struct App {
     /// hand (most terminals never see the Meta key itself).
     pub recording: Option<(String, bool)>,
     pub settings: Cached<ug_proto::SettingsState>,
+    /// The last update check and a running install (no network here).
+    pub update: Cached<ug_proto::UpdateState>,
     /// The driver check (files only, run here) and the service's changes.
     pub driver: Cached<ug_proto::DriverReport>,
     pub driver_ops: Cached<Vec<ug_proto::DriverOp>>,
@@ -178,6 +180,7 @@ impl App {
             recorder: Cached::new(Duration::from_secs(1)),
             recording: None,
             settings: Cached::new(SLOW),
+            update: Cached::new(Duration::from_secs(1)),
             driver: Cached::new(Duration::from_secs(3600)),
             driver_ops: Cached::new(Duration::from_secs(1)),
             driver_review: None,
@@ -349,6 +352,16 @@ impl App {
                     self.driver_ops.store(r);
                     if was_running && !running {
                         self.driver.invalidate();
+                    }
+                }
+            }
+            10 => {
+                if self.update.due() {
+                    let r = self.bus.update_state();
+                    // The install restarts the agent: keep the last state
+                    // until the new one answers.
+                    if r.is_ok() || !self.update.value.as_ref().is_some_and(|u| !u.step.is_empty()) {
+                        self.update.store(r);
                     }
                 }
             }
@@ -1014,10 +1027,56 @@ mod tests {
         }));
         app.tray.store(Ok(false));
         let screen = render(&mut app, 130, 34);
-        for want in ["Settings", "Notifications", "‹ off ›", "Close the window when a game starts", "‹ on ›", "‹ 5 s ›", "‹ hidden ›", "0.1.0", ".config/unix-guardian", "GNU GPL"] {
+        for want in ["Settings", "Notifications", "‹ off ›", "Close the window when a game starts", "‹ on ›", "‹ 5 s ›", "Look for updates daily", "‹ hidden ›", "0.1.0", ".config/unix-guardian", "GNU GPL"] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
         assert!(!screen.contains("Not built yet"));
+    }
+
+    #[test]
+    fn the_updates_page_shows_the_new_release_and_how_to_get_it() {
+        let mut app = App::new(Bus::offline());
+        app.go(10);
+        app.refresh();
+        assert!(render(&mut app, 120, 34).contains("Cannot reach the session bus"), "says why when there is no agent");
+        let mut u = ug_proto::UpdateState {
+            current: "0.1.0-beta.1".into(),
+            latest: "v0.1.0-beta.2".into(),
+            name: "Unix Guardian 0.1.0 beta 2".into(),
+            notes: "## What's new\n\n- Self-update from the **terminal**".into(),
+            url: "https://example.invalid/r".into(),
+            published: "2026-10-04T10:00:00Z".into(),
+            kind: "tarball".into(),
+            can_install: true,
+            checked_unix_ms: 1,
+            ..Default::default()
+        };
+        app.update.store(Ok(u.clone()));
+        let screen = render(&mut app, 130, 34);
+        for want in ["Updates", "0.1.0-beta.1", "Check now", "Install Unix Guardian 0.1.0 beta 2", "What's new", "• Self-update from the terminal", "2026-10-04", "example.invalid"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        assert!(!screen.contains("Not built yet"));
+        // A package install is updated by the package manager.
+        u.can_install = false;
+        u.kind = "package".into();
+        u.how = "sudo apt upgrade unix-guardian".into();
+        app.update.store(Ok(u.clone()));
+        let screen = render(&mut app, 130, 34);
+        assert!(screen.contains("Update this copy with: sudo apt upgrade unix-guardian") && !screen.contains("Install Unix"), "{screen}");
+        // While it installs, no buttons but the check, and what happens.
+        u.can_install = true;
+        u.step = "installing".into();
+        u.previous = "0.0.9".into();
+        app.update.store(Ok(u.clone()));
+        let screen = render(&mut app, 130, 34);
+        assert!(screen.contains("password is asked for") && !screen.contains("Install Unix") && !screen.contains("Go back to"), "{screen}");
+        u.step.clear();
+        u.latest.clear();
+        u.can_install = false;
+        app.update.store(Ok(u));
+        let screen = render(&mut app, 130, 34);
+        assert!(screen.contains("up to date") && screen.contains("Go back to 0.0.9"), "{screen}");
     }
 
     #[test]
