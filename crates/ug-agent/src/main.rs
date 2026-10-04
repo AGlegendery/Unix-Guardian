@@ -27,6 +27,7 @@ mod shortcuts;
 mod programs;
 mod recorder;
 mod tray;
+mod update;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -245,6 +246,7 @@ async fn main() -> Result<()> {
     let shortcuts = shortcuts::Shortcuts::new(&ug_core::paths::user_config(), pressed_tx);
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
     let recorder = Arc::new(recorder::Recorder::new(&ug_core::paths::user_config(), &home));
+    let updater = Arc::new(update::Updater::new(&ug_core::paths::user_config(), std::path::Path::new("/")));
 
     let conn = zbus::connection::Builder::session()?
         .serve_at(AGENT_OBJECT_PATH, GamesIface { core: Arc::clone(&core), announce: announce_tx.clone() })?
@@ -255,6 +257,7 @@ async fn main() -> Result<()> {
         .serve_at(AGENT_OBJECT_PATH, iface::RecorderIface { recorder: Arc::clone(&recorder) })?
         .serve_at(AGENT_OBJECT_PATH, PingIface { pinger: pinger.clone() })?
         .serve_at(AGENT_OBJECT_PATH, SettingsIface { settings: Arc::clone(&settings) })?
+        .serve_at(AGENT_OBJECT_PATH, iface::UpdateIface { updater: Arc::clone(&updater) })?
         .serve_at(
             AGENT_OBJECT_PATH,
             ShortcutsIface {
@@ -359,6 +362,10 @@ async fn main() -> Result<()> {
         );
         notify::show(&conn, "Old session-wide settings moved", &body, &[]).await;
     }
+    // New versions: looked for a minute after login (the network is up by
+    // then), then hourly whether a day has passed; never in a test run.
+    let mut update_tick = tokio::time::interval_at(tokio::time::Instant::now() + Duration::from_secs(60), Duration::from_secs(3600));
+    let check_updates = std::env::var_os("UG_TEST_RUN").is_none() || std::env::var_os("UG_UPDATE_FEED").is_some();
     let mut daemon = DaemonLink::new(args.daemon_session);
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     loop {
@@ -407,6 +414,16 @@ async fn main() -> Result<()> {
                 daemon.record_history(&history).await;
                 let (h, o) = (Arc::clone(&history), Arc::clone(&overlay));
                 let _ = tokio::task::spawn_blocking(move || record_fps_sessions(&h, &o)).await;
+            }
+            _ = update_tick.tick() => {
+                if check_updates && settings.get().check_updates && updater.due(now_ms()) {
+                    let u = Arc::clone(&updater);
+                    let (_, tell) = tokio::task::spawn_blocking(move || u.check(now_ms())).await?;
+                    if let (Some(name), true) = (tell, notify_on()) {
+                        let body = format!("{name} is out. See what changed and update it in Unix Guardian, Updates (or: ug update).");
+                        notify::show(&conn, "A new Unix Guardian is available", &body, &[]).await;
+                    }
+                }
             }
             _ = rescan.tick() => {
                 let c = Arc::clone(&core);

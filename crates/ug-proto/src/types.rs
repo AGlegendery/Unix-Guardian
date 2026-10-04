@@ -387,7 +387,9 @@ pub struct ShortcutsState {
 }
 
 /// The agent's own settings (the Settings page). Each user has their own.
+/// A setting missing from an older `settings.json` takes its default.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default)]
 pub struct AgentSettings {
     /// Desktop notifications (game detected, "limit while I play", a
     /// shortcut's result).
@@ -398,12 +400,43 @@ pub struct AgentSettings {
     /// Close Unix Guardian's window when a game starts, so its web view
     /// gives its memory back to the game.
     pub close_window_on_game: bool,
+    /// Look for a new version once a day (GitHub Releases). Installing
+    /// always waits for the user.
+    pub check_updates: bool,
 }
 
 impl Default for AgentSettings {
     fn default() -> Self {
-        AgentSettings { notifications: true, scan_interval_s: 2, close_window_on_game: false }
+        AgentSettings { notifications: true, scan_interval_s: 2, close_window_on_game: false, check_updates: true }
     }
+}
+
+/// What the Update page shows.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct UpdateState {
+    /// This version.
+    pub current: String,
+    /// The newer release's tag ("v0.2.0"); "" when this is the newest.
+    pub latest: String,
+    pub name: String,
+    /// Its release notes (Markdown, as written on GitHub).
+    pub notes: String,
+    /// Its page on GitHub.
+    pub url: String,
+    pub published: String,
+    /// How this copy was installed: `package`, `tarball`, `development`,
+    /// `none` (a build folder).
+    pub kind: String,
+    /// For `package` and `development`: the command that updates it.
+    pub how: String,
+    /// Unix Guardian can install it itself (a tarball install, and the
+    /// release has a signed tarball).
+    pub can_install: bool,
+    /// When the last check finished (0: never), and whether one runs now.
+    pub checked_unix_ms: u64,
+    pub checking: bool,
+    /// Why the last check failed; "" when it did not.
+    pub problem: String,
 }
 
 /// The settings plus what the Settings page shows about the agent.

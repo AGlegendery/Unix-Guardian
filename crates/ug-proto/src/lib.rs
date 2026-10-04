@@ -524,6 +524,19 @@ pub mod agent {
         fn set_keys(&self, id: &str, keys: &str) -> zbus::Result<String>;
     }
 
+    /// New versions from GitHub Releases.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Update",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Update {
+        /// The last check's result (none is made here).
+        fn state(&self) -> zbus::Result<UpdateState>;
+        /// Checks now and returns the result.
+        fn check(&self) -> zbus::Result<UpdateState>;
+    }
+
     /// The agent's own settings.
     #[zbus::proxy(
         interface = "org.unixguardian.Agent1.Settings",

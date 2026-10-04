@@ -80,7 +80,7 @@ mod tests {
         let s = Settings::load(d.path(), None);
         assert_eq!(s.get(), AgentSettings::default(), "no file: defaults");
         let w = s.watch();
-        let quiet = AgentSettings { notifications: false, scan_interval_s: 5, close_window_on_game: true };
+        let quiet = AgentSettings { notifications: false, scan_interval_s: 5, close_window_on_game: true, check_updates: false };
         s.set(quiet.clone()).unwrap();
         assert!(w.has_changed().unwrap(), "the loop is told");
         assert_eq!(Settings::load(d.path(), None).get(), quiet, "kept for the next start");
@@ -95,6 +95,9 @@ mod tests {
         std::fs::write(d.path().join("settings.json"), "{ not json").unwrap();
         assert_eq!(Settings::load(d.path(), None).get(), AgentSettings::default());
         std::fs::write(d.path().join("settings.json"), r#"{"notifications":true,"scan_interval_s":9,"close_window_on_game":false}"#).unwrap();
+        // A file from before check_updates existed keeps its values.
+        let old = Settings::load(d.path(), None).get();
+        assert_eq!((old.scan_interval_s, old.check_updates), (9, true));
         let s = Settings::load(d.path(), Some(1));
         assert_eq!(s.get().scan_interval_s, 1);
         assert!(s.scan_fixed());

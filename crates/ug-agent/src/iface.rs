@@ -376,6 +376,24 @@ impl SettingsIface {
     }
 }
 
+/// `org.unixguardian.Agent1.Update`
+pub struct UpdateIface {
+    pub updater: Arc<crate::update::Updater>,
+}
+
+#[zbus::interface(name = "org.unixguardian.Agent1.Update")]
+impl UpdateIface {
+    async fn state(&self) -> ug_proto::UpdateState {
+        self.updater.state()
+    }
+
+    async fn check(&self) -> zbus::fdo::Result<ug_proto::UpdateState> {
+        let u = Arc::clone(&self.updater);
+        let (s, _) = tokio::task::spawn_blocking(move || u.check(now_ms())).await.map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        Ok(s)
+    }
+}
+
 /// `org.unixguardian.Agent1.Shortcuts`
 pub struct ShortcutsIface {
     pub shortcuts: Arc<crate::shortcuts::Shortcuts>,

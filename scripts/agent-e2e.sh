@@ -39,6 +39,12 @@ printf '"UserLocalConfigStore"\n{\n\t"Software"\n\t{\n\t\t"Valve"\n\t\t{\n\t\t\t
 # watching the same user's processes ignores the fake games (and this run's
 # agent ignores the user's real ones).
 export UG_TEST_RUN="e2e-$$-$RANDOM"
+# A release feed of its own (GitHub's JSON), never the real one.
+cat > "$W/releases.json" <<'JSON'
+[{"tag_name":"v99.1.0","name":"Unix Guardian 99.1","body":"- Self-update\n- Fewer bugs","html_url":"https://example.invalid/r","draft":false,"prerelease":false,"published_at":"2026-10-04T10:00:00Z","assets":[]},
+ {"tag_name":"v100.0.0","name":"Draft","draft":true,"prerelease":false,"html_url":"x","assets":[]}]
+JSON
+export UG_UPDATE_FEED="file://$W/releases.json"
 fails=0
 check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fails+1)); fi; }
 state() { awk '{print $3}' "/proc/$1/stat" 2>/dev/null; }
@@ -149,6 +155,12 @@ SteamAppId=730 bash -c 'exec -a cs2 sleep 20' & game=$!
 check "games are still found at the new interval" "until_ 8 \"'$B/ug' game running | grep -q 'Counter-Strike 2'\""
 kill $game; wait $game 2>/dev/null
 check "an interval out of range is refused" "! '$B/ug' settings --scan-interval 60 2>/dev/null && '$B/ug' settings | grep -q 'every   3 s'"
+
+check "updates: nothing checked yet" "'$B/ug' update | grep -q 'Not checked yet'"
+check "ug update --check finds the new release, not the draft" "out=\$('$B/ug' update --check); grep -q 'New version    Unix Guardian 99.1' <<<\"\$out\" && grep -q -- '- Self-update' <<<\"\$out\""
+check "and remembers it" "'$B/ug' update --json | grep -q '\"latest\": \"v99.1.0\"' && [ -f '$XDG_CONFIG_HOME/unix-guardian/update.json' ]"
+check "an unreachable feed is explained" "rm '$W/releases.json'; out=\$('$B/ug' update --check 2>&1); [ \$? -ne 0 ] && grep -q 'Could not reach' <<<\"\$out\""
+check "the daily check can be turned off" "'$B/ug' settings --check-updates off | grep -q 'Look for updates daily off'"
 
 # An agent whose program was replaced while it ran (an update) must not
 # stay in charge: the next agent stops it and takes over (2026-10-04, the

@@ -166,6 +166,16 @@ enum Command {
         /// Close Unix Guardian's window when a game starts: on or off.
         #[arg(long)]
         close_window_on_game: Option<String>,
+        /// Look for a new version once a day: on or off.
+        #[arg(long)]
+        check_updates: Option<String>,
+    },
+    /// Is there a newer Unix Guardian? Shows the last check; --check looks
+    /// now. Installing always waits for you.
+    Update {
+        /// Look on GitHub now.
+        #[arg(long)]
+        check: bool,
     },
     /// Record the screen and the game's sound (gpu-screen-recorder). Without
     /// a command shows the recorder.
@@ -633,9 +643,10 @@ async fn run() -> Result<()> {
         Command::Overlay { command } => return overlay(command, cli.json).await,
         Command::Shortcut { action, args } => return shortcut(action, args, cli.json).await,
         Command::Record { command } => return record(command, cli.json).await,
-        Command::Settings { notifications, scan_interval, close_window_on_game } => {
-            return settings(notifications, scan_interval, close_window_on_game, cli.json).await
+        Command::Settings { notifications, scan_interval, close_window_on_game, check_updates } => {
+            return settings(notifications, scan_interval, close_window_on_game, check_updates, cli.json).await
         }
+        Command::Update { check } => return update(check, cli.json).await,
         Command::Tray { hide } => return tray(hide).await,
         Command::Quit => {
             let conn = agent_conn().await?;
@@ -681,7 +692,7 @@ async fn run() -> Result<()> {
         Command::Fans { curve, auto, mode } => fans(&conn, curve, auto, mode, cli.json).await,
         Command::Driver { command } => driver(&conn, command, cli.json).await,
         Command::Diagnose => unreachable!("handled above"),
-        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Shortcut { .. } | Command::Record { .. } | Command::Settings { .. } | Command::Tray { .. } | Command::Quit | Command::Fps { .. } | Command::Run { .. } | Command::Tui => {
+        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Shortcut { .. } | Command::Record { .. } | Command::Settings { .. } | Command::Update { .. } | Command::Tray { .. } | Command::Quit | Command::Fps { .. } | Command::Run { .. } | Command::Tui => {
             unreachable!("handled above")
         }
     }
@@ -1220,10 +1231,10 @@ fn on_off(v: &str) -> Result<bool> {
     }
 }
 
-async fn settings(notifications: Option<String>, scan: Option<u32>, close: Option<String>, json: bool) -> Result<()> {
+async fn settings(notifications: Option<String>, scan: Option<u32>, close: Option<String>, updates: Option<String>, json: bool) -> Result<()> {
     let conn = agent_conn().await?;
     let p = SettingsProxy::new(&conn).await?;
-    if notifications.is_some() || scan.is_some() || close.is_some() {
+    if notifications.is_some() || scan.is_some() || close.is_some() || updates.is_some() {
         let mut s = p.state().await.map_err(agent_hint)?.settings;
         if let Some(v) = notifications {
             s.notifications = on_off(&v)?;
@@ -1233,6 +1244,9 @@ async fn settings(notifications: Option<String>, scan: Option<u32>, close: Optio
         }
         if let Some(v) = close {
             s.close_window_on_game = on_off(&v)?;
+        }
+        if let Some(v) = updates {
+            s.check_updates = on_off(&v)?;
         }
         p.set(&s).await.map_err(agent_hint)?;
     }
@@ -1250,9 +1264,60 @@ async fn settings(notifications: Option<String>, scan: Option<u32>, close: Optio
         if st.scan_interval_fixed { " (set by ug-agent --scan-interval)" } else { "" }
     );
     println!("Close window in game   {}", yes(s.close_window_on_game));
+    println!("Look for updates daily {}", yes(s.check_updates));
     println!("Agent                  {}", st.agent_version);
     println!("Settings and data      {}  {}", st.config_dir, st.data_dir);
     Ok(())
+}
+
+async fn update(check: bool, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let p = ug_proto::agent::UpdateProxy::new(&conn).await?;
+    let st = if check { p.check().await } else { p.state().await }.map_err(agent_hint)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&st)?);
+        return Ok(());
+    }
+    println!("This version   {}", st.current);
+    if st.checked_unix_ms == 0 {
+        println!("Not checked yet: ug update --check");
+        return Ok(());
+    }
+    if !st.problem.is_empty() {
+        anyhow::bail!("{}", st.problem);
+    }
+    if st.latest.is_empty() {
+        println!("Up to date (checked {}).", ago(st.checked_unix_ms));
+        return Ok(());
+    }
+    println!("New version    {}{}", st.name, if st.published.is_empty() { String::new() } else { format!("  ({})", &st.published[..st.published.len().min(10)]) });
+    if !st.notes.trim().is_empty() {
+        println!();
+        for l in st.notes.trim().lines() {
+            println!("  {l}");
+        }
+        println!();
+    }
+    println!("Release page   {}", st.url);
+    match st.kind.as_str() {
+        "package" | "development" => println!("Update it with: {}", st.how),
+        "tarball" if st.can_install => println!("Unix Guardian can install it for you (coming next)."),
+        "tarball" => println!("This release has no signed tarball; download it from the release page and run its install.sh."),
+        _ => println!("This copy runs from a build folder; build the new version from source."),
+    }
+    Ok(())
+}
+
+/// "5 minutes ago" for a time in the past.
+fn ago(ms: u64) -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    let m = now.saturating_sub(ms) / 60_000;
+    match m {
+        0 => "just now".into(),
+        1..=59 => format!("{m} minutes ago"),
+        60..=1439 => format!("{} hours ago", m / 60),
+        _ => format!("{} days ago", m / 1440),
+    }
 }
 
 async fn diagnose(json: bool, session: bool) -> Result<()> {
