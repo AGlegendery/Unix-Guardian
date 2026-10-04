@@ -22,6 +22,8 @@ ignore = true
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Our own crates point at each other by path; none is published.
+allow-wildcard-paths = true
 
 [advisories]
 yanked = "deny"
