@@ -105,6 +105,18 @@ Crate `ug-testlab` (engine, undo journal, scrubber, CPU bench);
 binaries and the window were rebuilt afterwards. Still to do: run it on
 the real machine after the reinstall and read the report together.
 
+## Bug sweep (2026-10-04 evening) ✅
+
+Asked after the Test lab. Fixed, each with a test that failed first:
+game threads kept nice -10 after game mode ended mid-game (ug-tune
+ThreadNice undo); paused apps stayed frozen if the agent died
+(paused.json) or when game mode was turned off by hand; power jobs,
+conditional power actions and net rules stayed in force in memory when
+saving them failed; window Dashboard/GPU-tuner left a sample listener,
+a subscription or a GPU-waking poll behind on fast page changes.
+net-e2e's three tc checks fail on this machine before and after (no
+`tc` on PATH outside sbin); not caused by the sweep.
+
 ## Incident 2026-10-04 (top priority, read 05-findings "Incident")
 
 The card switch (`edd4115`) wrote NVIDIA offload variables into
