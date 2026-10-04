@@ -2275,6 +2275,7 @@ dependencies = [
  "ug-driver",
  "ug-hw",
  "ug-proto",
+ "ug-testlab",
  "zbus",
 ]
 

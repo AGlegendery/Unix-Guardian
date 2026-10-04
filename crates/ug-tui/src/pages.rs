@@ -92,8 +92,9 @@ pub fn draw(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         }
         6 => playtime_page(app, f, inner),
         7 => recorder_page(app, f, inner),
-        10 => updates_page(app, f, inner),
-        11 => settings_page(app, f, inner),
+        10 => crate::lab::page(app, f, inner),
+        11 => updates_page(app, f, inner),
+        12 => settings_page(app, f, inner),
         8 => {
             tabs(app, f, Rect { height: 1, ..inner }, &["Check", "Changes made"]);
             let body = Rect { y: inner.y + 2, height: inner.height.saturating_sub(2), ..inner };
@@ -2798,7 +2799,8 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (4, _) => vec![("Tab", "next tab"), ("Enter", "limit while gaming"), ("b", "block"), ("x", "allow")],
         (8, 1) => vec![("Tab", "check"), ("Enter ×2", "undo"), ("y", "keep")],
         (8, _) => vec![("Tab", "changes"), ("Enter", "review / apply"), ("r", "check again")],
-        (11, _) => vec![("↑↓", "setting"), ("←→", "change"), ("Enter", "toggle")],
+        (12, _) => vec![("↑↓", "setting"), ("←→", "change"), ("Enter", "toggle")],
+        (10, _) => crate::lab::keys(app),
         (7, _) => vec![("Enter", "start / stop / save"), ("←→", "change")],
         (5, 1) if app.recording.is_some() => vec![("Tab", "+Meta"), ("Esc", "cancel")],
         (5, 1) => vec![("Tab", "overlay"), ("Enter", "on/off / run"), ("c", "change keys"), ("x", "suggested keys")],
@@ -2888,7 +2890,7 @@ pub fn step_choice(app: &mut App, d: i32) {
         step_overlay(app, d);
         return;
     }
-    if app.page == 11 {
+    if app.page == 12 {
         step_settings(app, d);
         return;
     }
@@ -2924,8 +2926,9 @@ pub fn activate(app: &mut App, i: usize) {
         (7, _) => activate_recorder(app, i),
         (8, 0) => activate_driver(app, i),
         (8, _) => activate_driver_op(app, i),
-        (10, _) => activate_update(app, i),
-        (11, _) => {
+        (10, _) => crate::lab::activate(app, i),
+        (11, _) => activate_update(app, i),
+        (12, _) => {
             let _ = i;
             step_settings(app, 1);
         }

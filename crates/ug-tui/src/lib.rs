@@ -8,6 +8,7 @@
 //! unevenly); Persian is a later option for terminals known to handle it.
 
 mod data;
+mod lab;
 mod pages;
 mod theme;
 
@@ -30,7 +31,7 @@ use ug_proto::{
 use theme::Theme;
 
 /// Menu entries, in the window's order: (name, short name for narrow screens, built).
-pub const PAGES: [(&str, &str, bool); 12] = [
+pub const PAGES: [(&str, &str, bool); 13] = [
     ("Dashboard", "Dash", true),
     ("Game mode", "Game", true),
     ("System control", "System", true),
@@ -41,6 +42,7 @@ pub const PAGES: [(&str, &str, bool); 12] = [
     ("Recorder", "Rec", true),
     ("Drivers", "Drivers", true),
     ("Bug report", "Bugs", false),
+    ("Test lab", "Lab", true),
     ("Updates", "Updates", true),
     ("Settings", "Settings", true),
 ];
@@ -143,6 +145,8 @@ pub struct App {
     /// Row count of the current page's list, set while drawing.
     pub rows: usize,
     pub help: bool,
+    /// The Test lab page's run, on a thread of its own.
+    pub lab: lab::Lab,
     quit: bool,
     open_window: bool,
 }
@@ -210,6 +214,7 @@ impl App {
             hits: Vec::new(),
             rows: 0,
             help: false,
+            lab: lab::Lab::new(false),
             quit: false,
             open_window: false,
         }
@@ -366,7 +371,7 @@ impl App {
                     }
                 }
             }
-            10 => {
+            11 => {
                 if self.update.due() {
                     let r = self.bus.update_state();
                     // The install restarts the agent: keep the last state
@@ -376,7 +381,7 @@ impl App {
                     }
                 }
             }
-            11 => {
+            12 => {
                 if self.settings.due() {
                     let r = self.bus.settings();
                     self.settings.store(r);
@@ -559,6 +564,10 @@ impl App {
                 KeyCode::Char('n') if self.page == 6 => pages::not_a_game(self, self.row),
                 KeyCode::Char('i') if self.page == 6 => pages::import_steam(self, false),
                 KeyCode::Char('u') if self.page == 6 => pages::import_steam(self, true),
+                KeyCode::Char('c') if self.page == 10 => lab::copy(self),
+                KeyCode::Char('s') if self.page == 10 => lab::save(self),
+                KeyCode::PageDown if self.page == 10 => lab::scroll(self, true),
+                KeyCode::PageUp if self.page == 10 => lab::scroll(self, false),
                 _ => {}
             },
         }
@@ -603,7 +612,9 @@ impl App {
     }
 
     fn scroll(&mut self, down: bool) {
-        if self.focus == Focus::Menu {
+        if self.page == 10 && self.focus == Focus::Page && !self.lab.confirm {
+            lab::scroll(self, down);
+        } else if self.focus == Focus::Menu {
             self.go(if down { (self.page + 1).min(PAGES.len() - 1) } else { self.page.saturating_sub(1) });
         } else if down {
             self.row = (self.row + 1).min(self.rows.saturating_sub(1));
@@ -810,6 +821,8 @@ extern "C" fn on_terminate(_: libc::c_int) {
 pub fn run(daemon_session: bool) -> anyhow::Result<Exit> {
     let bus = Bus::connect(daemon_session)?;
     let mut app = App::new(bus);
+    app.lab.daemon_session = daemon_session;
+    app.lab.recover_in_background();
     // SAFETY: the handler only stores to an atomic and calls alarm(2).
     unsafe { libc::signal(libc::SIGTERM, on_terminate as *const () as libc::sighandler_t) };
 
@@ -1036,7 +1049,7 @@ mod tests {
     #[test]
     fn the_settings_page_shows_the_agent_settings_and_this_installation() {
         let mut app = App::new(Bus::offline());
-        app.go(11);
+        app.go(12);
         app.refresh();
         assert!(render(&mut app, 120, 34).contains("Cannot reach the session bus"), "says why when there is no agent");
         app.settings.store(Ok(ug_proto::SettingsState {
@@ -1057,7 +1070,7 @@ mod tests {
     #[test]
     fn the_updates_page_shows_the_new_release_and_how_to_get_it() {
         let mut app = App::new(Bus::offline());
-        app.go(10);
+        app.go(11);
         app.refresh();
         assert!(render(&mut app, 120, 34).contains("Cannot reach the session bus"), "says why when there is no agent");
         let mut u = ug_proto::UpdateState {
