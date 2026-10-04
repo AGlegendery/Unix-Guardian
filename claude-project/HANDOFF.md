@@ -85,6 +85,18 @@ last commit; the user still has to reinstall (sudo) to try them for real.
 After the queue: see "Next steps" in `04-status.md` (real-install checks that
 need sudo, pushing, P7+).
 
+## Current work (2026-10-04 afternoon): five UI asks from the user
+
+1. ✅ Internet use in Ping → Internet control (hour/today/7/30 days, a day
+   hour by hour): `Monitor.TrafficBuckets`, `ug traffic --day`.
+2. ✅ Dashboard game mode button + any profile on by hand
+   (`Profiles.SetGameMode`, `ug profile on|off`, TUI `g`).
+3. ○ Monitoring: hour/day/week averages with charts for everything the
+   Live view shows (history table needs the extra columns).
+4. ○ Playtime: more precise charts, more features.
+5. ○ Profiles: more options, each can be turned on at once (part done
+   in 2; still: new options, custom profiles, pause_apps editing).
+
 ## Incident 2026-10-04 (top priority, read 05-findings "Incident")
 
 The card switch (`edd4115`) wrote NVIDIA offload variables into
