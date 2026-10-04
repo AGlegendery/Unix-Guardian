@@ -660,7 +660,10 @@ pub fn commands(fix_id: &str, facts: &Facts) -> Vec<String> {
             &["sudo zypper install nvidia-vaapi-driver"],
         )
         .into_iter()
-        .chain(["echo 'LIBVA_DRIVER_NAME=nvidia' | sudo tee -a /etc/environment".to_string()])
+        // Per program only: set for the whole session it would send every app's
+        // video decoding to the NVIDIA card, the session-wide pattern that
+        // broke KDE (see ug_core::session_env).
+        .chain(["# then per program, e.g.: LIBVA_DRIVER_NAME=nvidia ug run -- mpv <file>".to_string()])
         .collect(),
         "install-vulkan" => by(
             &["sudo apt install libvulkan1 mesa-vulkan-drivers vulkan-tools"],
