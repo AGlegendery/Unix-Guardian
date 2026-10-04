@@ -2106,6 +2106,7 @@ dependencies = [
  "ug-driver",
  "ug-hw",
  "ug-proto",
+ "ug-testlab",
  "ug-tui",
  "zbus",
 ]
@@ -2242,6 +2243,22 @@ name = "ug-testfs"
 version = "0.1.0-beta.1"
 dependencies = [
  "tempfile",
+]
+
+[[package]]
+name = "ug-testlab"
+version = "0.1.0-beta.1"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "ug-core",
+ "ug-driver",
+ "ug-hw",
+ "ug-proto",
+ "zbus",
 ]
 
 [[package]]

@@ -18,6 +18,7 @@ ug-core.workspace = true
 ug-hw.workspace = true
 ug-tui.workspace = true
 ug-driver.workspace = true
+ug-testlab.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 serde_json.workspace = true

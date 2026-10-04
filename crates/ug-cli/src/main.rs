@@ -221,6 +221,20 @@ enum Command {
         #[command(subcommand)]
         command: ProfileCommand,
     },
+    /// Test lab: tries every feature on this computer for a moment, puts
+    /// everything back, and prints a report to email to the developers
+    /// (personal details removed; nothing is sent by itself).
+    Testlab {
+        /// Start without asking first.
+        #[arg(long)]
+        yes: bool,
+        /// Also save the report to this file.
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+        /// Only put back what an interrupted test left behind.
+        #[arg(long)]
+        recover: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -668,6 +682,9 @@ async fn run() -> Result<()> {
     if let Command::Diagnose = cli.command {
         return diagnose(cli.json, cli.session).await;
     }
+    if let Command::Testlab { yes, out, recover } = &cli.command {
+        return testlab(*yes, out.as_deref(), *recover, cli.session, cli.json).await;
+    }
 
     // The agent always lives on the session bus, so game and playtime commands
     // work whether or not the daemon is reachable.
@@ -739,7 +756,7 @@ async fn run() -> Result<()> {
         Command::Fans { curve, auto, mode } => fans(&conn, curve, auto, mode, cli.json).await,
         Command::Driver { command } => driver(&conn, command, cli.json).await,
         Command::Diagnose => unreachable!("handled above"),
-        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Shortcut { .. } | Command::Record { .. } | Command::Settings { .. } | Command::Update { .. } | Command::Tray { .. } | Command::Quit | Command::Fps { .. } | Command::Run { .. } | Command::Tui => {
+        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Shortcut { .. } | Command::Record { .. } | Command::Settings { .. } | Command::Update { .. } | Command::Tray { .. } | Command::Quit | Command::Fps { .. } | Command::Run { .. } | Command::Tui | Command::Testlab { .. } => {
             unreachable!("handled above")
         }
     }
@@ -1538,6 +1555,78 @@ fn ago(ms: u64) -> String {
         60..=1439 => format!("{} hours ago", m / 60),
         _ => format!("{} days ago", m / 1440),
     }
+}
+
+/// `ug testlab`: explains, asks, runs with a progress line, prints the
+/// report and says where to send it.
+async fn testlab(yes: bool, out: Option<&std::path::Path>, recover: bool, session: bool, json: bool) -> Result<()> {
+    use std::io::{BufRead, IsTerminal, Write};
+    let opts = ug_testlab::Options::new("command line", session);
+    let put_back = ug_testlab::recover(&opts).await;
+    for p in &put_back {
+        eprintln!("Put back from an interrupted test: {p}");
+    }
+    if recover {
+        if put_back.is_empty() {
+            eprintln!("Nothing to put back.");
+        }
+        return Ok(());
+    }
+    if !yes {
+        eprintln!("Unix Guardian test lab");
+        eprintln!();
+        eprintln!("Unix Guardian is made for every Linux system, but it has only been tested on");
+        eprintln!("a few computers. This test tries every feature on yours, measures a few things");
+        eprintln!("and writes a report you can send to {}.", ug_core::BUG_REPORT_EMAIL);
+        eprintln!();
+        eprintln!("For a moment it turns on, then off again:");
+        for t in ug_testlab::TEMPORARY_EN {
+            eprintln!("  - {t}");
+        }
+        eprintln!();
+        eprintln!("It never logs out, restarts, installs packages or changes the desktop session.");
+        eprintln!("Personal details are removed from the report and nothing is sent by itself.");
+        eprintln!("Close games and recordings first. It takes about a minute.");
+        if !std::io::stdin().is_terminal() {
+            anyhow::bail!("not asking without a terminal; run `ug testlab --yes` to start");
+        }
+        eprint!("Start? [y/N] ");
+        let _ = std::io::stderr().flush();
+        let mut answer = String::new();
+        std::io::stdin().lock().read_line(&mut answer)?;
+        if !matches!(answer.trim(), "y" | "Y" | "yes" | "Yes") {
+            eprintln!("Not started.");
+            return Ok(());
+        }
+    }
+    let tty = std::io::stderr().is_terminal();
+    let report = ug_testlab::run(&opts, |p| {
+        let pct = p.done * 100 / p.total.max(1);
+        if tty {
+            eprint!("\r\x1b[2K[{pct:>3} %] {}", p.label);
+            if p.done == p.total {
+                eprintln!();
+            }
+        } else {
+            eprintln!("[{pct:>3} %] {}", p.label);
+        }
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    if let Some(path) = out {
+        std::fs::write(path, &report.text).with_context(|| format!("saving {}", path.display()))?;
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print!("{}", report.text);
+        eprintln!();
+        eprintln!("Copy everything above (or save it with --out FILE) and email it to {}.", ug_core::BUG_REPORT_EMAIL);
+        if let Some(path) = out {
+            eprintln!("Saved to {}.", path.display());
+        }
+    }
+    Ok(())
 }
 
 async fn diagnose(json: bool, session: bool) -> Result<()> {

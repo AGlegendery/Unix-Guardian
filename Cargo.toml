@@ -13,6 +13,7 @@ members = [
     "crates/ug-stress",
     "crates/ug-daemon",
     "crates/ug-agent",
+    "crates/ug-testlab",
     "crates/ug-cli",
     "crates/ug-tui",
 ]
@@ -37,6 +38,7 @@ ug-tune = { path = "crates/ug-tune" }
 ug-net = { path = "crates/ug-net" }
 ug-driver = { path = "crates/ug-driver" }
 ug-tui = { path = "crates/ug-tui" }
+ug-testlab = { path = "crates/ug-testlab" }
 
 anyhow = "1"
 thiserror = "2"
