@@ -167,6 +167,8 @@ struct Inner {
     last_saved: String,
     problem: String,
     installing: bool,
+    /// Flatpak's progress while installing: overall percent and "n/m".
+    setup: Option<(u8, String)>,
     captures: Option<Vec<(String, Option<(u32, u32)>)>>,
 }
 
@@ -282,6 +284,8 @@ impl Recorder {
             file: i.running.as_ref().filter(|r| !r.replay).map(|r| r.file.clone()).unwrap_or_default(),
             last_saved: i.last_saved.clone(),
             problem: i.problem.clone(),
+            setup_pct: i.setup.as_ref().map(|s| s.0).unwrap_or(0),
+            setup_step: i.setup.as_ref().map(|s| s.1.clone()).unwrap_or_default(),
             captures,
             mb_per_minute: mb,
             replay_mb: (mb * s.replay_seconds as f64 / 60.0 * 10.0).round() / 10.0,
@@ -442,6 +446,7 @@ impl Recorder {
                 return Err("It is being installed already.".into());
             }
             i.installing = true;
+            i.setup = None;
             i.problem.clear();
         }
         let me = Arc::clone(self);
@@ -454,27 +459,48 @@ impl Recorder {
     }
 
     fn set_up(&self, on: bool) -> Result<(), String> {
-        let steps: Vec<Vec<&str>> = if on {
-            vec![
-                vec!["flatpak", "remote-add", "--user", "--if-not-exists", "flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo"],
-                vec!["flatpak", "install", "--user", "--noninteractive", "-y", "flathub", FLATPAK_ID],
-            ]
+        let r = if on {
+            run(&["flatpak", "remote-add", "--user", "--if-not-exists", "flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo"])
+                .and_then(|_| self.install())
         } else {
-            vec![vec!["flatpak", "uninstall", "--user", "--noninteractive", "-y", FLATPAK_ID]]
+            run(&["flatpak", "uninstall", "--user", "--noninteractive", "-y", FLATPAK_ID])
         };
-        let r = (|| {
-            for s in steps {
-                let out = std::process::Command::new(s[0]).args(&s[1..]).stdin(std::process::Stdio::null()).output().map_err(|e| e.to_string())?;
-                if !out.status.success() {
-                    return Err(format!("`{}` failed: {}", s.join(" "), String::from_utf8_lossy(&out.stderr).trim()));
-                }
-            }
-            Ok(())
-        })();
         let mut i = self.lock();
         i.installing = false;
+        i.setup = None;
         i.captures = None;
         r
+    }
+
+    /// `flatpak install` on a terminal of its own: only there does Flatpak
+    /// print its progress line (with `--noninteractive`, or into a pipe, it
+    /// says nothing for minutes while it downloads a ~300 MB runtime, and on
+    /// 2026-10-03 the user took that for a hang and shut down mid-download).
+    fn install(&self) -> Result<(), String> {
+        use std::io::Read;
+        let argv = ["flatpak", "install", "--user", "-y", "flathub", FLATPAK_ID];
+        let (mut child, mut master) = spawn_on_pty(&argv).map_err(|e| format!("could not start flatpak: {e}"))?;
+        let mut progress = InstallProgress::default();
+        let mut buf = [0u8; 4096];
+        loop {
+            match master.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if progress.feed(&buf[..n]) {
+                        self.lock().setup = progress.overall();
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                // EIO: every slave end is closed, flatpak has exited.
+                Err(_) => break,
+            }
+        }
+        let status = child.wait().map_err(|e| e.to_string())?;
+        progress.finish();
+        if status.success() {
+            return Ok(());
+        }
+        Err(install_failure(&progress.messages))
     }
 
     /// Stops whatever runs (agent shutdown), finishing the file.
@@ -482,6 +508,156 @@ impl Recorder {
         if self.lock().running.is_some() {
             let _ = self.stop();
         }
+    }
+}
+
+/// Runs one command, its error output becoming the error.
+fn run(argv: &[&str]) -> Result<(), String> {
+    let out = std::process::Command::new(argv[0])
+        .args(&argv[1..])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| e.to_string())?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!("`{}` failed: {}", argv.join(" "), String::from_utf8_lossy(&out.stderr).trim()))
+    }
+}
+
+/// Starts `argv` with a new pseudo-terminal as its stdout and stderr, and
+/// returns the terminal's reading end.
+fn spawn_on_pty(argv: &[&str]) -> std::io::Result<(std::process::Child, std::fs::File)> {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    let (mut m, mut s) = (0, 0);
+    let ws = libc::winsize { ws_row: 30, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0 };
+    // SAFETY: openpty writes two descriptors we then own; the other pointers
+    // may be null.
+    if unsafe { libc::openpty(&mut m, &mut s, std::ptr::null_mut(), std::ptr::null(), &ws) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: both were just opened and are owned by nobody else.
+    let (master, slave) = unsafe { (std::fs::File::from_raw_fd(m), OwnedFd::from_raw_fd(s)) };
+    // SAFETY: plain fcntl on a descriptor we own; the child must not keep
+    // the reading end open.
+    unsafe { libc::fcntl(m, libc::F_SETFD, libc::FD_CLOEXEC) };
+    let child = std::process::Command::new(argv[0])
+        .args(&argv[1..])
+        .env("TERM", "xterm")
+        .env("LC_ALL", "C.UTF-8")
+        .stdin(std::process::Stdio::null())
+        .stdout(slave.try_clone()?)
+        .stderr(slave)
+        .spawn()?;
+    Ok((child, master))
+}
+
+/// Reads Flatpak's terminal output: its redrawn progress line
+/// ("Installing 2/7… ████▌   42%  1.2 MB/s  00:30") and the messages
+/// worth keeping (warnings, errors).
+#[derive(Default)]
+struct InstallProgress {
+    pending: Vec<u8>,
+    /// Step n of m, and that step's percent.
+    step: Option<(u32, u32, u8)>,
+    messages: Vec<String>,
+}
+
+impl InstallProgress {
+    /// Takes more output; true when the progress moved.
+    fn feed(&mut self, bytes: &[u8]) -> bool {
+        self.pending.extend_from_slice(bytes);
+        let text = String::from_utf8_lossy(&self.pending).to_string();
+        // Keep a possibly cut-off last piece (or a split UTF-8 character).
+        let cut = text.rfind(['\r', '\n']).map(|i| i + 1).unwrap_or(0);
+        let (done, rest) = text.split_at(cut);
+        self.pending = rest.as_bytes().to_vec();
+        let before = self.step;
+        for seg in done.split(['\r', '\n']) {
+            self.segment(seg);
+        }
+        self.step != before
+    }
+
+    fn finish(&mut self) {
+        let rest = String::from_utf8_lossy(&std::mem::take(&mut self.pending)).to_string();
+        self.segment(&rest);
+    }
+
+    fn segment(&mut self, raw: &str) {
+        let line = strip_ansi(raw);
+        let line = line.trim();
+        if line.is_empty() {
+            return;
+        }
+        if let Some(p) = parse_progress(line) {
+            self.step = Some(p);
+        } else if ["Warning:", "error:", "Error:"].iter().any(|w| line.starts_with(w)) {
+            self.messages.push(line.to_string());
+        }
+    }
+
+    /// The whole install's percent (each step an equal share) and "n/m".
+    fn overall(&self) -> Option<(u8, String)> {
+        let (n, m, pct) = self.step?;
+        let total = ((n.saturating_sub(1) * 100 + pct as u32) / m.max(1)).min(100);
+        Some((total as u8, format!("{n}/{m}")))
+    }
+}
+
+/// Removes terminal escape sequences (`ESC [ … letter`, `ESC ] … BEL`).
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        if c != '\x1b' {
+            out.push(c);
+            continue;
+        }
+        match it.next() {
+            Some('[') => {
+                for c in it.by_ref() {
+                    if ('@'..='~').contains(&c) {
+                        break;
+                    }
+                }
+            }
+            Some(']') => {
+                for c in it.by_ref() {
+                    if c == '\x07' {
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// `Installing 2/7… ███   42%  …` → (2, 7, 42).
+fn parse_progress(line: &str) -> Option<(u32, u32, u8)> {
+    let rest = ["Installing ", "Updating ", "Uninstalling "].iter().find_map(|w| line.strip_prefix(w))?;
+    let (nm, rest) = rest.split_once('…').or_else(|| rest.split_once(' '))?;
+    let (n, m) = nm.trim_end_matches("...").split_once('/')?;
+    let pct = rest.split_whitespace().find_map(|w| w.strip_suffix('%')?.parse::<u8>().ok())?;
+    Some((n.parse().ok()?, m.parse().ok()?, pct.min(100)))
+}
+
+/// What to tell the user when `flatpak install` failed, from its own
+/// messages: a broken download is said plainly, since Flatpak keeps what
+/// it already fetched and a second try goes on from there.
+fn install_failure(messages: &[String]) -> String {
+    let errors: Vec<&String> = messages.iter().filter(|m| !m.starts_with("Warning:")).collect();
+    let all = messages.join(" ");
+    let network = ["Failure when receiving data", "Failed sending data", "Could not resolve host", "Timeout was reached", "Connection reset", "HTTP error"]
+        .iter()
+        .any(|w| all.contains(w));
+    let detail = errors.last().map(|e| e.as_str()).or(messages.last().map(|e| e.as_str())).unwrap_or("no message");
+    if network {
+        format!("The download from Flathub broke off ({detail}). Set up again: Flatpak keeps what it already downloaded.")
+    } else {
+        format!("flatpak install failed: {detail}")
     }
 }
 
@@ -507,6 +683,42 @@ fn chrono_like(ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Flatpak's real output on a terminal (2026-10-04, two steps).
+    #[test]
+    fn flatpak_progress_is_read_from_its_terminal_output() {
+        let raw = include_bytes!("../testdata/flatpak-install-tty.txt");
+        let mut p = InstallProgress::default();
+        let mut seen = Vec::new();
+        // In small pieces, as a terminal delivers it.
+        for chunk in raw.chunks(37) {
+            if p.feed(chunk) {
+                seen.push(p.overall().unwrap());
+            }
+        }
+        p.finish();
+        let pcts: Vec<u8> = seen.iter().map(|s| s.0).collect();
+        assert_eq!(seen.first(), Some(&(0, "1/2".to_string())));
+        assert!(pcts.contains(&4), "step 1 at 8% is 4% overall: {pcts:?}");
+        assert!(pcts.windows(2).all(|w| w[0] <= w[1]), "never goes back: {pcts:?}");
+        assert_eq!(p.overall(), Some((100, "2/2".to_string())));
+        assert!(p.messages.is_empty(), "{:?}", p.messages);
+    }
+
+    #[test]
+    fn a_broken_download_is_said_plainly_and_a_warning_is_not_an_error() {
+        let mut p = InstallProgress::default();
+        p.feed(b"Installing 1/3\xe2\x80\xa6 \x1b[2m\xe2\x96\x88\x1b[22m  5%  1 MB/s\r");
+        p.feed(b"Warning: Failed to install org.freedesktop.Platform.openh264: While downloading http://ciscobinary.openh264.org/x: Server returned status 403\r\n");
+        p.feed(b"error: While pulling runtime/org.freedesktop.Platform/x86_64/24.08 from remote flathub: Failure when receiving data from the peer\r\n");
+        p.finish();
+        assert_eq!(p.overall(), Some((1, "1/3".to_string())));
+        let m = install_failure(&p.messages);
+        assert!(m.starts_with("The download from Flathub broke off (error: While pulling"), "{m}");
+        assert!(install_failure(&["error: No remote refs found for 'x'".into()]).starts_with("flatpak install failed: error: No remote"));
+        assert_eq!(parse_progress("Installing 3/7… ██▍   42%  1.2 MB/s  00:30"), Some((3, 7, 42)));
+        assert_eq!(parse_progress("Looking for matches…"), None);
+    }
 
     #[test]
     fn capture_choices_and_their_sizes_are_read_from_the_engine() {

@@ -1528,14 +1528,31 @@ async fn record(command: Option<RecordCommand>, json: bool) -> Result<()> {
             let on = matches!(command, Some(RecordCommand::Setup));
             r.set_up(on).await.map_err(agent_hint)?;
             println!("{} gpu-screen-recorder (Flatpak, for you only)…", if on { "Installing" } else { "Removing" });
+            use std::io::{IsTerminal, Write};
+            let tty = std::io::stdout().is_terminal();
+            let mut shown = String::new();
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 let st = r.state().await.map_err(agent_hint)?;
                 if st.mode != "installing" {
+                    if tty && !shown.is_empty() {
+                        println!();
+                    }
                     if !st.problem.is_empty() {
                         anyhow::bail!("{}", st.problem);
                     }
                     break;
+                }
+                if st.setup_step.is_empty() {
+                    continue;
+                }
+                let filled = st.setup_pct as usize / 5;
+                let line = format!("[{}{}] {:>3} %  step {}", "#".repeat(filled), "-".repeat(20 - filled), st.setup_pct, st.setup_step);
+                if line != shown {
+                    // On a terminal one line redrawn; into a pipe one line each.
+                    if tty { print!("\r{line}"); } else { println!("{line}"); }
+                    std::io::stdout().flush().ok();
+                    shown = line;
                 }
             }
         }

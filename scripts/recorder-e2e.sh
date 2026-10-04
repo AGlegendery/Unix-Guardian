@@ -38,10 +38,40 @@ fails=0
 check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fails+1)); fi; }
 until_() { local d=$((SECONDS+$1)); shift; until eval "$@"; do (( SECONDS < d )) || return 1; sleep 0.2; done; }
 
+# Set up first, with a stand-in flatpak that replays Flatpak's real
+# terminal output slowly and then "installs" the recorder above.
+mv "$W/bin/gpu-screen-recorder" "$W/gsr-ready"
+cat > "$W/bin/flatpak" <<FP
+#!/usr/bin/env bash
+case "\$1" in
+  remote-add) exit 0 ;;
+  install)
+    [ -t 1 ] || { echo "no terminal" >&2; exit 3; }
+    if [ -f "$W/fail" ]; then
+      printf 'Installing 1/2\xe2\x80\xa6  10%%\r\nerror: While pulling runtime/org.freedesktop.Platform/x86_64/24.08 from remote flathub: Failure when receiving data from the peer\r\n'
+      exit 1
+    fi
+    python3 -c 'import sys,time
+d=open(sys.argv[1],"rb").read()
+for i in range(0,len(d),200):
+    sys.stdout.buffer.write(d[i:i+200]); sys.stdout.flush(); time.sleep(0.25)' "$PWD/crates/ug-agent/testdata/flatpak-install-tty.txt"
+    cp "$W/gsr-ready" "$W/bin/gpu-screen-recorder" ;;
+  *) exit 1 ;;
+esac
+FP
+chmod +x "$W/bin/flatpak"
+touch "$W/fail"
+
 "$B/ug-agent" --quiet --log warn & agent=$!
 trap 'kill $agent 2>/dev/null; rm -rf "$W"' EXIT
 until_ 15 "'$B/ug' record >/dev/null 2>&1" || { echo "FAIL  agent did not start"; exit 1; }
 
+check "without the recorder, set up is offered" "'$B/ug' record | grep -q 'ug record setup installs it'"
+check "a broken download is said plainly" "out=\$('$B/ug' record setup 2>&1); [ \$? -ne 0 ] && grep -q 'download from Flathub broke off' <<<\"\$out\""
+rm "$W/fail"
+"$B/ug" record setup > "$W/setup.out" 2>&1 & setup=$!
+check "set up shows Flatpak's progress while it runs" "until_ 10 \"'$B/ug' record --json | python3 -c 'import json,sys; s=json.load(sys.stdin); assert s[\\\"mode\\\"]==\\\"installing\\\" and s[\\\"setup_step\\\"] and 0 < s[\\\"setup_pct\\\"] < 100' 2>/dev/null\""
+check "and finishes" "wait $setup && grep -q '100 %  step 2/2' '$W/setup.out'"
 check "the engine and the screens it offers are found" "'$B/ug' record | grep -q 'gpu-screen-recorder' && '$B/ug' record | grep -q 'offered: portal, DP-1'"
 check "the size of a minute is estimated" "'$B/ug' record | grep -q '≈ 91 MB a minute'"
 check "settings change one at a time and are kept" "'$B/ug' record set --capture DP-1 --mic on --replay 30 >/dev/null && grep -q '\"replay_seconds\": 30' '$XDG_CONFIG_HOME/unix-guardian/recorder.json' && '$B/ug' record | grep -q 'microphone on'"

@@ -1,0 +1,30 @@
+Looking for matches…
+
+Info: runtime [1morg.freedesktop.Platform[22m branch [1m24.08[22m is end-of-life, with reason:
+   org.freedesktop.Platform 24.08 is no longer receiving fixes and security updates. Please update to a supported runtime version.
+Info: applications using this runtime:
+   com.dec05eba.gpu_screen_recorder
+
+Info: runtime [1morg.freedesktop.Platform.VAAPI.Intel[22m branch [1m24.08[22m is end-of-life, with reason:
+   org.freedesktop.Platform 24.08 is no longer receiving fixes and security updates. Please update to a supported runtime version.
+Info: applications using this extension:
+   com.dec05eba.gpu_screen_recorder
+
+Info: runtime [1morg.freedesktop.Platform.GL.default[22m branch [1m24.08extra[22m is end-of-life, with reason:
+   org.freedesktop.Platform 24.08 is no longer receiving fixes and security updates. Please update to a supported runtime version.
+Info: applications using this extension:
+   com.dec05eba.gpu_screen_recorder
+
+Info: runtime [1morg.freedesktop.Platform.GL.default[22m branch [1m24.08[22m is end-of-life, with reason:
+   org.freedesktop.Platform 24.08 is no longer receiving fixes and security updates. Please update to a supported runtime version.
+Info: applications using this extension:
+   com.dec05eba.gpu_screen_recorder
+
+
+[1m        ID                                          Branch           Op          Remote           Download[22m
+ 1.     org.freedesktop.Platform.openh264           2.5.1            i           flathub          < 971.4 kB
+ 2.     com.dec05eba.gpu_screen_recorder            stable           i           flathub           < 12.3 MB
+
+
+[?25l[6n[6n[6nInstalling 1/2… [2m [22m                      0%  0 bytes/s[6nInstalling 1/2… [2m [22m                      0%  0 bytes/s[6nInstalling 1/2… [2m▍[22m                      2%  47 bytes/s[6nInstalling 1/2… [2m█ [22m                     5%  183 bytes/s  01:16[6nInstalling 1/2… [2m█▌[22m                     8%  413 bytes/s  00:46[6n[6n[6nInstalling 2/2… [2m [22m                      0%  0 bytes/s[6nInstalling 2/2… [2m [22m                      0%  0 bytes/s[6nInstalling 2/2… [2m████████████████████[22m 100%  457 bytes/s[6n[?25h[6n
+

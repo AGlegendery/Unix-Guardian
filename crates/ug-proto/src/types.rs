@@ -872,6 +872,10 @@ pub struct RecorderState {
     pub last_saved: String,
     /// Why the last start failed, or what went wrong; "" when nothing did.
     pub problem: String,
+    /// While `installing`: how far the whole install is, 0–100, from
+    /// Flatpak's own progress, and which step ("2/7"); "" before it says.
+    pub setup_pct: u8,
+    pub setup_step: String,
     /// Capture choices offered here (`portal`, `screen`, monitor names).
     pub captures: Vec<String>,
     pub settings: RecorderSettings,
