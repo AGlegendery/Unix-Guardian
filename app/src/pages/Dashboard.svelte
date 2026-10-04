@@ -59,9 +59,18 @@
   $effect(() => {
     let unlisten: (() => void) | null = null;
     let stopped = false;
+    // Leaving the page while these calls are in flight must not leave a
+    // listener (samples counted twice on return) or a subscription (the
+    // service sampling for nobody) behind.
     const start = async () => {
-      unlisten ??= await api.onSample(take);
-      if (!stopped) await api.monitorStart(1000).catch(() => {});
+      if (!unlisten) {
+        const off = await api.onSample(take);
+        if (stopped || unlisten) off();
+        else unlisten = off;
+      }
+      if (stopped) return;
+      await api.monitorStart(1000).catch(() => {});
+      if (stopped || document.hidden) stop();
     };
     const stop = () => api.monitorStop().catch(() => {});
     const onVis = () => (document.hidden ? stop() : start());

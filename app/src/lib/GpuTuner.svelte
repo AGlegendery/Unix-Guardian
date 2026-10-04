@@ -24,11 +24,16 @@
     try {
       await api.gpuAutoTune(pci, goal);
       auto = await api.gpuAutoTuneStatus();
+      if (poll) clearInterval(poll);
       const id = setInterval(async () => {
         try {
           auto = await api.gpuAutoTuneStatus();
           if (!auto.running) {
             clearInterval(id);
+            poll = null;
+            // The page was left meanwhile: no countdown (and no read of
+            // the card's state, which would wake it) for nobody.
+            if (gone) return;
             await load();
             if (auto.ok) {
               left = 120;
@@ -43,9 +48,11 @@
           }
         } catch (e) {
           clearInterval(id);
+          poll = null;
           error = errorText(e);
         }
       }, 1000);
+      poll = id;
     } catch (e) {
       error = errorText(e);
     }
@@ -96,7 +103,14 @@
     timer = null;
     left = null;
   }
-  $effect(() => () => stopTimer());
+  // The auto-tune's status poll, and whether the page is gone.
+  let poll: ReturnType<typeof setInterval> | null = null;
+  let gone = false;
+  $effect(() => () => {
+    gone = true;
+    if (poll) clearInterval(poll);
+    stopTimer();
+  });
 
   async function tryIt() {
     if (!st) return;

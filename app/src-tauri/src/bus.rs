@@ -70,10 +70,16 @@ impl Bus {
     /// the process, and the daemon drops a subscriber whose connection closes.
     pub async fn stop_monitor(&self) {
         if let Some(m) = self.monitor.lock().await.take() {
-            m.task.abort();
-            if let Ok(p) = DaemonProxy::new(&m._conn).await {
-                let _ = p.unsubscribe().await;
-            }
+            m.end().await;
+        }
+    }
+}
+
+impl Monitor {
+    async fn end(self) {
+        self.task.abort();
+        if let Ok(p) = DaemonProxy::new(&self._conn).await {
+            let _ = p.unsubscribe().await;
         }
     }
 }
@@ -159,7 +165,12 @@ pub async fn snapshot(bus: State<'_, Bus>) -> Res<Snapshot> {
 /// call replaces the first subscription.
 #[tauri::command]
 pub async fn monitor_start(app: AppHandle, bus: State<'_, Bus>, interval_ms: u32) -> Res<()> {
-    bus.stop_monitor().await;
+    // Held throughout, so two starts (or a start and a stop) cannot
+    // interleave and leave a subscription running that nothing can end.
+    let mut slot = bus.monitor.lock().await;
+    if let Some(m) = slot.take() {
+        m.end().await;
+    }
     let conn = bus.daemon_bus().await.map_err(|_| DAEMON_DOWN.to_string())?;
     let d = DaemonProxy::new(&conn).await.map_err(daemon_err)?;
     // Listen before subscribing, or the first sample arrives before the match
@@ -175,7 +186,7 @@ pub async fn monitor_start(app: AppHandle, bus: State<'_, Bus>, interval_ms: u32
             }
         }
     });
-    *bus.monitor.lock().await = Some(Monitor { _conn: conn, task });
+    *slot = Some(Monitor { _conn: conn, task });
     Ok(())
 }
 
