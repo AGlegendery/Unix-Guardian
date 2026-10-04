@@ -94,7 +94,7 @@ need sudo, pushing, P7+).
 3. ✅ Monitoring: hour/day/week averages with charts for everything the
    Live view shows (history table needs the extra columns).
 4. ✅ Playtime: charts by game per day, day sessions, hours of day, figures.
-5. ○ Profiles: more options, each can be turned on at once (part done
+5. ✅ Profiles: screen on, do not disturb, own profiles, pause apps, on at once (was: part done
    in 2; still: new options, custom profiles, pause_apps editing).
 
 ## Incident 2026-10-04 (top priority, read 05-findings "Incident")

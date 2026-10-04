@@ -325,6 +325,32 @@ the ping page against the real agent. Known limits:
   drafts a signed release on a pushed `v*` tag. Nothing published; the
   user said to hold the public repo and the release.
 
+## Five UI asks (2026-10-04 afternoon, on `p5-gpu`)
+
+- Internet use: `Monitor.TrafficBuckets` (equal buckets from a start; local
+  midnight + 1 h = a day's hours). Window Ping → Internet control: last
+  hour / today / 7 / 30 days, 30-day bars, a day hour by hour.
+  `ug traffic [--day YYYY-MM-DD|today]`; TUI traffic tab totals.
+- Game mode by hand with any profile: `Profiles.SetGameMode/GameMode`,
+  dashboard button + profile picker, Game mode page "turn on now with X",
+  `ug profile on [X]|off`, TUI `g`. The agent leaves and re-enters when
+  the requested settings change (the service applies them only on enter).
+- Monitoring history keeps clocks, swap, disk r/w/busy, load average,
+  processes, battery (`System.Extra`), net speeds from counters; old
+  history.db migrated by ALTER TABLE. Window hour/day/week: averages +
+  peaks + nine charts; `ug history` columns + averages.
+- Playtime: hours per day stacked by game (7/30), a day's sessions on a
+  24 h line, hours of the day, figures (daily average, days played,
+  average/longest session, streak), focus on one game. ug-core
+  `per_day`/`per_hour`/`streak`; `ug playtime days`; TUI Days tab.
+- Profiles: `keep_screen_on` (ScreenSaver hold), `do_not_disturb` (KDE
+  Notifications.Inhibit; our own notifications held too), own profiles
+  (create from any / delete), pause apps edited in place. Holds use
+  NoAutoStart + 2 s timeout (on the test bus a hold call blocked game
+  mode before that). gamemode-e2e has a fake desktop for the holds.
+- Not tried on the real desktop yet: needs the reinstall. DND on KDE
+  and the screen hold are the parts most worth checking by hand.
+
 ## Next steps, in order
 
 1. **Finish the real install (needs sudo).** Done and verified (see the table
