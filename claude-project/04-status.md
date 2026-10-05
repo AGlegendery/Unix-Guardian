@@ -405,6 +405,30 @@ with ‹ › (clickable), cuts a too-long name; test
 `many_profiles_scroll_in_one_line_and_the_chosen_one_is_always_shown`.
 The per-game picker is a native select and was fine.
 
+## Batch after the picker (2026-10-05, on `p5-gpu`)
+
+1. Traffic (`5694a2a`): Monitoring → Internet traffic has Day (hours 1–24),
+   Week (Saturday–Friday) and Month (Persian calendar in Persian, Gregorian
+   in English) with earlier/later, the apps that used the most (sort by
+   total, down, up, name) and "used so far" in a corner
+   (`app/src/lib/TrafficPeriods.svelte`). The agent records per-app traffic
+   from `Daemon1.Net.Apps` once a minute into `app_traffic` (15-minute slots,
+   summed by name; first reading after start only takes baselines).
+   `Agent1.Monitor.AppTraffic / ResetTraffic / TrafficResetAt`; the reset
+   stores `traffic_reset_ms` in `meta` and `deltas()` ignores readings
+   before it (speed charts kept). Settings → Internet use has the reset
+   (asks twice); `ug traffic --apps|--reset`; TUI traffic tab ←→ period,
+   `r` twice resets. Per-app counts need the service's net accounting.
+2. Test lab (`04a4234`): wake alarm test is 6 h ahead (rtc_cmos refused
+   300 days with EINVAL; the service now explains EINVAL); recording is
+   tested only where nothing asks first (on Wayland the automatic capture
+   is the portal: the old check read the first capture in the list); an
+   Intel iGPU without its own temperature passes.
+3. «آزمایشگاه تست» → «تست نرم‌افزاری» (English stays "Test lab").
+4. G loader on update check/install/rollback, driver check and running
+   fixes, shortcuts connecting; the splash waits for the gauge's own
+   animations (`ondone`, getAnimations + 4 s fallback) plus 200 ms.
+
 ## Next steps, in order
 
 1. **Finish the real install (needs sudo).** Done and verified (see the table
