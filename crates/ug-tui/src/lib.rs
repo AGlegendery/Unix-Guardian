@@ -1409,4 +1409,31 @@ mod tests {
         assert!(app.armed.is_none());
         assert_eq!(app.focus, Focus::Page, "Esc cancelled the action, it did not leave the page");
     }
+    #[test]
+    fn many_profiles_scroll_in_one_line_and_the_chosen_one_is_always_shown() {
+        let mut app = App::new(Bus::offline());
+        app.go(1);
+        let mut list: Vec<ug_proto::ProfileInfo> = ["competitive", "balanced", "quiet"].iter().map(|id| ug_proto::ProfileInfo { id: id.to_string(), builtin: true, ..Default::default() }).collect();
+        for i in 0..12 {
+            list.push(ug_proto::ProfileInfo { id: format!("my-very-long-profile-name-for-game-{i}"), ..Default::default() });
+        }
+        app.profiles.store(Ok(list));
+        let line = |s: &str| s.lines().find(|l| l.contains("Profile ")).unwrap_or_default().to_string();
+        let screen = render(&mut app, 80, 24);
+        assert!(line(&screen).contains("Competitive"), "{screen}");
+        assert!(line(&screen).contains('›'), "hidden profiles on the right are marked:\n{screen}");
+        assert!(!line(&screen).contains('‹'), "nothing is hidden on the left yet");
+        app.choice = 14;
+        let screen = render(&mut app, 80, 24);
+        assert!(line(&screen).contains("game-11 (yours)"), "the chosen profile is scrolled into view:\n{screen}");
+        assert!(line(&screen).contains('‹') && !line(&screen).contains('›'), "{screen}");
+        app.choice = 8;
+        let screen = render(&mut app, 80, 24);
+        assert!(line(&screen).contains("game-5 (yours)") && line(&screen).contains('‹') && line(&screen).contains('›'), "{screen}");
+        // A name wider than the whole line is cut, not dropped.
+        app.profiles.store(Ok(vec![ug_proto::ProfileInfo { id: "x".repeat(200), ..Default::default() }]));
+        app.choice = 0;
+        let screen = render(&mut app, 80, 24);
+        assert!(line(&screen).contains("xxx…"), "{screen}");
+    }
 }

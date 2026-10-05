@@ -387,6 +387,24 @@ page 11, `ug testlab [--yes] [--out FILE] [--recover]`.
   reinstall; the real service then really changes the governor for a
   few seconds, by design).
 
+## Profile picker with many profiles (2026-10-05, on `p5-gpu`)
+
+With many own profiles the picker wrapped and broke the dashboard card and the
+Game mode header. Now one component, `app/src/lib/ui/ProfilePicker.svelte`,
+used on the dashboard game mode card (`quiet`) and the Game mode page: never
+wider than the shipped profiles alone (measured; also at most 100 % of the
+parent), items scroll sideways, a fade and an arrow button on each side with
+hidden items (the arrow brings the next one into view), a thin bar drawn in
+the bottom padding (no native scrollbar, so the height does not change),
+vertical wheel scrolls it, long names cut with … (full name as tooltip). The
+chosen profile is scrolled into view only when it changes, not on every
+poll. Smooth scrolling is not used (stalls when the window is not drawing).
+Browser preview: `?profiles=N` adds N long-named profiles (mock only).
+TUI: `choices()` keeps the line, shows the chosen name, marks hidden ones
+with ‹ › (clickable), cuts a too-long name; test
+`many_profiles_scroll_in_one_line_and_the_chosen_one_is_always_shown`.
+The per-game picker is a native select and was fine.
+
 ## Next steps, in order
 
 1. **Finish the real install (needs sudo).** Done and verified (see the table

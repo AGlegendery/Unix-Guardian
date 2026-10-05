@@ -503,7 +503,7 @@ pub struct PlaytimeSession {
 }
 
 /// A game profile, with the games the user has assigned to it.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
 pub struct ProfileInfo {
     pub id: String,
     /// One of the shipped profiles (`competitive`, `balanced`, `quiet`). They

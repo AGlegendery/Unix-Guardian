@@ -10,6 +10,10 @@ import type { TestlabProgress, TestlabReport, RecorderAction, RecorderSettings, 
 const base = data.snapshot as unknown as Snapshot;
 // The captured profiles predate the screen and notification settings.
 const profiles: Profile[] = structuredClone(data.profiles).map((p) => ({ ...p, pause_apps: [] as string[], games: [] as string[], keep_screen_on: true, do_not_disturb: p.id === "competitive" }));
+// `?profiles=N` adds N of the user's own profiles with long names, to try the
+// profile picker with many.
+for (let i = 0; i < Number(new URLSearchParams(location.search).get("profiles") ?? 0); i++)
+  profiles.push({ ...structuredClone(profiles[1]), id: `my-long-profile-name-${i + 1}`, builtin: false });
 const jobs: PowerJob[] = [];
 let alarm = 0;
 const bat: BatteryCare = { supported: true, method: "vendor-long-life", adjustable: false, mode: "off", limit: 80, capacity: 100, status: "Full", reason: "" };

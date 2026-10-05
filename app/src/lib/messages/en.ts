@@ -155,6 +155,7 @@ export const en = {
       power_profile: "Performance power profile",
     },
     profiles: { competitive: "Competitive", balanced: "Balanced", quiet: "Quiet" } as Record<string, string>,
+    moreProfiles: "Show the next profile",
   },
   gmp: {
     turnOnWith: (name: string) => `Turn on now with ${name}`,

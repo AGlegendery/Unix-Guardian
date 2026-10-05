@@ -6,7 +6,7 @@ in minutes. **Update this file after every finished item and commit it.**
 Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 `05-findings.md`, `07-conventions.md`, `03-architecture.md`.
 
-Last updated: 2026-10-04 evening (Test lab done in CLI, window and TUI; see 04-status "Test lab").
+Last updated: 2026-10-05 (profile picker scrolls with many profiles; see 04-status "Profile picker").
 
 ## Where we are
 
@@ -116,6 +116,12 @@ saving them failed; window Dashboard/GPU-tuner left a sample listener,
 a subscription or a GPU-waking poll behind on fast page changes.
 net-e2e's three tc checks fail on this machine before and after (no
 `tc` on PATH outside sbin); not caused by the sweep.
+
+## Profile picker (2026-10-05) ✅
+
+Many profiles broke the picker; now it scrolls sideways at its old size with
+fades, arrows and a thin bar, window and TUI (see 04-status "Profile
+picker"). Release binaries rebuilt; the user has to reinstall.
 
 ## Incident 2026-10-04 (top priority, read 05-findings "Incident")
 

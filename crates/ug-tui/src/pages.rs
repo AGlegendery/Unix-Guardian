@@ -446,21 +446,65 @@ fn tabs(app: &mut App, f: &mut Frame, r: Rect, names: &[&str]) {
 }
 
 /// A row of choices; the chosen one highlighted, each clickable.
+/// A one-line choice. When the names do not fit, the line keeps its size and
+/// scrolls: the chosen name is always shown, `‹` / `›` mark hidden names on
+/// that side (clicking one picks the next hidden name), and a name wider than
+/// the whole line is cut with `…`.
 fn choices(app: &mut App, f: &mut Frame, r: Rect, label: &str, names: &[String], chosen: usize) {
     let mut x = r.x;
     f.render_widget(Paragraph::new(Span::styled(label, app.theme.muted())), Rect { x, y: r.y, width: label.len() as u16, height: 1 });
     x += label.len() as u16 + 1;
-    for (i, n) in names.iter().enumerate() {
+    let room = r.right().saturating_sub(x) as usize;
+    let (first, last, shown) = choice_window(names, chosen, room);
+    if first > 0 {
+        let rect = Rect { x, y: r.y, width: 2, height: 1 };
+        f.render_widget(Paragraph::new(Span::styled("‹ ", app.theme.accent())), rect);
+        app.hits.push((rect, Hit::Choice(first - 1)));
+        x += 2;
+    }
+    for (i, n) in shown.iter().enumerate().map(|(k, n)| (first + k, n)) {
         let w = n.chars().count() as u16 + 2;
-        if x + w > r.right() {
-            break;
-        }
         let rect = Rect { x, y: r.y, width: w, height: 1 };
         let style = if i == chosen { app.theme.selected() } else { app.theme.muted() };
         f.render_widget(Paragraph::new(Span::styled(format!(" {n} "), style)), rect);
         app.hits.push((rect, Hit::Choice(i)));
         x += w + 1;
     }
+    if last + 1 < names.len() {
+        let rect = Rect { x: r.right().saturating_sub(2).max(x), y: r.y, width: 2, height: 1 };
+        f.render_widget(Paragraph::new(Span::styled(" ›", app.theme.accent())), rect);
+        app.hits.push((rect, Hit::Choice(last + 1)));
+    }
+}
+
+/// Which names fit in `room` columns (each takes its length + 2, with one
+/// column between), keeping `chosen` in view and leaving two columns for each
+/// `‹` / `›` marker that is needed. Returns the first and last index shown and
+/// the names to draw (cut with `…` when one alone is too wide).
+fn choice_window(names: &[String], chosen: usize, room: usize) -> (usize, usize, Vec<String>) {
+    if names.is_empty() {
+        return (0, 0, vec![]);
+    }
+    let chosen = chosen.min(names.len() - 1);
+    let width = |i: usize| names[i].chars().count() + 2;
+    let span = |a: usize, b: usize| (a..=b).map(width).sum::<usize>() + (b - a);
+    let fits = |a: usize, b: usize| {
+        let marks = if a > 0 { 2 } else { 0 } + if b + 1 < names.len() { 2 } else { 0 };
+        span(a, b) + marks <= room
+    };
+    // Smallest first index that still shows the chosen name, then as many
+    // names after it as fit.
+    let Some(first) = (0..=chosen).find(|&a| fits(a, chosen)) else {
+        let marks = if chosen > 0 { 2 } else { 0 } + if chosen + 1 < names.len() { 2 } else { 0 };
+        let keep = room.saturating_sub(marks + 3).max(1);
+        let cut: String = names[chosen].chars().take(keep).collect();
+        return (chosen, chosen, vec![format!("{cut}…")]);
+    };
+    let mut last = chosen;
+    while last + 1 < names.len() && fits(first, last + 1) {
+        last += 1;
+    }
+    (first, last, names[first..=last].to_vec())
 }
 
 /// A selectable list row; returns the rect so callers can add detail lines.

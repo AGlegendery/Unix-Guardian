@@ -157,6 +157,7 @@ export const fa: typeof en = {
       power_profile: "پروفایل توان «عملکرد»",
     },
     profiles: { competitive: "رقابتی", balanced: "متعادل", quiet: "ساکت" },
+    moreProfiles: "نمایش پروفایل بعدی",
   },
   gmp: {
     turnOnWith: (name: string) => `همین الان با ${name} روشن کن`,

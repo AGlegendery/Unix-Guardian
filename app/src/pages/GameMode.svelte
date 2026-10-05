@@ -7,6 +7,7 @@
   import { duration } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
+  import ProfilePicker from "../lib/ui/ProfilePicker.svelte";
   import Switch from "../lib/ui/Switch.svelte";
 
   let { overview }: { overview: Overview | null } = $props();
@@ -201,10 +202,10 @@
   <article class="card settings">
     <div class="card-head">
       <h2>{t().gmp.profilesTitle}</h2>
-      <Segmented
+      <ProfilePicker
         label={t().gmp.profilesTitle}
         value={selected}
-        options={profiles.map((p) => ({ value: p.id, label: p.builtin ? label(p.id) : `${p.id} (${t().gmp.yours})` }))}
+        options={profiles.map((p) => ({ value: p.id, label: p.builtin ? label(p.id) : `${p.id} (${t().gmp.yours})`, builtin: p.builtin }))}
         onchange={(v) => (selected = v)}
       />
     </div>
