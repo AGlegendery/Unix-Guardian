@@ -19,7 +19,8 @@
 
 {#if part === "buttons"}
   <div class="actions">
-    {#if state !== ""}
+    {#if state === "background"}<span class="state background" title={t().ping.bg.slowedHint}>{t().ping.bg.slowed}</span>{/if}
+    {#if state === "blocked" || state === "limited"}
       <span class="state {state}">{state === "blocked" ? t().ping.blocked : t().ping.limited}</span>
       <button class="btn" disabled={ctl.busy} onclick={() => ctl.allow(name)}>{t().ping.allow}</button>
     {:else}
@@ -59,6 +60,7 @@
   .state { padding: 2px 9px; border-radius: 999px; font-size: 0.75rem; background: var(--card-2); color: var(--text-2); }
   .state.blocked { color: var(--danger); }
   .state.limited { color: var(--accent-text); }
+  .state.background { color: var(--warn, #fbbf24); }
   .form { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: flex-end; padding: 12px; margin-top: 8px; border-radius: var(--radius-sm); background: color-mix(in oklab, var(--card-2) 50%, var(--card)); }
   .field { display: grid; gap: 6px; font-size: 0.82rem; color: var(--text-2); }
   .field.buttons { display: flex; gap: 8px; }

@@ -442,6 +442,23 @@ state in `lib/netcontrol.svelte.ts`, buttons + limit form in
 `AppRuleActions.svelte`. Old `#ping` links redirect. The TUI keeps its own
 Ping page (page 5) for now.
 
+## Slow down background apps (2026-10-05)
+
+Ping stability tab, top card: a switch, shared upload/download caps
+(defaults 1 / 8 Mbit/s, for all background apps together) and when (always,
+the default, or only while gaming). Service: `Background` in
+`ug-net/rules.rs`, saved as `net-background.json` in the state dir;
+`Policy::with_background` adds one shared HTB class (`*background`) after
+the rules' classes; `background_class()` leaves out apps with their own
+rule, VPNs/proxies (category vpn), DNS managers (new category `dns`:
+systemd-resolved, NetworkManager, dnsmasq, dnscrypt, …) and any cgroup
+holding the running game's pids (re-marked when the game starts or ends in
+a launcher's group). Apps report state `background`. `Daemon1.Net.Background
+/ SetBackground` (polkit as rules); `ug net background on|off [--up --down
+--gaming|--always]`; TUI Ping page `s`. net-e2e has three new checks (real
+nftables + tc in a namespace): marked, 4 Mbit/s cap gives ~4 s for 2 MB,
+off frees it.
+
 ## Next steps, in order
 
 1. **Finish the real install (needs sudo).** Done and verified (see the table

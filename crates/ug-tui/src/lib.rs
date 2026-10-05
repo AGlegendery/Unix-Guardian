@@ -100,6 +100,8 @@ pub struct App {
     pub ping: Cached<PingReport>,
     pub ping_compare: Option<(u64, PingComparison)>,
     pub net: Cached<(Vec<AppTraffic>, Vec<NetRule>, NetControlStatus)>,
+    /// "Slow down background apps", read with `net` (None: an older service).
+    pub net_bg: Option<(bool, u32, u32, String)>,
     pub overlay: Cached<OverlayState>,
     pub shortcuts: Cached<ug_proto::ShortcutsState>,
     pub recorder: Cached<ug_proto::RecorderState>,
@@ -187,6 +189,7 @@ impl App {
             ping: Cached::new(LIVE),
             ping_compare: None,
             net: Cached::new(Duration::from_secs(2)),
+            net_bg: None,
             overlay: Cached::new(SLOW),
             // Fast enough to follow the desktop's confirmation dialog.
             shortcuts: Cached::new(Duration::from_secs(1)),
@@ -418,6 +421,7 @@ impl App {
                 if self.net.due() {
                     let r = self.bus.net();
                     self.net.store(r);
+                    self.net_bg = self.bus.net_background().ok();
                 }
             }
             6 => {
@@ -549,6 +553,7 @@ impl App {
                 KeyCode::Right | KeyCode::Char('l') => pages::step_choice(self, 1),
                 KeyCode::Enter | KeyCode::Char(' ') => pages::activate(self, self.row),
                 KeyCode::Char('x') | KeyCode::Delete => pages::remove(self, self.row),
+                KeyCode::Char('s') if self.page == 4 => pages::toggle_background(self),
                 KeyCode::Char('b') => pages::block(self, self.row),
                 KeyCode::Char('c') if (self.page, self.tab) == (5, 1) => pages::record_shortcut(self, self.row),
                 KeyCode::Char('e') if self.page == 6 => pages::export_playtime(self),
@@ -1472,5 +1477,21 @@ mod tests {
         assert!(render(&mut app, 120, 40).contains("Month 2026-10"));
         app.key(KeyCode::Char('r'), KeyModifiers::NONE);
         assert!(app.armed.as_ref().is_some_and(|(a, _)| a.contains("internet-use")), "the first r only arms");
+    }
+
+    #[test]
+    fn the_ping_page_shows_the_background_switch_and_how_many_are_slowed() {
+        use ug_proto::AppTraffic;
+        let mut app = App::new(Bus::offline());
+        app.go(4);
+        let a = |name: &str, state: &str| AppTraffic { id: format!("x/{name}"), name: name.into(), kind: "app".into(), state: state.into(), ..Default::default() };
+        app.net.store(Ok((vec![a("firefox-esr", "background"), a("qbittorrent", "background"), a("v2rayn", "")], vec![], NetControlStatus { available: true, ..Default::default() })));
+        app.net_bg = Some((true, 1000, 8000, "always".into()));
+        let screen = render(&mut app, 130, 40);
+        for want in ["Slow down background apps", "On", "up 1.0 Mbit/s, down 8.0 Mbit/s", "2 slowed now", "s turns it off", "VPNs and proxies, DNS managers"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        app.net_bg = None;
+        assert!(!render(&mut app, 130, 40).contains("Slow down background apps"), "an older service: nothing promised");
     }
 }

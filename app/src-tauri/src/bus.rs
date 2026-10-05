@@ -548,6 +548,19 @@ pub async fn net_set_rule(bus: State<'_, Bus>, app: String, block: bool, up_kbps
     n.set_rule(&app, block, up_kbps, down_kbps, &when).await.map_err(daemon_err)
 }
 
+/// "Slow down background apps": (on, up kbit/s, down kbit/s, when).
+#[tauri::command]
+pub async fn net_background(bus: State<'_, Bus>) -> Res<(bool, u32, u32, String)> {
+    let n = NetProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    n.background().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn net_set_background(bus: State<'_, Bus>, on: bool, up_kbps: u32, down_kbps: u32, when: String) -> Res<()> {
+    let n = NetProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
+    n.set_background(on, up_kbps, down_kbps, &when).await.map_err(daemon_err)
+}
+
 #[tauri::command]
 pub async fn net_remove_rule(bus: State<'_, Bus>, app: String) -> Res<bool> {
     let n = NetProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;

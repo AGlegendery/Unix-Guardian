@@ -106,13 +106,20 @@ impl<N: Nft> Accountant<N> {
         for g in &groups {
             if let Some(e) = self.apps.get_mut(&g.path) {
                 if e.pids != g.pids {
+                    // The game starting or ending in an existing group (a
+                    // launcher's) changes whether it is background.
+                    let before = self.policy.background_class(&e.label.name, &e.exe, &e.pids);
                     e.pids = g.pids.clone();
+                    if self.policy.background_class(&e.label.name, &e.exe, &e.pids) != before {
+                        self.policy_dirty = true;
+                    }
                 }
             } else if added.contains(&g.path) {
                 let exe = g.pids.first().map(|&p| cgroups::comm(&self.root, p)).unwrap_or_default();
                 let label = cgroups::label(&g.path, &exe);
                 if self.policy.blocks(&label.name)
                     || self.policy.class_of(&label.name).is_some()
+                    || self.policy.background.is_some()
                     || cgroups::category(&label.name, &exe) == "vpn"
                 {
                     self.policy_dirty = true;
@@ -209,6 +216,8 @@ impl<N: Nft> Accountant<N> {
                 blocked.push((p.clone(), e.level));
             } else if let Some(c) = self.policy.class_of(&e.label.name) {
                 marked.push((p.clone(), e.level, mark(c)));
+            } else if let Some(c) = self.policy.background_class(&e.label.name, &e.exe, &e.pids) {
+                marked.push((p.clone(), e.level, mark(c)));
             }
         }
         self.nft.apply(&nft::policy_script(&blocked, &marked, &vpn))?;
@@ -281,6 +290,8 @@ impl<N: Nft> Accountant<N> {
                     "blocked".into()
                 } else if self.policy.class_of(&e.label.name).is_some() {
                     "limited".into()
+                } else if self.policy.background_class(&e.label.name, &e.exe, &e.pids).is_some() {
+                    "background".into()
                 } else {
                     String::new()
                 },
@@ -504,5 +515,38 @@ mod tests {
         a.refresh(Instant::now()).unwrap();
         // Not retried on every refresh.
         assert_eq!(nft.scripts.lock().unwrap().len(), n);
+    }
+
+    #[test]
+    fn background_slowing_marks_every_other_app_but_not_the_game_or_vpn() {
+        use crate::rules::{Background, When};
+        let fs = machine();
+        let vpn = "user.slice/user-1000.slice/user@1000.service/app.slice/app-v2rayn-40.scope";
+        let game = "user.slice/user-1000.slice/user@1000.service/app.slice/app-steam@x.service";
+        fs.write(format!("sys/fs/cgroup/{vpn}/cgroup.procs"), "40");
+        fs.write("proc/40/comm", "xray");
+        fs.write(format!("sys/fs/cgroup/{game}/cgroup.procs"), "50\n51");
+        fs.write("proc/50/comm", "steam");
+        let nft = FakeNft::default();
+        let mut a = Accountant::new(nft.clone(), SysRoot::at(fs.root()));
+        a.refresh(Instant::now()).unwrap();
+        let bg = Background { on: true, up_kbps: 1000, down_kbps: 8000, when: When::Always };
+        a.set_policy(Policy::from_rules(&[], true).with_background(&bg, true, &[51]));
+        a.sync_groups().unwrap();
+        let last = nft.scripts.lock().unwrap().last().unwrap().clone();
+        assert!(last.contains(&format!("\"{FF}\" : 0x55470001")), "firefox is slowed:\n{last}");
+        assert!(last.contains(&format!("\"{PK}\" : 0x55470001")), "updates are slowed:\n{last}");
+        assert!(!last.contains(&format!("\"{vpn}\" :")), "the VPN is left alone:\n{last}");
+        assert!(!last.contains(&format!("\"{game}\" :")), "the game is left alone:\n{last}");
+        let state = |n: &str| a.apps().into_iter().find(|x| x.name == n).unwrap().state;
+        assert_eq!(state("firefox"), "background");
+        assert_eq!(state("v2rayn"), "");
+        assert_eq!(state("steam"), "");
+
+        // The game ends (its process leaves the group): steam is background now.
+        fs.write(format!("sys/fs/cgroup/{game}/cgroup.procs"), "50");
+        a.sync_groups().unwrap();
+        let last = nft.scripts.lock().unwrap().last().unwrap().clone();
+        assert!(last.contains(&format!("\"{game}\" : 0x55470001")), "{last}");
     }
 }

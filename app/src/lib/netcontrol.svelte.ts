@@ -35,12 +35,29 @@ export class NetControl {
     return this.rules.find((r) => r.app.toLowerCase() === name.toLowerCase()) ?? null;
   }
 
-  /** "blocked", "limited" or "" for an app by name (its rule, or the live state). */
-  stateOf(name: string): "" | "blocked" | "limited" {
+  /** "blocked", "limited", "background" (slowed with the background apps)
+   *  or "" for an app by name (its rule, or the live state). */
+  stateOf(name: string): "" | "blocked" | "limited" | "background" {
     const live = this.apps.find((a) => a.name.toLowerCase() === name.toLowerCase());
     if (live?.state) return live.state;
     const r = this.ruleFor(name);
     return r ? (r.block ? "blocked" : "limited") : "";
+  }
+
+  /** "Slow down background apps": on, up and down caps (kbit/s), when. */
+  background = $state<[boolean, number, number, "always" | "gaming"] | null>(null);
+  async loadBackground() {
+    try {
+      this.background = await api.netBackground();
+    } catch {
+      this.background = null; // an older service without it
+    }
+  }
+  setBackground(on: boolean, up: number, down: number, when: "always" | "gaming") {
+    return this.act(async () => {
+      await api.netSetBackground(on, up, down, when);
+      this.background = await api.netBackground();
+    });
   }
 
   async act(f: () => Promise<unknown>) {

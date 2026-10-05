@@ -122,6 +122,53 @@ impl Rules {
     }
 }
 
+/// "Slow down background apps" (Ping stability): one shared cap for every
+/// app that has no rule of its own, except the running game, VPNs and
+/// proxies, and DNS managers. Saved as JSON beside the rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Background {
+    pub on: bool,
+    /// Kilobits per second for all background apps together; 0 = no cap.
+    pub up_kbps: u32,
+    pub down_kbps: u32,
+    pub when: When,
+}
+
+impl Default for Background {
+    fn default() -> Self {
+        Background { on: false, up_kbps: 1000, down_kbps: 8000, when: When::Always }
+    }
+}
+
+impl Background {
+    pub fn load(path: &Path) -> Background {
+        std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+    }
+
+    /// Checks and saves; only a saved setting is enforced (as with rules).
+    pub fn save(&self, path: &Path) -> Result<(), String> {
+        if self.on && self.up_kbps == 0 && self.down_kbps == 0 {
+            return Err("slowing background apps needs an upload or download cap".into());
+        }
+        for k in [self.up_kbps, self.down_kbps] {
+            if k != 0 && !(MIN_KBPS..=MAX_KBPS).contains(&k) {
+                return Err(format!("a cap must be between {MIN_KBPS} kbit/s and {} Gbit/s", MAX_KBPS / 1_000_000));
+            }
+        }
+        if let Some(d) = path.parent() {
+            std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+        }
+        let tmp = path.with_extension("tmp");
+        std::fs::write(&tmp, serde_json::to_string_pretty(self).expect("serialize"))
+            .and_then(|_| std::fs::rename(&tmp, path))
+            .map_err(|e| format!("saving {}: {e}", path.display()))
+    }
+}
+
+/// The name the shared background class goes by among the limits (no app
+/// name starts with `*`).
+pub const BACKGROUND: &str = "*background";
+
 /// What the kernel should do right now, derived from the rules and whether a
 /// game is running.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -130,6 +177,10 @@ pub struct Policy {
     pub blocked: Vec<String>,
     /// Lower-case app name → shaping class (1-based), with its caps.
     pub limits: Vec<Limit>,
+    /// The shared class background apps are put in, while that is on.
+    pub background: Option<u16>,
+    /// The running game's processes: never counted as background.
+    pub game_pids: Vec<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,12 +211,41 @@ impl Policy {
         p
     }
 
+    /// Adds "slow down background apps" when it is on and applies now.
+    pub fn with_background(mut self, b: &Background, gaming: bool, game_pids: &[i32]) -> Policy {
+        if b.on && (b.when == When::Always || gaming) && (b.up_kbps > 0 || b.down_kbps > 0) {
+            let class = self.limits.len() as u16 + 1;
+            self.limits.push(Limit { app: BACKGROUND.into(), class, up_kbps: b.up_kbps, down_kbps: b.down_kbps });
+            self.background = Some(class);
+            self.game_pids = game_pids.to_vec();
+        }
+        self
+    }
+
+    /// The background class for an app, if it is slowed as background: not
+    /// with a rule of its own, not a VPN or proxy (it carries the game's
+    /// traffic too), not a DNS manager (every lookup goes through it), and
+    /// not holding the running game.
+    pub fn background_class(&self, name: &str, exe: &str, pids: &[i32]) -> Option<u16> {
+        let class = self.background?;
+        if self.blocks(name) || self.class_of(name).is_some() {
+            return None;
+        }
+        if matches!(crate::cgroups::category(name, exe), "vpn" | "dns") {
+            return None;
+        }
+        if pids.iter().any(|p| self.game_pids.contains(p)) {
+            return None;
+        }
+        Some(class)
+    }
+
     pub fn blocks(&self, name: &str) -> bool {
         self.blocked.iter().any(|b| b.eq_ignore_ascii_case(name))
     }
 
     pub fn class_of(&self, name: &str) -> Option<u16> {
-        self.limits.iter().find(|l| l.app.eq_ignore_ascii_case(name)).map(|l| l.class)
+        self.limits.iter().find(|l| l.app != BACKGROUND && l.app.eq_ignore_ascii_case(name)).map(|l| l.class)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -178,7 +258,7 @@ impl Policy {
         for b in &self.blocked {
             m.insert(b.clone(), "blocked");
         }
-        for l in &self.limits {
+        for l in self.limits.iter().filter(|l| l.app != BACKGROUND) {
             m.insert(l.app.clone(), "limited");
         }
         m
@@ -253,5 +333,46 @@ mod tests {
         assert_eq!(game.class_of("qBittorrent"), Some(1));
         assert!(game.blocks("DROPBOX"));
         assert_eq!(mark(1), 0x5547_0001);
+    }
+
+    #[test]
+    fn background_apps_share_one_class_but_never_the_game_a_vpn_or_dns() {
+        let rules = vec![rule("qbittorrent", false, 500, When::Always), rule("dropbox", true, 0, When::Always)];
+        let bg = Background { on: true, up_kbps: 1000, down_kbps: 8000, when: When::Always };
+        let p = Policy::from_rules(&rules, false).with_background(&bg, false, &[4242]);
+        assert_eq!(p.background, Some(2), "after the rules' own classes");
+        assert_eq!(p.limits.last().unwrap().app, BACKGROUND);
+        assert_eq!(p.background_class("firefox-esr", "firefox-esr", &[10]), Some(2));
+        assert_eq!(p.background_class("packagekit", "packagekitd", &[20]), Some(2), "updates are background");
+        assert_eq!(p.background_class("qbittorrent", "", &[30]), None, "its own rule wins");
+        assert_eq!(p.background_class("dropbox", "", &[31]), None, "blocked already");
+        assert_eq!(p.background_class("steam", "steam", &[40, 4242]), None, "holds the running game");
+        assert_eq!(p.background_class("v2rayn", "xray", &[50]), None, "a VPN carries the game's traffic");
+        assert_eq!(p.background_class("systemd-resolved", "systemd-resolve", &[60]), None, "DNS manager");
+        assert_eq!(p.background_class("NetworkManager", "NetworkManager", &[61]), None);
+        assert!(!p.states().contains_key(BACKGROUND), "the shared class is not an app");
+        assert_eq!(p.class_of("*background"), None);
+    }
+
+    #[test]
+    fn background_slowing_follows_its_switch_and_time() {
+        let mut bg = Background { on: false, ..Default::default() };
+        assert_eq!(Policy::from_rules(&[], true).with_background(&bg, true, &[]).background, None, "off");
+        bg.on = true;
+        bg.when = When::Gaming;
+        assert_eq!(Policy::from_rules(&[], false).with_background(&bg, false, &[]).background, None, "waits for a game");
+        assert_eq!(Policy::from_rules(&[], true).with_background(&bg, true, &[]).background, Some(1));
+    }
+
+    #[test]
+    fn the_background_setting_is_saved_and_checked() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("net-background.json");
+        assert_eq!(Background::load(&path), Background::default(), "off until turned on");
+        let bg = Background { on: true, up_kbps: 512, down_kbps: 0, when: When::Gaming };
+        bg.save(&path).unwrap();
+        assert_eq!(Background::load(&path), bg);
+        assert!(Background { on: true, up_kbps: 0, down_kbps: 0, when: When::Always }.save(&path).is_err());
+        assert!(Background { on: true, up_kbps: 10, down_kbps: 0, when: When::Always }.save(&path).is_err());
     }
 }

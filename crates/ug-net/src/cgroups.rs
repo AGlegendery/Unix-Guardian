@@ -147,6 +147,8 @@ fn unescape(s: &str) -> String {
 const CATALOG: &[(&str, &[&str])] = &[
     // First: a VPN or proxy carries other apps' traffic (see `nft`).
     ("vpn", &["v2rayn", "v2ray", "xray", "sing-box", "singbox", "clash", "mihomo", "hysteria", "tun2socks", "nekoray", "nekobox", "throne", "hiddify", "openvpn", "wireguard-go", "warp-svc", "outline", "shadowsocks", "ss-local", "trojan", "naiveproxy", "tailscaled", "psiphon", "lantern"]),
+    // DNS managers answer every other app's lookups; slowing them slows all.
+    ("dns", &["systemd-resolve", "resolved", "dnsmasq", "dnscrypt", "stubby", "unbound", "networkmanager", "nextdns", "adguardhome", "coredns", "pdnsd", "kresd", "dnsproxy", "smartdns", "dnsdist", "cloudflared", "dns"]),
     ("torrent", &["qbittorrent", "transmission", "deluge", "ktorrent", "fragments", "rtorrent", "aria2c", "tixati", "biglybt"]),
     ("sync", &["dropbox", "syncthing", "nextcloud", "owncloud", "megasync", "onedrive", "insync", "rclone", "seafile", "pcloud", "maestral", "rsync"]),
     ("updates", &["packagekit", "flatpak-system-helper", "snapd", "apt", "dnf", "zypper", "pamac", "discover", "fwupd", "unattended-upgr", "gnome-software", "mintupdate"]),
@@ -217,6 +219,10 @@ mod tests {
         assert_eq!(category("mullvad-xray-helper", ""), "vpn");
         assert_eq!(category("jobs-app", "captain"), "", "short words match whole words only");
         assert_eq!(category("firefox-esr", "firefox-esr"), "");
+        assert_eq!(category("systemd-resolved", "systemd-resolve"), "dns");
+        assert_eq!(category("NetworkManager", "NetworkManager"), "dns");
+        assert_eq!(category("dnscrypt-proxy", ""), "dns");
+        assert_eq!(category("secure-dns", ""), "dns");
     }
 
     #[test]

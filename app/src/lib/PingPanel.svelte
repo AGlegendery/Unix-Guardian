@@ -9,6 +9,8 @@
   import LineChart from "./LineChart.svelte";
   import type { NetControl } from "./netcontrol.svelte";
   import Problem from "./ui/Problem.svelte";
+  import Segmented from "./ui/Segmented.svelte";
+  import Switch from "./ui/Switch.svelte";
 
   let { ctl }: { ctl: NetControl } = $props();
   let report = $state<PingReport | null>(null);
@@ -71,14 +73,73 @@
   }
 
   const background = $derived(
-    ctl.apps.filter((a) => !a.has_game && a.kind !== "session" && a.category !== "vpn" && (a.state !== "" || (a.category && a.rx_bps + a.tx_bps >= 50_000) || a.tx_bps >= 125_000)),
+    ctl.apps.filter((a) => !a.has_game && a.kind !== "session" && a.category !== "vpn" && ((a.state !== "" && a.state !== "background") || (a.category && a.rx_bps + a.tx_bps >= 50_000) || a.tx_bps >= 125_000)),
   );
   const vpnApps = $derived(ctl.apps.filter((a) => a.category === "vpn"));
   const maxRate = $derived(Math.max(1, ...background.map((a) => a.rx_bps + a.tx_bps)));
+  // "Slow down background apps".
+  $effect(() => {
+    ctl.loadBackground();
+  });
+  const UP = [256, 512, 1000, 2000];
+  const DOWN = [2000, 4000, 8000, 16000];
+  const kb = (k: number) => (k >= 1000 ? `${num(k / 1000, k % 1000 ? 1 : 0)} Mbit/s` : `${num(k)} kbit/s`);
+  const slowed = $derived(ctl.apps.filter((a) => a.state === "background"));
+  const spared = $derived(ctl.apps.filter((a) => a.state === "" && (a.has_game || a.category === "vpn" || a.category === "dns")));
+  function setBg(patch: Partial<{ on: boolean; up: number; down: number; when: "always" | "gaming" }>) {
+    const b = ctl.background;
+    if (!b) return;
+    const next = { on: b[0], up: b[1], down: b[2], when: b[3], ...patch };
+    ctl.setBackground(next.on, next.up, next.down, next.when);
+  }
   const ms = (v: number | null) => (v == null ? "—" : num(v, v < 10 ? 1 : 0));
 </script>
 
 {#if error}<Problem text={error} />{/if}
+
+<!-- The most useful thing for ping while playing: every app that is not
+     the game, a VPN or a DNS manager shares one small cap. -->
+<section class="card bg" class:on={ctl.background?.[0]}>
+  <div class="bg-head">
+    <div>
+      <h2>{t().ping.bg.title}</h2>
+      <p class="muted">{t().ping.bg.explain}</p>
+    </div>
+    {#if ctl.background}
+      <Switch checked={ctl.background[0]} disabled={ctl.busy || !ctl.status?.available} label={t().ping.bg.title} onchange={(v) => setBg({ on: v })} />
+    {/if}
+  </div>
+  {#if !ctl.background}
+    <p class="muted">{t().ping.bg.oldService}</p>
+  {:else}
+    <div class="bg-fields">
+      <div class="field">
+        <span>{t().ping.upCap}</span>
+        <Segmented label={t().ping.upCap} value={String(ctl.background[1])} options={UP.map((k) => ({ value: String(k), label: kb(k) }))} onchange={(v) => setBg({ up: Number(v) })} />
+      </div>
+      <div class="field">
+        <span>{t().ping.downCap}</span>
+        <Segmented label={t().ping.downCap} value={String(ctl.background[2])} options={DOWN.map((k) => ({ value: String(k), label: kb(k) }))} onchange={(v) => setBg({ down: Number(v) })} />
+      </div>
+      <div class="field">
+        <span>{t().ping.bg.when}</span>
+        <Segmented label={t().ping.bg.when} value={ctl.background[3]} options={[{ value: "always", label: t().ping.bg.always }, { value: "gaming", label: t().ping.gaming }]} onchange={(v) => setBg({ when: v })} />
+      </div>
+    </div>
+    <p class="small">{t().ping.bg.shared}</p>
+    {#if ctl.background[0]}
+      {#if slowed.length}
+        <p class="who-line"><b>{t().ping.bg.slowedNow(slowed.length)}</b> {#each slowed.slice(0, 12) as a (a.id)}<span class="chip" dir="auto">{a.name}</span>{/each}{#if slowed.length > 12}<span class="chip">+{num(slowed.length - 12)}</span>{/if}</p>
+      {:else if ctl.background[3] === "gaming"}
+        <p class="small">{t().ping.bg.waiting}</p>
+      {/if}
+      {#if spared.length}
+        <p class="who-line"><b>{t().ping.bg.spared}</b> {#each spared as a (a.id)}<span class="chip spared" dir="auto">{a.name}</span>{/each}</p>
+      {/if}
+    {/if}
+    {#if !ctl.status?.available}<p class="small">{t().ping.unavailable} {ctl.status?.problem ?? ""}</p>{/if}
+  {/if}
+</section>
 <div class="stats">
   {#each report?.targets ?? [] as tg (tg.id)}
     <section class="card stat">
@@ -194,4 +255,13 @@
   .bar { width: 120px; height: 6px; border-radius: 3px; background: var(--card-2); overflow: hidden; }
   .bar span { display: block; height: 100%; width: calc(var(--w) * 100%); background: #8f6af2; }
   .rates { color: var(--text-2); font-size: 0.82rem; }
+  .small { color: var(--text-3); font-size: 0.8rem; margin: 10px 0 0; }
+  .bg { border: 1px solid transparent; }
+  .bg.on { border-color: color-mix(in oklab, var(--accent) 45%, transparent); }
+  .bg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .bg-head h2 { margin-bottom: 4px; }
+  .bg-fields { display: flex; flex-wrap: wrap; gap: 14px 22px; margin-top: 14px; }
+  .field { display: grid; gap: 6px; font-size: 0.82rem; color: var(--text-2); }
+  .who-line { margin: 12px 0 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.84rem; }
+  .chip.spared { color: var(--ok, #34d399); }
 </style>

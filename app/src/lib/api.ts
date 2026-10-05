@@ -118,7 +118,8 @@ export interface AppTraffic {
   tx_bps: number;
   rx_bytes: number;
   tx_bytes: number;
-  state: "" | "blocked" | "limited";
+  /** "background": slowed by "slow down background apps". */
+  state: "" | "blocked" | "limited" | "background";
   category: string;
   has_game: boolean;
 }
@@ -556,6 +557,9 @@ const tauriApi = {
   netSetRule: (app: string, block: boolean, upKbps: number, downKbps: number, when: "always" | "gaming") =>
     invoke<void>("net_set_rule", { app, block, upKbps, downKbps, when }),
   netRemoveRule: (app: string) => invoke<boolean>("net_remove_rule", { app }),
+  netBackground: () => invoke<[boolean, number, number, "always" | "gaming"]>("net_background"),
+  netSetBackground: (on: boolean, upKbps: number, downKbps: number, when: "always" | "gaming") =>
+    invoke<void>("net_set_background", { on, upKbps, downKbps, when }),
   overlayState: () => invoke<OverlayState>("overlay_state"),
   overlaySet: (settings: OverlaySettings) => invoke<void>("overlay_set", { settings }),
   overlaySetUp: (on: boolean) => invoke<void>("overlay_set_up", { on }),

@@ -375,6 +375,25 @@ enum NetCommand {
     Allow { app: String },
     /// Every rule.
     Rules,
+    /// Slow down background apps for a steady ping: every app without a rule
+    /// of its own shares one cap, except the running game, VPNs and proxies,
+    /// and DNS managers. `on`, `off`, or nothing to show the setting.
+    Background {
+        /// on or off.
+        state: Option<String>,
+        /// Upload cap for all of them together, e.g. 1m.
+        #[arg(long)]
+        up: Option<String>,
+        /// Download cap for all of them together, e.g. 8m.
+        #[arg(long)]
+        down: Option<String>,
+        /// Only while game mode is on.
+        #[arg(long)]
+        gaming: bool,
+        /// Whenever it is on (the default).
+        #[arg(long, conflicts_with = "gaming")]
+        always: bool,
+    },
 }
 
 /// `500k`, `2m`, `2.5m` or plain kilobits → kbit/s.
@@ -2550,6 +2569,54 @@ async fn net(conn: &zbus::Connection, command: Option<NetCommand>, all: bool, js
                 println!("{app} has no limits any more.");
             } else {
                 println!("{app} had no rule.");
+            }
+            return Ok(());
+        }
+        Some(NetCommand::Background { state, up, down, gaming, always }) => {
+            let (mut on, mut up_k, mut down_k, mut when_s) = p.background().await.map_err(daemon_error)?;
+            let f = |k: u32| if k == 0 { "no cap".to_string() } else if k >= 1000 { format!("{:.1} Mbit/s", k as f64 / 1000.0) } else { format!("{k} kbit/s") };
+            let changing = state.is_some() || up.is_some() || down.is_some() || gaming || always;
+            if changing {
+                match state.as_deref() {
+                    Some("on") => on = true,
+                    Some("off") => on = false,
+                    Some(o) => anyhow::bail!("{o:?}: use on or off"),
+                    None => {}
+                }
+                if let Some(u) = up.as_deref() {
+                    up_k = parse_kbps(u)?;
+                }
+                if let Some(d) = down.as_deref() {
+                    down_k = parse_kbps(d)?;
+                }
+                if gaming {
+                    when_s = "gaming".into();
+                } else if always {
+                    when_s = "always".into();
+                }
+                p.set_background(on, up_k, down_k, &when_s).await.map_err(daemon_error)?;
+            }
+            if json {
+                println!("{}", serde_json::json!({ "on": on, "up_kbps": up_k, "down_kbps": down_k, "when": when_s }));
+                return Ok(());
+            }
+            println!(
+                "Slow down background apps: {}  (up {}, down {} for all of them together, {})",
+                if on { "on" } else { "off" },
+                f(up_k),
+                f(down_k),
+                if when_s == "gaming" { "while game mode is on" } else { "whenever it is on" }
+            );
+            println!("Left alone: the running game, VPNs and proxies, DNS managers, and apps with a rule of their own.");
+            if on {
+                let apps = p.apps().await.map_err(daemon_error)?;
+                let slowed: Vec<&str> = apps.iter().filter(|a| a.state == "background").map(|a| a.name.as_str()).collect();
+                if !slowed.is_empty() {
+                    println!("Slowed now: {}", slowed.join(", "));
+                }
+                for problem in p.status().await.map_err(daemon_error)?.shaping_problems {
+                    println!("Note: {problem}");
+                }
             }
             return Ok(());
         }

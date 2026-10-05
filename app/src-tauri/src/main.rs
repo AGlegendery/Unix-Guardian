@@ -139,6 +139,8 @@ fn main() {
             bus::net_apps,
             bus::net_rules,
             bus::net_set_rule,
+            bus::net_background,
+            bus::net_set_background,
             bus::net_remove_rule,
             bus::overlay_state,
             bus::overlay_set,

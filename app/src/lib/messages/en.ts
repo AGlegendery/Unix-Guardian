@@ -419,6 +419,19 @@ export const en = {
     },
   },
   ping: {
+    bg: {
+      title: "Slow down background apps",
+      explain: "For a steady ping: every app shares the caps below, except the running game, VPNs and proxies, and DNS managers. An app with its own rule keeps its rule.",
+      oldService: "The installed service does not offer this yet; reinstall Unix Guardian.",
+      when: "When",
+      always: "Whenever this is on",
+      shared: "The caps are for all background apps together, not each one.",
+      slowedNow: (n: number) => `Slowed now (${n}):`,
+      spared: "Left alone:",
+      waiting: "Waits for game mode to turn on.",
+      slowed: "Slowed (background)",
+      slowedHint: "Slowed by \"Slow down background apps\" on the Ping stability tab.",
+    },
     usage: {
       title: "Internet use",
       hour: "Last hour",
@@ -460,7 +473,7 @@ export const en = {
     blocked: "Blocked",
     limited: "Limited",
     hasGame: "Your game runs inside this app's group, so a rule would affect the game too.",
-    categories: { torrent: "Torrent", sync: "Sync", updates: "Updates", launcher: "Game launcher", backup: "Backup", streaming: "Streaming" } as Record<string, string>,
+    categories: { vpn: "VPN or proxy", dns: "DNS", torrent: "Torrent", sync: "Sync", updates: "Updates", launcher: "Game launcher", backup: "Backup", streaming: "Streaming" } as Record<string, string>,
     apps: "Apps and services",
     showAll: "Show idle ones too",
     down: "Down",

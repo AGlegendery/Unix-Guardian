@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use ug_hw::SysRoot;
 use ug_net::account::Accountant;
 use ug_net::nft::NftCmd;
-use ug_net::rules::{Policy, Rule, Rules, When};
+use ug_net::rules::{Background, Policy, Rule, Rules, When};
 use ug_net::shaper::{RealCmd, Shaper};
 use ug_proto::{AppTraffic, NetControlStatus, NetRule};
 
@@ -32,6 +32,9 @@ pub struct Net {
     backend: Backend,
     root: SysRoot,
     rules: Rules,
+    /// "Slow down background apps" and where it is saved.
+    background: Background,
+    background_file: std::path::PathBuf,
     gaming: Arc<AtomicBool>,
     /// The running game's processes, as game mode last received them.
     game_pids: Arc<Mutex<Vec<i32>>>,
@@ -73,6 +76,8 @@ fn other_firewalls(root: &SysRoot) -> Vec<String> {
 impl Net {
     pub fn new(root: SysRoot, simulate: bool, state_dir: &Path, gaming: Arc<AtomicBool>, game_pids: Arc<Mutex<Vec<i32>>>) -> Net {
         let (rules, problem) = Rules::load(&state_dir.join("net.json"));
+        let background_file = state_dir.join("net-background.json");
+        let background = Background::load(&background_file);
         if let Some(p) = problem {
             tracing::warn!(%p, "internet rules");
         }
@@ -126,7 +131,20 @@ impl Net {
                 }
             }
         };
-        Net { backend, root, rules, gaming, game_pids, policy: Policy::default(), status, wanted_until: None, last_read: None, apps: Vec::new() }
+        Net {
+            backend,
+            root,
+            rules,
+            background,
+            background_file,
+            gaming,
+            game_pids,
+            policy: Policy::default(),
+            status,
+            wanted_until: None,
+            last_read: None,
+            apps: Vec::new(),
+        }
     }
 
     fn watched(&self, now: Instant) -> bool {
@@ -139,7 +157,9 @@ impl Net {
             None => true,
             Some(t) => now.duration_since(t) >= if self.watched(now) { Duration::from_secs(2) } else { Duration::from_secs(60) },
         };
-        self.policy = Policy::from_rules(&self.rules.list, self.gaming.load(Ordering::Relaxed));
+        let gaming = self.gaming.load(Ordering::Relaxed);
+        let game_pids = if gaming { self.game_pids.lock().unwrap_or_else(|e| e.into_inner()).clone() } else { Vec::new() };
+        self.policy = Policy::from_rules(&self.rules.list, gaming).with_background(&self.background, gaming, &game_pids);
         let watched = self.watched(now);
         match &mut self.backend {
             Backend::Nft(a, shaper) => {
@@ -183,6 +203,9 @@ impl Net {
                     self.apps = simulated(root, now.duration_since(*start).as_secs());
                     for a in &mut self.apps {
                         a.state = states.get(&a.name.to_lowercase()).map(|s| s.to_string()).unwrap_or_default();
+                        if a.state.is_empty() && self.policy.background_class(&a.name, &a.exe, &a.pids).is_some() {
+                            a.state = "background".into();
+                        }
                     }
                 }
             }
@@ -326,6 +349,41 @@ impl NetIface {
         .await
         .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
         .map_err(zbus::fdo::Error::Failed)
+    }
+
+    /// "Slow down background apps": on, upload and download caps for all
+    /// background apps together (kbit/s), and `always` or `gaming`.
+    async fn background(&self) -> (bool, u32, u32, String) {
+        let b = lock(&self.net).background;
+        (b.on, b.up_kbps, b.down_kbps, b.when.as_str().into())
+    }
+
+    /// Turns "slow down background apps" on or off. Every app without a rule
+    /// of its own shares the caps, except the running game, VPNs and
+    /// proxies, and DNS managers.
+    async fn set_background(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        on: bool,
+        up_kbps: u32,
+        down_kbps: u32,
+        when: &str,
+    ) -> zbus::fdo::Result<()> {
+        let when = When::parse(when).map_err(zbus::fdo::Error::InvalidArgs)?;
+        self.gate.authorize(&hdr, action::NET).await?;
+        let b = Background { on, up_kbps, down_kbps, when };
+        let net = Arc::clone(&self.net);
+        tokio::task::spawn_blocking(move || {
+            let mut n = lock(&net);
+            b.save(&n.background_file)?;
+            n.background = b;
+            n.last_read = None;
+            n.tick(Instant::now());
+            Ok::<_, String>(())
+        })
+        .await
+        .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+        .map_err(zbus::fdo::Error::InvalidArgs)
     }
 
     async fn apps(&self) -> Vec<AppTraffic> {

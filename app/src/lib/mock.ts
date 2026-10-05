@@ -150,12 +150,15 @@ function stats(s: { rtt_ms: number | null }[]) {
   for (let k = 1; k < r.length; k++) j += Math.abs(r[k] - r[k - 1]);
   return { sent: s.length, received: r.length, median_ms: pick(0.5), jitter_ms: r.length > 1 ? j / (r.length - 1) / 3 : null, p95_ms: pick(0.95), loss_pct: s.length ? (100 * (s.length - r.length)) / s.length : 0 };
 }
+// "Slow down background apps" in the preview.
+let netBg: [boolean, number, number, "always" | "gaming"] = [false, 1000, 8000, "always"];
 const mockApps = (): AppTraffic[] => {
   const w = () => 0.5 + Math.random();
   const rule = (n: string) => netRules.find((r) => r.app.toLowerCase() === n.toLowerCase());
   const mk = (name: string, kind: AppTraffic["kind"], category: string, rx: number, tx: number): AppTraffic => {
     const r = rule(name);
-    const state = r ? (r.block ? "blocked" : "limited") : "";
+    const bg = netBg[0] && !r && category !== "vpn" && category !== "dns";
+    const state = r ? (r.block ? "blocked" : "limited") : bg ? "background" : "";
     const cap = (v: number, k: number) => (r?.block ? 0 : k ? Math.min(v, (k * 1000) / 8) : v);
     return { id: `x/${name}`, name, kind, uid: 1000, exe: name, pids: [1], rx_bps: cap(rx * w(), r?.down_kbps ?? 0), tx_bps: cap(tx * w(), r?.up_kbps ?? 0), rx_bytes: rx * 900, tx_bytes: tx * 900, state, category, has_game: false };
   };
@@ -167,6 +170,7 @@ const mockApps = (): AppTraffic[] => {
     mk("packagekit", "service", "updates", 0, 0),
     mk("dropbox", "app", "sync", 2_000, 1_000),
     mk("v2rayn", "app", "vpn", 180_000, 40_000),
+    mk("systemd-resolved", "service", "dns", 3_000, 1_000),
   ].sort((a, b) => b.rx_bps + b.tx_bps - (a.rx_bps + a.tx_bps));
 };
 
@@ -492,6 +496,11 @@ export const mockApi = {
     const i = netRules.findIndex((r) => r.app.toLowerCase() === app.toLowerCase());
     if (i >= 0) netRules.splice(i, 1);
     netRules.push({ app, block, up_kbps: up, down_kbps: down, when, active: when === "always" });
+  },
+  netBackground: async () => [...netBg] as typeof netBg,
+  netSetBackground: async (on: boolean, up: number, down: number, when: "always" | "gaming") => {
+    if (on && !up && !down) throw "slowing background apps needs an upload or download cap";
+    netBg = [on, up, down, when];
   },
   netRemoveRule: async (app: string) => {
     const i = netRules.findIndex((r) => r.app.toLowerCase() === app.toLowerCase());

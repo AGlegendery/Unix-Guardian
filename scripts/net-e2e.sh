@@ -134,6 +134,15 @@ print("%.1f"%(time.time()-t))'
   ug net allow ug-e2e-app >/dev/null
   check "allowing it again restores its connection" "as_app \"\$upload\" >/dev/null"
   check "and removes every trace of shaping" "! ip link show ug-ifb0 >/dev/null 2>&1 && ! tc qdisc show dev ugA | grep -q 5547 && ! tc qdisc show dev ugA | grep -q ingress"
+  # Slow down background apps: every app without its own rule shares one cap.
+  ug net background on --up 4m --down 8m >/dev/null
+  bg_state() { ug net --json --all | grep -A12 '"name": "ug-e2e-app"' | grep -q '"state": "background"'; }
+  check "background slowing marks the app as background" "until_ 10 bg_state"
+  bgslow="$(as_app "$upload")"
+  check "a 4 Mbit/s background cap makes 2 MB take about 4 s ($bgslow s)" "awk 'BEGIN{exit !($bgslow >= 3.2 && $bgslow < 8)}'"
+  ug net background off >/dev/null
+  bgfast="$(as_app "$upload")"
+  check "turning it off frees it again ($bgfast s)" "awk 'BEGIN{exit !($bgfast < 1.5)}'"
   ug net limit ug-e2e-app --up 1m --down 1m >/dev/null
   kill -TERM "$daemon"; wait "$daemon" 2>/dev/null
   check "a clean stop removes caps too" "! ip link show ug-ifb0 >/dev/null 2>&1 && ! tc qdisc show dev ugA | grep -q 5547"

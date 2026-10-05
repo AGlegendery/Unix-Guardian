@@ -356,6 +356,13 @@ pub mod daemon {
         /// Whether counting works here, and why not.
         fn status(&self) -> zbus::Result<NetControlStatus>;
 
+        /// "Slow down background apps": on, the shared upload and download
+        /// caps (kbit/s) and `always` or `gaming`.
+        fn background(&self) -> zbus::Result<(bool, u32, u32, String)>;
+
+        /// Turns "slow down background apps" on or off (polkit, as rules).
+        fn set_background(&self, on: bool, up_kbps: u32, down_kbps: u32, when: &str) -> zbus::Result<()>;
+
         /// Every app and service with its traffic, busiest first. Asking
         /// makes the next minute's rates update every two seconds.
         fn apps(&self) -> zbus::Result<Vec<AppTraffic>>;

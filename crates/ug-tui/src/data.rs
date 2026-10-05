@@ -99,6 +99,17 @@ impl Bus {
             .map_err(|e| msg(e, "service"))
     }
 
+    /// "Slow down background apps": (on, up kbit/s, down kbit/s, when).
+    pub fn net_background(&self) -> Result<(bool, u32, u32, String), String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { NetProxy::new(c).await?.background().await }).map_err(|e| msg(e, "service"))
+    }
+
+    pub fn net_set_background(&self, on: bool, up: u32, down: u32, when: &str) -> Result<(), String> {
+        let c = self.daemon()?;
+        self.rt.block_on(async { NetProxy::new(c).await?.set_background(on, up, down, when).await }).map_err(|e| msg(e, "service"))
+    }
+
     pub fn net_set_rule(&self, app: &str, block: bool, up: u32, down: u32, when: &str) -> Result<(), String> {
         let c = self.daemon()?;
         self.rt

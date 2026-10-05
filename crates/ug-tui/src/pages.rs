@@ -348,6 +348,20 @@ fn forget_game(app: &mut App, i: usize) {
     }
 }
 
+/// Ping stability, s: "slow down background apps" on or off, keeping its caps.
+pub fn toggle_background(app: &mut App) {
+    let Some((on, up, down, when)) = app.net_bg.clone() else {
+        report(app, Err("The installed service does not offer this yet; reinstall Unix Guardian.".into()));
+        return;
+    };
+    let r = app.bus.net_set_background(!on, up, down, &when).map(|_| {
+        if on { "Background apps are no longer slowed.".to_string() } else { "Background apps are slowed now; the game, VPNs and DNS managers are left alone.".to_string() }
+    });
+    report(app, r);
+    app.net_bg = app.bus.net_background().ok();
+    app.net.invalidate();
+}
+
 /// Monitoring → Internet traffic, r twice: the counts start from now.
 pub fn reset_traffic(app: &mut App) {
     let confirm = "reset the internet-use counts".to_string();
@@ -2677,7 +2691,7 @@ fn is_background(a: &ug_proto::AppTraffic) -> bool {
     !a.has_game
         && a.kind != "session"
         && a.category != "vpn"
-        && (!a.state.is_empty() || (!a.category.is_empty() && a.rx_bps + a.tx_bps >= 50_000) || a.tx_bps >= 125_000)
+        && ((!a.state.is_empty() && a.state != "background") || (!a.category.is_empty() && a.rx_bps + a.tx_bps >= 50_000) || a.tx_bps >= 125_000)
 }
 
 /// The apps the ping page lists on its current tab, in order.
@@ -2737,6 +2751,33 @@ fn ping_page(app: &mut App, f: &mut Frame, r: Rect) {
     if let Some(e) = &app.net.error {
         f.render_widget(Paragraph::new(Span::styled(e.clone(), Style::default().fg(t.danger))), Rect { x: body.x, y, width: body.width, height: 1 });
         y += 1;
+    }
+    // "Slow down background apps": the switch for a steady ping.
+    if let Some((on, up, down, when)) = app.net_bg.clone() {
+        let cap = |k: u32| if k == 0 { "no cap".to_string() } else if k >= 1000 { format!("{:.1} Mbit/s", k as f64 / 1000.0) } else { format!("{k} kbit/s") };
+        let slowed = app.net.value.as_ref().map(|(a, _, _)| a.iter().filter(|x| x.state == "background").count()).unwrap_or(0);
+        let line = Line::from(vec![
+            Span::styled("Slow down background apps  ", t.title()),
+            Span::styled(if on { "On" } else { "Off" }, if on { t.accent() } else { t.muted() }),
+            Span::styled(
+                format!(
+                    "   up {}, down {} shared, {}{}   s turns it {}",
+                    cap(up),
+                    cap(down),
+                    if when == "gaming" { "while gaming" } else { "always" },
+                    if on { format!("; {slowed} slowed now") } else { String::new() },
+                    if on { "off" } else { "on" }
+                ),
+                t.muted(),
+            ),
+        ]);
+        f.render_widget(Paragraph::new(line), Rect { x: body.x, y, width: body.width, height: 1 });
+        y += 1;
+        f.render_widget(
+            Paragraph::new(Span::styled("  The running game, VPNs and proxies, DNS managers and apps with their own rule are left alone.", t.faint())),
+            Rect { x: body.x, y, width: body.width, height: 1 },
+        );
+        y += 2;
     }
     let bottom = body.y + body.height;
     if app.tab == 0 {
@@ -2889,7 +2930,7 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (3, 0) => vec![("Tab", "traffic"), ("←→", "range")],
         (3, 1) => vec![("Tab", "FPS"), ("←→", "period"), ("r r", "reset counts")],
         (3, _) => vec![("Tab", "temperature"), ("Enter", "set up / undo")],
-        (4, _) => vec![("Tab", "next tab"), ("Enter", "limit while gaming"), ("b", "block"), ("x", "allow")],
+        (4, _) => vec![("Tab", "next tab"), ("s", "slow background"), ("Enter", "limit while gaming"), ("b", "block"), ("x", "allow")],
         (8, 1) => vec![("Tab", "check"), ("Enter ×2", "undo"), ("y", "keep")],
         (8, _) => vec![("Tab", "changes"), ("Enter", "review / apply"), ("r", "check again")],
         (12, _) => vec![("↑↓", "setting"), ("←→", "change"), ("Enter", "toggle")],
@@ -3058,7 +3099,7 @@ pub fn activate(app: &mut App, i: usize) {
         }
         (4, _) => {
             let Some(a) = listed_apps(app).get(i).cloned() else { return };
-            if !a.state.is_empty() {
+            if !a.state.is_empty() && a.state != "background" {
                 app.say(format!("{} already has a rule; x removes it.", a.name), false);
                 return;
             }
