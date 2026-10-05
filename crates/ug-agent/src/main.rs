@@ -180,9 +180,15 @@ impl DaemonLink {
         // An older service has no Extra: the reading is stored without it.
         let extra = d.extra().await.ok();
         let gpu = s.gpus.iter().find(|g| !g.asleep && !g.temp_c.is_nan()).map(|g| g.pci.clone());
+        // Per-app traffic, when the service counts it (internet control on).
+        let apps = match ug_proto::daemon::NetProxy::new(&conn).await {
+            Ok(n) => n.apps().await.unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
         let h = Arc::clone(history);
         let _ = tokio::task::spawn_blocking(move || {
             h.record(&s, gpu.as_deref(), extra.as_ref());
+            h.record_apps(s.ts_unix_ms, &apps);
             if s.ts_unix_ms % (24 * 3_600_000) < 60_000 {
                 h.prune(s.ts_unix_ms);
             }

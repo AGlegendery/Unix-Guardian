@@ -477,6 +477,24 @@ pub async fn traffic_buckets(bus: State<'_, Bus>, since_unix_ms: u64, until_unix
 }
 
 #[tauri::command]
+pub async fn app_traffic(bus: State<'_, Bus>, since_unix_ms: u64, until_unix_ms: u64) -> Res<Vec<ug_proto::AppUsage>> {
+    let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    m.app_traffic(since_unix_ms, until_unix_ms).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn reset_traffic(bus: State<'_, Bus>) -> Res<bool> {
+    let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    m.reset_traffic().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn traffic_reset_at(bus: State<'_, Bus>) -> Res<u64> {
+    let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    m.traffic_reset_at().await.map_err(agent_err)
+}
+
+#[tauri::command]
 pub async fn extra(bus: State<'_, Bus>) -> Res<ug_proto::ExtraSample> {
     let d = DaemonProxy::new(bus.daemon().await?).await.map_err(daemon_err)?;
     d.extra().await.map_err(daemon_err)

@@ -250,6 +250,22 @@ impl MonitorIface {
         tokio::task::spawn_blocking(move || h.traffic_buckets(since_unix_ms, until_unix_ms, bucket_ms)).await.unwrap_or_default()
     }
 
+    async fn app_traffic(&self, since_unix_ms: u64, until_unix_ms: u64) -> Vec<ug_proto::AppUsage> {
+        let h = Arc::clone(&self.history);
+        tokio::task::spawn_blocking(move || h.app_traffic(since_unix_ms, until_unix_ms)).await.unwrap_or_default()
+    }
+
+    async fn reset_traffic(&self) -> bool {
+        let h = Arc::clone(&self.history);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+        tokio::task::spawn_blocking(move || h.reset_traffic(now)).await.unwrap_or(false)
+    }
+
+    async fn traffic_reset_at(&self) -> u64 {
+        let h = Arc::clone(&self.history);
+        tokio::task::spawn_blocking(move || h.reset_at()).await.unwrap_or(0)
+    }
+
     /// The running game's FPS from MangoHud's log.
     async fn fps(&self) -> ug_proto::FpsReading {
         let o = Arc::clone(&self.overlay);

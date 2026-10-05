@@ -129,13 +129,19 @@ enum Command {
         hours: u32,
     },
     /// Internet use: the last hour, today, 7 and 30 days, then per day.
-    /// --day shows one day hour by hour.
+    /// --day shows one day hour by hour; --apps the apps that used the most.
     Traffic {
         #[arg(long, default_value_t = 7)]
         days: u32,
         /// A day to show hour by hour: YYYY-MM-DD, or "today".
         #[arg(long)]
         day: Option<String>,
+        /// The apps that used the most over --days (or the --day).
+        #[arg(long)]
+        apps: bool,
+        /// Start the internet-use counts again from now (totals, days, apps).
+        #[arg(long, conflicts_with_all = ["day", "apps"])]
+        reset: bool,
     },
     /// Ping to the router, the DNS server and the running game's server.
     Ping {
@@ -694,7 +700,7 @@ async fn run() -> Result<()> {
         Command::Playtime { today, week, forget, csv, command: None } => return playtime(today, week, forget, csv, cli.json).await,
         Command::Profile { command } => return profile(command, cli.json).await,
         Command::History { hours } => return history(hours, cli.json).await,
-        Command::Traffic { days, day } => return traffic(days, day, cli.json).await,
+        Command::Traffic { days, day, apps, reset } => return traffic(days, day, apps, reset, cli.json).await,
         Command::Ping { seconds } => return ping(seconds, cli.json).await,
         Command::Overlay { command } => return overlay(command, cli.json).await,
         Command::Shortcut { action, args } => return shortcut(action, args, cli.json).await,
@@ -1068,17 +1074,46 @@ async fn history(hours: u32, json: bool) -> Result<()> {
     Ok(())
 }
 
-async fn traffic(days: u32, day: Option<String>, json: bool) -> Result<()> {
+async fn traffic(days: u32, day: Option<String>, apps: bool, reset: bool, json: bool) -> Result<()> {
     let conn = agent_conn().await?;
     let m = MonitorProxy::new(&conn).await?;
     let size = |b: u64| if b >= 1_000_000_000 { format!("{:.2} GB", b as f64 / 1e9) } else { format!("{:.1} MB", b as f64 / 1e6) };
-    if let Some(day) = day {
-        let (start, end) = if day == "today" {
-            let a = ug_core::playtime::local_midnight_ms();
-            (a, a + 86_400_000)
+    if reset {
+        let ok = m.reset_traffic().await.map_err(agent_hint)?;
+        if json {
+            println!("{}", serde_json::json!({ "reset": ok }));
+        } else if ok {
+            println!("The internet-use counts start from now. The speed history is kept.");
         } else {
-            ug_core::playtime::local_day_ms(&day).with_context(|| format!("{day:?} is not a date like 2026-10-04"))?
-        };
+            anyhow::bail!("the agent could not reset the counts (see its log: journalctl --user -u ug-agent)");
+        }
+        return Ok(());
+    }
+    let span = match &day {
+        Some(day) if day == "today" => {
+            let a = ug_core::playtime::local_midnight_ms();
+            Some((a, a + 86_400_000))
+        }
+        Some(day) => Some(ug_core::playtime::local_day_ms(day).with_context(|| format!("{day:?} is not a date like 2026-10-04"))?),
+        None => None,
+    };
+    if apps {
+        let (start, end) = span.unwrap_or_else(|| (now_ms().saturating_sub(days as u64 * 86_400_000), now_ms() + 1));
+        let list = m.app_traffic(start, end).await.map_err(agent_hint)?;
+        if json {
+            println!("{}", serde_json::to_string_pretty(&list)?);
+            return Ok(());
+        }
+        if list.is_empty() {
+            println!("No per-app traffic recorded in that time. It is counted while internet control is available (ug net).");
+            return Ok(());
+        }
+        for a in list.iter().take(25) {
+            println!("{:<28} {:>10}  down {:>10}  up {:>10}  {}", a.name, size(a.rx_bytes + a.tx_bytes), size(a.rx_bytes), size(a.tx_bytes), a.category);
+        }
+        return Ok(());
+    }
+    if let Some((start, end)) = span {
         let hours = m.traffic_buckets(start, end, 3_600_000).await.map_err(agent_hint)?;
         if json {
             println!("{}", serde_json::to_string_pretty(&hours)?);

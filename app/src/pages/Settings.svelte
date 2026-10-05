@@ -18,6 +18,27 @@
     api.trayVisible().then((v) => (tray = v)).catch(() => {});
   });
 
+  // Resetting the internet-use counts asks twice (the second press within
+  // a few seconds does it).
+  let resetArmed = $state(false);
+  let resetDone = $state(false);
+  let resetTimer: ReturnType<typeof setTimeout> | undefined;
+  async function resetTraffic() {
+    if (!resetArmed) {
+      resetArmed = true;
+      clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => (resetArmed = false), 4000);
+      return;
+    }
+    resetArmed = false;
+    try {
+      resetDone = await api.resetTraffic();
+      if (!resetDone) error = t().settings.trafficResetFailed;
+    } catch (e) {
+      error = errorText(e);
+    }
+  }
+
   function done() {
     error = null;
     saved = true;
@@ -127,6 +148,15 @@
   {/if}
 </section>
 
+<section class="card">
+  <h2>{t().settings.traffic}</h2>
+  <div class="row">
+    <p class="small">{t().settings.trafficNote}</p>
+    <button class="reset" class:armed={resetArmed} onclick={resetTraffic}>{resetArmed ? t().settings.trafficResetConfirm : t().settings.trafficReset}</button>
+  </div>
+  {#if resetDone}<p class="saved" role="status">{t().settings.trafficResetDone}</p>{/if}
+</section>
+
 <ShortcutsCard />
 
 <section class="card about">
@@ -157,6 +187,10 @@
   .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 0.9rem; }
   p { margin: 0; }
   .small { color: var(--text-3); font-size: 0.8rem; }
+  .reset { all: unset; flex: none; padding: 7px 14px; border-radius: 9px; background: var(--card-2); font-size: 0.86rem; cursor: pointer; }
+  .reset:hover { color: var(--text); }
+  .reset.armed { background: var(--danger); color: #fff; font-weight: 600; }
+  .reset:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .saved { color: var(--accent-text); font-size: 0.85rem; }
   dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 18px; margin: 0; font-size: 0.88rem; }
   dt { color: var(--text-2); }

@@ -23,7 +23,7 @@ use ratatui::Frame;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use ug_proto::{
-    AppTraffic, BatteryCare, FpsSession, OverlayState, DayTraffic, ExtraSample, FpsReading, HistoryPoint, NetControlStatus, NetRule,
+    AppTraffic, BatteryCare, FpsSession, OverlayState, ExtraSample, FpsReading, HistoryPoint, NetControlStatus, NetRule,
     PingComparison, PingReport, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
     ProfileInfo, RunningGameInfo, Snapshot,
 };
@@ -74,6 +74,8 @@ pub struct App {
     pub row: usize,
     /// A page-specific choice (profile index, history range, "when").
     pub choice: usize,
+    /// Monitoring → Internet traffic: 0 day, 1 week, 2 month.
+    pub traffic_span: usize,
     pub inventory: Cached<Inventory>,
     pub snapshot: Cached<Snapshot>,
     pub gamemode: Cached<bool>,
@@ -89,7 +91,7 @@ pub struct App {
     pub battery: Cached<BatteryCare>,
     pub history: Cached<Vec<HistoryPoint>>,
     /// The last 30 days, and (down, up) for the last hour and today.
-    pub traffic: Cached<(Vec<DayTraffic>, (u64, u64), (u64, u64))>,
+    pub traffic: Cached<data::TrafficView>,
     /// The live monitor's last two minutes: one snapshot and one extra
     /// reading a second, only while it is on screen.
     pub live: VecDeque<(Snapshot, ExtraSample)>,
@@ -165,6 +167,7 @@ impl App {
             tab: 0,
             row: 0,
             choice: 0,
+            traffic_span: 0,
             inventory: Cached::new(Duration::from_secs(600)),
             snapshot: Cached::new(LIVE),
             gamemode: Cached::new(SLOW),
@@ -327,11 +330,7 @@ impl App {
                     self.snapshot.store(r);
                 }
                 if self.tab == 1 && self.traffic.due() {
-                    let now = data::now_ms();
-                    let today = ug_core::playtime::local_midnight_ms();
-                    let r = self.bus.traffic(now.saturating_sub(30 * 86_400_000)).and_then(|d| {
-                        Ok((d, self.bus.traffic_total(now.saturating_sub(3_600_000), now)?, self.bus.traffic_total(today, now)?))
-                    });
+                    let r = self.bus.traffic_view(data::now_ms());
                     self.traffic.store(r);
                 }
             }
@@ -554,6 +553,7 @@ impl App {
                 KeyCode::Char('c') if (self.page, self.tab) == (5, 1) => pages::record_shortcut(self, self.row),
                 KeyCode::Char('e') if self.page == 6 => pages::export_playtime(self),
                 KeyCode::Char('y') if (self.page, self.tab) == (8, 1) => pages::keep_driver_op(self, self.row),
+                KeyCode::Char('r') if (self.page, self.tab) == (3, 1) => pages::reset_traffic(self),
                 KeyCode::Char('r') if self.page == 8 => {
                     self.driver.invalidate();
                     self.driver_review = None;
@@ -1435,5 +1435,42 @@ mod tests {
         app.choice = 0;
         let screen = render(&mut app, 80, 24);
         assert!(line(&screen).contains("xxx…"), "{screen}");
+    }
+
+    #[test]
+    fn the_traffic_tab_shows_day_week_month_top_apps_and_resets_on_a_second_r() {
+        use ug_proto::AppUsage;
+        let mut app = App::new(Bus::offline());
+        app.go(3);
+        app.tab = 1;
+        let period = |title: &str, n: usize, label: &dyn Fn(usize) -> String| data::TrafficPeriod {
+            title: title.into(),
+            bars: (0..n).map(|i| (label(i), (i as u64 + 1) * 10_000_000, 1_000_000)).collect(),
+            apps: vec![
+                AppUsage { name: "steam".into(), category: "launcher".into(), rx_bytes: 3_000_000_000, tx_bytes: 10_000_000 },
+                AppUsage { name: "firefox-esr".into(), category: String::new(), rx_bytes: 400_000_000, tx_bytes: 5_000_000 },
+            ],
+        };
+        app.traffic.store(Ok(data::TrafficView {
+            so_far: 52_000_000_000,
+            since: "2026-09-01".into(),
+            periods: [
+                period("Today, 2026-10-05", 24, &|i| (i + 1).to_string()),
+                period("Week 2026-10-03 to 2026-10-09", 7, &|i| ["Sa", "Su", "Mo", "Tu", "We", "Th", "Fr"][i].to_string()),
+                period("Month 2026-10", 31, &|i| (i + 1).to_string()),
+            ],
+        }));
+        let screen = render(&mut app, 120, 40);
+        for want in ["Used so far", "52.00 GB", "since 2026-09-01", "Today, 2026-10-05", "Apps that used the most", "steam", "3.01 GB", "firefox-esr", "24", "█"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        app.focus = Focus::Page;
+        app.key(KeyCode::Right, KeyModifiers::NONE);
+        let screen = render(&mut app, 120, 40);
+        assert!(screen.contains("Week 2026-10-03") && screen.contains("Sa") && screen.contains("Fr"), "{screen}");
+        app.key(KeyCode::Right, KeyModifiers::NONE);
+        assert!(render(&mut app, 120, 40).contains("Month 2026-10"));
+        app.key(KeyCode::Char('r'), KeyModifiers::NONE);
+        assert!(app.armed.as_ref().is_some_and(|(a, _)| a.contains("internet-use")), "the first r only arms");
     }
 }

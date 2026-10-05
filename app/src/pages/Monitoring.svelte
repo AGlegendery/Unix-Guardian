@@ -1,10 +1,11 @@
 <script lang="ts">
   import Problem from "../lib/ui/Problem.svelte";
   import { ArrowDown, ArrowUp } from "@lucide/svelte";
-  import { api, errorText, type DayTraffic, type ExtraSample, type FpsReading, type FpsSession, type HistoryPoint, type Snapshot } from "../lib/api";
+  import { api, errorText, type ExtraSample, type FpsReading, type FpsSession, type HistoryPoint, type Snapshot } from "../lib/api";
   import { num, rate } from "../lib/format";
   import { locale, t } from "../lib/i18n.svelte";
   import LineChart from "../lib/LineChart.svelte";
+  import TrafficPeriods from "../lib/TrafficPeriods.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
 
   type Tab = "fps" | "thermal" | "traffic";
@@ -14,7 +15,6 @@
   const hashRange = location.hash.split("/")[2] as Range;
   let range = $state<Range>(["live", "hour", "day", "week"].includes(hashRange) ? hashRange : "day");
   let points = $state<HistoryPoint[]>([]);
-  let days = $state<DayTraffic[]>([]);
   let live = $state<Snapshot | null>(null);
   let error = $state<string | null>(null);
   let loaded = $state(false);
@@ -63,7 +63,6 @@
   // The traffic tab also shows live speeds: a snapshot every 2 s while open.
   $effect(() => {
     if (tab !== "traffic") return;
-    api.traffic(Date.now() - 7 * 86_400_000).then((d) => (days = d)).catch((e) => (error = errorText(e)));
     const tick = () => !document.hidden && api.snapshot().then((s) => (live = s)).catch(() => {});
     tick();
     const id = setInterval(tick, 2000);
@@ -174,13 +173,6 @@
     return [one(a), ...(b && points.some((p) => b[2](p) != null) ? [one(b)] : [])];
   }
 
-  const maxDay = $derived(Math.max(1, ...days.map((d) => d.rx_bytes + d.tx_bytes)));
-  function gb(b: number): string {
-    return b >= 1e9 ? `${num(b / 1e9, 1)} ${t().mon.gb}` : `${num(b / 1e6, 0)} ${t().mon.mb}`;
-  }
-  function dayName(date: string): string {
-    return new Intl.DateTimeFormat(locale.current === "fa" ? "fa-IR" : "en-GB", { weekday: "short" }).format(new Date(date + "T12:00"));
-  }
 </script>
 
 {#snippet stats(list: Stat[])}
@@ -420,30 +412,7 @@
       </div>
     {/if}
   </section>
-  <section class="card">
-    <h2>{t().mon.perDay}</h2>
-    {#if days.length}
-      <ul class="legend">
-        <li><span class="key" style:background={CPU}></span>{t().mon.down}</li>
-        <li><span class="key" style:background={GPU}></span>{t().mon.up}</li>
-      </ul>
-      <div class="bars">
-        {#each days as d (d.date)}
-          <div class="bar-col" title={`${d.date}: ${t().mon.down} ${gb(d.rx_bytes)}, ${t().mon.up} ${gb(d.tx_bytes)}`}>
-            <span class="bar-val">{gb(d.rx_bytes + d.tx_bytes)}</span>
-            <span class="stack">
-              <span class="seg up" style:--h={d.tx_bytes / maxDay}></span>
-              <span class="seg down" style:--h={d.rx_bytes / maxDay}></span>
-            </span>
-            <span class="bar-day">{dayName(d.date)}</span>
-          </div>
-        {/each}
-      </div>
-    {:else}
-      <p class="muted">{t().mon.empty}</p>
-    {/if}
-    <p class="small">{t().mon.perApp}</p>
-  </section>
+  <TrafficPeriods />
 {/if}
 
 <style>
@@ -505,17 +474,6 @@
   .speeds { display: flex; flex-wrap: wrap; gap: 12px 36px; align-items: center; font-size: 0.95rem; }
   .speeds span { display: inline-flex; align-items: center; gap: 8px; }
   .speeds b { font-size: 1.3rem; }
-  .legend { list-style: none; margin: 0 0 8px; padding: 0; display: flex; gap: 16px; font-size: 0.82rem; color: var(--text-2); }
-  .legend li { display: flex; align-items: center; gap: 6px; }
-  .key { width: 12px; height: 12px; border-radius: 3px; }
-  .bars { display: flex; align-items: flex-end; gap: 16px; height: 190px; }
-  .bar-col { flex: 1; max-width: 64px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; }
-  .stack { display: flex; flex-direction: column; gap: 2px; align-items: center; }
-  .seg { width: 24px; height: calc(var(--h) * 130px); min-height: 1px; }
-  .seg.up { background: #c98500; border-radius: 4px 4px 0 0; }
-  .seg.down { background: #8f6af2; }
-  .bar-val { font-size: 0.72rem; color: var(--text-2); white-space: nowrap; }
-  .bar-day { font-size: 0.75rem; color: var(--text-3); }
   .figs { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0 0; font-size: 0.78rem; color: var(--text-3); }
   .figs b { color: var(--text-2); font-weight: 600; }
   .figs bdi { color: var(--text); }

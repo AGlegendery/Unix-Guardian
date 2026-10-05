@@ -5,7 +5,7 @@
 
 import data from "./preview-data.json";
 import driverReport from "./preview-driver.json";
-import type { TestlabProgress, TestlabReport, RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, UpdateState, TrafficBucket, DriverReport, DriverPlan, DriverOp, ShortcutsState, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { AppUsage, TestlabProgress, TestlabReport, RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, UpdateState, TrafficBucket, DriverReport, DriverPlan, DriverOp, ShortcutsState, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 // The captured profiles predate the screen and notification settings.
@@ -36,6 +36,13 @@ function mockHours(dayMs: number): TrafficBucket[] {
     return { start_unix_ms: start, rx_bytes: Math.round(end * busy * (0.1 + seed) * 6e8), tx_bytes: Math.round(end * busy * (0.05 + seed / 4) * 1e8) };
   });
 }
+// Traffic before this was reset in the preview.
+let trafficReset = 0;
+const MOCK_APPS: [string, string, number, number][] = [
+  ["steam", "launcher", 0.42, 0.02], ["firefox-esr", "browser", 0.25, 0.04], ["discord", "chat", 0.08, 0.05],
+  ["telegram-desktop", "chat", 0.06, 0.03], ["qbittorrent", "download", 0.12, 0.3], ["flatpak", "updates", 0.05, 0.001],
+  ["apt", "updates", 0.015, 0.0005], ["spotify", "media", 0.004, 0.0002],
+];
 // `?update=none` previews an up-to-date copy.
 const updateNone = typeof location !== "undefined" && location.search.includes("update=none");
 const update: UpdateState = {
@@ -395,6 +402,7 @@ export const mockApi = {
       };
     }),
   traffic: async (sinceUnixMs: number): Promise<DayTraffic[]> => {
+    sinceUnixMs = Math.max(sinceUnixMs, trafficReset);
     const n = Math.min(90, Math.max(1, Math.ceil((Date.now() - sinceUnixMs) / 864e5)));
     return Array.from({ length: n }, (_, i) => {
       const day = new Date(Date.now() - (n - 1 - i) * 864e5);
@@ -417,10 +425,26 @@ export const mockApi = {
           tx += h.tx_bytes * share;
         }
       }
+      if (t < trafficReset) rx = tx = 0;
       out.push({ start_unix_ms: t, rx_bytes: Math.round(rx), tx_bytes: Math.round(tx) });
     }
     return out;
   },
+  appTraffic: async (since: number, until: number): Promise<AppUsage[]> => {
+    let rx = 0, tx = 0;
+    for (const b of await mockApi.trafficBuckets(since, Math.min(until, Date.now()), 3_600_000)) {
+      rx += b.rx_bytes;
+      tx += b.tx_bytes;
+    }
+    return MOCK_APPS.map(([name, category, r, w]) => ({ name, category, rx_bytes: Math.round(rx * r), tx_bytes: Math.round(tx * w * 4) }))
+      .filter((a) => a.rx_bytes + a.tx_bytes > 0)
+      .sort((a, b) => b.rx_bytes + b.tx_bytes - (a.rx_bytes + a.tx_bytes));
+  },
+  resetTraffic: async () => {
+    trafficReset = Date.now();
+    return true;
+  },
+  trafficResetAt: async () => trafficReset,
   extra: async (): Promise<ExtraSample> => ({
     ts_unix_ms: Date.now(),
     per_core_mhz: base.cpu.per_core_load.map((_, i) => Math.round(1800 + Math.random() * 2200 + (i < 8 ? 400 : 0))),

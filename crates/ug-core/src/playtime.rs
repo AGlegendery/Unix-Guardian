@@ -76,6 +76,39 @@ pub fn local_midnight_offset(unix_ms: u64, days: i32) -> u64 {
     }
 }
 
+/// The local week (Saturday to Friday, the Iranian week) holding `unix_ms`:
+/// its first midnight and the one after it.
+pub fn local_week(unix_ms: u64) -> (u64, u64) {
+    // SAFETY: localtime_r writes only into the struct we pass.
+    let wday = unsafe {
+        let t = (unix_ms / 1000) as libc::time_t;
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&t, &mut tm);
+        tm.tm_wday
+    };
+    let back = (wday + 1) % 7;
+    (local_midnight_offset(unix_ms, -back), local_midnight_offset(unix_ms, 7 - back))
+}
+
+/// The local calendar month holding `unix_ms`: its first midnight and the
+/// first midnight of the next month.
+pub fn local_month(unix_ms: u64) -> (u64, u64) {
+    // SAFETY: localtime_r and mktime only touch the struct we pass.
+    unsafe {
+        let t = (unix_ms / 1000) as libc::time_t;
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&t, &mut tm);
+        tm.tm_hour = 0;
+        tm.tm_min = 0;
+        tm.tm_sec = 0;
+        tm.tm_mday = 1;
+        tm.tm_isdst = -1;
+        let mut next = tm;
+        next.tm_mon += 1;
+        ((libc::mktime(&mut tm).max(0) as u64) * 1000, (libc::mktime(&mut next).max(0) as u64) * 1000)
+    }
+}
+
 /// The local hour (0–23) of a time.
 fn local_hour(unix_ms: u64) -> usize {
     // SAFETY: localtime_r writes only into the struct we pass.
@@ -275,5 +308,26 @@ mod tests {
         assert_eq!(since("all", 1_000_000_000), 0);
         assert_eq!(since("week", 1_000_000_000), 1_000_000_000 - 604_800_000);
         assert!(since("today", 0) <= local_midnight_ms());
+    }
+
+    #[test]
+    fn weeks_start_on_saturday_and_months_on_the_first() {
+        let now = 1_791_180_000_000; // a Monday in October 2026
+        let (a, b) = local_week(now);
+        assert!(a <= now && now < b);
+        assert!((b - a).abs_diff(7 * 86_400_000) <= 3_600_000, "seven days (give or take a clock change)");
+        // SAFETY: localtime_r writes only into the struct we pass.
+        let wday = unsafe {
+            let t = (a / 1000) as libc::time_t;
+            let mut tm: libc::tm = std::mem::zeroed();
+            libc::localtime_r(&t, &mut tm);
+            tm.tm_wday
+        };
+        assert_eq!(wday, 6, "Saturday");
+        let (m, n) = local_month(now);
+        assert!(m <= now && now < n);
+        assert_eq!(&local_time(m)[8..], "01 00:00:00");
+        assert_eq!(&local_time(n)[8..], "01 00:00:00");
+        assert_eq!(&local_time(m)[..7], &local_time(now)[..7]);
     }
 }

@@ -460,6 +460,63 @@ impl Bus {
         self.rt.block_on(async { MonitorProxy::new(c).await?.traffic(since_ms).await }).map_err(|e| msg(e, "agent"))
     }
 
+    pub fn traffic_buckets(&self, since_ms: u64, until_ms: u64, bucket_ms: u64) -> Result<Vec<ug_proto::TrafficBucket>, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { MonitorProxy::new(c).await?.traffic_buckets(since_ms, until_ms, bucket_ms).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn app_traffic(&self, since_ms: u64, until_ms: u64) -> Result<Vec<ug_proto::AppUsage>, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { MonitorProxy::new(c).await?.app_traffic(since_ms, until_ms).await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn reset_traffic(&self) -> Result<bool, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { MonitorProxy::new(c).await?.reset_traffic().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    /// Monitoring → Internet traffic: today by hour, this week (Saturday to
+    /// Friday) and this month by day, each with its busiest apps, and the
+    /// total since the counts were last reset.
+    pub fn traffic_view(&self, now: u64) -> Result<TrafficView, String> {
+        use ug_core::playtime::{local_midnight_offset, local_month, local_time, local_week};
+        let day = (local_midnight_offset(now, 0), local_midnight_offset(now, 1));
+        let hours = self.traffic_buckets(day.0, day.1, 3_600_000)?;
+        let all = self.traffic(0)?;
+        let by_date: std::collections::HashMap<&str, &DayTraffic> = all.iter().map(|d| (d.date.as_str(), d)).collect();
+        let days = |(a, b): (u64, u64), label: &dyn Fn(u64) -> String| -> Vec<(String, u64, u64)> {
+            (0..31)
+                .map(|i| local_midnight_offset(a, i))
+                .take_while(|&t| t < b)
+                .map(|t| {
+                    let d = by_date.get(&local_time(t)[..10]).map(|d| (d.rx_bytes, d.tx_bytes)).unwrap_or((0, 0));
+                    (label(t), d.0, d.1)
+                })
+                .collect()
+        };
+        const WEEK: [&str; 7] = ["Sa", "Su", "Mo", "Tu", "We", "Th", "Fr"];
+        let week = local_week(now);
+        let month = local_month(now);
+        let week_bars = days(week, &|_| String::new()).into_iter().enumerate().map(|(i, (_, r, t))| (WEEK[i % 7].to_string(), r, t)).collect();
+        let month_bars = days(month, &|t| local_time(t)[8..10].trim_start_matches('0').to_string());
+        let period = |title: String, bars: Vec<(String, u64, u64)>, (a, b): (u64, u64)| -> Result<TrafficPeriod, String> {
+            Ok(TrafficPeriod { title, bars, apps: self.app_traffic(a, b)? })
+        };
+        Ok(TrafficView {
+            so_far: all.iter().map(|d| d.rx_bytes + d.tx_bytes).sum(),
+            since: all.first().map(|d| d.date.clone()).unwrap_or_default(),
+            periods: [
+                period(
+                    format!("Today, {}", &local_time(day.0)[..10]),
+                    hours.iter().enumerate().map(|(i, h)| (format!("{}", i + 1), h.rx_bytes, h.tx_bytes)).collect(),
+                    day,
+                )?,
+                period(format!("Week {} to {}", &local_time(week.0)[..10], &local_time(week.1 - 1)[..10]), week_bars, week)?,
+                period(format!("Month {}", &local_time(month.0)[..7]), month_bars, month)?,
+            ],
+        })
+    }
+
     /// Bytes (down, up) between two times, from the agent's minute history.
     pub fn traffic_total(&self, since_ms: u64, until_ms: u64) -> Result<(u64, u64), String> {
         let c = self.agent()?;
@@ -572,4 +629,22 @@ pub fn local_time(ms: u64) -> String {
         let n = libc::strftime(buf.as_mut_ptr() as *mut libc::c_char, buf.len(), c"%a %H:%M".as_ptr(), &tm);
         String::from_utf8_lossy(&buf[..n]).into_owned()
     }
+}
+
+/// One period on the Internet traffic tab.
+#[derive(Debug, Clone, Default)]
+pub struct TrafficPeriod {
+    pub title: String,
+    /// Label, bytes down, bytes up: an hour or a day each.
+    pub bars: Vec<(String, u64, u64)>,
+    pub apps: Vec<ug_proto::AppUsage>,
+}
+
+/// Monitoring → Internet traffic: day, week and month.
+#[derive(Debug, Clone, Default)]
+pub struct TrafficView {
+    pub so_far: u64,
+    /// The first day counted (after the last reset).
+    pub since: String,
+    pub periods: [TrafficPeriod; 3],
 }

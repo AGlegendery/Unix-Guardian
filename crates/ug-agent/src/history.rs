@@ -11,13 +11,20 @@
 use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Mutex;
-use ug_proto::{DayTraffic, ExtraSample, FpsSession, HistoryPoint, Snapshot, TrafficBucket};
+use ug_proto::{AppTraffic, AppUsage, DayTraffic, ExtraSample, FpsSession, HistoryPoint, Snapshot, TrafficBucket};
 
 const KEEP_MS: u64 = 90 * 24 * 3_600_000;
 
 pub struct History {
     conn: Mutex<Connection>,
+    /// Each app's byte counters at the last reading (by cgroup), and whether
+    /// there was a last reading at all since the agent started.
+    apps_seen: Mutex<(std::collections::HashMap<String, (u64, u64)>, bool)>,
 }
+
+/// Per-app traffic is kept in 15-minute slots, so local days, weeks and
+/// months line up even in time zones half an hour off UTC (Iran).
+const SLOT_MS: u64 = 15 * 60_000;
 
 fn nan_to_null(v: f64) -> Option<f64> {
     (!v.is_nan()).then_some(v)
@@ -63,6 +70,18 @@ impl History {
                  p99_ms     REAL    NOT NULL,
                  stutters   INTEGER NOT NULL,
                  PRIMARY KEY (started_ms, game)
+             );
+             CREATE TABLE IF NOT EXISTS app_traffic (
+                 slot_ms  INTEGER NOT NULL,
+                 name     TEXT    NOT NULL,
+                 category TEXT    NOT NULL,
+                 rx       INTEGER NOT NULL,
+                 tx       INTEGER NOT NULL,
+                 PRIMARY KEY (slot_ms, name)
+             );
+             CREATE TABLE IF NOT EXISTS meta (
+                 key   TEXT PRIMARY KEY,
+                 value INTEGER NOT NULL
              );",
         )?;
         // Columns added after the first release; an existing table gets them
@@ -75,7 +94,7 @@ impl History {
                 conn.execute_batch(&format!("ALTER TABLE samples ADD COLUMN {col} REAL"))?;
             }
         }
-        Ok(History { conn: Mutex::new(conn) })
+        Ok(History { conn: Mutex::new(conn), apps_seen: Mutex::new((Default::default(), false)) })
     }
 
     fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
@@ -177,7 +196,9 @@ impl History {
 
     /// Deletes readings older than 90 days.
     pub fn prune(&self, now_ms: u64) {
-        let _ = self.conn().execute("DELETE FROM samples WHERE ts_ms < ?1", params![now_ms.saturating_sub(KEEP_MS) as i64]);
+        let cut = now_ms.saturating_sub(KEEP_MS) as i64;
+        let _ = self.conn().execute("DELETE FROM samples WHERE ts_ms < ?1", params![cut]);
+        let _ = self.conn().execute("DELETE FROM app_traffic WHERE slot_ms < ?1", params![cut]);
     }
 
     /// Readings between `since` and `until`, averaged into at most `points`
@@ -250,17 +271,19 @@ impl History {
     /// time: only where the interface stayed the same and its counters moved
     /// forward (a reboot or another interface starts a new baseline).
     fn deltas(&self, since_ms: u64, until_ms: u64) -> Vec<(u64, u64, u64)> {
+        let reset = self.reset_at();
+        let since_ms = since_ms.max(reset);
         let c = self.conn();
         // The reading just before `since` is the first delta's baseline.
         let Ok(mut stmt) = c.prepare(
             "SELECT ts_ms, iface, rx_total, tx_total FROM samples
-              WHERE ts_ms >= COALESCE((SELECT MAX(ts_ms) FROM samples WHERE ts_ms < ?1), ?1) AND ts_ms <= ?2
+              WHERE ts_ms >= COALESCE((SELECT MAX(ts_ms) FROM samples WHERE ts_ms < ?1 AND ts_ms >= ?3), ?1) AND ts_ms <= ?2
               ORDER BY ts_ms",
         ) else {
             return Vec::new();
         };
         let rows: Vec<(u64, String, u64, u64)> = stmt
-            .query_map(params![since_ms as i64, until_ms.min(i64::MAX as u64) as i64], |r| {
+            .query_map(params![since_ms as i64, until_ms.min(i64::MAX as u64) as i64, reset as i64], |r| {
                 Ok((
                     r.get::<_, i64>(0)? as u64,
                     r.get::<_, Option<String>>(1)?.unwrap_or_default(),
@@ -312,6 +335,95 @@ impl History {
             }
         }
         out
+    }
+
+    /// When the traffic counts were last reset (0: never). Readings before it
+    /// are kept for the speed charts but not counted as traffic.
+    pub fn reset_at(&self) -> u64 {
+        self.conn()
+            .query_row("SELECT value FROM meta WHERE key = 'traffic_reset_ms'", [], |r| r.get::<_, i64>(0))
+            .map(|v| v.max(0) as u64)
+            .unwrap_or(0)
+    }
+
+    /// Starts the traffic counts again from `now_ms`: totals, days and the
+    /// per-app list start from zero.
+    pub fn reset_traffic(&self, now_ms: u64) -> bool {
+        let c = self.conn();
+        let ok = c
+            .execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('traffic_reset_ms', ?1)", params![now_ms as i64])
+            .and_then(|_| c.execute("DELETE FROM app_traffic", []))
+            .inspect_err(|e| tracing::warn!(error = %e, "could not reset the traffic counts"))
+            .is_ok();
+        ok
+    }
+
+    /// Adds what each app sent and received since the last reading (once a
+    /// minute, from the service's per-app counters). Apps are summed by name;
+    /// a counter that went backwards (the service restarted) counts from
+    /// zero. On the agent's first reading only the baselines are taken, so
+    /// traffic from before is not counted twice.
+    pub fn record_apps(&self, ts_ms: u64, apps: &[AppTraffic]) {
+        let mut by_name: std::collections::BTreeMap<String, (String, u64, u64)> = Default::default();
+        {
+            let mut seen = self.apps_seen.lock().unwrap_or_else(|e| e.into_inner());
+            let (last, primed) = &mut *seen;
+            let mut now = std::collections::HashMap::new();
+            for a in apps {
+                let d = |cur: u64, prev: Option<u64>| match prev {
+                    Some(p) if cur >= p => cur - p,
+                    Some(_) => cur,
+                    None if *primed => cur,
+                    None => 0,
+                };
+                let prev = last.get(&a.id).copied();
+                let (rx, tx) = (d(a.rx_bytes, prev.map(|p| p.0)), d(a.tx_bytes, prev.map(|p| p.1)));
+                now.insert(a.id.clone(), (a.rx_bytes, a.tx_bytes));
+                if rx + tx > 0 {
+                    let e = by_name.entry(a.name.clone()).or_insert_with(|| (a.category.clone(), 0, 0));
+                    e.1 += rx;
+                    e.2 += tx;
+                }
+            }
+            *last = now;
+            *primed = true;
+        }
+        if by_name.is_empty() {
+            return;
+        }
+        let slot = (ts_ms / SLOT_MS * SLOT_MS) as i64;
+        let mut c = self.conn();
+        let Ok(t) = c.transaction() else { return };
+        for (name, (category, rx, tx)) in by_name {
+            let _ = t.execute(
+                "INSERT INTO app_traffic (slot_ms, name, category, rx, tx) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT (slot_ms, name) DO UPDATE SET rx = rx + excluded.rx, tx = tx + excluded.tx, category = excluded.category",
+                params![slot, name, category, rx as i64, tx as i64],
+            );
+        }
+        let _ = t.commit();
+    }
+
+    /// Each app's traffic between two times (whole 15-minute slots that start
+    /// in the range), most used first.
+    pub fn app_traffic(&self, since_ms: u64, until_ms: u64) -> Vec<AppUsage> {
+        let c = self.conn();
+        let Ok(mut q) = c.prepare(
+            "SELECT name, MAX(category), SUM(rx), SUM(tx) FROM app_traffic
+              WHERE slot_ms >= ?1 AND slot_ms < ?2 GROUP BY name ORDER BY SUM(rx) + SUM(tx) DESC, name",
+        ) else {
+            return Vec::new();
+        };
+        q.query_map(params![since_ms as i64, until_ms.min(i64::MAX as u64) as i64], |r| {
+            Ok(AppUsage {
+                name: r.get(0)?,
+                category: r.get(1)?,
+                rx_bytes: r.get::<_, i64>(2)?.max(0) as u64,
+                tx_bytes: r.get::<_, i64>(3)?.max(0) as u64,
+            })
+        })
+        .map(|rows| rows.flatten().collect())
+        .unwrap_or_default()
     }
 }
 
@@ -478,5 +590,43 @@ mod tests {
         assert_eq!(h.fps_sessions(2_000).len(), 1);
         assert_eq!(h.forget_fps(), 2);
         assert!(h.fps_sessions(0).is_empty());
+    }
+
+    fn app(id: &str, name: &str, rx: u64, tx: u64) -> AppTraffic {
+        AppTraffic { id: id.into(), name: name.into(), kind: "app".into(), category: "launcher".into(), rx_bytes: rx, tx_bytes: tx, ..Default::default() }
+    }
+
+    #[test]
+    fn app_traffic_counts_deltas_by_name_and_not_what_came_before_the_agent() {
+        let h = History::in_memory();
+        // First reading: baselines only (the agent just started).
+        h.record_apps(0, &[app("a/steam", "steam", 5_000, 50)]);
+        h.record_apps(MIN, &[app("a/steam", "steam", 8_000, 80), app("b/firefox", "firefox", 1_000, 10)]);
+        // Two cgroups with one name add up; a counter that went back counts from zero.
+        h.record_apps(2 * MIN, &[app("a/steam", "steam", 500, 5), app("c/steam", "steam", 100, 1), app("b/firefox", "firefox", 1_500, 15)]);
+        let apps = h.app_traffic(0, 3 * MIN);
+        assert_eq!(apps.len(), 2);
+        assert_eq!((apps[0].name.as_str(), apps[0].rx_bytes, apps[0].tx_bytes), ("steam", 3_000 + 600, 30 + 6));
+        assert_eq!((apps[1].name.as_str(), apps[1].rx_bytes), ("firefox", 1_500));
+        assert_eq!(apps[0].category, "launcher");
+        assert!(h.app_traffic(SLOT_MS, 2 * SLOT_MS).is_empty(), "outside the range");
+    }
+
+    #[test]
+    fn resetting_traffic_starts_totals_and_apps_from_zero_but_keeps_speeds() {
+        let h = History::in_memory();
+        h.record(&snap(0, 40.0, 1_000, 100, "wlan0"), None, None);
+        h.record(&snap(MIN, 40.0, 9_000, 900, "wlan0"), None, None);
+        h.record_apps(0, &[app("a", "steam", 0, 0)]);
+        h.record_apps(MIN, &[app("a", "steam", 700, 0)]);
+        assert!(h.reset_traffic(MIN + 1));
+        assert_eq!(h.reset_at(), MIN + 1);
+        assert!(h.traffic(0, |_| "d".into()).is_empty(), "nothing counted before the reset");
+        assert!(h.app_traffic(0, u64::MAX / 2).is_empty());
+        h.record(&snap(2 * MIN, 40.0, 10_000, 1_000, "wlan0"), None, None);
+        h.record(&snap(3 * MIN, 40.0, 12_000, 1_100, "wlan0"), None, None);
+        let d = h.traffic(0, |_| "d".into());
+        assert_eq!((d[0].rx_bytes, d[0].tx_bytes), (2_000, 100), "counted from the first reading after the reset");
+        assert!(h.range(0, 4 * MIN, 4).iter().any(|p| !p.net_rx_bps.is_nan()), "speed history is kept");
     }
 }

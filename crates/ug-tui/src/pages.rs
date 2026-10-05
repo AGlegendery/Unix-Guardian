@@ -348,6 +348,19 @@ fn forget_game(app: &mut App, i: usize) {
     }
 }
 
+/// Monitoring → Internet traffic, r twice: the counts start from now.
+pub fn reset_traffic(app: &mut App) {
+    let confirm = "reset the internet-use counts".to_string();
+    if app.armed.as_ref().is_some_and(|(a, _)| *a == confirm) {
+        app.armed = None;
+        let r = app.bus.reset_traffic().and_then(|ok| if ok { Ok("The internet-use counts start from now.".to_string()) } else { Err("The agent could not reset the counts.".into()) });
+        report(app, r);
+        app.traffic.invalidate();
+    } else {
+        app.armed = Some((confirm, std::time::Instant::now()));
+    }
+}
+
 /// "Not a game" for a guessed game, on the second press.
 pub fn not_a_game(app: &mut App, i: usize) {
     if app.tab != 0 {
@@ -1435,36 +1448,72 @@ fn monitoring(app: &mut App, f: &mut Frame, r: Rect) {
             ]));
             lines.push(Line::from(""));
         }
-        let (month, hour, today) = app.traffic.value.clone().unwrap_or_default();
-        let sum = |n: usize| month.iter().rev().take(n).fold((0, 0), |(r, t), d| (r + d.rx_bytes, t + d.tx_bytes));
-        lines.push(Line::from(Span::styled("Internet use", app.theme.title())));
-        for (name, (rx, tx)) in [("Last hour", hour), ("Today", today), ("Last 7 days", sum(7)), ("Last 30 days", sum(30))] {
+        let Some(v) = app.traffic.value.clone() else {
+            lines.push(Line::from(Span::styled(app.traffic.error.clone().unwrap_or_else(|| "Reading…".into()), app.theme.muted())));
+            f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body);
+            return;
+        };
+        lines.push(Line::from(vec![
+            Span::styled("Used so far  ", app.theme.muted()),
+            Span::styled(size(v.so_far), app.theme.title()),
+            Span::styled(if v.since.is_empty() { String::new() } else { format!("  since {}  (r twice resets the counts)", v.since) }, app.theme.faint()),
+        ]));
+        lines.push(Line::from(""));
+        let top = body.y + lines.len() as u16;
+        let chosen = app.traffic_span.min(2);
+        f.render_widget(Paragraph::new(lines), body);
+        choices(app, f, Rect { y: top, height: 1, ..body }, "Period", &["Day".to_string(), "Week".to_string(), "Month".to_string()], chosen);
+        let p = &v.periods[chosen];
+        let (rx, tx) = p.bars.iter().fold((0, 0), |(r, t), b| (r + b.1, t + b.2));
+        let mut lines = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(format!("{}  ", p.title), app.theme.title()),
+                Span::styled(format!("{}  ↓ {}  ↑ {}", size(rx + tx), size(rx), size(tx)), app.theme.muted()),
+            ]),
+        ];
+        // One column per hour or day: a bar of block characters, three rows high.
+        let max = p.bars.iter().map(|b| b.1 + b.2).max().unwrap_or(0).max(1) as f64;
+        let col = if p.bars.len() > 24 { 2 } else { 3 };
+        const BLOCKS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+        for row in (0..3).rev() {
+            let cells: String = p
+                .bars
+                .iter()
+                .map(|b| {
+                    let eighths = (((b.1 + b.2) as f64 / max) * 24.0).round() as i32 - row * 8;
+                    let c = BLOCKS[eighths.clamp(0, 8) as usize];
+                    format!("{}{}", c.to_string().repeat(col - 1), ' ')
+                })
+                .collect();
+            lines.push(Line::from(Span::styled(cells, Style::default().fg(app.theme.cpu))));
+        }
+        let labels: String = p
+            .bars
+            .iter()
+            .enumerate()
+            .map(|(i, b)| {
+                let show = p.bars.len() <= 7 || (i + 1) % 3 == 0 || (p.bars.len() > 24 && i == 0);
+                let l = if show { b.0.clone() } else { String::new() };
+                format!("{l:<col$}")
+            })
+            .collect();
+        lines.push(Line::from(Span::styled(labels, app.theme.faint())));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("Apps that used the most", app.theme.title())));
+        if p.apps.is_empty() {
+            lines.push(Line::from(Span::styled("  None counted in this period (per-app counting needs internet control: Ping stability).", app.theme.muted())));
+        }
+        for a in p.apps.iter().take(8) {
             lines.push(Line::from(vec![
-                Span::styled(format!("  {name:<14}"), app.theme.muted()),
-                Span::styled(format!("{:>10}", size(rx + tx)), app.theme.text()),
-                Span::styled(format!("   ↓ {}  ↑ {}", size(rx), size(tx)), app.theme.faint()),
+                Span::styled(format!("  {:<26}", a.name), app.theme.text()),
+                Span::styled(format!("{:>10}", size(a.rx_bytes + a.tx_bytes)), app.theme.text()),
+                Span::styled(format!("   ↓ {}  ↑ {}", size(a.rx_bytes), size(a.tx_bytes)), app.theme.faint()),
             ]));
         }
         lines.push(Line::from(""));
-        let days: Vec<_> = month.iter().rev().take(7).rev().cloned().collect();
-        let max = days.iter().map(|d| d.rx_bytes + d.tx_bytes).max().unwrap_or(1).max(1);
-        lines.push(Line::from(Span::styled("Traffic per day (download █, upload ▒)", app.theme.title())));
-        for d in &days {
-            let w = body.width.saturating_sub(34) as f64;
-            let down = ((d.rx_bytes as f64 / max as f64) * w).round() as usize;
-            let up = ((d.tx_bytes as f64 / max as f64) * w).round() as usize;
-            lines.push(Line::from(vec![
-                Span::styled(format!("{}  ", d.date), app.theme.muted()),
-                Span::styled("█".repeat(down), Style::default().fg(app.theme.cpu)),
-                Span::styled("▒".repeat(up), Style::default().fg(app.theme.gpu)),
-                Span::styled(format!("  {:.1} GB", (d.rx_bytes + d.tx_bytes) as f64 / 1e9), app.theme.muted()),
-            ]));
-        }
-        if days.is_empty() {
-            lines.push(Line::from(Span::styled("No traffic recorded yet.", app.theme.muted())));
-        }
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("One day hour by hour: `ug traffic --day YYYY-MM-DD`. Traffic per app: Ping stability → Internet control, or `ug net`.", app.theme.faint())));
+        lines.push(Line::from(Span::styled("←→ day, week or month. More: `ug traffic --apps`, `ug traffic --day YYYY-MM-DD`.", app.theme.faint())));
+        let body = Rect { y: top + 1, height: body.bottom().saturating_sub(top + 1), ..body };
         f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), body);
     }
 }
@@ -2838,7 +2887,7 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (2, 3) => vec![("↑↓", "row"), ("←→", "change"), ("Enter", "next")],
         (2, _) => vec![("Enter", "choose"), ("←→", "limit")],
         (3, 0) => vec![("Tab", "traffic"), ("←→", "range")],
-        (3, 1) => vec![("Tab", "FPS")],
+        (3, 1) => vec![("Tab", "FPS"), ("←→", "period"), ("r r", "reset counts")],
         (3, _) => vec![("Tab", "temperature"), ("Enter", "set up / undo")],
         (4, _) => vec![("Tab", "next tab"), ("Enter", "limit while gaming"), ("b", "block"), ("x", "allow")],
         (8, 1) => vec![("Tab", "check"), ("Enter ×2", "undo"), ("y", "keep")],
@@ -2885,6 +2934,10 @@ pub fn toggle_game_mode(app: &mut App) {
 pub fn set_choice(app: &mut App, i: usize) {
     if app.page == 0 {
         choose_gpu(app, i);
+        return;
+    }
+    if (app.page, app.tab) == (3, 1) {
+        app.traffic_span = i.min(2);
         return;
     }
     app.choice = i;
@@ -2947,11 +3000,13 @@ pub fn step_choice(app: &mut App, d: i32) {
         (2, 0) => WHEN.len(),
         (2, 2) => 11,
         (3, 0) => RANGES.len(),
+        (3, 1) => 3,
         (6, 2) => 2,
         (6, _) => 3,
         _ => return,
     };
-    let next = (app.choice as i32 + d).clamp(0, max as i32 - 1) as usize;
+    let current = if (app.page, app.tab) == (3, 1) { app.traffic_span } else { app.choice };
+    let next = (current as i32 + d).clamp(0, max as i32 - 1) as usize;
     set_choice(app, next);
 }
 

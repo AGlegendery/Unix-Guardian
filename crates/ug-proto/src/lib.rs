@@ -476,6 +476,15 @@ pub mod agent {
         /// (an hour each from local midnight: a day's hours).
         fn traffic_buckets(&self, since_unix_ms: u64, until_unix_ms: u64, bucket_ms: u64) -> zbus::Result<Vec<TrafficBucket>>;
 
+        /// Each app's internet use between two times, most used first.
+        fn app_traffic(&self, since_unix_ms: u64, until_unix_ms: u64) -> zbus::Result<Vec<AppUsage>>;
+
+        /// Starts the traffic counts again from now (totals, days and apps).
+        fn reset_traffic(&self) -> zbus::Result<bool>;
+
+        /// When the traffic counts were last reset (0: never).
+        fn traffic_reset_at(&self) -> zbus::Result<u64>;
+
         /// The running game's FPS, read from MangoHud's log.
         fn fps(&self) -> zbus::Result<FpsReading>;
 

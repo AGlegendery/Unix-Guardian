@@ -459,6 +459,13 @@ export interface TrafficBucket {
   tx_bytes: number;
 }
 
+export interface AppUsage {
+  name: string;
+  category: string;
+  rx_bytes: number;
+  tx_bytes: number;
+}
+
 export interface PlaytimeEntry {
   key: string;
   name: string;
@@ -534,6 +541,9 @@ const tauriApi = {
   /** Equal buckets from `since` (an hour each from local midnight: a day's hours). */
   trafficBuckets: (sinceUnixMs: number, untilUnixMs: number, bucketMs: number) =>
     invoke<TrafficBucket[]>("traffic_buckets", { sinceUnixMs, untilUnixMs, bucketMs }),
+  appTraffic: (sinceUnixMs: number, untilUnixMs: number) => invoke<AppUsage[]>("app_traffic", { sinceUnixMs, untilUnixMs }),
+  resetTraffic: () => invoke<boolean>("reset_traffic"),
+  trafficResetAt: () => invoke<number>("traffic_reset_at"),
   extra: () => invoke<ExtraSample>("extra"),
   fps: () => invoke<FpsReading>("fps"),
   setUpFps: (on: boolean) => invoke<void>("set_up_fps", { on }),

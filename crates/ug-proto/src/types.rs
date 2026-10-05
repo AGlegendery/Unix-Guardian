@@ -676,6 +676,16 @@ pub struct TrafficBucket {
     pub tx_bytes: u64,
 }
 
+/// One app's internet use over a stretch of time (the agent's per-app
+/// history, summed by app name).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct AppUsage {
+    pub name: String,
+    pub category: String,
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+}
+
 /// Ping statistics over a window of samples.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
 pub struct PingStats {
@@ -741,7 +751,7 @@ pub struct PingComparison {
 }
 
 /// Internet use of one app or service, counted by its cgroup.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
 pub struct AppTraffic {
     /// The cgroup path, relative to the cgroup root; stable while it runs.
     pub id: String,
