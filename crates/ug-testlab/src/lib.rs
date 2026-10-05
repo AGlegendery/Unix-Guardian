@@ -41,7 +41,7 @@ pub const TEMPORARY_EN: &[&str] = &[
     "game mode (CPU and memory tuning, paused services) for a few seconds",
     "a full CPU load for about 6 seconds (a benchmark)",
     "a test profile, a tracked app and an internet rule for a made-up program",
-    "a power action and a wake alarm scheduled 300 days ahead, cancelled at once",
+    "a power action scheduled 300 days ahead and a wake alarm six hours ahead, both cancelled at once",
     "a 3-second screen recording (if the recorder is set up), deleted at once",
 ];
 
@@ -218,5 +218,36 @@ mod tests {
         ids.sort();
         ids.dedup();
         assert_eq!(ids.len(), STEPS.len());
+    }
+
+    /// Many PC clocks (rtc_cmos) refuse a wake alarm more than a day ahead
+    /// with EINVAL; the user's first real report failed on a 300-day one.
+    #[test]
+    fn the_test_wake_alarm_is_within_a_day() {
+        let now = 1_791_180_000_000;
+        let at = steps::test_alarm_at(now);
+        assert!(at > now + 60_000 && at < now + 24 * 3_600_000, "{at}");
+        assert_eq!(at % 1000, 0, "whole seconds");
+    }
+
+    /// On Wayland the recorder's automatic choice is the desktop's portal,
+    /// which opens a screen picker: the test must not wait on a person.
+    #[test]
+    fn recording_is_tested_only_where_nothing_asks_first() {
+        assert!(steps::recording_asks_first("", true), "automatic on Wayland is the portal");
+        assert!(steps::recording_asks_first("portal", false));
+        assert!(steps::recording_asks_first("eDP-1", true), "a monitor on Wayland needs the capture helper's password");
+        assert!(!steps::recording_asks_first("", false), "automatic on X11 is the whole screen");
+        assert!(!steps::recording_asks_first("screen", false));
+    }
+
+    /// An Intel iGPU has no temperature sensor of its own (it shares the
+    /// CPU's package); that is normal, not a warning.
+    #[test]
+    fn an_integrated_gpu_without_its_own_temperature_is_not_a_warning() {
+        assert!(steps::gpu_has_own_temperature("nvidia"));
+        assert!(steps::gpu_has_own_temperature("amdgpu"));
+        assert!(!steps::gpu_has_own_temperature("i915"));
+        assert!(!steps::gpu_has_own_temperature("xe"));
     }
 }

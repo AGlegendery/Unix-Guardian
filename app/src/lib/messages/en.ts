@@ -26,7 +26,7 @@ export const en = {
       "game mode (CPU and memory tuning, paused services) for a few seconds",
       "a full CPU load for about 6 seconds (a benchmark)",
       "a test profile, a tracked app and an internet rule for a made-up program",
-      "a power action and a wake alarm scheduled 300 days ahead, cancelled at once",
+      "a power action scheduled 300 days ahead and a wake alarm six hours ahead, both cancelled at once",
       "a 3-second screen recording (if the recorder is set up), deleted at once",
     ],
     never: "It never logs out, restarts, installs packages or changes the desktop session. Personal details are removed from the report, and nothing is sent by itself. Close games and recordings first; it takes about a minute.",

@@ -52,7 +52,7 @@ impl Rtc {
             .truncate(true)
             .open(&path)
             .and_then(|mut f| f.write_all(v.as_bytes()))
-            .map_err(|e| format!("{}: {e}", path.display()))
+            .map_err(|e| write_error(&path, &e))
     }
 
     /// Seconds the RTC runs ahead of UTC: 0 for a UTC clock, the local UTC
@@ -72,6 +72,16 @@ impl Rtc {
             libc::localtime_r(&t, &mut tm);
             tm.tm_gmtoff
         }
+    }
+}
+
+/// What a failed write means. EINVAL is the clock refusing the time: PC
+/// clocks (rtc_cmos) often take alarms only within the next 24 hours.
+fn write_error(path: &std::path::Path, e: &std::io::Error) -> String {
+    if e.raw_os_error() == Some(libc::EINVAL) {
+        format!("This computer's clock cannot wake it at that time (many can only wake within the next 24 hours); pick a time sooner. ({}: {e})", path.display())
+    } else {
+        format!("{}: {e}", path.display())
     }
 }
 
@@ -113,5 +123,14 @@ mod tests {
     fn a_machine_without_an_rtc_says_so() {
         let fs = TestFs::new();
         assert!(!Rtc::new(SysRoot::at(fs.root())).available());
+    }
+
+    #[test]
+    fn a_time_the_clock_refuses_is_explained() {
+        let e = std::io::Error::from_raw_os_error(libc::EINVAL);
+        let m = write_error(std::path::Path::new("/sys/class/rtc/rtc0/wakealarm"), &e);
+        assert!(m.contains("within the next 24 hours"), "{m}");
+        let other = write_error(std::path::Path::new("/x"), &std::io::Error::from_raw_os_error(libc::EACCES));
+        assert!(other.starts_with("/x: "), "{other}");
     }
 }

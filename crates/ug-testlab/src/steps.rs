@@ -362,8 +362,11 @@ impl Lab {
             .filter(|x| x.1)
             .map(|x| x.0)
             .collect();
-            let st = if have.contains(&"temperature") { Status::Pass } else { Status::Warn };
-            self.add("sensors", &name, st, format!("reads: {} ({}, {})", if have.is_empty() { "nothing".into() } else { have.join(", ") }, opt(g.temp_c, "°C"), opt(g.power_w, "W")));
+            let driver = self.inventory.as_ref().and_then(|i| i.gpus.iter().find(|x| x.pci == g.pci)).map(|x| x.driver.clone()).unwrap_or_default();
+            let own = gpu_has_own_temperature(&driver);
+            let st = if have.contains(&"temperature") || (!own && !have.is_empty()) { Status::Pass } else { Status::Warn };
+            let note = if !own && !have.contains(&"temperature") { "; integrated graphics have no temperature sensor of their own (the CPU's temperature covers them)" } else { "" };
+            self.add("sensors", &name, st, format!("reads: {} ({}, {}){note}", if have.is_empty() { "nothing".into() } else { have.join(", ") }, opt(g.temp_c, "°C"), opt(g.power_w, "W")));
         }
         match call(d.extra()).await {
             Ok(e) => {
@@ -794,7 +797,7 @@ impl Lab {
         if call(p.wake_alarm()).await.unwrap_or(0) != 0 {
             return self.add("power", "wake alarm", Status::Skip, "an alarm is already set; it was not touched");
         }
-        let at = (now_ms() + 300 * 86_400_000) / 1000 * 1000;
+        let at = test_alarm_at(now_ms());
         let undo = Undo::ClearWakeAlarm { at_unix_ms: at };
         if !self.remember(undo.clone()) {
             return;
@@ -918,8 +921,8 @@ impl Lab {
         if s.mode != "idle" {
             return self.add("recorder", "record 3 seconds", Status::Skip, format!("the recorder is in use ({})", s.mode));
         }
-        if s.settings.capture == "portal" || (s.settings.capture.is_empty() && s.captures.first().is_some_and(|c| c == "portal")) {
-            self.add("recorder", "record 3 seconds", Status::Skip, "recording here asks the desktop for permission first");
+        if recording_asks_first(&s.settings.capture, wayland_session()) {
+            self.add("recorder", "record 3 seconds", Status::Skip, "recording here opens the desktop's screen picker or asks for a password first, so the test does not start one");
             return self.manual("Screen recording", "record a few seconds from the Recorder page and allow it in the desktop's dialog");
         }
         let file = match call(r.start()).await {
@@ -1220,4 +1223,28 @@ fn block_in_place_or<T>(f: impl FnOnce() -> T) -> T {
         Ok(tokio::runtime::RuntimeFlavor::MultiThread) => tokio::task::block_in_place(f),
         _ => f(),
     }
+}
+
+/// When the test wake alarm is set for: six hours ahead. PC clocks
+/// (rtc_cmos) often refuse an alarm more than a day ahead; it is cleared at
+/// once, and the undo journal clears it after a crash.
+pub(crate) fn test_alarm_at(now_ms: u64) -> u64 {
+    (now_ms + 6 * 3_600_000) / 1000 * 1000
+}
+
+/// Whether starting a recording would open a dialog or ask for a password:
+/// the portal always does (automatic on Wayland is the portal), and on
+/// Wayland a monitor is captured through a helper that needs the password.
+pub(crate) fn recording_asks_first(capture: &str, wayland: bool) -> bool {
+    capture == "portal" || wayland
+}
+
+/// Whether a GPU driver reports a temperature of its own. Intel's
+/// integrated graphics share the CPU's package and have none.
+pub(crate) fn gpu_has_own_temperature(driver: &str) -> bool {
+    !matches!(driver, "i915" | "xe")
+}
+
+fn wayland_session() -> bool {
+    std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty()) || std::env::var("XDG_SESSION_TYPE").is_ok_and(|v| v == "wayland")
 }
