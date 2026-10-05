@@ -32,7 +32,8 @@ impl Engine {
     fn argv(&self) -> Vec<String> {
         match self {
             Engine::Native(p) => vec![p.display().to_string()],
-            Engine::Flatpak => ["flatpak", "run", "--command=gpu-screen-recorder", FLATPAK_ID].map(String::from).to_vec(),
+            // --die-with-parent: the sandbox goes when the agent does.
+            Engine::Flatpak => ["flatpak", "run", "--die-with-parent", "--command=gpu-screen-recorder", FLATPAK_ID].map(String::from).to_vec(),
         }
     }
 
@@ -161,6 +162,107 @@ pub fn videos_dir(home: &Path) -> PathBuf {
         .map(|v| v.trim_matches('"').replace("$HOME", &home.display().to_string()))
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join("Videos"))
+}
+
+// The Flatpak's process tree. `flatpak run` becomes `bwrap`, which starts
+// an inner `bwrap` (the sandbox's first process) and that starts the
+// recorder. A signal to our child reaches only the outer bwrap: it dies, the
+// inner one and the recorder are handed to the session's init and keep
+// recording, unseen (found on the user's machine after the software test,
+// 2026-10-05). So signals go to the recorder process itself, found in /proc.
+
+/// The recorder's name in /proc (`comm` is cut to 15 characters).
+const ENGINE_COMM: &str = "gpu-screen-reco";
+
+fn ppid(proc_root: &Path, pid: i32) -> Option<i32> {
+    let stat = std::fs::read_to_string(proc_root.join(pid.to_string()).join("stat")).ok()?;
+    // After the last ')' (the name may hold spaces): state, then the parent.
+    stat.rsplit_once(')')?.1.split_whitespace().nth(1)?.parse().ok()
+}
+
+fn comm(proc_root: &Path, pid: i32) -> Option<String> {
+    std::fs::read_to_string(proc_root.join(pid.to_string()).join("comm")).ok().map(|c| c.trim_end().to_string())
+}
+
+fn pids(proc_root: &Path) -> Vec<i32> {
+    std::fs::read_dir(proc_root)
+        .map(|d| d.flatten().filter_map(|e| e.file_name().to_str()?.parse().ok()).collect())
+        .unwrap_or_default()
+}
+
+/// Every process below `root`.
+fn descendants(proc_root: &Path, root: i32) -> Vec<i32> {
+    let all: Vec<(i32, i32)> = pids(proc_root).into_iter().filter_map(|p| Some((p, ppid(proc_root, p)?))).collect();
+    let mut out = Vec::new();
+    let mut todo = vec![root];
+    while let Some(p) = todo.pop() {
+        for &(c, _) in all.iter().filter(|(_, pp)| *pp == p) {
+            out.push(c);
+            todo.push(c);
+        }
+    }
+    out
+}
+
+/// The recorder processes to signal for our child `root`: the recorder
+/// inside the Flatpak, or the child itself when it is the recorder.
+fn engine_pids(proc_root: &Path, root: i32) -> Vec<i32> {
+    let inside: Vec<i32> = descendants(proc_root, root).into_iter().filter(|p| comm(proc_root, *p).as_deref() == Some(ENGINE_COMM)).collect();
+    if inside.is_empty() {
+        vec![root]
+    } else {
+        inside
+    }
+}
+
+/// Recorders of this user writing into `folder` that are not `ours`: left
+/// running by an older agent or one that died.
+fn leftover_engines(proc_root: &Path, folder: &Path, ours: &[i32]) -> Vec<i32> {
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: geteuid cannot fail and has no preconditions.
+    let me = unsafe { libc::geteuid() };
+    let folder = folder.to_string_lossy().trim_end_matches('/').to_string();
+    pids(proc_root)
+        .into_iter()
+        .filter(|p| !ours.contains(p) && comm(proc_root, *p).as_deref() == Some(ENGINE_COMM))
+        .filter(|p| std::fs::metadata(proc_root.join(p.to_string())).is_ok_and(|m| m.uid() == me))
+        .filter(|p| {
+            let cmd = std::fs::read(proc_root.join(p.to_string()).join("cmdline")).unwrap_or_default();
+            cmd.split(|b| *b == 0).any(|a| {
+                let a = String::from_utf8_lossy(a);
+                a == folder || a.starts_with(&format!("{folder}/"))
+            })
+        })
+        .collect()
+}
+
+fn alive(proc_root: &Path, pid: i32) -> bool {
+    match std::fs::read_to_string(proc_root.join(pid.to_string()).join("stat")) {
+        Ok(stat) => stat.rsplit_once(')').and_then(|(_, rest)| rest.split_whitespace().next()) != Some("Z"),
+        Err(_) => false,
+    }
+}
+
+/// SIGINT (the recorder then finishes its file), then waits for them all to
+/// be gone; SIGKILL to what is left after `wait`. True when all ended by
+/// themselves.
+fn interrupt_and_wait(proc_root: &Path, list: &[i32], wait: std::time::Duration) -> bool {
+    for &p in list {
+        // SAFETY: plain kill(2); a pid that is gone gives ESRCH, nothing else.
+        unsafe { libc::kill(p, libc::SIGINT) };
+    }
+    let until = std::time::Instant::now() + wait;
+    while std::time::Instant::now() < until {
+        if !list.iter().any(|p| alive(proc_root, *p)) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    for &p in list.iter().filter(|p| alive(proc_root, **p)) {
+        // SAFETY: as above.
+        unsafe { libc::kill(p, libc::SIGKILL) };
+    }
+    false
 }
 
 struct Running {
@@ -325,6 +427,7 @@ impl Recorder {
             return Err("The recorder is already running; stop it first.".into());
         }
         let engine = find_engine(&self.home).ok_or("gpu-screen-recorder is not installed; set it up first (ug record setup).")?;
+        self.stop_leftovers(&[]);
         let s = self.settings();
         let folder = self.folder(&s);
         std::fs::create_dir_all(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
@@ -388,35 +491,46 @@ impl Recorder {
         self.spawn(true).map(|_| ())
     }
 
-    /// Stops the run: SIGINT, then up to ten seconds for the file to be
-    /// finished.
+    /// Stops the run: SIGINT to the recorder itself, then up to ten seconds
+    /// for the file to be finished. With nothing running it stops recorders
+    /// left behind in our folder (by an older agent or a crash), if any.
     pub fn stop(&self) -> Result<String, String> {
         self.reap();
+        let proc_root = Path::new("/proc");
         let Some(mut r) = self.lock().running.take() else {
-            return Err("The recorder is not running.".into());
+            let n = self.stop_leftovers(&[]);
+            return if n > 0 { Ok(String::new()) } else { Err("The recorder is not running.".into()) };
         };
-        // SAFETY: a signal to our own child, whose pid is still ours (it has
-        // not been waited for).
-        unsafe {
-            libc::kill(r.child.id() as i32, libc::SIGINT);
+        let engines = engine_pids(proc_root, r.child.id() as i32);
+        let finished = interrupt_and_wait(proc_root, &engines, std::time::Duration::from_secs(10));
+        // The Flatpak's bwrap ends when the recorder does; make sure, then reap.
+        let rest = descendants(proc_root, r.child.id() as i32);
+        if r.child.try_wait().ok().flatten().is_none() {
+            interrupt_and_wait(proc_root, &rest, std::time::Duration::from_secs(2));
+            let _ = r.child.kill();
         }
-        let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        loop {
-            if let Ok(Some(_)) = r.child.try_wait() {
-                break;
-            }
-            if std::time::Instant::now() > until {
-                let _ = r.child.kill();
-                let _ = r.child.wait();
-                return Err("The recorder did not finish in time and was stopped; the file may be incomplete.".into());
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
+        let _ = r.child.wait();
+        if !finished {
+            return Err("The recorder did not finish in time and was stopped; the file may be incomplete.".into());
         }
         if r.replay {
             return Ok(String::new());
         }
         self.lock().last_saved = r.file.clone();
         Ok(r.file)
+    }
+
+    /// Stops recorders writing into our folder that this agent did not
+    /// start (or no longer knows about). Returns how many there were.
+    pub fn stop_leftovers(&self, ours: &[i32]) -> usize {
+        let proc_root = Path::new("/proc");
+        let folder = self.folder(&self.settings());
+        let left = leftover_engines(proc_root, &folder, ours);
+        if !left.is_empty() {
+            tracing::warn!(pids = ?left, "stopping recorders left running in the recordings folder");
+            interrupt_and_wait(proc_root, &left, std::time::Duration::from_secs(10));
+        }
+        left.len()
     }
 
     /// Saves the replay buffer: SIGUSR1, then the path the engine prints.
@@ -427,9 +541,11 @@ impl Recorder {
             _ => return Err("The replay buffer is not running.".into()),
         };
         let before = self.lock().last_saved.clone();
-        // SAFETY: as in `stop`.
-        unsafe {
-            libc::kill(pid as i32, libc::SIGUSR1);
+        for p in engine_pids(Path::new("/proc"), pid as i32) {
+            // SAFETY: plain kill(2) to the recorder (see `engine_pids`).
+            unsafe {
+                libc::kill(p, libc::SIGUSR1);
+            }
         }
         let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
         while std::time::Instant::now() < until {
@@ -775,5 +891,61 @@ mod tests {
         std::fs::create_dir_all(d.path().join(".config")).unwrap();
         std::fs::write(d.path().join(".config/user-dirs.dirs"), "XDG_VIDEOS_DIR=\"$HOME/ویدیو\"\n").unwrap();
         assert_eq!(videos_dir(d.path()), d.path().join("ویدیو"));
+    }
+
+    /// A fake /proc entry: `stat` with the parent, `comm`, NUL-separated
+    /// `cmdline`.
+    fn proc_entry(fs: &ug_testfs::TestFs, pid: i32, ppid: i32, comm: &str, args: &[&str]) {
+        fs.write(format!("{pid}/stat"), &format!("{pid} ({comm}) S {ppid} 1 1 0 -1"));
+        fs.write(format!("{pid}/comm"), &format!("{comm}\n"));
+        fs.write(format!("{pid}/cmdline"), &(args.join("\0") + "\0"));
+    }
+
+    /// The Flatpak runs as `bwrap` (flatpak run becomes it) → an inner
+    /// `bwrap` → gpu-screen-recorder. A signal to our child reaches only the
+    /// outer bwrap, which dies and leaves the recorder running (seen on the
+    /// user's machine after the software test, 2026-10-05). The signal must
+    /// go to the recorder itself.
+    #[test]
+    fn the_signal_goes_to_the_recorder_inside_the_flatpak_not_to_bwrap() {
+        let fs = ug_testfs::TestFs::new();
+        proc_entry(&fs, 100, 1, "bwrap", &["bwrap", "--args", "74", "--", "gpu-screen-recorder"]);
+        proc_entry(&fs, 101, 100, "bwrap", &["bwrap", "--args", "74", "--", "gpu-screen-recorder"]);
+        proc_entry(&fs, 102, 101, "gpu-screen-reco", &["gpu-screen-recorder", "-w", "portal", "-o", "/v/Unix Guardian/a.mp4"]);
+        proc_entry(&fs, 200, 1, "gpu-screen-reco", &["gpu-screen-recorder", "-o", "/elsewhere/b.mp4"]);
+        assert_eq!(engine_pids(fs.root(), 100), [102]);
+        // A recorder on PATH is our child itself.
+        proc_entry(&fs, 300, 1, "gpu-screen-reco", &["gpu-screen-recorder", "-o", "/v/c.mp4"]);
+        assert_eq!(engine_pids(fs.root(), 300), [300]);
+    }
+
+    /// A recorder left running (by an older agent, or one that died) and
+    /// writing into our folder is found, so it can be stopped.
+    #[test]
+    fn a_leftover_recorder_writing_into_our_folder_is_found() {
+        let fs = ug_testfs::TestFs::new();
+        proc_entry(&fs, 101, 1480, "bwrap", &["bwrap", "--", "gpu-screen-recorder"]);
+        proc_entry(&fs, 102, 101, "gpu-screen-reco", &["gpu-screen-recorder", "-w", "portal", "-o", "/v/Unix Guardian/Recording 1.mp4"]);
+        proc_entry(&fs, 103, 1480, "gpu-screen-reco", &["gpu-screen-recorder", "-r", "30", "-o", "/v/Unix Guardian"]);
+        proc_entry(&fs, 200, 1, "gpu-screen-reco", &["gpu-screen-recorder", "-o", "/home/u/mine.mp4"]);
+        proc_entry(&fs, 300, 1, "firefox", &["firefox", "-o", "/v/Unix Guardian/x"]);
+        let mut found = leftover_engines(fs.root(), Path::new("/v/Unix Guardian"), &[]);
+        found.sort();
+        assert_eq!(found, [102, 103]);
+        assert_eq!(leftover_engines(fs.root(), Path::new("/v/Unix Guardian"), &[102]), [103], "ours is not a leftover");
+    }
+
+    /// With real processes: the signal reaches a grandchild, and stopping
+    /// waits for it to be gone.
+    #[test]
+    fn interrupting_reaches_a_real_grandchild() {
+        let mut child = std::process::Command::new("sh").args(["-c", "sleep 300; true"]).spawn().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let proc_root = Path::new("/proc");
+        let kids = descendants(proc_root, child.id() as i32);
+        let sleeper = *kids.iter().find(|p| comm(proc_root, **p).as_deref() == Some("sleep")).expect("sleep is a child of sh");
+        assert!(interrupt_and_wait(proc_root, &[sleeper], std::time::Duration::from_secs(5)));
+        assert!(!alive(proc_root, sleeper));
+        let _ = child.wait();
     }
 }

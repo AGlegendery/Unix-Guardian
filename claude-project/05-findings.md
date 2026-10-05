@@ -260,3 +260,17 @@ progress); and `org.freedesktop.Platform.openh264` comes from
 | **"Not a game" was forgotten at the next login** | the detector's ignore list lived in memory only (its test said "now and forever" within one detector) | choices saved in `playtime.json` and loaded at start; the agent test fails without the load |
 | **Global shortcuts said "this desktop does not offer them" on KDE, which has the portal** | the portal's property is `version` (lower case); zbus turned the proxy's `version()` into a request for `Version` | `#[zbus(property, name = "version")]`; found by `scripts/shortcuts-e2e.sh` against a fake portal (fails without the fix) |
 | **The updated window got "Signature mismatch: got `(sbstsssas…)`, expected `(sbstsssysas…)`" after a reinstall** (2026-10-04) | the agent started at login by the XDG autostart entry kept the bus name with its old program (exe "(deleted)"); dev-install restarted only the unit, whose new agent saw the name taken and stepped aside | a new agent stops an agent whose program file was replaced and takes over (agent-e2e fails without it); dev-install kills outdated agents; CLI and window turn a signature mismatch into "restart the agent" |
+
+## Flatpak recorder kept running after Stop (2026-10-05)
+
+`flatpak run` becomes `bwrap` (same pid as our child); it starts an inner
+`bwrap` (the sandbox's first process) which runs the program. A signal to
+our child kills only the outer bwrap: the inner one and gpu-screen-recorder
+are reparented to the session's systemd and keep recording, while the agent
+sees its child gone and reports "stopped" (checked with `flatpak run
+--command=sleep`). Seen by the user after the software test's 3-second
+recording (portal dialog). Fix: signals (SIGINT stop, SIGUSR1 replay) go to
+the `gpu-screen-reco` process found under our child in /proc; `flatpak run
+--die-with-parent`; recorders writing into our folder that the agent does
+not track are stopped at agent start, before a new recording, and by Stop
+when idle (the test's recover uses that).

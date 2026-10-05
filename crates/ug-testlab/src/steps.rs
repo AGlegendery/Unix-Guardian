@@ -1084,7 +1084,9 @@ impl Lab {
             }
             Undo::DeleteRecording { file } => {
                 if let Some(r) = proxy(a, ag::RecorderProxy::new).await {
-                    if call(r.state()).await.is_ok_and(|s| s.mode == "recording" && &s.file == file) {
+                    // Recording this file, or idle: an idle agent's Stop also
+                    // stops a recorder it lost track of in its folder.
+                    if call(r.state()).await.is_ok_and(|s| (s.mode == "recording" && &s.file == file) || s.mode == "idle") {
                         let _ = call(r.stop()).await;
                     }
                 }

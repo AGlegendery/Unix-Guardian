@@ -270,6 +270,12 @@ async fn main() -> Result<()> {
     let shortcuts = shortcuts::Shortcuts::new(&ug_core::paths::user_config(), pressed_tx);
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
     let recorder = Arc::new(recorder::Recorder::new(&ug_core::paths::user_config(), &home));
+    // A recorder an older agent lost track of (see recorder.rs) is stopped
+    // (not by a test run's agent).
+    if std::env::var("UG_TEST_RUN").map_or(true, |t| t.is_empty()) {
+        let r = Arc::clone(&recorder);
+        tokio::task::spawn_blocking(move || r.stop_leftovers(&[]));
+    }
     let updater = Arc::new(update::Updater::new(&ug_core::paths::user_config(), std::path::Path::new("/")));
 
     let conn = zbus::connection::Builder::session()?
