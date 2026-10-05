@@ -429,6 +429,19 @@ The per-game picker is a native select and was fine.
    fixes, shortcuts connecting; the splash waits for the gauge's own
    animations (`ondone`, getAnimations + 4 s fallback) plus 200 ms.
 
+## Ping and internet control moved into Monitoring (2026-10-05)
+
+The window's Ping stability page is gone from the menu; Monitoring has a
+fourth tab, Ping stability (`lib/PingPanel.svelte`), and the Internet
+traffic tab now holds internet control: Now, Internet use tiles
+(`TrafficTiles`), the usage chart (`TrafficPeriods`: volume scale on the
+left with round steps, day/week/calendar month, a day picked on the week or
+month chart lists that day's apps with Limit/Block and the live speed when
+the day is today, "Hour by hour"), then the rules (`NetRules`). Shared
+state in `lib/netcontrol.svelte.ts`, buttons + limit form in
+`AppRuleActions.svelte`. Old `#ping` links redirect. The TUI keeps its own
+Ping page (page 5) for now.
+
 ## Next steps, in order
 
 1. **Finish the real install (needs sudo).** Done and verified (see the table

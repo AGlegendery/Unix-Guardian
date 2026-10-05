@@ -4,7 +4,7 @@
   import Mark from "./lib/ui/Mark.svelte";
   import {
     Activity, Bug, ChevronsLeft, ChevronsRight, Clock, Gamepad2, Layers, LayoutDashboard, Power,
-    Eye, FlaskConical, RefreshCw, Settings, SquareTerminal, Video, Wifi, Wrench,
+    Eye, FlaskConical, RefreshCw, Settings, SquareTerminal, Video, Wrench,
   } from "@lucide/svelte";
   import type { Component } from "svelte";
   import { api, errorText, type Overview } from "./lib/api";
@@ -13,7 +13,6 @@
   import GameMode from "./pages/GameMode.svelte";
   import SystemControl from "./pages/SystemControl.svelte";
   import Monitoring from "./pages/Monitoring.svelte";
-  import Ping from "./pages/Ping.svelte";
   import BugReport from "./pages/BugReport.svelte";
   import TestLab from "./pages/TestLab.svelte";
   import Overlay from "./pages/Overlay.svelte";
@@ -30,7 +29,6 @@
     ["gamemode", Gamepad2],
     ["system", Power],
     ["monitoring", Activity],
-    ["ping", Wifi],
     ["overlay", Layers],
     ["playtime", Clock],
     ["recorder", Video],
@@ -41,9 +39,14 @@
     ["settings", Settings],
   ];
   // Built so far; every other page says plainly that it is not.
-  const built = new Set<Page>(["dashboard", "gamemode", "system", "monitoring", "ping", "overlay", "playtime", "bugreport", "settings", "drivers", "recorder", "updates", "testlab"]);
+  const built = new Set<Page>(["dashboard", "gamemode", "system", "monitoring", "overlay", "playtime", "bugreport", "settings", "drivers", "recorder", "updates", "testlab"]);
 
   // `#gamemode` in the URL opens that page (handy in the browser preview).
+  // Ping stability and internet control live in Monitoring now: old
+  // `#ping` links open its tabs.
+  if (location.hash.startsWith("#ping")) {
+    history.replaceState(null, "", location.hash.includes("/control") ? "#monitoring/traffic" : "#monitoring/ping");
+  }
   const fromHash = location.hash.slice(1).split("/")[0] as Page;
   let page = $state<Page>(pages.some(([p]) => p === fromHash) ? fromHash : "dashboard");
   // One scroll area serves every page, so a new page would open at the
@@ -182,8 +185,6 @@
       <SystemControl />
     {:else if page === "monitoring"}
       <Monitoring />
-    {:else if page === "ping"}
-      <Ping />
     {:else if page === "overlay"}
       <Overlay />
     {:else if page === "playtime"}

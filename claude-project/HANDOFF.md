@@ -6,7 +6,7 @@ in minutes. **Update this file after every finished item and commit it.**
 Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 `05-findings.md`, `07-conventions.md`, `03-architecture.md`.
 
-Last updated: 2026-10-05 (traffic periods, test lab fixes, rename, loaders; see 04-status "Batch after the picker").
+Last updated: 2026-10-05 (Ping + internet control moved into Monitoring; see 04-status).
 
 ## Where we are
 
