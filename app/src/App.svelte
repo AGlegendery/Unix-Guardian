@@ -76,12 +76,16 @@
   let loadError = $state<string | null>(null);
 
   // The intro plays once while the first readings arrive: it stays until
-  // both are done (the gauge needs about 1.4 s to draw), then fades.
+  // the gauge has finished drawing (it says so) and the readings are in,
+  // then holds the finished mark for a moment before closing.
   let splash = $state(true);
+  let introDone: () => void = () => {};
+  const drawn = new Promise<void>((r) => (introDone = r));
   $effect(() => {
-    const drawn = new Promise((r) => setTimeout(r, 1400));
     const loaded = api.overview().then((o) => (overview = o)).catch((e) => (loadError = errorText(e)));
-    Promise.all([drawn, loaded]).then(() => (splash = false));
+    Promise.all([drawn, loaded])
+      .then(() => new Promise((r) => setTimeout(r, 200)))
+      .then(() => (splash = false));
   });
 
   // After "Quit tray icon" the window is the place to bring it back. Read
@@ -101,7 +105,7 @@
 
 {#if splash}
   <div class="splash" aria-live="polite">
-    <GaugeLoader variant="intro" size={112} label={t().app} />
+    <GaugeLoader variant="intro" size={112} label={t().app} ondone={() => introDone()} />
     <span>{t().app}</span>
   </div>
 {/if}

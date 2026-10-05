@@ -2,6 +2,7 @@
   import { Download, ExternalLink, RefreshCw, Undo2 } from "@lucide/svelte";
   import { api, errorText, type UpdateState } from "../lib/api";
   import { locale, t } from "../lib/i18n.svelte";
+  import GaugeLoader from "../lib/ui/GaugeLoader.svelte";
   import Problem from "../lib/ui/Problem.svelte";
 
   let st = $state<UpdateState | null>(null);
@@ -126,11 +127,12 @@
     </dl>
     <div class="buttons">
       <button class="btn" onclick={check} disabled={checking || !!st.step}>
-        <RefreshCw size={16} aria-hidden="true" /> {checking ? t().upd.checking : t().upd.check}
+        {#if checking}<GaugeLoader size={16} label={t().upd.checking} />{:else}<RefreshCw size={16} aria-hidden="true" />{/if}
+        {checking ? t().upd.checking : t().upd.check}
       </button>
       {#if st.previous && !st.step}
         <button class="btn" onclick={rollback} disabled={busy}>
-          <Undo2 size={16} aria-hidden="true" /> {t().upd.rollback}
+          {#if busy}<GaugeLoader size={16} label={t().upd.rollback} />{:else}<Undo2 size={16} aria-hidden="true" />{/if} {t().upd.rollback}
         </button>
       {/if}
     </div>
@@ -157,7 +159,10 @@
       {/if}
 
       {#if st.step}
-        <p class="step" role="status">{st.step === "downloading" ? t().upd.downloading : t().upd.installing}</p>
+        <p class="step" role="status">
+          <GaugeLoader size={28} label={st.step === "downloading" ? t().upd.downloading : t().upd.installing} maxSeconds={120} />
+          {st.step === "downloading" ? t().upd.downloading : t().upd.installing}
+        </p>
       {:else if st.can_install}
         <div class="buttons">
           <button class="btn primary" onclick={install}><Download size={16} aria-hidden="true" /> {t().upd.install}</button>
@@ -192,7 +197,7 @@
   p { margin: 0; line-height: 1.6; font-size: 0.9rem; }
   .small { color: var(--text-3); font-size: 0.8rem; }
   .ok { color: var(--accent-text); font-size: 0.88rem; }
-  .step { font-weight: 600; }
+  .step { font-weight: 600; display: flex; align-items: center; gap: 12px; }
   dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 18px; margin: 0; font-size: 0.9rem; }
   dt { color: var(--text-2); }
   dd { margin: 0; justify-self: start; }

@@ -4,6 +4,7 @@
   import { api, errorText, type ShortcutsState } from "./api";
   import { t } from "./i18n.svelte";
   import { combo, modifiers } from "./keycombo";
+  import GaugeLoader from "./ui/GaugeLoader.svelte";
   import Problem from "./ui/Problem.svelte";
   import Switch from "./ui/Switch.svelte";
 
@@ -104,7 +105,10 @@
   <p class="muted">{t().shortcuts.explain}</p>
   {#if error}<Problem text={error} />{/if}
   {#if st}
-    <p class="status {st.status}" role="status">{t().shortcuts.status[st.status]}</p>
+    <p class="status {st.status}" role="status">
+      {#if st.status === "connecting" || st.status === "waiting"}<GaugeLoader size={16} label={t().shortcuts.status[st.status]} maxSeconds={60} />{/if}
+      {t().shortcuts.status[st.status]}
+    </p>
     {#if st.status === "failed" && st.problem}<p class="small">{st.problem}</p>{/if}
     <ul>
       {#each st.shortcuts as k}
@@ -145,7 +149,7 @@
   p { margin: 0; }
   .muted { color: var(--text-2); font-size: 0.9rem; }
   .small { color: var(--text-3); font-size: 0.8rem; }
-  .status { font-size: 0.88rem; font-weight: 600; }
+  .status { font-size: 0.88rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
   .status.active { color: var(--accent-text); }
   .status.failed, .status.unavailable { color: var(--text-2); }
   ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }

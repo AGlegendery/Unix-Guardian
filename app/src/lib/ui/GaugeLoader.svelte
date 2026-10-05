@@ -15,8 +15,36 @@
     label = "Loading",
     maxSeconds = 20,
     value = 0,
-  }: { variant?: "busy" | "intro" | "progress"; size?: number; label?: string; maxSeconds?: number; value?: number } = $props();
+    ondone,
+  }: { variant?: "busy" | "intro" | "progress"; size?: number; label?: string; maxSeconds?: number; value?: number; ondone?: () => void } = $props();
   const v = $derived(Math.max(0, Math.min(100, value)));
+
+  // The intro tells its caller when every part has finished drawing (the
+  // splash closed on a fixed timer before, cutting the needle's sweep short
+  // when the window's first paint came late). A fallback covers a runtime
+  // without getAnimations.
+  let svg = $state<SVGSVGElement | null>(null);
+  $effect(() => {
+    if (variant !== "intro" || !svg || !ondone) return;
+    const el = svg;
+    let fired = false;
+    const done = () => {
+      if (!fired) {
+        fired = true;
+        ondone();
+      }
+    };
+    const fallback = setTimeout(done, 4000);
+    const start = setTimeout(() => {
+      const list = typeof el.getAnimations === "function" ? el.getAnimations({ subtree: true }) : null;
+      if (!list) return;
+      Promise.all(list.map((a) => a.finished)).then(done, done);
+    }, 0);
+    return () => {
+      clearTimeout(fallback);
+      clearTimeout(start);
+    };
+  });
 
   let resting = $state(false);
   $effect(() => {
@@ -28,6 +56,7 @@
 </script>
 
 <svg
+  bind:this={svg}
   class="ga {variant}"
   class:resting
   width={size}

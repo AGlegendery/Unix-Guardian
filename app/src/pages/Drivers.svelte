@@ -4,6 +4,7 @@
   // which asks for the password each time and keeps an undo.
   import { api, errorText, type DriverFinding, type DriverOp, type DriverPlan, type DriverReport } from "../lib/api";
   import { locale, t } from "../lib/i18n.svelte";
+  import GaugeLoader from "../lib/ui/GaugeLoader.svelte";
   import Problem from "../lib/ui/Problem.svelte";
 
   let report = $state<DriverReport | null>(null);
@@ -185,6 +186,7 @@
 <section class="card intro">
   <p class="muted">{t().drivers.intro}</p>
   <button class="btn primary big" onclick={check} disabled={checking}>
+    {#if checking}<span class="on-accent"><GaugeLoader size={18} label={t().drivers.checking} /></span>{/if}
     {checking ? t().drivers.checking : report ? t().drivers.again : t().drivers.check}
   </button>
   {#if report}
@@ -270,7 +272,10 @@
   {#each ops as op (op.id)}
     <div class="op">
       <div class="top">
-        <span class="state {op.state}">{t().drivers.states[op.state] ?? op.state}</span>
+        <span class="state {op.state}">
+          {#if op.state === "running" || op.state === "undoing"}<GaugeLoader size={14} label={t().drivers.states[op.state] ?? op.state} maxSeconds={120} />{/if}
+          {t().drivers.states[op.state] ?? op.state}
+        </span>
         <b dir="ltr">{op.title}</b>
         <span class="small">{when(op.started_unix_ms)}</span>
       </div>
@@ -284,6 +289,7 @@
 </section>
 
 <style>
+  .on-accent { display: inline-flex; --ug-accent: #fff; --ug-fg: rgb(255 255 255 / 0.55); }
   .head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
   h1 { margin: 0; font-size: 1.55rem; font-weight: 800; }
   h2 { margin: 0; font-size: 1rem; font-weight: 700; }
@@ -296,12 +302,12 @@
   .small { color: var(--text-3); font-size: 0.8rem; }
   .btn { all: unset; padding: 8px 16px; border-radius: 10px; background: var(--card-2); color: var(--text); font-size: 0.9rem; cursor: pointer; }
   .btn.primary { background: var(--accent); color: white; font-weight: 600; }
-  .btn.big { padding: 12px 22px; font-size: 1rem; }
+  .btn.big { padding: 12px 22px; font-size: 1rem; display: inline-flex; align-items: center; gap: 10px; }
   .btn:disabled { opacity: 0.5; cursor: default; }
   .btn:focus-visible, .fold:focus-visible, .link:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .link { color: var(--accent-text); font-size: 0.88rem; align-self: center; }
   .top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .sev, .state { padding: 2px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; background: var(--card-2); color: var(--text-2); }
+  .sev, .state { padding: 2px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; background: var(--card-2); color: var(--text-2); }
   .param { flex: 1; min-width: 12rem; padding: 6px 10px; border-radius: 9px; border: 1px solid var(--card-2); background: var(--bg, var(--card-2)); color: var(--text); font: inherit; }
   .checkit { border: 1px solid #f5a524; }
   .cat { padding: 2px 10px; border-radius: 999px; font-size: 0.78rem; color: var(--text-2); border: 1px solid var(--card-2); }
