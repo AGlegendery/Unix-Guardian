@@ -195,10 +195,10 @@ need a restart.
 
 | Desktop | Distribution | Result |
 |---|---|---|
-| KDE Plasma (Wayland) | Parrot | ✅ Passed |
-| GNOME (Wayland) | Parrot 7.4 | ✅ Passed |
-| Hyprland | — | ⏳ Pending |
-| XFCE | — | ⏳ Pending |
+| KDE Plasma (Wayland) | Debian-based | ✅ Passed |
+| GNOME (Wayland) | Debian-based | ✅ Passed |
+| Hyprland (Wayland) | Debian-based | ✅ Passed |
+| XFCE (X11) | Debian-based | ⚠️ Passed except the recorder (being fixed) |
 | — | CachyOS | ⏳ Pending |
 
 Tried it somewhere else? Run the test lab (`ug testlab` or the Test lab page)
@@ -423,10 +423,10 @@ gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com
 
 | دسکتاپ | توزیع | نتیجه |
 |---|---|---|
-| KDE Plasma (ویلند) | Parrot | ✅ موفق |
-| گنوم (ویلند) | Parrot 7.4 | ✅ موفق |
-| Hyprland | — | ⏳ در انتظار |
-| XFCE | — | ⏳ در انتظار |
+| KDE Plasma (ویلند) | مبتنی بر دبیان | ✅ موفق |
+| گنوم (ویلند) | مبتنی بر دبیان | ✅ موفق |
+| Hyprland (ویلند) | مبتنی بر دبیان | ✅ موفق |
+| XFCE (X11) | مبتنی بر دبیان | ⚠️ موفق به‌جز ریکوردر (در حال رفع) |
 | — | CachyOS | ⏳ در انتظار |
 
 روی سیستم دیگری امتحانش کردید؟ تست نرم‌افزاری (`ug testlab` یا همین صفحه در برنامه) را اجرا کنید و گزارشش را برای ما ایمیل کنید.
