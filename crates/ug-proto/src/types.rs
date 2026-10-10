@@ -386,6 +386,20 @@ pub struct ShortcutsState {
     pub gamemode_by_hand: String,
 }
 
+/// The global shortcuts written into the desktop's own keyboard settings,
+/// for desktops without the GlobalShortcuts portal (GNOME before 48, XFCE).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct DesktopKeys {
+    /// `GNOME` or `XFCE` when this desktop's settings can be written; empty
+    /// when they cannot.
+    pub desktop: String,
+    /// They are written there now (undo removes them).
+    pub set_up: bool,
+    /// Keys left alone because the desktop already uses them, or why it
+    /// cannot be done here.
+    pub problem: String,
+}
+
 /// The agent's own settings (the Settings page). Each user has their own.
 /// A setting missing from an older `settings.json` takes its default.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

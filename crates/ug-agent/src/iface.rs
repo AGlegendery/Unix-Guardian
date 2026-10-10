@@ -491,4 +491,12 @@ impl ShortcutsIface {
     async fn set_keys(&self, id: &str, keys: &str) -> zbus::fdo::Result<String> {
         self.shortcuts.set_keys(id, keys).await.map_err(zbus::fdo::Error::InvalidArgs)
     }
+
+    async fn desktop_keys(&self) -> ug_proto::DesktopKeys {
+        self.shortcuts.desktop_keys()
+    }
+
+    async fn set_up_desktop_keys(&self, on: bool) -> zbus::fdo::Result<String> {
+        self.shortcuts.set_up_desktop_keys(on).await.map_err(zbus::fdo::Error::Failed)
+    }
 }

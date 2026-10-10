@@ -1964,14 +1964,16 @@ fn shortcuts_page(app: &mut App, f: &mut Frame, r: Rect) {
         "unavailable" => "not offered by this desktop",
         _ => "could not bind them",
     };
-    app.rows = 1 + st.shortcuts.len();
+    // GNOME and XFCE: a row that writes the keys into the desktop's settings.
+    let desk = app.desk_keys.clone().filter(|d| (st.status == "unavailable" || st.status == "failed") && (!d.desktop.is_empty() || d.set_up));
+    app.rows = 1 + st.shortcuts.len() + desk.is_some() as usize;
     let on = Line::from(vec![
         Span::styled(format!(" {:<34}", "Use global shortcuts"), t.text()),
         Span::styled(format!("‹ {} ›", if st.enabled { "on" } else { "off" }), t.accent()),
         Span::styled(format!("  {status}"), t.muted()),
     ]);
     row(app, f, Rect { y: r.y + h, height: 1, ..r }, 0, on);
-    let fallback = st.status == "unavailable" || st.status == "failed";
+    let fallback = (st.status == "unavailable" || st.status == "failed") && !desk.as_ref().is_some_and(|d| d.set_up);
     let recording = app.recording.clone();
     for (i, k) in st.shortcuts.iter().enumerate() {
         // Bound: the desktop's keys; not yet: the keys that will be asked for.
@@ -1987,12 +1989,31 @@ fn shortcuts_page(app: &mut App, f: &mut Frame, r: Rect) {
         }
         row(app, f, Rect { y: r.y + h + 1 + i as u16, height: 1, ..r }, i + 1, Line::from(spans));
     }
+    let mut extra = 0;
+    if let Some(d) = &desk {
+        let name = if d.desktop.is_empty() { "the desktop" } else { &d.desktop };
+        let line = Line::from(vec![
+            Span::styled(format!(" {:<34}", format!("Keys in {name}'s own settings")), t.text()),
+            Span::styled(if d.set_up { "‹ written ›".to_string() } else { "‹ set up ›".to_string() }, t.accent()),
+            Span::styled(if d.set_up { "  Enter removes them".to_string() } else { "  Enter writes them there".to_string() }, t.muted()),
+        ]);
+        let i = 1 + st.shortcuts.len();
+        row(app, f, Rect { y: r.y + h + i as u16, height: 1, ..r }, i, line);
+        extra = 1;
+    }
     let mut notes = Vec::new();
+    if let Some(p) = desk.as_ref().map(|d| d.problem.clone()).filter(|p| !p.is_empty()) {
+        notes.push(p);
+    }
     if st.status == "failed" && !st.problem.is_empty() {
         notes.push(st.problem.clone());
     }
     if fallback {
-        notes.push("Bind the commands above in your desktop's own shortcut settings instead.".into());
+        notes.push(if desk.is_some() {
+            "Bind the commands above in your desktop's own shortcut settings, or let the last row write them there.".into()
+        } else {
+            "Bind the commands above in your desktop's own shortcut settings instead.".into()
+        });
     }
     match st.gamemode_by_hand.as_str() {
         "on" => notes.push("Game mode is on by hand; it stays on until you turn it off.".into()),
@@ -2004,7 +2025,7 @@ fn shortcuts_page(app: &mut App, f: &mut Frame, r: Rect) {
     } else {
         notes.push("Enter on a shortcut runs it now; c picks new keys for it, x goes back to the suggested ones.".into());
     }
-    let y = r.y + h + 2 + st.shortcuts.len() as u16;
+    let y = r.y + h + 2 + st.shortcuts.len() as u16 + extra;
     if y < r.bottom() {
         let text: Vec<Line> = notes.into_iter().map(|n| Line::from(Span::styled(n, t.faint()))).collect();
         f.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), Rect { y, height: r.bottom() - y, ..r });
@@ -2090,6 +2111,10 @@ fn activate_shortcut(app: &mut App, i: usize) {
         app.bus.shortcuts_set_enabled(on).map(|_| if on { "Asking the desktop for the keys…" } else { "Global shortcuts off." }.to_string())
     } else if let Some(k) = st.shortcuts.get(i - 1) {
         app.bus.shortcut_run(&k.id)
+    } else if let Some(d) = app.desk_keys.clone().filter(|_| i == 1 + st.shortcuts.len()) {
+        let r = app.bus.set_up_desktop_keys(!d.set_up);
+        app.desk_keys = app.bus.desktop_keys().ok();
+        r
     } else {
         return;
     };

@@ -104,6 +104,9 @@ pub struct App {
     pub net_bg: Option<(bool, u32, u32, String)>,
     pub overlay: Cached<OverlayState>,
     pub shortcuts: Cached<ug_proto::ShortcutsState>,
+    /// The keys in GNOME's or XFCE's own settings, read with `shortcuts`
+    /// where there is no portal.
+    pub desk_keys: Option<ug_proto::DesktopKeys>,
     pub recorder: Cached<ug_proto::RecorderState>,
     /// Recording new keys for a global shortcut: its id, and Meta added by
     /// hand (most terminals never see the Meta key itself).
@@ -193,6 +196,7 @@ impl App {
             overlay: Cached::new(SLOW),
             // Fast enough to follow the desktop's confirmation dialog.
             shortcuts: Cached::new(Duration::from_secs(1)),
+            desk_keys: None,
             recorder: Cached::new(Duration::from_secs(1)),
             recording: None,
             settings: Cached::new(SLOW),
@@ -344,6 +348,8 @@ impl App {
                 }
                 if self.tab == 1 && self.shortcuts.due() {
                     let r = self.bus.shortcuts();
+                    let fallback = r.as_ref().is_ok_and(|s| s.status == "unavailable" || s.status == "failed");
+                    self.desk_keys = if fallback { self.bus.desktop_keys().ok() } else { None };
                     self.shortcuts.store(r);
                 }
             }
@@ -1215,6 +1221,21 @@ mod tests {
         for want in ["not offered by this desktop", "ug shortcut toggle-overlay", "Meta+Alt+K (yours)"] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
+        assert!(!screen.contains("own settings"), "no Set up row where the desktop's settings can't be written");
+        // GNOME or XFCE: a row writes the keys into the desktop's settings.
+        app.desk_keys = Some(ug_proto::DesktopKeys { desktop: "XFCE".into(), set_up: false, problem: String::new() });
+        let screen = render(&mut app, 120, 34);
+        for want in ["Keys in XFCE's own settings", "‹ set up ›", "ug shortcut toggle-overlay"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        assert_eq!(app.rows, 5);
+        app.desk_keys = Some(ug_proto::DesktopKeys { desktop: "XFCE".into(), set_up: true, problem: "Left alone: Ctrl+Alt+G already runs gimp.".into() });
+        let screen = render(&mut app, 120, 34);
+        for want in ["‹ written ›", "Enter removes them", "already runs gimp"] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        assert!(!screen.contains("ug shortcut toggle-overlay"), "written: no commands to bind by hand");
+        app.desk_keys = None;
 
         // c records new keys for the selected shortcut; Tab adds Meta, which
         // most terminals can't see; Esc cancels without leaving the page.

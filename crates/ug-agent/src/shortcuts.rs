@@ -15,9 +15,10 @@
 //! (`org.freedesktop.host.portal.Registry.Register`) before its first portal
 //! call on a connection, and the agent's main connection may have made one.
 //!
-//! Without the portal (GNOME before 48, some tiling compositors) nothing is
-//! bound and the page says so, with the commands to bind in the desktop's own
-//! shortcut settings instead (`ug shortcut <action>`).
+//! Without the portal (GNOME before 48, XFCE, some tiling compositors)
+//! nothing is bound and the page says so, with the commands to bind in the
+//! desktop's own shortcut settings instead (`ug shortcut <action>`); on GNOME
+//! and XFCE "Set up" writes them there (`deskkeys`).
 //!
 //! Keys the user picks (`SetKeys`, recorded in the window or the TUI) are the
 //! suggestion at binding. The portal has no call to change keys later, and
@@ -31,7 +32,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use crate::keys::Combo;
-use ug_proto::{ShortcutInfo, ShortcutsState};
+use crate::deskkeys::{self, DeskKeys};
+use ug_proto::{DesktopKeys, ShortcutInfo, ShortcutsState};
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value};
 
 /// A shortcut: its id with the portal, what it does, and the suggested keys
@@ -121,8 +123,12 @@ trait KGlobalAccel {
 fn fallback() -> String {
     let cmds: Vec<String> = ACTIONS.iter().map(|a| format!("ug shortcut {}", a.id)).collect();
     format!(
-        "This desktop does not offer global shortcuts to programs (no GlobalShortcuts portal). Bind these commands to keys in its own shortcut settings instead: {}.",
-        cmds.join(", ")
+        "This desktop does not offer global shortcuts to programs (no GlobalShortcuts portal). Bind these commands to keys in its own shortcut settings instead: {}.{}",
+        cmds.join(", "),
+        match DeskKeys::desk() {
+            Some(d) => format!(" Set up (ug shortcut setup) writes them into {}'s keyboard settings for you.", d.name()),
+            None => String::new(),
+        }
     )
 }
 
@@ -137,10 +143,13 @@ struct Inner {
     /// The portal session and its connection, to close it.
     session: Option<(zbus::Connection, OwnedObjectPath)>,
     task: Option<tokio::task::JoinHandle<()>>,
+    /// Keys the desktop's own settings already used (set up on GNOME/XFCE).
+    desk_problem: String,
 }
 
 pub struct Shortcuts {
     file: PathBuf,
+    desk: DeskKeys,
     inner: Mutex<Inner>,
     /// Shortcut ids pressed, for the agent's main loop to act on.
     pressed: tokio::sync::mpsc::UnboundedSender<String>,
@@ -168,6 +177,7 @@ impl Shortcuts {
             .unwrap_or_default();
         Arc::new(Shortcuts {
             file,
+            desk: DeskKeys::new(config_dir),
             inner: Mutex::new(Inner { enabled, chosen, status: "off".into(), ..Default::default() }),
             pressed,
         })
@@ -211,6 +221,80 @@ impl Shortcuts {
                 .collect(),
             gamemode_by_hand: String::new(),
         }
+    }
+
+    /// The shortcuts in the desktop's own settings (no portal).
+    pub fn desktop_keys(&self) -> DesktopKeys {
+        DesktopKeys {
+            desktop: DeskKeys::desk().map(|d| d.name().to_string()).unwrap_or_default(),
+            set_up: !self.desk.written().entries.is_empty(),
+            problem: self.lock().desk_problem.clone(),
+        }
+    }
+
+    /// Writes the shortcuts into the desktop's own settings, or removes
+    /// what was written.
+    pub async fn set_up_desktop_keys(self: &Arc<Self>, on: bool) -> Result<String, String> {
+        let before = self.desk.written();
+        let desk = DeskKeys::desk().or(match before.desktop.as_str() {
+            "GNOME" => Some(deskkeys::Desk::Gnome),
+            "XFCE" => Some(deskkeys::Desk::Xfce),
+            _ => None,
+        });
+        let Some(desk) = desk else {
+            return if on {
+                Err("Unix Guardian can write the shortcuts into GNOME's and XFCE's keyboard settings; on this desktop bind the `ug shortcut …` commands in its own settings.".into())
+            } else {
+                Ok("Nothing was set up.".into())
+            };
+        };
+        let bindings: Vec<deskkeys::Binding> = {
+            let i = self.lock();
+            let ug = deskkeys::ug_command();
+            ACTIONS
+                .iter()
+                .map(|a| deskkeys::Binding {
+                    id: a.id.into(),
+                    name: format!("Unix Guardian: {}", a.description),
+                    keys: Self::wanted(&i, a),
+                    command: format!("{ug} shortcut {}", a.id),
+                })
+                .collect()
+        };
+        let me = Arc::clone(self);
+        tokio::task::spawn_blocking(move || {
+            let r = deskkeys::RealRunner;
+            if on {
+                let (w, skipped) = match deskkeys::set_up(&r, desk, &bindings, &before) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        // `set_up` took out what it wrote; the earlier
+                        // record stays (undoing it twice is harmless).
+                        return Err(format!("Could not write {}'s shortcut settings: {e}", desk.name()));
+                    }
+                };
+                me.desk.save(&w)?;
+                let problem = if skipped.is_empty() {
+                    String::new()
+                } else {
+                    format!("Left alone, the desktop already uses them: {}. Pick other keys for these.", skipped.join(", "))
+                };
+                me.lock().desk_problem = problem.clone();
+                Ok(format!(
+                    "{} shortcuts written into {}'s keyboard settings.{}",
+                    w.entries.len(),
+                    desk.name(),
+                    if problem.is_empty() { String::new() } else { format!(" {problem}") }
+                ))
+            } else {
+                deskkeys::undo(&r, desk, &before).map_err(|e| format!("Could not change {}'s shortcut settings: {e}", desk.name()))?;
+                me.desk.save(&deskkeys::Written::default())?;
+                me.lock().desk_problem.clear();
+                Ok(format!("Unix Guardian's shortcuts removed from {}'s keyboard settings.", desk.name()))
+            }
+        })
+        .await
+        .map_err(|e| e.to_string())?
     }
 
     /// Binds them if the user turned them on (at start-up).
@@ -437,6 +521,11 @@ impl Shortcuts {
             return Err(e);
         }
         let label = combo.label();
+        // Written into the desktop's own settings: write the new keys there.
+        if status == "unavailable" && !self.desk.written().entries.is_empty() {
+            let said = self.set_up_desktop_keys(true).await?;
+            return Ok(format!("{label} now does \"{}\". {said}", action.description));
+        }
         Ok(match status.as_str() {
             _ if done_in_kde => format!("{label} now does \"{}\".", action.description),
             "active" | "connecting" | "waiting" => {

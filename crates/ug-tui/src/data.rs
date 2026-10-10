@@ -231,6 +231,16 @@ impl Bus {
         self.rt.block_on(async { ShortcutsProxy::new(c).await?.set_enabled(on).await }).map_err(|e| msg(e, "agent"))
     }
 
+    pub fn desktop_keys(&self) -> Result<ug_proto::DesktopKeys, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { ShortcutsProxy::new(c).await?.desktop_keys().await }).map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn set_up_desktop_keys(&self, on: bool) -> Result<String, String> {
+        let c = self.agent()?;
+        self.rt.block_on(async { ShortcutsProxy::new(c).await?.set_up_desktop_keys(on).await }).map_err(|e| msg(e, "agent"))
+    }
+
     pub fn shortcut_run(&self, id: &str) -> Result<String, String> {
         let c = self.agent()?;
         self.rt.block_on(async { ShortcutsProxy::new(c).await?.run(id).await }).map_err(|e| msg(e, "agent"))

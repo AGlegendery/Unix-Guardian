@@ -60,4 +60,33 @@ start_agent
 check "after a restart the shortcuts are bound again with the picked keys" "until_ 5 \"[ \\\"\\\$(keys_of toggle-gamemode)\\\" = 'Meta+Alt+G' ]\""
 check "an unknown shortcut is refused" "! '$B/ug' shortcut keys fly Meta+F 2>/dev/null"
 
+# XFCE: no portal; "Set up" writes the keys into xfconf (a fake
+# xfconf-query over a file), leaves a key XFCE already uses, and undo takes
+# out only what it wrote.
+kill $agent $fake 2>/dev/null; wait $agent $fake 2>/dev/null
+mkdir -p "$W/bin"
+X="$W/xfconf"
+printf '/commands/custom/<Shift><Super>o\txfce4-screenshooter\n' > "$X"
+cat > "$W/bin/xfconf-query" <<FAKE
+#!/usr/bin/env bash
+# -c channel -p prop [-r | -s value | -n -t string -s value]
+f="$X"; p="\$4"; shift 4
+get() { awk -F'\t' -v p="\$p" '\$1 == p {print \$2; f=1} END {exit !f}' "\$f"; }
+del() { awk -F'\t' -v p="\$p" '\$1 != p' "\$f" > "\$f.new"; mv "\$f.new" "\$f"; }
+case "\${1:-}" in
+  "") get || { echo "Property \$p does not exist" >&2; exit 1; } ;;
+  -r) del ;;
+  -s) del; printf '%s\t%s\n' "\$p" "\$2" >> "\$f" ;;
+  -n) del; printf '%s\t%s\n' "\$p" "\$5" >> "\$f" ;;
+esac
+FAKE
+chmod +x "$W/bin/xfconf-query"
+PATH="$W/bin:$PATH" XDG_CURRENT_DESKTOP=XFCE start_agent
+check "XFCE without the portal offers the Set up" "until_ 5 \"'$B/ug' shortcut | grep -q 'ug shortcut setup writes them into XFCE'\""
+out="$("$B/ug" shortcut setup 2>&1)"
+check "Set up writes the keys into XFCE's settings" "grep -q '4 shortcuts written into XFCE' <<<\"\$out\" && grep -qP '^/commands/custom/<Alt><Super>g\t.*ug shortcut toggle-gamemode$' '$X'"
+check "and leaves a key XFCE already uses, saying so" "grep -q 'already runs xfce4-screenshooter' <<<\"\$out\" && grep -qP '^/commands/custom/<Shift><Super>o\txfce4-screenshooter$' '$X'"
+check "new keys are written there at once" "'$B/ug' shortcut keys open-window Ctrl+Alt+U | grep -q 'now does' && grep -qP '^/commands/custom/<Primary><Alt>u\t.*open-window$' '$X' && ! grep -qF '<Shift><Super>u' '$X'"
+check "undo removes only what was written" "'$B/ug' shortcut setup undo | grep -q 'removed from XFCE' && ! grep -q 'ug shortcut' '$X' && grep -q xfce4-screenshooter '$X'"
+
 echo; [ "$fails" -eq 0 ] && echo "shortcuts-e2e: OK" || { echo "shortcuts-e2e: $fails failed"; exit 1; }

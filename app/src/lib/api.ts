@@ -289,6 +289,14 @@ export interface ShortcutsState {
   /** Game mode turned "on" or "off" by hand; "" when it follows the games. */
   gamemode_by_hand: "" | "on" | "off";
 }
+/** The shortcuts written into the desktop's own keyboard settings (GNOME,
+ * XFCE), where there is no portal. */
+export interface DesktopKeys {
+  /** "GNOME" or "XFCE" when it can be done here; "" otherwise. */
+  desktop: string;
+  set_up: boolean;
+  problem: string;
+}
 export interface FpsSession {
   game: string;
   started_unix_ms: number;
@@ -566,6 +574,9 @@ const tauriApi = {
   shortcutsState: () => invoke<ShortcutsState>("shortcuts_state"),
   shortcutsSetEnabled: (on: boolean) => invoke<void>("shortcuts_set_enabled", { on }),
   shortcutsRun: (id: string) => invoke<string>("shortcuts_run", { id }),
+  shortcutsDesktopKeys: () => invoke<DesktopKeys>("shortcuts_desktop_keys"),
+  /** Writes them into the desktop's keyboard settings, or removes them. */
+  shortcutsSetUpDesktopKeys: (on: boolean) => invoke<string>("shortcuts_set_up_desktop_keys", { on }),
   recorderState: () => invoke<RecorderState>("recorder_state"),
   recorderSet: (settings: RecorderSettings) => invoke<void>("recorder_set", { settings }),
   recorderDo: (what: RecorderAction) => invoke<string>("recorder_do", { what }),

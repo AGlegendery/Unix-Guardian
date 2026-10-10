@@ -610,6 +610,18 @@ pub async fn shortcuts_set_keys(bus: State<'_, Bus>, id: String, keys: String) -
 }
 
 #[tauri::command]
+pub async fn shortcuts_desktop_keys(bus: State<'_, Bus>) -> Res<ug_proto::DesktopKeys> {
+    let s = ShortcutsProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    s.desktop_keys().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn shortcuts_set_up_desktop_keys(bus: State<'_, Bus>, on: bool) -> Res<String> {
+    let s = ShortcutsProxy::new(bus.agent().await?).await.map_err(agent_err)?;
+    s.set_up_desktop_keys(on).await.map_err(agent_err)
+}
+
+#[tauri::command]
 pub async fn fps_sessions(bus: State<'_, Bus>, since_unix_ms: u64) -> Res<Vec<ug_proto::FpsSession>> {
     let m = MonitorProxy::new(bus.agent().await?).await.map_err(agent_err)?;
     m.fps_sessions(since_unix_ms).await.map_err(agent_err)

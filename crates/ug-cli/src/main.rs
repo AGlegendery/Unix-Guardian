@@ -207,7 +207,8 @@ enum Command {
     /// `toggle-gamemode` does what that shortcut does, for binding in a
     /// desktop without the portal; `keys <id> <keys>` picks the keys (e.g.
     /// `ug shortcut keys toggle-gamemode Meta+Alt+G`; no keys: the suggested
-    /// ones).
+    /// ones); `setup` writes them into GNOME's or XFCE's own keyboard
+    /// settings where there is no portal, `setup undo` removes them.
     Shortcut {
         action: Option<String>,
         /// For `keys`: the shortcut id and the keys.
@@ -2032,6 +2033,19 @@ async fn record(command: Option<RecordCommand>, json: bool) -> Result<()> {
 async fn shortcut(action: Option<String>, args: Vec<String>, json: bool) -> Result<()> {
     let conn = agent_conn().await?;
     let s = ShortcutsProxy::new(&conn).await?;
+    if action.as_deref() == Some("setup") {
+        let on = match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+            [] => true,
+            ["undo"] => false,
+            _ => anyhow::bail!("ug shortcut setup, or ug shortcut setup undo"),
+        };
+        println!("{}", s.set_up_desktop_keys(on).await.map_err(agent_hint)?);
+        let d = s.desktop_keys().await.map_err(agent_hint)?;
+        if !d.problem.is_empty() && on {
+            eprintln!("{}", d.problem);
+        }
+        return Ok(());
+    }
     if action.as_deref() != Some("keys") && !args.is_empty() {
         anyhow::bail!("Unexpected `{}`. To pick keys: ug shortcut keys <id> <keys>", args.join(" "));
     }
@@ -2088,6 +2102,17 @@ async fn shortcut(action: Option<String>, args: Vec<String>, json: bool) -> Resu
             format!("({})", k.keys)
         };
         println!("  {:<16} {:<20} {}", k.id, keys, k.description);
+    }
+    if st.status == "unavailable" || st.status == "failed" {
+        let d = s.desktop_keys().await.map_err(agent_hint)?;
+        if d.set_up {
+            println!("Desktop     written into {}'s keyboard settings (undo: ug shortcut setup undo)", if d.desktop.is_empty() { "the desktop" } else { &d.desktop });
+        } else if !d.desktop.is_empty() {
+            println!("Desktop     ug shortcut setup writes them into {}'s keyboard settings", d.desktop);
+        }
+        if !d.problem.is_empty() {
+            println!("            {}", d.problem);
+        }
     }
     if !st.gamemode_by_hand.is_empty() {
         println!("Game mode   turned {} by hand", st.gamemode_by_hand);

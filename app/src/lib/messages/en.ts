@@ -672,6 +672,10 @@ export const en = {
     byHandOn: "Game mode is on by hand. It stays on until you turn it off.",
     byHandOff: "Game mode is off by hand until the running games close.",
     command: "Or bind this command in your desktop's shortcut settings:",
+    setUp: "Set up",
+    undoSetUp: "Remove",
+    setUpExplain: (d: string) => `Set up writes these keys into ${d}'s own keyboard settings, each running its ug shortcut command. Remove takes out only what was written.`,
+    setUpDone: (d: string) => `Written into ${d}'s keyboard settings.`,
   },
   tune: {
     title: "Power and clocks",

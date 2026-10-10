@@ -140,7 +140,7 @@ fi
 # Global shortcuts: a test bus has no portal, so turning them on says what
 # to bind instead; the actions themselves work through `ug shortcut <id>`.
 check "shortcuts are off until turned on" "'$B/ug' shortcut | grep -q 'off (ug shortcut on)'"
-check "without a portal they are unavailable, with the commands to bind" "'$B/ug' shortcut on | grep -q 'ug shortcut toggle-gamemode'"
+check "without a portal they are unavailable, with the commands to bind" "out=\$('$B/ug' shortcut on); grep -q 'ug shortcut toggle-gamemode' <<<\"\$out\""
 check "the choice is remembered" "grep -q true '$XDG_CONFIG_HOME/unix-guardian/shortcuts.json' && '$B/ug' shortcut off >/dev/null && grep -q false '$XDG_CONFIG_HOME/unix-guardian/shortcuts.json'"
 check "game mode can be turned on by hand without a game" "'$B/ug' shortcut toggle-gamemode | grep -q 'Game mode on' && '$B/ug' shortcut | grep -q 'turned on by hand'"
 check "and off again" "'$B/ug' shortcut toggle-gamemode | grep -q 'Game mode off' && ! '$B/ug' shortcut | grep -q 'by hand'"

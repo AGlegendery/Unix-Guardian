@@ -1,7 +1,7 @@
 <script lang="ts">
   // Global shortcuts through the desktop's GlobalShortcuts portal. Off until
   // the user turns them on, because binding makes the desktop show a dialog.
-  import { api, errorText, type ShortcutsState } from "./api";
+  import { api, errorText, type DesktopKeys, type ShortcutsState } from "./api";
   import { t } from "./i18n.svelte";
   import { combo, modifiers } from "./keycombo";
   import GaugeLoader from "./ui/GaugeLoader.svelte";
@@ -9,10 +9,33 @@
   import Switch from "./ui/Switch.svelte";
 
   let st = $state<ShortcutsState | null>(null);
+  // Where there is no portal: the keys in GNOME's or XFCE's own settings.
+  let desk = $state<DesktopKeys | null>(null);
+  let busy = $state(false);
   let error = $state<string | null>(null);
   let said = $state<string | null>(null);
 
-  const load = () => api.shortcutsState().then((s) => (st = s)).catch((e) => (error = errorText(e)));
+  const load = () =>
+    api
+      .shortcutsState()
+      .then(async (s) => {
+        st = s;
+        if (s.status === "unavailable" || s.status === "failed") desk = await api.shortcutsDesktopKeys();
+      })
+      .catch((e) => (error = errorText(e)));
+
+  async function setUp(on: boolean) {
+    busy = true;
+    try {
+      said = await api.shortcutsSetUpDesktopKeys(on);
+      error = null;
+      setTimeout(() => (said = null), 6000);
+    } catch (e) {
+      error = errorText(e);
+    }
+    busy = false;
+    await load();
+  }
   $effect(() => {
     load();
   });
@@ -127,13 +150,20 @@
           {#if k.chosen && recording !== k.id}
             <button class="link" onclick={() => setKeys(k.id, "")}>{t().shortcuts.reset}</button>
           {/if}
-          {#if st.status === "unavailable" || st.status === "failed"}
+          {#if (st.status === "unavailable" || st.status === "failed") && !desk?.set_up}
             <code dir="ltr">ug shortcut {k.id}</code>
           {/if}
         </li>
       {/each}
     </ul>
-    {#if st.status === "unavailable" || st.status === "failed"}<p class="small">{t().shortcuts.command}</p>{/if}
+    {#if (st.status === "unavailable" || st.status === "failed") && !desk?.set_up}<p class="small">{t().shortcuts.command}</p>{/if}
+    {#if desk && (desk.desktop || desk.set_up) && (st.status === "unavailable" || st.status === "failed")}
+      <div class="setup">
+        <p class="small">{desk.set_up ? t().shortcuts.setUpDone(desk.desktop || "GNOME/XFCE") : t().shortcuts.setUpExplain(desk.desktop)}</p>
+        <button class="btn" disabled={busy} onclick={() => setUp(!desk?.set_up)}>{desk.set_up ? t().shortcuts.undoSetUp : t().shortcuts.setUp}</button>
+      </div>
+      {#if desk.problem}<p class="refused" role="alert">{desk.problem}</p>{/if}
+    {/if}
     {#if st.gamemode_by_hand === "on"}<p class="small">{t().shortcuts.byHandOn}</p>{/if}
     {#if st.gamemode_by_hand === "off"}<p class="small">{t().shortcuts.byHandOff}</p>{/if}
     {#if recording}<p class="small">{t().shortcuts.recordNote}</p>{/if}
@@ -162,6 +192,8 @@
   .link:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .btn { all: unset; padding: 5px 12px; border-radius: 9px; background: var(--card-2); color: var(--text); font-size: 0.82rem; cursor: pointer; }
   .btn:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  .setup { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .btn:disabled { opacity: 0.6; cursor: default; }
   .saved { color: var(--accent-text); font-size: 0.85rem; }
   .refused { color: var(--warn); font-size: 0.85rem; }
 </style>

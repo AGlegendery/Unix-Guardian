@@ -557,6 +557,12 @@ pub mod agent {
         /// suggested keys) for shortcut `id`. Remembered; returns what
         /// happened (set in the desktop, asked for, or saved for later).
         fn set_keys(&self, id: &str, keys: &str) -> zbus::Result<String>;
+        /// Where there is no portal: the shortcuts in the desktop's own
+        /// keyboard settings (GNOME, XFCE).
+        fn desktop_keys(&self) -> zbus::Result<DesktopKeys>;
+        /// Writes them there (`ug shortcut <id>` on each key) or removes
+        /// what was written; returns what happened.
+        fn set_up_desktop_keys(&self, on: bool) -> zbus::Result<String>;
     }
 
     /// New versions from GitHub Releases.

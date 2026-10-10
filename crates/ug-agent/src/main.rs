@@ -24,6 +24,7 @@ mod ping;
 mod playtime;
 mod ppd;
 mod settings;
+mod deskkeys;
 mod shortcuts;
 mod programs;
 mod recorder;

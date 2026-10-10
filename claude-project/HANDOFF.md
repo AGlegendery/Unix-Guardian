@@ -6,7 +6,7 @@ in minutes. **Update this file after every finished item and commit it.**
 Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 `05-findings.md`, `07-conventions.md`, `03-architecture.md`.
 
-Last updated: 2026-10-05 (Ping + internet control moved into Monitoring; see 04-status).
+Last updated: 2026-10-11 (test-lab fixes from Hyprland/XFCE/GNOME reports; work is on `main` now).
 
 ## Where we are
 
@@ -192,6 +192,22 @@ opened half way down, stuck in WebKitGTK); each page now opens at its top.
   release yet; they have more changes first.** Later, when they say so: push, make public, `git push origin v0.1.0-beta.1` (tag from
   `scripts/release.sh` is not made yet; version already 0.1.0-beta.1, so
   tag with `git tag -a v0.1.0-beta.1`), check the draft release, publish.
+
+## Test-lab reports fixed (2026-10-11) ✅
+
+From the user's Hyprland, XFCE and GNOME test-lab reports (all on `main`,
+pushed; release binaries and the window rebuilt): ping 0/0 (the lab now
+starts ping early and waits), X11 recording (`ug_core::capture`: the
+per-user Flatpak cannot record a monitor on Intel/AMD X11, so automatic
+records the active window; see 05-findings), "battery none" wording, the
+route's interface kind from sysfs, and **Set up for shortcuts on GNOME and
+XFCE** (`ug-agent/src/deskkeys.rs`: gsettings custom keybindings / xfconf
+`/commands/custom/<accel>`, undo removes only ours, record in
+`desktop-shortcuts.json`; `ug shortcut setup [undo]`, window Settings card,
+TUI Overlay → Global shortcuts last row; `scripts/shortcuts-e2e.sh` checks
+XFCE with a fake xfconf-query). Not yet tried on a real GNOME/XFCE session
+or a real X11 recording: the user should reinstall and re-run the lab there.
+README "Tested on": XFCE row still says recorder being fixed until retested.
 
 ## In progress
 

@@ -149,6 +149,8 @@ fn main() {
             bus::shortcuts_set_enabled,
             bus::shortcuts_run,
             bus::shortcuts_set_keys,
+            bus::shortcuts_desktop_keys,
+            bus::shortcuts_set_up_desktop_keys,
             bus::settings_state,
             bus::settings_set,
             bus::update_state,

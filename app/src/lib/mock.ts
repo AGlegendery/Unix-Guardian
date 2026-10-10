@@ -5,7 +5,7 @@
 
 import data from "./preview-data.json";
 import driverReport from "./preview-driver.json";
-import type { AppUsage, TestlabProgress, TestlabReport, RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, UpdateState, TrafficBucket, DriverReport, DriverPlan, DriverOp, ShortcutsState, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { AppUsage, TestlabProgress, TestlabReport, RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, UpdateState, TrafficBucket, DriverReport, DriverPlan, DriverOp, ShortcutsState, DesktopKeys, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 // The captured profiles predate the screen and notification settings.
@@ -83,6 +83,7 @@ const shortcuts: ShortcutsState = {
     { id: "save-replay", description: "Save the last seconds (replay)", trigger: "Meta+Shift+S", keys: "Meta+Shift+S", chosen: false },
   ],
 };
+const desktopKeys: DesktopKeys = { desktop: "", set_up: false, problem: "" };
 let fpsSetUp = false;
 let fanMode = 1;
 let trayVisible = true;
@@ -593,6 +594,11 @@ export const mockApi = {
   shortcutsSetEnabled: async (on: boolean) => {
     shortcuts.enabled = on;
     shortcuts.status = on ? "active" : "off";
+  },
+  shortcutsDesktopKeys: async (): Promise<DesktopKeys> => ({ ...desktopKeys }),
+  shortcutsSetUpDesktopKeys: async (on: boolean) => {
+    desktopKeys.set_up = on;
+    return on ? `5 shortcuts written into ${desktopKeys.desktop}'s keyboard settings.` : `Unix Guardian's shortcuts removed from ${desktopKeys.desktop}'s keyboard settings.`;
   },
   shortcutsSetKeys: async (id: string, keys: string) => {
     const k = shortcuts.shortcuts.find((s) => s.id === id);
