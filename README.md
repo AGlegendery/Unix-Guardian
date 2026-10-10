@@ -33,10 +33,14 @@ Cinnamon, XFCE and most other desktops need nothing.
 | Arch                        | **`sudo pacman -S gnome-shell-extension-appindicator`**     |
 | openSUSE                    | **not in the official repos: install it from [extensions.gnome.org](https://extensions.gnome.org/extension/615/appindicator-support/) or the Extension Manager app** |
 
-Then enable it:
+Then enable it. **The ID differs by distro**: the Debian/Ubuntu/Parrot package
+uses `ubuntu-appindicators@ubuntu.com`, every other source uses the upstream ID.
 
 ```bash
+# Debian / Ubuntu / Parrot
 gnome-extensions enable ubuntu-appindicators@ubuntu.com
+# Fedora, Arch, openSUSE, extensions.gnome.org
+gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com
 ```
 
 **On Wayland, log out and back in if the extension does not show up as enabled.**
@@ -54,10 +58,14 @@ need a restart.
 - **آرچ:** `sudo pacman -S gnome-shell-extension-appindicator`
 - **اوپن‌سوزه:** در مخزن رسمی نیست؛ از [extensions.gnome.org](https://extensions.gnome.org/extension/615/appindicator-support/) یا برنامهٔ Extension Manager نصب کنید.
 
-سپس فعالش کنید:
+سپس فعالش کنید. **شناسهٔ افزونه در توزیع‌ها فرق دارد:** بستهٔ دبیان/اوبونتو/پرت
+`ubuntu-appindicators@ubuntu.com` است و بقیه شناسهٔ اصلی را دارند.
 
 ```bash
+# Debian / Ubuntu / Parrot
 gnome-extensions enable ubuntu-appindicators@ubuntu.com
+# Fedora, Arch, openSUSE, extensions.gnome.org
+gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com
 ```
 
 **در ویلند، اگر افزونه فعال نشد، یک بار از حساب خارج و دوباره وارد شوید.**
