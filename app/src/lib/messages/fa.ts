@@ -555,6 +555,7 @@ export const fa: typeof en = {
     capture: "چه چیزی ضبط شود",
     captureDefault: "پیش‌فرض (دسکتاپ می‌پرسد)",
     portal: "انتخاب در پنجره‌ی دسکتاپ",
+    focused: "پنجره‌ی فعال",
     codec: "کدک",
     auto: "خودکار",
     sound: "صدا",

@@ -114,6 +114,50 @@ fn is_tun_details(s: &str) -> bool {
     w.windows(3).any(|x| x[0] == "tun" && x[1] == "type" && x[2] == "tun")
 }
 
+/// What kind of link a network interface is, in words for people:
+/// "Wi-Fi", "wired", "VPN or proxy (TUN)" and so on. Reads sysfs, falling
+/// back to the usual name prefixes; VPN apps name their devices anything
+/// (`xray_tun`, `singbox_tun`, `proton0`).
+pub fn iface_kind(root: &SysRoot, dev: &str) -> &'static str {
+    let base = root.join(format!("sys/class/net/{dev}"));
+    let uevent = std::fs::read_to_string(base.join("uevent")).unwrap_or_default();
+    let devtype = uevent.lines().find_map(|l| l.strip_prefix("DEVTYPE=")).unwrap_or("").trim();
+    let arphrd = std::fs::read_to_string(base.join("type")).ok().and_then(|t| t.trim().parse::<u32>().ok());
+    if devtype == "wlan" || base.join("wireless").exists() || base.join("phy80211").exists() {
+        return "Wi-Fi";
+    }
+    if devtype == "wireguard" {
+        return "WireGuard VPN";
+    }
+    if base.join("tun_flags").exists() {
+        return "VPN or proxy (TUN)";
+    }
+    match devtype {
+        "wwan" => return "mobile broadband",
+        "bridge" => return "bridge",
+        "vlan" => return "VLAN",
+        "bond" => return "bonded",
+        _ => {}
+    }
+    if arphrd == Some(512) {
+        return "dial-up (PPP)";
+    }
+    if arphrd == Some(1) && base.join("device").exists() {
+        let usb = std::fs::canonicalize(base.join("device")).is_ok_and(|p| p.to_string_lossy().contains("/usb"));
+        return if usb { "USB network (tethering)" } else { "wired" };
+    }
+    match dev.get(..2) {
+        Some("wl") => "Wi-Fi",
+        Some("en") | Some("et") => "wired",
+        Some("ww") => "mobile broadband",
+        Some("wg") => "WireGuard VPN",
+        Some("pp") => "dial-up (PPP)",
+        _ if dev.starts_with("tun") || dev.starts_with("tap") || dev.contains("tun") => "VPN or proxy (TUN)",
+        _ if arphrd == Some(65534) => "VPN or tunnel",
+        _ => "unknown kind of link",
+    }
+}
+
 /// Every socket in one of the `/proc/.../net/*` tables.
 pub fn sockets(root: &SysRoot, dir: &str) -> Vec<SockEntry> {
     let mut out = Vec::new();
@@ -315,5 +359,32 @@ mod tests {
         );
         assert_eq!(game_peer(&root, &[42, 43]), Some("155.133.248.34".parse().unwrap()));
         assert_eq!(game_peer(&root, &[43]), None);
+    }
+
+    #[test]
+    fn iface_kind_reads_sysfs_not_just_the_name() {
+        let fs = TestFs::new();
+        let root = SysRoot::at(fs.root());
+        fs.write("sys/class/net/wlp8s0/uevent", "DEVTYPE=wlan\nINTERFACE=wlp8s0");
+        fs.write("sys/class/net/wlp8s0/type", "1");
+        fs.write("sys/class/net/xray_tun/type", "65534");
+        fs.write("sys/class/net/xray_tun/tun_flags", "0x1001");
+        fs.write("sys/class/net/proton0/type", "65534");
+        fs.write("sys/class/net/proton0/uevent", "DEVTYPE=wireguard");
+        fs.write("sys/class/net/enp7s0/type", "1");
+        fs.dir("sys/devices/pci0000:00/0000:07:00.0");
+        std::os::unix::fs::symlink(fs.root().join("sys/devices/pci0000:00/0000:07:00.0"), fs.root().join("sys/class/net/enp7s0/device")).unwrap();
+        fs.write("sys/class/net/usb0/type", "1");
+        fs.dir("sys/devices/pci0000:00/usb1/1-1/1-1:1.0");
+        std::os::unix::fs::symlink(fs.root().join("sys/devices/pci0000:00/usb1/1-1/1-1:1.0"), fs.root().join("sys/class/net/usb0/device")).unwrap();
+        fs.write("sys/class/net/lxcbr0/uevent", "DEVTYPE=bridge");
+        assert_eq!(iface_kind(&root, "wlp8s0"), "Wi-Fi");
+        assert_eq!(iface_kind(&root, "xray_tun"), "VPN or proxy (TUN)");
+        assert_eq!(iface_kind(&root, "proton0"), "WireGuard VPN");
+        assert_eq!(iface_kind(&root, "enp7s0"), "wired");
+        assert_eq!(iface_kind(&root, "usb0"), "USB network (tethering)");
+        assert_eq!(iface_kind(&root, "lxcbr0"), "bridge");
+        assert_eq!(iface_kind(&root, "eth0"), "wired", "no sysfs: the name decides");
+        assert_eq!(iface_kind(&root, "zz9"), "unknown kind of link");
     }
 }

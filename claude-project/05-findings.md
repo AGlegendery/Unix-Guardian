@@ -274,3 +274,24 @@ the `gpu-screen-reco` process found under our child in /proc; `flatpak run
 --die-with-parent`; recorders writing into our folder that the agent does
 not track are stopped at agent start, before a new recording, and by Stop
 when idle (the test's recover uses that).
+
+## Test lab on Hyprland, XFCE and GNOME (2026-10-10)
+
+- **Ping "0/0 answered"** (GNOME, Hyprland): not the VPN. The agent pings
+  only while someone asks (`Ping.Recent` touches it); the lab asked once,
+  in the ping step, so a freshly idle agent had sent nothing. XFCE showed
+  50/50 only because the window had the ping chart open before. The lab
+  now asks at the service step and waits up to 8 s for 5 echoes.
+- **X11 recording failed** (XFCE, Intel desktop): gpu-screen-recorder
+  records a monitor on X11 with Intel/AMD (and on any Wayland) through its
+  KMS root helper, and the Flatpak finds that helper only under
+  `/var/lib/flatpak` (hard-coded; its README says install `--system` to
+  record a monitor). Our Set up installs `--user`, so `eDP-1`/`screen`
+  died at once and Stop said only "not running". Window capture
+  (`focused`, XComposite) needs nothing. `ug_core::capture` decides:
+  automatic on X11 is `screen` where the helper is reachable or NvFBC is
+  used (NVIDIA desktop), else `focused`; monitors are not offered where
+  they cannot work. Stop now returns the run's own error.
+- **"battery none"** in power use: `battery_w` is the discharge draw, only
+  measurable on battery. **"via a other interface"**: VPN apps name their
+  TUN devices anything (`xray_tun`); the kind is now read from sysfs.

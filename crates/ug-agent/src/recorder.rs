@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use ug_proto::{RecorderSettings, RecorderState};
 
-pub const FLATPAK_ID: &str = "com.dec05eba.gpu_screen_recorder";
+pub const FLATPAK_ID: &str = ug_core::capture::FLATPAK_ID;
 pub const QUALITIES: [&str; 3] = ["small", "balanced", "high"];
 pub const CODECS: [&str; 4] = ["auto", "h264", "hevc", "av1"];
 
@@ -60,14 +60,15 @@ pub fn find_engine(home: &Path) -> Option<Engine> {
     (on_path("flatpak").is_some() && flatpak.iter().any(|d| d.exists())).then_some(Engine::Flatpak)
 }
 
-/// `--list-capture-options` lines: `portal`, `screen`, `DP-1|2560x1440`;
-/// window and region capture need more than a name, so they are left out.
+/// `--list-capture-options` lines: `portal`, `focused` (the active window,
+/// X11 only), `DP-1|2560x1440`; picking a window or a region needs more
+/// than a name, so those are left out.
 /// Cameras (`/dev/video0|1280x720@30hz|mjpeg`, one line per mode) are
 /// left out: this records the screen. Each name is offered once.
 pub fn parse_captures(out: &str) -> Vec<(String, Option<(u32, u32)>)> {
     let mut v: Vec<(String, Option<(u32, u32)>)> = Vec::new();
     for l in out.lines().map(str::trim) {
-        if l.is_empty() || l.starts_with("/dev/") || matches!(l, "window" | "focused" | "region") {
+        if l.is_empty() || l.starts_with("/dev/") || matches!(l, "window" | "region") {
             continue;
         }
         let c = match l.split_once('|') {
@@ -147,6 +148,30 @@ pub fn record_args(s: &RecorderSettings, capture: &str, target: Target<'_>) -> V
         Target::Replay(dir) => a.extend(["-r".into(), s.replay_seconds.to_string(), "-o".into(), dir.display().to_string()]),
     }
     a
+}
+
+const MONITOR_UNAVAILABLE: &str = "Recording a whole screen on X11 with Intel or AMD graphics needs gpu-screen-recorder installed for all users \
+     (flatpak install --system flathub com.dec05eba.gpu_screen_recorder) or from your distribution. \
+     Choose \"focused\" (the active window) or Automatic to record without it.";
+
+fn capture_env() -> ug_core::capture::CaptureEnv {
+    ug_core::capture::CaptureEnv::detect(Path::new("/"))
+}
+
+/// The capture choices to show: monitors are left out where they cannot be
+/// recorded, and there is always at least the automatic choice.
+pub fn offered(mut v: Vec<String>, env: &ug_core::capture::CaptureEnv) -> Vec<String> {
+    if env.monitor_unavailable() {
+        v.retain(|c| !ug_core::capture::is_monitor(c));
+    }
+    if env.wayland {
+        v.retain(|c| c != "focused");
+    }
+    let auto = env.auto_capture().to_string();
+    if !v.contains(&auto) {
+        v.insert(0, auto);
+    }
+    v
 }
 
 pub enum Target<'a> {
@@ -286,7 +311,6 @@ struct Inner {
 pub struct Recorder {
     file: PathBuf,
     home: PathBuf,
-    wayland: bool,
     settings: Mutex<RecorderSettings>,
     inner: Arc<Mutex<Inner>>,
 }
@@ -306,7 +330,6 @@ impl Recorder {
         Recorder {
             file,
             home: home.to_path_buf(),
-            wayland: std::env::var("XDG_SESSION_TYPE").is_ok_and(|t| t == "wayland") || std::env::var_os("WAYLAND_DISPLAY").is_some(),
             settings: Mutex::new(settings),
             inner: Arc::new(Mutex::new(Inner::default())),
         }
@@ -341,16 +364,11 @@ impl Recorder {
         c
     }
 
-    /// What to capture: the setting, else the portal on Wayland and the whole
-    /// screen on X11.
+    /// What to capture: the setting, else the portal on Wayland and on X11
+    /// the whole screen, or the active window where a monitor cannot be
+    /// recorded (see `ug_core::capture`).
     fn capture(&self, s: &RecorderSettings) -> String {
-        if !s.capture.is_empty() {
-            s.capture.clone()
-        } else if self.wayland {
-            "portal".into()
-        } else {
-            "screen".into()
-        }
+        capture_env().effective(&s.capture).to_string()
     }
 
     /// Notices a run that ended by itself (the portal dialog cancelled, an
@@ -406,11 +424,7 @@ impl Recorder {
     }
 
     fn capture_list(&self, e: &Engine) -> Vec<String> {
-        let mut v: Vec<String> = self.captures(e).into_iter().map(|c| c.0).collect();
-        if v.is_empty() {
-            v.push(if self.wayland { "portal".into() } else { "screen".into() });
-        }
-        v
+        offered(self.captures(e).into_iter().map(|c| c.0).collect(), &capture_env())
     }
 
     pub fn set(&self, s: RecorderSettings) -> Result<(), String> {
@@ -429,6 +443,10 @@ impl Recorder {
         let engine = find_engine(&self.home).ok_or("gpu-screen-recorder is not installed; set it up first (ug record setup).")?;
         self.stop_leftovers(&[]);
         let s = self.settings();
+        let env = capture_env();
+        if ug_core::capture::is_monitor(&self.capture(&s)) && env.monitor_unavailable() {
+            return Err(MONITOR_UNAVAILABLE.into());
+        }
         let folder = self.folder(&s);
         std::fs::create_dir_all(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
         let stamp = chrono_like(now_ms());
@@ -499,7 +517,12 @@ impl Recorder {
         let proc_root = Path::new("/proc");
         let Some(mut r) = self.lock().running.take() else {
             let n = self.stop_leftovers(&[]);
-            return if n > 0 { Ok(String::new()) } else { Err("The recorder is not running.".into()) };
+            if n > 0 {
+                return Ok(String::new());
+            }
+            // It may have ended by itself: say why rather than "not running".
+            let problem = self.lock().problem.clone();
+            return Err(if problem.is_empty() { "The recorder is not running.".into() } else { problem });
         };
         let engines = engine_pids(proc_root, r.child.id() as i32);
         let finished = interrupt_and_wait(proc_root, &engines, std::time::Duration::from_secs(10));
@@ -845,6 +868,22 @@ mod tests {
         assert_eq!(parse_progress("Looking for matches…"), None);
     }
 
+    /// XFCE on X11, Intel desktop, the Flatpak installed per user
+    /// (2026-10-10): only `eDP-1` was offered, and recording it failed
+    /// because the KMS helper is unreachable. The window is offered instead.
+    #[test]
+    fn x11_without_the_kms_helper_offers_the_window_not_the_monitor() {
+        use ug_core::capture::CaptureEnv;
+        let list = || vec!["focused".to_string(), "eDP-1".into()];
+        let user_flatpak = CaptureEnv { wayland: false, nvidia_desktop: false, kms_reachable: false };
+        assert_eq!(offered(list(), &user_flatpak), ["focused"]);
+        assert_eq!(offered(vec!["eDP-1".into()], &user_flatpak), ["focused"], "older engines do not list it");
+        let system = CaptureEnv { kms_reachable: true, ..user_flatpak };
+        assert_eq!(offered(list(), &system), ["screen", "focused", "eDP-1"]);
+        let wayland = CaptureEnv { wayland: true, nvidia_desktop: false, kms_reachable: false };
+        assert_eq!(offered(vec!["eDP-1".into(), "portal".into()], &wayland), ["portal"]);
+    }
+
     /// The real gpu-screen-recorder 5 (Flatpak) on the laptop, 2026-10-04:
     /// the webcam came back as nine `/dev/video0` choices.
     #[test]
@@ -857,7 +896,10 @@ mod tests {
     #[test]
     fn capture_choices_and_their_sizes_are_read_from_the_engine() {
         let c = parse_captures("window\nfocused\nregion\nportal\nDP-1|2560x1440\neDP-1|1920x1080\n");
-        assert_eq!(c, [("portal".to_string(), None), ("DP-1".into(), Some((2560, 1440))), ("eDP-1".into(), Some((1920, 1080)))]);
+        assert_eq!(
+            c,
+            [("focused".to_string(), None), ("portal".into(), None), ("DP-1".into(), Some((2560, 1440))), ("eDP-1".into(), Some((1920, 1080)))]
+        );
         let mut s = RecorderSettings::default();
         assert_eq!(mb_per_minute(&s, None), 91.0, "12 Mbit/s and one audio track ≈ 91 MB a minute");
         s.quality = "small".into();

@@ -289,6 +289,12 @@ impl Lab {
                 match r {
                     (Ok(s), ms) => {
                         self.add("agent", "reachable", Status::Pass, format!("version {}, {ms:.0} ms", s.agent_version));
+                        // Ping is measured only while someone asks for it:
+                        // asking now gives it the whole run to collect
+                        // echoes before the ping step reads them.
+                        if let Ok(p) = ag::PingProxy::new(&c).await {
+                            let _ = call(p.recent(now_ms())).await;
+                        }
                         if s.agent_version != env!("CARGO_PKG_VERSION") {
                             self.add("agent", "same version as this app", Status::Warn, format!("agent {}, app {}", s.agent_version, env!("CARGO_PKG_VERSION")));
                         }
@@ -343,7 +349,7 @@ impl Lab {
         self.add("sensors", "CPU frequency control", Status::Info, format!("driver {}, governor {}, energy preference {}", or_none(&cpu.driver), or_none(&cpu.governor), or_none(&cpu.epp)));
         let m = &s.mem;
         self.add("sensors", "memory", t(m.total_kb > 0), format!("{:.0} % used, swap {:.1} GB, zram {:.1} GB used", m.used_pct(), m.swap_total_kb as f64 / 1_048_576.0, m.zram_used_kb as f64 / 1_048_576.0));
-        self.add("sensors", "network", t(!s.net.iface.is_empty()), if s.net.iface.is_empty() { "no default route found".into() } else { format!("default route via a {} interface", iface_kind(&s.net.iface)) });
+        self.add("sensors", "network", t(!s.net.iface.is_empty()), if s.net.iface.is_empty() { "no default route found".into() } else { format!("default route via {} ({})", s.net.iface, ug_hw::procnet::iface_kind(&ug_hw::SysRoot::real(), &s.net.iface)) });
         for g in &s.gpus {
             let name = format!("GPU {}", g.pci);
             if g.asleep {
@@ -721,13 +727,29 @@ impl Lab {
     async fn ping(&mut self) {
         let Some(c) = self.need_agent("ping") else { return };
         let Ok(p) = ag::PingProxy::new(&c).await else { return };
-        match call(p.recent(now_ms() - 60_000)).await {
+        // Started in the service step; a few more seconds if it has not
+        // sent enough echoes yet (it was not running before the test).
+        let mut report = call(p.recent(now_ms() - 60_000)).await;
+        for _ in 0..if self.quick { 3 } else { 8 } {
+            match &report {
+                Ok(r) if !ping_settled(r) => {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    report = call(p.recent(now_ms() - 60_000)).await;
+                }
+                _ => break,
+            }
+        }
+        match report {
             Ok(r) => {
                 if r.targets.is_empty() {
                     return self.add("ping", "targets", Status::Warn, "nothing to ping (no network?)");
                 }
                 for t in &r.targets {
                     let s = &t.stats;
+                    if s.sent == 0 && t.problem.is_empty() {
+                        self.add("ping", &t.label, Status::Warn, "no echoes sent: measuring did not start");
+                        continue;
+                    }
                     let st = if s.received > 0 { Status::Pass } else if t.problem.is_empty() { Status::Info } else { Status::Warn };
                     let via = if t.through_vpn { ", through a VPN" } else { "" };
                     let problem = if t.problem.is_empty() { String::new() } else { format!(" — {}", t.problem) };
@@ -776,7 +798,14 @@ impl Lab {
             }
         }
         match call(p.usage()).await {
-            Ok(u) => self.add("power", "power use", Status::Pass, format!("CPU {}, GPU {}, battery {}, CPU energy recorded: {}", opt(u.cpu_w, "W"), opt(u.gpu_w, "W"), opt(u.battery_w, "W"), u.cpu_energy_recorded)),
+            Ok(u) => {
+                let extra = match dm::DaemonProxy::new(&c).await {
+                    Ok(d) => call(d.extra()).await.ok(),
+                    Err(_) => None,
+                };
+                let status = extra.map(|e| if e.battery_pct.is_nan() { String::new() } else { e.battery_status }).unwrap_or_default();
+                self.add("power", "power use", Status::Pass, format!("CPU {}, GPU {}, {}, CPU energy recorded: {}", opt(u.cpu_w, "W"), opt(u.gpu_w, "W"), battery_draw(u.battery_w, &status), u.cpu_energy_recorded));
+            }
             Err(e) => self.add("power", "power use", Status::Fail, e),
         }
         match call(p.battery()).await {
@@ -921,7 +950,7 @@ impl Lab {
         if s.mode != "idle" {
             return self.add("recorder", "record 3 seconds", Status::Skip, format!("the recorder is in use ({})", s.mode));
         }
-        if recording_asks_first(&s.settings.capture, wayland_session()) {
+        if ug_core::capture::CaptureEnv::detect(std::path::Path::new("/")).asks_first(&s.settings.capture) {
             self.add("recorder", "record 3 seconds", Status::Skip, "recording here opens the desktop's screen picker or asks for a password first, so the test does not start one");
             return self.manual("Screen recording", "record a few seconds from the Recorder page and allow it in the desktop's dialog");
         }
@@ -1175,14 +1204,23 @@ fn or_none(s: &str) -> String {
 
 /// `wlan`, `ethernet`… from an interface name; the name itself can carry a
 /// MAC address (`wlx…`).
-fn iface_kind(name: &str) -> &'static str {
-    match name.get(..2) {
-        Some("wl") => "Wi-Fi",
-        Some("en") | Some("et") => "wired",
-        Some("ww") => "mobile",
-        _ if name.starts_with("tun") || name.starts_with("wg") => "VPN",
-        _ => "other",
+/// The whole machine's draw from the battery, which is only measurable while
+/// it runs on the battery: "battery none" read as if there were no battery.
+fn battery_draw(w: f64, status: &str) -> String {
+    if !w.is_nan() {
+        format!("whole machine {w:.1} W from the battery")
+    } else if status.is_empty() {
+        "no battery".into()
+    } else if status == "Discharging" {
+        "whole machine on battery: draw not readable".into()
+    } else {
+        format!("whole machine draw measured only on battery (battery {})", status.to_lowercase())
     }
+}
+
+/// Every target that can be pinged has sent enough echoes to judge it.
+fn ping_settled(r: &ug_proto::PingReport) -> bool {
+    r.targets.iter().all(|t| t.addr.is_empty() || !t.problem.is_empty() || t.stats.sent >= 5)
 }
 
 fn describe(u: &Undo) -> String {
@@ -1234,19 +1272,45 @@ pub(crate) fn test_alarm_at(now_ms: u64) -> u64 {
     (now_ms + 6 * 3_600_000) / 1000 * 1000
 }
 
-/// Whether starting a recording would open a dialog or ask for a password:
-/// the portal always does (automatic on Wayland is the portal), and on
-/// Wayland a monitor is captured through a helper that needs the password.
-pub(crate) fn recording_asks_first(capture: &str, wayland: bool) -> bool {
-    capture == "portal" || wayland
-}
-
 /// Whether a GPU driver reports a temperature of its own. Intel's
 /// integrated graphics share the CPU's package and have none.
 pub(crate) fn gpu_has_own_temperature(driver: &str) -> bool {
     !matches!(driver, "i915" | "xe")
 }
 
-fn wayland_session() -> bool {
-    std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty()) || std::env::var("XDG_SESSION_TYPE").is_ok_and(|v| v == "wayland")
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ug_proto::{PingReport, PingStats, PingTarget};
+
+    #[test]
+    fn battery_draw_says_why_there_is_no_number() {
+        assert_eq!(battery_draw(f64::NAN, "Full"), "whole machine draw measured only on battery (battery full)");
+        assert_eq!(battery_draw(f64::NAN, "Charging"), "whole machine draw measured only on battery (battery charging)");
+        assert_eq!(battery_draw(f64::NAN, ""), "no battery");
+        assert_eq!(battery_draw(12.34, "Discharging"), "whole machine 12.3 W from the battery");
+        assert!(!battery_draw(f64::NAN, "Full").contains("none"));
+    }
+
+    fn target(addr: &str, problem: &str, sent: u32) -> PingTarget {
+        PingTarget {
+            id: "gateway".into(),
+            label: "Router".into(),
+            addr: addr.into(),
+            samples: Vec::new(),
+            stats: PingStats { sent, ..Default::default() },
+            problem: problem.into(),
+            via: String::new(),
+            through_vpn: false,
+        }
+    }
+
+    #[test]
+    fn ping_waits_for_echoes_only_where_it_can_send_them() {
+        let r = |t: Vec<PingTarget>| PingReport { targets: t, ..Default::default() };
+        assert!(!ping_settled(&r(vec![target("192.168.1.1", "", 0)])), "just started: wait");
+        assert!(ping_settled(&r(vec![target("192.168.1.1", "", 5)])));
+        assert!(ping_settled(&r(vec![target("", "No router: not connected.", 0)])));
+        assert!(ping_settled(&r(vec![target("1.1.1.1", "Cannot send ping: denied", 0)])));
+    }
 }

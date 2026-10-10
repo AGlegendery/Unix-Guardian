@@ -60,6 +60,7 @@ check "the CPU benchmark ran" "line 'CPU all threads' && line '[PASS] cpu: arith
 check "the driver check ran" "line '[PASS] drivers: hardware and driver check'"
 check "everything was put back" "line 'Everything the test turned on was turned off again.' && [ ! -e '$XDG_DATA_HOME/unix-guardian/testlab-undo.json' ]"
 check "manual tests are listed" "line 'NOT TESTED AUTOMATICALLY' && line 'log-out, log-in or restart'"
+check "ping was measured before it was reported (no 0/0)" "! grep -E 'ping: .* 0/0 answered' '$W/report.txt'"
 check "no FAIL lines" "! grep -F '[FAIL]' '$W/report.txt'"
 host="$(cat /proc/sys/kernel/hostname)"
 # A host named after its distribution (parrot, debian) keeps that word: the

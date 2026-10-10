@@ -150,7 +150,7 @@
         <span>{t().recorder.capture}</span>
         <select dir="ltr" value={st.settings.capture} onchange={(e) => change({ capture: (e.target as HTMLSelectElement).value })} disabled={st.mode !== "idle"}>
           <option value="">{t().recorder.captureDefault}</option>
-          {#each st.captures as c}<option value={c}>{c === "portal" ? t().recorder.portal : c}</option>{/each}
+          {#each st.captures as c}<option value={c}>{c === "portal" ? t().recorder.portal : c === "focused" ? t().recorder.focused : c}</option>{/each}
         </select>
       </label>
       <label class="row">

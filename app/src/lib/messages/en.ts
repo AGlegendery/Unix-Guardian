@@ -553,6 +553,7 @@ export const en = {
     capture: "What to record",
     captureDefault: "Default (the desktop asks)",
     portal: "Chosen in the desktop's dialog",
+    focused: "The active window",
     codec: "Codec",
     auto: "Automatic",
     sound: "Sound",

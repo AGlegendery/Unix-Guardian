@@ -230,17 +230,6 @@ mod tests {
         assert_eq!(at % 1000, 0, "whole seconds");
     }
 
-    /// On Wayland the recorder's automatic choice is the desktop's portal,
-    /// which opens a screen picker: the test must not wait on a person.
-    #[test]
-    fn recording_is_tested_only_where_nothing_asks_first() {
-        assert!(steps::recording_asks_first("", true), "automatic on Wayland is the portal");
-        assert!(steps::recording_asks_first("portal", false));
-        assert!(steps::recording_asks_first("eDP-1", true), "a monitor on Wayland needs the capture helper's password");
-        assert!(!steps::recording_asks_first("", false), "automatic on X11 is the whole screen");
-        assert!(!steps::recording_asks_first("screen", false));
-    }
-
     /// An Intel iGPU has no temperature sensor of its own (it shares the
     /// CPU's package); that is normal, not a warning.
     #[test]
