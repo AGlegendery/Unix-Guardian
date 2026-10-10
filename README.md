@@ -20,6 +20,49 @@ Three processes, one protocol:
 The UI never touches sysfs. Everything goes through D-Bus so the CLI, scripts and the
 Telegram bot share one API.
 
+## Tray icon on GNOME
+
+**GNOME has no tray by default. To see the Unix Guardian tray icon, install and
+enable the "AppIndicator and KStatusNotifierItem Support" extension.** KDE,
+Cinnamon, XFCE and most other desktops need nothing.
+
+| Distro                      | Install                                                     |
+|-----------------------------|-------------------------------------------------------------|
+| Debian / Ubuntu / Parrot    | **`sudo apt install gnome-shell-extension-appindicator`**   |
+| Fedora                      | **`sudo dnf install gnome-shell-extension-appindicator`**   |
+| Arch                        | **`sudo pacman -S gnome-shell-extension-appindicator`**     |
+| openSUSE                    | **not in the official repos: install it from [extensions.gnome.org](https://extensions.gnome.org/extension/615/appindicator-support/) or the Extension Manager app** |
+
+Then enable it:
+
+```bash
+gnome-extensions enable ubuntu-appindicators@ubuntu.com
+```
+
+**On Wayland, log out and back in if the extension does not show up as enabled.**
+The icon appears by itself once the extension is running; Unix Guardian does not
+need a restart.
+
+### آیکون سینی سیستم در گنوم
+
+**گنوم به‌طور پیش‌فرض سینی سیستم (tray) ندارد. برای دیدن آیکون Unix Guardian،
+افزونهٔ «AppIndicator and KStatusNotifierItem Support» را نصب و فعال کنید.**
+کی‌دی‌ای، سینامون، XFCE و بیشتر میزکارهای دیگر به چیزی نیاز ندارند.
+
+- **دبیان / اوبونتو / پرت:** `sudo apt install gnome-shell-extension-appindicator`
+- **فدورا:** `sudo dnf install gnome-shell-extension-appindicator`
+- **آرچ:** `sudo pacman -S gnome-shell-extension-appindicator`
+- **اوپن‌سوزه:** در مخزن رسمی نیست؛ از [extensions.gnome.org](https://extensions.gnome.org/extension/615/appindicator-support/) یا برنامهٔ Extension Manager نصب کنید.
+
+سپس فعالش کنید:
+
+```bash
+gnome-extensions enable ubuntu-appindicators@ubuntu.com
+```
+
+**در ویلند، اگر افزونه فعال نشد، یک بار از حساب خارج و دوباره وارد شوید.**
+آیکون پس از اجرای افزونه خودبه‌خود ظاهر می‌شود و نیازی به راه‌اندازی دوبارهٔ Unix Guardian نیست.
+
 ## Building
 
 ```bash
