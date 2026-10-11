@@ -644,7 +644,17 @@ where
     match args.response {
         0 => Ok(args.results.clone()),
         1 => Err(("failed", "The desktop's confirmation was cancelled. Turn the shortcuts off and on to be asked again.".into())),
-        _ => Err(("failed", "The desktop refused the shortcuts.".into())),
+        _ => Err(refused(DeskKeys::desk())),
+    }
+}
+
+/// The portal said no. GNOME before 48 has the portal's front end but no
+/// GNOME back end for it, so it refuses every request (2026-10-11): there
+/// that means "not offered", with the Set up instead.
+fn refused(desk: Option<deskkeys::Desk>) -> (&'static str, String) {
+    match desk {
+        Some(_) => ("unavailable", fallback()),
+        None => ("failed", "The desktop refused the shortcuts.".into()),
     }
 }
 
@@ -695,5 +705,16 @@ pub async fn perform(
             let ids: Vec<&str> = ACTIONS.iter().map(|a| a.id).collect();
             Err(format!("Unknown shortcut `{other}`; known: {}.", ids.join(", ")))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_refusal_on_gnome_or_xfce_offers_the_set_up() {
+        let (status, problem) = super::refused(Some(crate::deskkeys::Desk::Gnome));
+        assert_eq!(status, "unavailable");
+        assert!(problem.contains("ug shortcut toggle-gamemode"), "{problem}");
+        assert_eq!(super::refused(None).0, "failed");
     }
 }

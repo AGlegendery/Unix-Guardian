@@ -750,7 +750,8 @@ impl Lab {
                         self.add("ping", &t.label, Status::Warn, "no echoes sent: measuring did not start");
                         continue;
                     }
-                    let st = if s.received > 0 { Status::Pass } else if t.problem.is_empty() { Status::Info } else { Status::Warn };
+                    // Answered, but not a real ping (a VPN replying itself): a note, not a pass.
+                    let st = if s.received > 0 && t.problem.is_empty() { Status::Pass } else if s.received > 0 || t.problem.is_empty() { Status::Info } else { Status::Warn };
                     let via = if t.through_vpn { ", through a VPN" } else { "" };
                     let problem = if t.problem.is_empty() { String::new() } else { format!(" — {}", t.problem) };
                     self.add("ping", &t.label, st, format!("{}/{} answered{via}{problem}", s.received, s.sent));
