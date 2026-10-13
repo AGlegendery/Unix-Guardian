@@ -33,7 +33,20 @@ trap 'exit 0' TERM
 while true; do sleep 0.1; done
 GSR
 chmod +x "$W/bin/gpu-screen-recorder"
-export PATH="$W/bin:$PATH" GSR_LOG="$W/gsr.log"
+# A gpu-screen-recorder installed on this machine (Arch packages it in
+# /usr/bin) must stay out of sight: each PATH directory holding one is
+# replaced by a copy made of links to everything else in it.
+path="" n=0
+IFS=: read -ra dirs <<<"$PATH"
+for d in "${dirs[@]}"; do
+  if [ -e "$d/gpu-screen-recorder" ]; then
+    n=$((n+1)); mkdir -p "$W/path$n"
+    for f in "$d"/*; do [ "${f##*/}" = gpu-screen-recorder ] || ln -s "$f" "$W/path$n/"; done
+    d="$W/path$n"
+  fi
+  path="$path:$d"
+done
+export PATH="$W/bin$path" GSR_LOG="$W/gsr.log"
 fails=0
 check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fails+1)); fi; }
 until_() { local d=$((SECONDS+$1)); shift; until eval "$@"; do (( SECONDS < d )) || return 1; sleep 0.2; done; }

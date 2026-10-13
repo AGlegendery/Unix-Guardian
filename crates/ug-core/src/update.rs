@@ -204,7 +204,7 @@ pub enum InstallKind {
     /// The release tarball's install.sh (`/usr/local`, with its file list):
     /// Unix Guardian can update it.
     Tarball,
-    /// `scripts/dev-install.sh` from a source tree: `git pull` and run it again.
+    /// `installer.sh` (or `scripts/dev-install.sh`) from a source tree: `git pull` and run it again.
     Development,
     /// Not installed (running from a build folder).
     None,

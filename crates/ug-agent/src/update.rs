@@ -207,7 +207,7 @@ impl Updater {
 fn how(kind: &InstallKind) -> String {
     match kind {
         InstallKind::Package(cmd) => cmd.clone(),
-        InstallKind::Development => "git pull, then: sudo ./scripts/dev-install.sh".into(),
+        InstallKind::Development => "git pull, then: bash ./installer.sh".into(),
         _ => String::new(),
     }
 }

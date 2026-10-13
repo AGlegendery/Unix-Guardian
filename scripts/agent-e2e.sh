@@ -160,7 +160,7 @@ check "an interval out of range is refused" "! '$B/ug' settings --scan-interval 
 check "updates: nothing checked yet" "'$B/ug' update | grep -q 'Not checked yet'"
 check "ug update --check finds the new release, not the draft" "out=\$('$B/ug' update --check); grep -q 'New version    Unix Guardian 99.1' <<<\"\$out\" && grep -q -- '- Self-update' <<<\"\$out\""
 check "and remembers it" "'$B/ug' update --json | grep -q '\"latest\": \"v99.1.0\"' && [ -f '$XDG_CONFIG_HOME/unix-guardian/update.json' ]"
-check "ug update --install refuses a copy it cannot update" "out=\$('$B/ug' update --install 2>&1); [ \$? -ne 0 ] && grep -q 'Update this copy with: git pull' <<<\"\$out\""
+check "ug update --install refuses a copy it cannot update" "out=\$('$B/ug' update --install 2>&1); [ \$? -ne 0 ] && grep -qE 'Update this copy with: |runs from a build folder' <<<\"\$out\""
 check "an unreachable feed is explained" "rm '$W/releases.json'; out=\$('$B/ug' update --check 2>&1); [ \$? -ne 0 ] && grep -q 'Could not reach' <<<\"\$out\""
 check "the daily check can be turned off" "'$B/ug' settings --check-updates off | grep -q 'Look for updates daily off'"
 
