@@ -73,6 +73,8 @@ check "the game ending turns game mode off" "until_ 10 \"active | grep -q false\
 check "every setting is exactly as before" original
 
 # The desktop's screen saver and notifications, as KDE offers them.
+python3 -c 'from gi.repository import Gio' 2>/dev/null \
+  || echo "FAIL  python3's gi (PyGObject) is missing; the fake desktop below cannot run"
 python3 "$(dirname "$0")/fake-desktop-holds.py" "$W/holds" & fake=$!
 until_ 5 "[ -e '$W/holds' ]"
 # By hand, without a game: any profile at once, then off.
