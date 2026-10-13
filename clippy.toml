@@ -1,2 +1,4 @@
 # Hardware reads legitimately index fixed-size sysfs arrays.
 too-many-arguments-threshold = 10
+# Tuples of readings and D-Bus reply shapes are spelled out where used.
+type-complexity-threshold = 400

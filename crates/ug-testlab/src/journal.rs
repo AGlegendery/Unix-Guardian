@@ -124,7 +124,7 @@ mod tests {
         };
         j.push(u.clone()).unwrap();
         // What a crashed run leaves: the next run finds it.
-        assert_eq!(Journal::open(&f).items(), [u.clone()]);
+        assert_eq!(Journal::open(&f).items(), std::slice::from_ref(&u));
         j.done(&u).unwrap();
         assert!(!f.exists());
         assert!(Journal::open(&f).items().is_empty());

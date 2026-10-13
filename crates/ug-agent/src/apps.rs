@@ -116,11 +116,12 @@ impl Paused {
         let mut n = 0;
         for (pid, start) in std::mem::take(&mut self.pids) {
             match ug_games::proc::stat(root, pid) {
-                Some((_, _, s)) if s == start => {
+                Some((_, _, s))
+                    if s == start
                     // SAFETY: as above.
-                    if unsafe { libc::kill(pid, libc::SIGCONT) } == 0 {
-                        n += 1;
-                    }
+                    && unsafe { libc::kill(pid, libc::SIGCONT) } == 0 =>
+                {
+                    n += 1;
                 }
                 _ => {}
             }

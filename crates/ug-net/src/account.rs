@@ -351,9 +351,11 @@ mod tests {
     use ug_testfs::TestFs;
 
     /// Keeps a fake kernel set: path → [rx, tx] per level, and records scripts.
+    type Elems = Arc<Mutex<HashMap<(String, u8), [u64; 2]>>>;
+
     #[derive(Clone, Default)]
     struct FakeNft {
-        elems: Arc<Mutex<HashMap<(String, u8), [u64; 2]>>>,
+        elems: Elems,
         /// Counters of elements whose cgroup is gone (printed as ids).
         stale: Arc<Mutex<Vec<(u8, u64)>>>,
         scripts: Arc<Mutex<Vec<String>>>,

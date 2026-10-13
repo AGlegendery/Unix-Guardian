@@ -137,7 +137,7 @@ pub fn missing_firmware(log: &str) -> Vec<String> {
                 (at, l[at + 25..].split_whitespace().next())
             };
             let dev = device(l, at);
-            if !dev.is_empty() && loaded.iter().any(|d| *d == dev) {
+            if !dev.is_empty() && loaded.contains(&dev) {
                 return None;
             }
             rest.map(str::to_string)
@@ -433,8 +433,7 @@ pub fn facts(root: &SysRoot, env: &Env, modules: &[String], f: &mut Facts) {
         .unwrap_or_default()
         .lines()
         .filter(|l| {
-            l.trim_start()
-                .split_whitespace()
+            l.split_whitespace()
                 .next()
                 .is_some_and(|n| n.parse::<u32>().is_ok())
         })
@@ -702,7 +701,8 @@ pub fn facts(root: &SysRoot, env: &Env, modules: &[String], f: &mut Facts) {
     // Debian keeps most firmware in the non-free-firmware component, which
     // a netinst without it leaves off.
     let mut apt = String::new();
-    for p in ["etc/apt/sources.list"] {
+    {
+        let p = "etc/apt/sources.list";
         apt.push_str(&std::fs::read_to_string(root.join(p)).unwrap_or_default());
     }
     for e in std::fs::read_dir(root.join("etc/apt/sources.list.d"))

@@ -651,6 +651,6 @@ mod tests {
             return;
         };
         let r = Probe::round(&mut [&mut p], Duration::from_millis(500));
-        assert!(r[0].is_some_and(|ms| ms >= 0.0 && ms < 100.0), "{r:?}");
+        assert!(r[0].is_some_and(|ms| (0.0..100.0).contains(&ms)), "{r:?}");
     }
 }

@@ -894,7 +894,7 @@ async fn game(command: GameCommand, json: bool) -> Result<()> {
     match command {
         GameCommand::List => {
             let mut list = games.installed().await.map_err(agent_hint)?;
-            list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            list.sort_by_key(|a| a.name.to_lowercase());
             if json {
                 println!("{}", serde_json::to_string_pretty(&list)?);
             } else if list.is_empty() {
@@ -1026,11 +1026,7 @@ async fn playtime(
     if !games.is_empty() {
         let total: u64 = games.iter().map(|e| e.seconds).sum();
         for e in &games {
-            let pct = if total > 0 {
-                e.seconds * 100 / total
-            } else {
-                0
-            };
+            let pct = (e.seconds * 100).checked_div(total).unwrap_or(0);
             println!("{:>8}  {:>3}%  {}", hms(e.seconds), pct, e.name);
         }
         println!("{:>8}        total, {} games", hms(total), games.len());

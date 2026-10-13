@@ -225,17 +225,17 @@ mod tests {
     }
 
     fn base(fs: &TestFs) {
-        fs.write(&format!("{BAT}/type"), "Battery");
-        fs.write(&format!("{BAT}/capacity"), "70");
-        fs.write(&format!("{BAT}/status"), "Charging");
+        fs.write(format!("{BAT}/type"), "Battery");
+        fs.write(format!("{BAT}/capacity"), "70");
+        fs.write(format!("{BAT}/status"), "Charging");
     }
 
     #[test]
     fn a_threshold_laptop_gets_the_chosen_limit_and_a_start_below_it() {
         let fs = TestFs::new();
         base(&fs);
-        fs.write(&format!("{BAT}/charge_control_end_threshold"), "100");
-        fs.write(&format!("{BAT}/charge_control_start_threshold"), "95");
+        fs.write(format!("{BAT}/charge_control_end_threshold"), "100");
+        fs.write(format!("{BAT}/charge_control_start_threshold"), "95");
         let (_d, mut b) = battery(&fs, false);
         assert!(b.method.as_ref().unwrap().adjustable());
         b.set(Care::Protect { limit: 80 }).unwrap();
@@ -271,7 +271,7 @@ mod tests {
         // The development laptop: Lenovo IdeaPad, charge_types "[Fast] Standard Long_Life".
         let fs = TestFs::new();
         base(&fs);
-        fs.write(&format!("{BAT}/charge_types"), "[Fast] Standard Long_Life");
+        fs.write(format!("{BAT}/charge_types"), "[Fast] Standard Long_Life");
         let (_d, mut b) = battery(&fs, false);
         assert_eq!(b.method.as_ref().unwrap().name(), "vendor-long-life");
         assert!(!b.method.as_ref().unwrap().adjustable());
@@ -303,14 +303,14 @@ mod tests {
     fn the_choice_survives_a_restart_and_is_applied_again() {
         let fs = TestFs::new();
         base(&fs);
-        fs.write(&format!("{BAT}/charge_control_end_threshold"), "100");
+        fs.write(format!("{BAT}/charge_control_end_threshold"), "100");
         let d = tempfile::tempdir().unwrap();
         let state = d.path().join("battery.json");
         Battery::new(SysRoot::at(fs.root()), &state, false)
             .set(Care::Protect { limit: 70 })
             .unwrap();
         // Firmware forgot it across a reboot.
-        fs.write(&format!("{BAT}/charge_control_end_threshold"), "100");
+        fs.write(format!("{BAT}/charge_control_end_threshold"), "100");
         let mut b = Battery::new(SysRoot::at(fs.root()), &state, false);
         assert_eq!(b.care, Care::Protect { limit: 70 });
         b.apply().unwrap();
@@ -328,7 +328,7 @@ mod tests {
     fn full_once_charges_fully_then_protects_again() {
         let fs = TestFs::new();
         base(&fs);
-        fs.write(&format!("{BAT}/charge_control_end_threshold"), "80");
+        fs.write(format!("{BAT}/charge_control_end_threshold"), "80");
         let (_d, mut b) = battery(&fs, false);
         b.set(Care::FullOnce { limit: 80 }).unwrap();
         assert_eq!(
@@ -339,8 +339,8 @@ mod tests {
             .unwrap(),
             "100"
         );
-        fs.write(&format!("{BAT}/capacity"), "100");
-        fs.write(&format!("{BAT}/status"), "Full");
+        fs.write(format!("{BAT}/capacity"), "100");
+        fs.write(format!("{BAT}/status"), "Full");
         b.apply().unwrap();
         assert_eq!(b.care, Care::Protect { limit: 80 });
         assert_eq!(
@@ -363,7 +363,7 @@ mod tests {
             .set(Care::Protect { limit: 80 })
             .unwrap_err()
             .contains("does not expose"));
-        fs.write(&format!("{BAT}/charge_control_end_threshold"), "100");
+        fs.write(format!("{BAT}/charge_control_end_threshold"), "100");
         let (_d, mut b) = battery(&fs, false);
         assert!(b.set(Care::Protect { limit: 20 }).is_err());
     }
@@ -372,7 +372,7 @@ mod tests {
     fn a_development_run_never_writes() {
         let fs = TestFs::new();
         base(&fs);
-        fs.write(&format!("{BAT}/charge_control_end_threshold"), "100");
+        fs.write(format!("{BAT}/charge_control_end_threshold"), "100");
         let (_d, mut b) = battery(&fs, true);
         b.set(Care::Protect { limit: 60 }).unwrap();
         assert_eq!(

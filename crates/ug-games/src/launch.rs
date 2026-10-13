@@ -29,6 +29,9 @@ const KEY: &str = "LaunchOptions";
 /// Backups of `localconfig.vdf` kept; older ones Unix Guardian made are removed.
 const BACKUPS_KEPT: usize = 10;
 
+/// What `add` writes: the environment variables and the wrapper, if any.
+type AdditionsText = (Vec<(String, String)>, Option<&'static str>);
+
 /// The Steam install and account whose launch options are edited: the
 /// account used last on this computer (its `localconfig.vdf` was written
 /// last).
@@ -287,10 +290,7 @@ impl Launch {
     }
 
     /// Unix Guardian's variables and wrapper for `add`, for this Steam.
-    fn additions_text(
-        &self,
-        add: &Additions,
-    ) -> Result<(Vec<(String, String)>, Option<&'static str>), String> {
+    fn additions_text(&self, add: &Additions) -> Result<AdditionsText, String> {
         let mut env = Vec::new();
         if !add.gpu.is_empty() {
             let gpus = gpu_use::gpus(&self.root);
@@ -578,11 +578,11 @@ mod tests {
             "home/.local/share/Steam"
         };
         fs.write(
-            &format!("{root}/steamapps/libraryfolders.vdf"),
+            format!("{root}/steamapps/libraryfolders.vdf"),
             "\"libraryfolders\" {}",
         );
         fs.write(
-            &format!("{root}/userdata/42/config/localconfig.vdf"),
+            format!("{root}/userdata/42/config/localconfig.vdf"),
             LOCALCONFIG,
         );
         for (node, pci, vendor, device, boot) in [
@@ -591,9 +591,9 @@ mod tests {
         ] {
             fs.dir(format!("sys/devices/pci0000:00/{pci}"))
                 .dir(format!("sys/class/drm/{node}"));
-            fs.write(&format!("sys/devices/pci0000:00/{pci}/vendor"), vendor);
-            fs.write(&format!("sys/devices/pci0000:00/{pci}/device"), device);
-            fs.write(&format!("sys/devices/pci0000:00/{pci}/boot_vga"), boot);
+            fs.write(format!("sys/devices/pci0000:00/{pci}/vendor"), vendor);
+            fs.write(format!("sys/devices/pci0000:00/{pci}/device"), device);
+            fs.write(format!("sys/devices/pci0000:00/{pci}/boot_vga"), boot);
             symlink(
                 format!("../../../devices/pci0000:00/{pci}"),
                 fs.root().join(format!("sys/class/drm/{node}/device")),

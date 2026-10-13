@@ -2463,7 +2463,15 @@ fn monitoring(app: &mut App, f: &mut Frame, r: Rect) {
             .map(|p| p.ts_unix_ms as f64 / 1000.0 - t0)
             .unwrap_or(60.0))
         .max(60.0);
-        let charts: [(&str, &str, (f64, f64), Vec<(f64, f64)>, Vec<(f64, f64)>); 3] = [
+        // Title, unit, y range, then the two lines.
+        type ChartSpec<'a> = (
+            &'a str,
+            &'a str,
+            (f64, f64),
+            Vec<(f64, f64)>,
+            Vec<(f64, f64)>,
+        );
+        let charts: [ChartSpec; 3] = [
             (
                 "Temperature",
                 "°",

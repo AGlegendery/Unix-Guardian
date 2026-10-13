@@ -22,7 +22,7 @@ pub fn for_fix(fix_id: &str, family: &str, facts: &crate::Facts) -> Option<Vec<S
         };
     let ubuntu = crate::fixes::is_ubuntu(facts);
     match fix_id {
-        "install-firmware" => Some(crate::fixes::firmware_packages(facts)).filter(|_| family != ""),
+        "install-firmware" => (!family.is_empty()).then(|| crate::fixes::firmware_packages(facts)),
         "install-sof-firmware" => by(
             &["firmware-sof-signed"],
             &["sof-firmware", "alsa-ucm-conf"],

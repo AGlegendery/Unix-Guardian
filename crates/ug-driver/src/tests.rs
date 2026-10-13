@@ -4,7 +4,7 @@ use super::*;
 use ug_testfs::TestFs;
 
 /// The development laptop as read on 2026-10-03: Parrot (Debian), RTX 3050
-/// + Intel iGPU, driver 550.163.01 through DKMS, nouveau blacklisted,
+/// and Intel iGPU, driver 550.163.01 through DKMS, nouveau blacklisted,
 /// modeset=1 on the command line, sleep services on, video memory not kept.
 fn laptop() -> TestFs {
     let fs = TestFs::new();
@@ -15,9 +15,9 @@ fn laptop() -> TestFs {
         .write("sys/kernel/security/lockdown", "[none] integrity confidentiality\n")
         .dir("sys/firmware/efi")
         .write("usr/sbin/update-initramfs", "")
-        .write(&format!("lib/modules/{kr}/build/Makefile"), "")
-        .write(&format!("lib/modules/{kr}/modules.dep"), "updates/dkms/nvidia-current.ko.xz:\nupdates/dkms/nvidia-current-drm.ko.xz: updates/dkms/nvidia-current.ko.xz\n")
-        .dir(&format!("var/lib/dkms/nvidia-current/550.163.01/{kr}/x86_64/module"))
+        .write(format!("lib/modules/{kr}/build/Makefile"), "")
+        .write(format!("lib/modules/{kr}/modules.dep"), "updates/dkms/nvidia-current.ko.xz:\nupdates/dkms/nvidia-current-drm.ko.xz: updates/dkms/nvidia-current.ko.xz\n")
+        .dir(format!("var/lib/dkms/nvidia-current/550.163.01/{kr}/x86_64/module"))
         .write("proc/modules", "nvidia_drm 139264 4 - Live 0x0\nnvidia_modeset 1720320 2 nvidia_drm, Live 0x0\nnvidia 60899328 30 nvidia_modeset, Live 0x0\ni915 4718592 40 - Live 0x0\n")
         .write("proc/driver/nvidia/version", "NVRM version: NVIDIA UNIX x86_64 Kernel Module  550.163.01  Tue Apr  8 12:41:17 UTC 2025\nGCC version:  gcc version 14.2.0\n")
         .write("proc/driver/nvidia/params", "ResmanDebugLevel: 4294967295\nPreserveVideoMemoryAllocations: 0\nDynamicPowerManagement: 3\n")
@@ -33,7 +33,7 @@ fn laptop() -> TestFs {
         .dir("var/lib/flatpak/app/com.valvesoftware.Steam")
         .dir("var/lib/flatpak/runtime/org.freedesktop.Platform.GL.nvidia-550-163-01");
     for u in ["nvidia-suspend", "nvidia-resume", "nvidia-hibernate"] {
-        fs.write(&format!("lib/systemd/system/{u}.service"), "");
+        fs.write(format!("lib/systemd/system/{u}.service"), "");
     }
     fs.write(
         "etc/systemd/system/systemd-suspend.service.wants/nvidia-suspend.service",
@@ -54,12 +54,12 @@ fn laptop() -> TestFs {
 
 fn gpu(fs: &TestFs, pci: &str, vendor: &str, device: &str, driver: &str, boot: bool) {
     let d = format!("sys/bus/pci/devices/{pci}");
-    fs.write(&format!("{d}/class"), "0x030000\n")
-        .write(&format!("{d}/vendor"), &format!("{vendor}\n"))
-        .write(&format!("{d}/device"), &format!("{device}\n"))
-        .write(&format!("{d}/boot_vga"), if boot { "1\n" } else { "0\n" });
+    fs.write(format!("{d}/class"), "0x030000\n")
+        .write(format!("{d}/vendor"), &format!("{vendor}\n"))
+        .write(format!("{d}/device"), &format!("{device}\n"))
+        .write(format!("{d}/boot_vga"), if boot { "1\n" } else { "0\n" });
     if !driver.is_empty() {
-        fs.dir(&format!("sys/bus/pci/drivers/{driver}"));
+        fs.dir(format!("sys/bus/pci/drivers/{driver}"));
         let _ = std::os::unix::fs::symlink(
             fs.root().join(format!("sys/bus/pci/drivers/{driver}")),
             fs.root().join(format!("{d}/driver")),
@@ -237,7 +237,7 @@ fn missing_headers_and_an_unbuilt_module_are_told_apart() {
         !got.contains(&"nvidia-module-not-built".to_string()),
         "headers first: DKMS cannot build without them"
     );
-    fs.write(&format!("lib/modules/{kr}/build/Makefile"), "");
+    fs.write(format!("lib/modules/{kr}/build/Makefile"), "");
     let got = ids(&fs, &Env::default());
     assert!(
         got.contains(&"nvidia-module-not-built".to_string()),
@@ -356,11 +356,11 @@ fn plain() -> TestFs {
 
 fn pci(fs: &TestFs, slot: &str, class: &str, vendor: &str, device: &str, driver: &str) {
     let d = format!("sys/bus/pci/devices/{slot}");
-    fs.write(&format!("{d}/class"), &format!("{class}\n"))
-        .write(&format!("{d}/vendor"), &format!("{vendor}\n"))
-        .write(&format!("{d}/device"), &format!("{device}\n"));
+    fs.write(format!("{d}/class"), &format!("{class}\n"))
+        .write(format!("{d}/vendor"), &format!("{vendor}\n"))
+        .write(format!("{d}/device"), &format!("{device}\n"));
     if !driver.is_empty() {
-        fs.dir(&format!("sys/bus/pci/drivers/{driver}"));
+        fs.dir(format!("sys/bus/pci/drivers/{driver}"));
         let _ = std::os::unix::fs::symlink(
             fs.root().join(format!("sys/bus/pci/drivers/{driver}")),
             fs.root().join(format!("{d}/driver")),
@@ -370,15 +370,15 @@ fn pci(fs: &TestFs, slot: &str, class: &str, vendor: &str, device: &str, driver:
 
 fn usb(fs: &TestFs, dev: &str, class: &str, sub: &str, proto: &str, vendor: &str, driver: &str) {
     let d = format!("sys/bus/usb/devices/{dev}");
-    fs.write(&format!("{d}/idVendor"), &format!("{vendor}\n"))
-        .write(&format!("{d}/idProduct"), "0001\n")
-        .write(&format!("{d}/product"), "Thing\n");
+    fs.write(format!("{d}/idVendor"), &format!("{vendor}\n"))
+        .write(format!("{d}/idProduct"), "0001\n")
+        .write(format!("{d}/product"), "Thing\n");
     let i = format!("sys/bus/usb/devices/{dev}:1.0");
-    fs.write(&format!("{i}/bInterfaceClass"), &format!("{class}\n"))
-        .write(&format!("{i}/bInterfaceSubClass"), &format!("{sub}\n"))
-        .write(&format!("{i}/bInterfaceProtocol"), &format!("{proto}\n"));
+    fs.write(format!("{i}/bInterfaceClass"), &format!("{class}\n"))
+        .write(format!("{i}/bInterfaceSubClass"), &format!("{sub}\n"))
+        .write(format!("{i}/bInterfaceProtocol"), &format!("{proto}\n"));
     if !driver.is_empty() {
-        fs.dir(&format!("sys/bus/usb/drivers/{driver}"));
+        fs.dir(format!("sys/bus/usb/drivers/{driver}"));
         let _ = std::os::unix::fs::symlink(
             fs.root().join(format!("sys/bus/usb/drivers/{driver}")),
             fs.root().join(format!("{i}/driver")),

@@ -162,8 +162,8 @@ pub fn scaling_state(root: &SysRoot) -> ScalingState {
             count += 1;
         }
     }
-    if count > 0 {
-        st.freq_avg_mhz = (sum / count / 1000) as u32;
+    if let Some(avg) = sum.checked_div(count) {
+        st.freq_avg_mhz = (avg / 1000) as u32;
         st.freq_max_mhz = (max / 1000) as u32;
     }
     st

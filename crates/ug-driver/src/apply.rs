@@ -278,7 +278,7 @@ impl Executor {
                 verify: r.verify.clone(),
             })
             .collect();
-        v.sort_by(|a, b| b.started_unix_ms.cmp(&a.started_unix_ms));
+        v.sort_by_key(|r| std::cmp::Reverse(r.started_unix_ms));
         v
     }
 

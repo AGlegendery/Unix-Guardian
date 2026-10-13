@@ -325,7 +325,7 @@ fn simulated(root: &SysRoot, secs: u64) -> Vec<AppTraffic> {
             let l = ug_net::cgroups::label(&g.path, &exe);
             let category = ug_net::cgroups::category(&l.name, &exe).into();
             let busy = l.kind == "app" && i % 3 == 0;
-            let wave = ((secs + i as u64 * 7) % 20) as u64;
+            let wave = (secs + i as u64 * 7) % 20;
             let (rx_bps, tx_bps) = if busy {
                 (40_000 * wave, 3_000 * wave)
             } else {

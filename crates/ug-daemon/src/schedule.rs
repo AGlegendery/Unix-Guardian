@@ -404,7 +404,7 @@ mod tests {
         assert!(!s.cancel(a.id).unwrap());
         drop(s);
         let (mut s, _) = Schedule::load(&path(&d), 0);
-        assert_eq!(s.jobs(), &[b.clone()]);
+        assert_eq!(s.jobs(), std::slice::from_ref(&b));
         let c = s.add(Action::Reboot, H, Repeat::Once, "", 0).unwrap();
         assert!(c.id > b.id);
     }

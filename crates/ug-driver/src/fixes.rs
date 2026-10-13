@@ -265,10 +265,9 @@ fn boot_params(fix_id: &str) -> Option<(Vec<String>, Vec<String>)> {
         _ => {
             if let Some(p) = fix_id.strip_prefix("param-add:").filter(|p| plain(p)) {
                 (one(p), vec![])
-            } else if let Some(p) = fix_id.strip_prefix("param-remove:").filter(|p| plain(p)) {
-                (vec![], one(p))
             } else {
-                return None;
+                let p = fix_id.strip_prefix("param-remove:").filter(|p| plain(p))?;
+                (vec![], one(p))
             }
         }
     })

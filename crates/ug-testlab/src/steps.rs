@@ -767,33 +767,30 @@ impl Lab {
             ug_core::gpu_default::chosen(&ug_core::paths::user_config()).unwrap_or_default();
         if gpus.len() > 1 {
             let other = gpus.iter().find(|g| !g.boot_vga).or(gpus.get(1));
-            match other {
-                Some(g) => {
-                    let env = ug_hw::gpu_use::offload_env(&root, g);
-                    let names: Vec<&str> = env.iter().map(|e| e.0.as_str()).collect();
-                    let st = if env.is_empty() {
-                        Status::Warn
-                    } else {
-                        Status::Pass
-                    };
-                    self.add(
-                        "gpu",
-                        "run a program on the other card",
-                        st,
-                        format!(
-                            "{} {} via {}; programs start on: {}",
-                            g.vendor_name(),
-                            g.pci,
-                            if names.is_empty() {
-                                "nothing known".into()
-                            } else {
-                                names.join(" ")
-                            },
-                            or_none(&chosen)
-                        ),
-                    );
-                }
-                None => {}
+            if let Some(g) = other {
+                let env = ug_hw::gpu_use::offload_env(&root, g);
+                let names: Vec<&str> = env.iter().map(|e| e.0.as_str()).collect();
+                let st = if env.is_empty() {
+                    Status::Warn
+                } else {
+                    Status::Pass
+                };
+                self.add(
+                    "gpu",
+                    "run a program on the other card",
+                    st,
+                    format!(
+                        "{} {} via {}; programs start on: {}",
+                        g.vendor_name(),
+                        g.pci,
+                        if names.is_empty() {
+                            "nothing known".into()
+                        } else {
+                            names.join(" ")
+                        },
+                        or_none(&chosen)
+                    ),
+                );
             }
             self.manual("Running a game on the other graphics card", "needs a real program on screen: try `ug run --gpu discrete -- <program>` or the dashboard switch");
         } else {

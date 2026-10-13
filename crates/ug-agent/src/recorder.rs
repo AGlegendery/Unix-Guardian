@@ -54,13 +54,11 @@ impl Engine {
 }
 
 fn on_path(name: &str) -> Option<PathBuf> {
-    std::env::var_os("PATH")
-        .map(|p| {
-            std::env::split_paths(&p)
-                .map(|d| d.join(name))
-                .find(|f| f.is_file())
-        })
-        .flatten()
+    std::env::var_os("PATH").and_then(|p| {
+        std::env::split_paths(&p)
+            .map(|d| d.join(name))
+            .find(|f| f.is_file())
+    })
 }
 
 /// The engine, preferring a program on PATH over the Flatpak.
@@ -1118,8 +1116,10 @@ mod tests {
 
     #[test]
     fn arguments_follow_the_settings() {
-        let mut s = RecorderSettings::default();
-        s.audio_mic = true;
+        let mut s = RecorderSettings {
+            audio_mic: true,
+            ..Default::default()
+        };
         let a = record_args(&s, "portal", Target::File(Path::new("/v/a.mp4")));
         assert_eq!(a.join(" "), "-w portal -f 60 -q high -restore-portal-session yes -a default_output -a default_input -c mp4 -o /v/a.mp4");
         s.codec = "hevc".into();
