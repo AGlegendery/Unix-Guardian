@@ -48,10 +48,38 @@ if [ -z "$root" ]; then
     exit 1
   fi
   if [ -e /etc/systemd/system/unix-guardiand.service ]; then
-    echo "A development install is present; remove it first: sudo ./scripts/dev-install.sh --uninstall" >&2
+    echo "An install from the source folder is present; remove it first there: bash ./installer.sh --uninstall" >&2
     exit 1
   fi
   command -v systemctl >/dev/null || { echo "Unix Guardian needs systemd." >&2; exit 1; }
+fi
+
+# The window and the tray need WebKitGTK 4.1 and an AppIndicator library
+# from the distribution; everything else is in this folder.
+if [ -z "$root" ]; then
+  have() { ldconfig -p 2>/dev/null | grep -q "$1"; }
+  need=()
+  if command -v pacman >/dev/null; then
+    have libwebkit2gtk-4.1.so.0 || need+=(webkit2gtk-4.1)
+    have libayatana-appindicator3.so.1 || need+=(libayatana-appindicator)
+    install_() { pacman -S --needed --noconfirm "$@"; }
+  elif command -v apt-get >/dev/null; then
+    have libwebkit2gtk-4.1.so.0 || need+=(libwebkit2gtk-4.1-0)
+    have libayatana-appindicator3.so.1 || need+=(libayatana-appindicator3-1)
+    install_() { apt-get update && apt-get install -y "$@"; }
+  elif command -v dnf >/dev/null; then
+    have libwebkit2gtk-4.1.so.0 || need+=(webkit2gtk4.1)
+    have libayatana-appindicator3.so.1 || have libappindicator3.so.1 || need+=(libappindicator-gtk3)
+    install_() { dnf install -y "$@"; }
+  elif command -v zypper >/dev/null; then
+    have libwebkit2gtk-4.1.so.0 || need+=(libwebkit2gtk-4_1-0)
+    have libappindicator3.so.1 || need+=(libappindicator3-1)
+    install_() { zypper --non-interactive install "$@"; }
+  fi
+  if [ "${#need[@]}" -gt 0 ]; then
+    echo "Installing what the window needs: ${need[*]}"
+    install_ "${need[@]}" || echo "note: could not install ${need[*]}; the window may not open (ug and ug tui still work)" >&2
+  fi
 fi
 
 files="$here/files"
@@ -64,6 +92,10 @@ install -Dm644 "$here/.list" "$list"
 rm -f "$here/.list"
 
 if live; then
+  # SELinux (Fedora): the new files take their folders' labels.
+  if command -v restorecon >/dev/null && command -v selinuxenabled >/dev/null && selinuxenabled; then
+    while IFS= read -r f; do restorecon -F "$f" 2>/dev/null || true; done < "$list"
+  fi
   systemctl daemon-reload
   systemctl reload dbus.service 2>/dev/null || busctl call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig >/dev/null || true
   systemctl enable unix-guardiand.service
