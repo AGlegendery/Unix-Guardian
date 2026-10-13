@@ -20,6 +20,7 @@ files=(
   /usr/local/bin/ug-daemon
   /usr/local/bin/ug-agent
   /usr/local/bin/ug
+  /usr/local/bin/ug-stress
   /usr/local/bin/ug-app
   /etc/systemd/user/ug-agent.service
   /usr/local/share/dbus-1/services/org.unixguardian.Agent1.service

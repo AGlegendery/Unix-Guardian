@@ -150,6 +150,38 @@ Add `--json` to any command for scripts.
 
 ## Install
 
+**One command, any supported distribution.** Clone the repository and run the
+installer as your normal user (not with sudo):
+
+```bash
+git clone https://github.com/AGlegendery/Unix-Guardian.git
+cd Unix-Guardian
+bash ./installer.sh
+```
+
+It finds your package manager (pacman, apt, dnf or zypper), installs what
+building and running need (Rust, Node.js, WebKitGTK and the rest), builds the
+daemon, agent, command line and window, installs them under `/usr/local` and
+starts them. It asks for your sudo password only to install packages and the
+system service. Optional tools (MangoHud, nftables, Flatpak for the recorder,
+the Vulkan loader) are offered at the end of the package step.
+
+| Command | What it does |
+|---|---|
+| `bash ./installer.sh` | install, or update after `git pull` |
+| `bash ./installer.sh --yes` | the same without questions |
+| `bash ./installer.sh --uninstall` | remove it; your settings and history are kept |
+| `bash ./installer.sh --uninstall --purge` | remove it and delete your settings and history |
+| `bash ./installer.sh --help` | all options (`--no-extras`, `--skip-deps`) |
+
+Works on Arch, CachyOS, Manjaro, EndeavourOS, Debian, Ubuntu, Mint, Pop!_OS,
+Parrot, Fedora Workstation and openSUSE. **Image-based (immutable) systems such
+as Bazzite, Bluefin, Fedora Silverblue/Kinoite, SteamOS and NixOS are not
+supported yet**: their `/usr` is read-only, and the root daemon cannot run from
+a Flatpak; the installer says so and changes nothing.
+
+### Packages
+
 **No release is published yet.** Until then, build the packages yourself
 (see [Building](#building)): `./scripts/build-packages.sh` puts them in `dist/`.
 
@@ -378,6 +410,39 @@ GPL-3.0-or-later. See [LICENSE](LICENSE).
   بازی)، nftables و iproute2 (کنترل اینترنت)، Flatpak (ریکوردر با آن نصب می‌شود).
 
 ### نصب
+
+**با یک فرمان، روی هر توزیع پشتیبانی‌شده.** مخزن را کلون کنید و نصب‌کننده را
+با کاربر عادی خودتان (نه با sudo) اجرا کنید:
+
+</div>
+
+```bash
+git clone https://github.com/AGlegendery/Unix-Guardian.git
+cd Unix-Guardian
+bash ./installer.sh
+```
+
+<div dir="rtl">
+
+مدیر بسته‌ی سیستم را (pacman، apt، dnf یا zypper) پیدا می‌کند، هر چه برای ساخت و
+اجرا لازم است (Rust، Node.js، WebKitGTK و بقیه) را نصب می‌کند، دیمن، ایجنت، خط
+فرمان و پنجره را می‌سازد، در `/usr/local` نصب و اجرا می‌کند. رمز sudo را فقط برای
+نصب بسته‌ها و سرویس سیستمی می‌پرسد. ابزارهای اختیاری (MangoHud، nftables، Flatpak
+برای ریکوردر، لودر Vulkan) آخر مرحله‌ی بسته‌ها پیشنهاد می‌شوند.
+
+- `bash ./installer.sh`: نصب، یا به‌روزرسانی بعد از `git pull`
+- `bash ./installer.sh --yes`: همان، بدون سؤال
+- `bash ./installer.sh --uninstall`: حذف؛ تنظیمات و تاریخچه‌ی شما می‌ماند
+- `bash ./installer.sh --uninstall --purge`: حذف همراه با پاک کردن تنظیمات و تاریخچه
+- `bash ./installer.sh --help`: همه‌ی گزینه‌ها (`--no-extras`، `--skip-deps`)
+
+روی آرچ، کشی‌اواس، مانجارو، اندیوراواس، دبیان، اوبونتو، مینت، پاپ‌اواس، پرت، فدورا
+ورک‌استیشن و اوپن‌سوزه کار می‌کند. **سیستم‌های تغییرناپذیر (immutable) مثل Bazzite،
+Bluefin، فدورا Silverblue/Kinoite، SteamOS و NixOS هنوز پشتیبانی نمی‌شوند:**
+`/usr` در آن‌ها فقط‌خواندنی است و دیمن روت از داخل Flatpak اجرا نمی‌شود؛ نصب‌کننده
+همین را می‌گوید و چیزی را تغییر نمی‌دهد.
+
+#### بسته‌ها
 
 **هنوز نسخه‌ای منتشر نشده.** تا آن موقع بسته‌ها را خودتان بسازید:
 `./scripts/build-packages.sh` آن‌ها را در `dist/` می‌گذارد.
