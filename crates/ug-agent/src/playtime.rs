@@ -54,7 +54,9 @@ impl Playtime {
                  source         TEXT    NOT NULL
              );",
         )?;
-        Ok(Playtime { conn: Mutex::new(conn) })
+        Ok(Playtime {
+            conn: Mutex::new(conn),
+        })
     }
 
     fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
@@ -170,14 +172,18 @@ impl Playtime {
     pub fn forget(&self, key: &str) -> u32 {
         let c = self.conn();
         let _ = c.execute("DELETE FROM imported WHERE key = ?1", params![key]);
-        c.execute("DELETE FROM sessions WHERE key = ?1", params![key]).unwrap_or(0) as u32
+        c.execute("DELETE FROM sessions WHERE key = ?1", params![key])
+            .unwrap_or(0) as u32
     }
 
     /// Files a game's history under another key ("not a game" → app).
     /// Returns the sessions moved.
     pub fn move_key(&self, from: &str, to: &str) -> u32 {
         self.conn()
-            .execute("UPDATE sessions SET key = ?2 WHERE key = ?1", params![from, to])
+            .execute(
+                "UPDATE sessions SET key = ?2 WHERE key = ?1",
+                params![from, to],
+            )
             .unwrap_or_else(|e| {
                 tracing::warn!(error = %e, from, to, "could not move playtime");
                 0
@@ -188,7 +194,11 @@ impl Playtime {
     /// seconds the source counted in all, last played). Each game keeps only
     /// what the source counted beyond the sessions recorded here. Returns
     /// (games with time added, seconds added).
-    pub fn import(&self, source: &str, games: &[(String, String, u64, u64)]) -> rusqlite::Result<(u32, u64)> {
+    pub fn import(
+        &self,
+        source: &str,
+        games: &[(String, String, u64, u64)],
+    ) -> rusqlite::Result<(u32, u64)> {
         let mut c = self.conn();
         let tx = c.transaction()?;
         tx.execute("DELETE FROM imported WHERE source = ?1", params![source])?;
@@ -217,7 +227,9 @@ impl Playtime {
     /// What imports added, per game, most first. `sessions` is 0.
     pub fn imported(&self) -> Vec<PlaytimeEntry> {
         let c = self.conn();
-        let Ok(mut stmt) = c.prepare("SELECT key, name, ms, last_played_ms FROM imported ORDER BY ms DESC, key") else {
+        let Ok(mut stmt) =
+            c.prepare("SELECT key, name, ms, last_played_ms FROM imported ORDER BY ms DESC, key")
+        else {
             return Vec::new();
         };
         stmt.query_map([], |r| {
@@ -270,7 +282,11 @@ mod tests {
         let id = p.start("steam:730", "CS2", 0);
         p.touch(id, 10 * H);
         let s = p.summary(8 * H);
-        assert_eq!(s[0].seconds, 2 * 3600, "'today' must not include last night's first eight hours");
+        assert_eq!(
+            s[0].seconds,
+            2 * 3600,
+            "'today' must not include last night's first eight hours"
+        );
     }
 
     #[test]
@@ -300,9 +316,19 @@ mod tests {
         let early = p.start("a", "A", 0);
         p.touch(early, H);
         let all = p.sessions(0);
-        assert_eq!(all.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), ["a", "b"]);
-        assert_eq!((all[1].started_unix_ms, all[1].ended_unix_ms), (5 * H, 6 * H));
-        assert_eq!(p.sessions(2 * H).len(), 1, "a session over before the window is left out");
+        assert_eq!(
+            all.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(),
+            ["a", "b"]
+        );
+        assert_eq!(
+            (all[1].started_unix_ms, all[1].ended_unix_ms),
+            (5 * H, 6 * H)
+        );
+        assert_eq!(
+            p.sessions(2 * H).len(),
+            1,
+            "a session over before the window is left out"
+        );
     }
 
     #[test]
@@ -325,24 +351,54 @@ mod tests {
         let a = p.start("steam:730", "Counter-Strike 2", 100 * H);
         p.touch(a, 101 * H);
         let games = [
-            ("steam:730".to_string(), "Counter-Strike 2".to_string(), 10 * 3600, 101 * H),
-            ("steam:413150".to_string(), "Stardew Valley".to_string(), 2 * 3600, 50 * H),
+            (
+                "steam:730".to_string(),
+                "Counter-Strike 2".to_string(),
+                10 * 3600,
+                101 * H,
+            ),
+            (
+                "steam:413150".to_string(),
+                "Stardew Valley".to_string(),
+                2 * 3600,
+                50 * H,
+            ),
         ];
         assert_eq!(p.import("steam", &games).unwrap(), (2, 9 * 3600 + 2 * 3600));
 
         let all = p.summary(0);
-        assert_eq!((all[0].key.as_str(), all[0].seconds, all[0].sessions), ("steam:730", 10 * 3600, 1), "not 11 hours");
-        assert_eq!((all[1].key.as_str(), all[1].seconds, all[1].sessions), ("steam:413150", 2 * 3600, 0));
-        assert_eq!(p.summary(100 * H).len(), 1, "a period only has what was recorded in it");
+        assert_eq!(
+            (all[0].key.as_str(), all[0].seconds, all[0].sessions),
+            ("steam:730", 10 * 3600, 1),
+            "not 11 hours"
+        );
+        assert_eq!(
+            (all[1].key.as_str(), all[1].seconds, all[1].sessions),
+            ("steam:413150", 2 * 3600, 0)
+        );
+        assert_eq!(
+            p.summary(100 * H).len(),
+            1,
+            "a period only has what was recorded in it"
+        );
         assert_eq!(p.summary(100 * H)[0].seconds, 3600);
 
         // Importing again after more play replaces, never adds up.
         let b = p.start("steam:730", "Counter-Strike 2", 102 * H);
         p.touch(b, 103 * H);
-        let again = [("steam:730".to_string(), "Counter-Strike 2".to_string(), 11 * 3600, 103 * H)];
+        let again = [(
+            "steam:730".to_string(),
+            "Counter-Strike 2".to_string(),
+            11 * 3600,
+            103 * H,
+        )];
         assert_eq!(p.import("steam", &again).unwrap(), (1, 9 * 3600));
         let all = p.summary(0);
-        assert_eq!(all.len(), 1, "a game no longer in the import is gone from it");
+        assert_eq!(
+            all.len(),
+            1,
+            "a game no longer in the import is gone from it"
+        );
         assert_eq!(all[0].seconds, 11 * 3600);
 
         assert_eq!(p.forget_imported(), 1);
@@ -354,7 +410,11 @@ mod tests {
         let p = Playtime::in_memory();
         let a = p.start("steam:730", "CS2", 0);
         p.touch(a, 2 * H);
-        assert_eq!(p.import("steam", &[("steam:730".into(), "CS2".into(), 3600, H)]).unwrap(), (0, 0));
+        assert_eq!(
+            p.import("steam", &[("steam:730".into(), "CS2".into(), 3600, H)])
+                .unwrap(),
+            (0, 0)
+        );
         assert!(p.imported().is_empty());
     }
 
@@ -365,15 +425,22 @@ mod tests {
             let id = p.start("exe:wondershare filmora", "Wondershare Filmora", i * H);
             p.touch(id, i * H + H / 2);
         }
-        assert_eq!(p.move_key("exe:wondershare filmora", "app:wondershare filmora"), 3);
+        assert_eq!(
+            p.move_key("exe:wondershare filmora", "app:wondershare filmora"),
+            3
+        );
         let s = p.summary(0);
-        assert_eq!((s[0].key.as_str(), s[0].seconds, s[0].sessions), ("app:wondershare filmora", 3 * 1800, 3));
+        assert_eq!(
+            (s[0].key.as_str(), s[0].seconds, s[0].sessions),
+            ("app:wondershare filmora", 3 * 1800, 3)
+        );
     }
 
     #[test]
     fn forgetting_a_game_also_forgets_its_import() {
         let p = Playtime::in_memory();
-        p.import("steam", &[("steam:730".into(), "CS2".into(), 3600, H)]).unwrap();
+        p.import("steam", &[("steam:730".into(), "CS2".into(), 3600, H)])
+            .unwrap();
         p.forget("steam:730");
         assert!(p.summary(0).is_empty());
     }

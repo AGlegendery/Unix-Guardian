@@ -41,7 +41,10 @@ pub struct Holder {
 
 impl Holder {
     pub fn new() -> Self {
-        Holder { cookie: None, refused: false }
+        Holder {
+            cookie: None,
+            refused: false,
+        }
     }
 
     pub async fn sync(&mut self, system: Option<&zbus::Connection>, wanted: bool, game: &str) {
@@ -52,8 +55,13 @@ impl Holder {
         match step(self.cookie, wanted && !self.refused) {
             Step::Nothing => {}
             Step::Hold => {
-                let Ok(p) = PowerProfilesProxy::new(conn).await else { return };
-                match p.hold_profile("performance", &format!("Playing {game}"), "Unix Guardian").await {
+                let Ok(p) = PowerProfilesProxy::new(conn).await else {
+                    return;
+                };
+                match p
+                    .hold_profile("performance", &format!("Playing {game}"), "Unix Guardian")
+                    .await
+                {
                     Ok(c) => {
                         tracing::info!(game, "performance power profile held");
                         self.cookie = Some(c);

@@ -133,7 +133,15 @@ pub struct Health {
 
 impl Health {
     pub fn new(limits: Thresholds) -> Health {
-        Health { limits, level: Level::Calm, reasons: Vec::new(), hot_since: None, busy_since: None, calm_since: None, down_since: None }
+        Health {
+            limits,
+            level: Level::Calm,
+            reasons: Vec::new(),
+            hot_since: None,
+            busy_since: None,
+            calm_since: None,
+            down_since: None,
+        }
     }
 
     /// Why the icon is not normal, for the tooltip; empty when it is.
@@ -167,13 +175,17 @@ impl Health {
         let hot: Vec<&Temp> = r.temps.iter().filter(|t| t.c >= l.warn_temp_c).collect();
         if hot.is_empty() {
             self.hot_since = None;
-        } else if now.duration_since(*self.hot_since.get_or_insert(now)) >= secs(l.warn_temp_hold_s) {
+        } else if now.duration_since(*self.hot_since.get_or_insert(now)) >= secs(l.warn_temp_hold_s)
+        {
             warn.extend(hot.iter().map(|t| format!("{} {:.0} °C", t.what, t.c)));
         }
-        let busy: Vec<&(String, f64)> = r.usage.iter().filter(|u| u.1 >= l.warn_usage_pct).collect();
+        let busy: Vec<&(String, f64)> =
+            r.usage.iter().filter(|u| u.1 >= l.warn_usage_pct).collect();
         if busy.is_empty() {
             self.busy_since = None;
-        } else if now.duration_since(*self.busy_since.get_or_insert(now)) >= secs(l.warn_usage_hold_s) {
+        } else if now.duration_since(*self.busy_since.get_or_insert(now))
+            >= secs(l.warn_usage_hold_s)
+        {
             warn.extend(busy.iter().map(|u| format!("{} {:.0} % busy", u.0, u.1)));
         }
         if r.ram_pct >= l.warn_ram_pct {
@@ -197,9 +209,18 @@ impl Health {
             self.reasons = reasons;
             self.calm_since = None;
         } else {
-            let max_temp = r.temps.iter().map(|t| t.c).fold(f64::NEG_INFINITY, f64::max);
+            let max_temp = r
+                .temps
+                .iter()
+                .map(|t| t.c)
+                .fold(f64::NEG_INFINITY, f64::max);
             let calm = match self.level {
-                Level::Critical => max_temp < l.crit_temp_exit_c && !r.throttling && r.ram_pct < l.crit_ram_pct && !r.thrashing,
+                Level::Critical => {
+                    max_temp < l.crit_temp_exit_c
+                        && !r.throttling
+                        && r.ram_pct < l.crit_ram_pct
+                        && !r.thrashing
+                }
                 Level::Warning => {
                     max_temp < l.warn_temp_exit_c
                         && r.usage.iter().all(|u| u.1 < l.warn_usage_exit_pct)
@@ -209,7 +230,9 @@ impl Health {
             };
             if !calm {
                 self.calm_since = None;
-            } else if now.duration_since(*self.calm_since.get_or_insert(now)) >= secs(l.leave_after_s) {
+            } else if now.duration_since(*self.calm_since.get_or_insert(now))
+                >= secs(l.leave_after_s)
+            {
                 self.level = raw;
                 self.reasons = reasons;
                 self.calm_since = None;
@@ -218,7 +241,8 @@ impl Health {
 
         if r.daemon_ok {
             self.down_since = None;
-        } else if now.duration_since(*self.down_since.get_or_insert(now)) >= secs(l.offline_after_s) {
+        } else if now.duration_since(*self.down_since.get_or_insert(now)) >= secs(l.offline_after_s)
+        {
             return IconState::Offline;
         }
         match self.level {
@@ -236,7 +260,11 @@ mod tests {
 
     fn reading(cpu_temp: f64, cpu_pct: f64, ram: f64) -> Reading {
         Reading {
-            temps: vec![Temp { what: "CPU".into(), c: cpu_temp, crit_c: Some(100.0) }],
+            temps: vec![Temp {
+                what: "CPU".into(),
+                c: cpu_temp,
+                crit_c: Some(100.0),
+            }],
             usage: vec![("CPU".into(), cpu_pct)],
             ram_pct: ram,
             daemon_ok: true,
@@ -259,13 +287,30 @@ mod tests {
         let mut h = Health::new(Thresholds::default());
         let mut t = Instant::now();
         assert_eq!(h.update(t, &reading(50.0, 10.0, 40.0)), IconState::Normal);
-        assert_eq!(run(&mut h, &mut t, 2, &reading(82.0, 10.0, 40.0)), IconState::Normal, "2 s of heat");
-        assert_eq!(run(&mut h, &mut t, 4, &reading(82.0, 10.0, 40.0)), IconState::Warning);
+        assert_eq!(
+            run(&mut h, &mut t, 2, &reading(82.0, 10.0, 40.0)),
+            IconState::Normal,
+            "2 s of heat"
+        );
+        assert_eq!(
+            run(&mut h, &mut t, 4, &reading(82.0, 10.0, 40.0)),
+            IconState::Warning
+        );
         assert_eq!(h.reasons(), ["CPU 82 °C"]);
         // 77 °C is below the warning but not below the exit point.
-        assert_eq!(run(&mut h, &mut t, 30, &reading(77.0, 10.0, 40.0)), IconState::Warning);
-        assert_eq!(run(&mut h, &mut t, 8, &reading(70.0, 10.0, 40.0)), IconState::Warning, "8 s calm");
-        assert_eq!(run(&mut h, &mut t, 4, &reading(70.0, 10.0, 40.0)), IconState::Normal);
+        assert_eq!(
+            run(&mut h, &mut t, 30, &reading(77.0, 10.0, 40.0)),
+            IconState::Warning
+        );
+        assert_eq!(
+            run(&mut h, &mut t, 8, &reading(70.0, 10.0, 40.0)),
+            IconState::Warning,
+            "8 s calm"
+        );
+        assert_eq!(
+            run(&mut h, &mut t, 4, &reading(70.0, 10.0, 40.0)),
+            IconState::Normal
+        );
         assert!(h.reasons().is_empty());
     }
 
@@ -276,39 +321,88 @@ mod tests {
         let mut r = reading(91.0, 10.0, 40.0);
         r.gaming = true;
         assert_eq!(h.update(t, &r), IconState::Critical);
-        let near = Reading { temps: vec![Temp { what: "GPU".into(), c: 86.0, crit_c: Some(90.0) }], ..reading(50.0, 1.0, 1.0) };
+        let near = Reading {
+            temps: vec![Temp {
+                what: "GPU".into(),
+                c: 86.0,
+                crit_c: Some(90.0),
+            }],
+            ..reading(50.0, 1.0, 1.0)
+        };
         let mut h = Health::new(Thresholds::default());
-        assert_eq!(h.update(t, &near), IconState::Critical, "within 5 °C of the sensor's own limit");
+        assert_eq!(
+            h.update(t, &near),
+            IconState::Critical,
+            "within 5 °C of the sensor's own limit"
+        );
         let mut h = Health::new(Thresholds::default());
-        assert_eq!(h.update(t, &Reading { throttling: true, ..reading(70.0, 1.0, 1.0) }), IconState::Critical);
+        assert_eq!(
+            h.update(
+                t,
+                &Reading {
+                    throttling: true,
+                    ..reading(70.0, 1.0, 1.0)
+                }
+            ),
+            IconState::Critical
+        );
     }
 
     #[test]
     fn critical_steps_down_to_warning_while_still_warm() {
         let mut h = Health::new(Thresholds::default());
         let mut t = Instant::now();
-        assert_eq!(run(&mut h, &mut t, 6, &reading(92.0, 10.0, 40.0)), IconState::Critical);
-        assert_eq!(run(&mut h, &mut t, 6, &reading(87.0, 10.0, 40.0)), IconState::Critical, "87 is above the exit point");
-        assert_eq!(run(&mut h, &mut t, 12, &reading(82.0, 10.0, 40.0)), IconState::Warning);
+        assert_eq!(
+            run(&mut h, &mut t, 6, &reading(92.0, 10.0, 40.0)),
+            IconState::Critical
+        );
+        assert_eq!(
+            run(&mut h, &mut t, 6, &reading(87.0, 10.0, 40.0)),
+            IconState::Critical,
+            "87 is above the exit point"
+        );
+        assert_eq!(
+            run(&mut h, &mut t, 12, &reading(82.0, 10.0, 40.0)),
+            IconState::Warning
+        );
     }
 
     #[test]
     fn load_ram_and_game_mode() {
         let mut h = Health::new(Thresholds::default());
         let mut t = Instant::now();
-        assert_eq!(run(&mut h, &mut t, 8, &reading(60.0, 95.0, 40.0)), IconState::Normal, "8 s of load");
-        assert_eq!(run(&mut h, &mut t, 2, &reading(60.0, 95.0, 40.0)), IconState::Warning);
+        assert_eq!(
+            run(&mut h, &mut t, 8, &reading(60.0, 95.0, 40.0)),
+            IconState::Normal,
+            "8 s of load"
+        );
+        assert_eq!(
+            run(&mut h, &mut t, 2, &reading(60.0, 95.0, 40.0)),
+            IconState::Warning
+        );
         let mut h = Health::new(Thresholds::default());
         assert_eq!(h.update(t, &reading(60.0, 10.0, 92.0)), IconState::Warning);
         let mut h = Health::new(Thresholds::default());
-        assert_eq!(h.update(t, &Reading { gaming: true, ..reading(60.0, 10.0, 40.0) }), IconState::GameMode);
+        assert_eq!(
+            h.update(
+                t,
+                &Reading {
+                    gaming: true,
+                    ..reading(60.0, 10.0, 40.0)
+                }
+            ),
+            IconState::GameMode
+        );
     }
 
     #[test]
     fn offline_after_three_seconds_without_the_service() {
         let mut h = Health::new(Thresholds::default());
         let mut t = Instant::now();
-        let down = Reading { daemon_ok: false, ..reading(60.0, 10.0, 40.0) };
+        let down = Reading {
+            daemon_ok: false,
+            ..reading(60.0, 10.0, 40.0)
+        };
         assert_eq!(h.update(t, &down), IconState::Normal);
         t += Duration::from_secs(2);
         assert_eq!(h.update(t, &down), IconState::Normal);
@@ -324,6 +418,9 @@ mod tests {
         std::fs::write(&p, r#"{"warn_temp_c": 85}"#).unwrap();
         let l = Thresholds::load(&p);
         assert_eq!((l.warn_temp_c, l.crit_temp_c), (85.0, 90.0));
-        assert_eq!(Thresholds::load(&dir.path().join("none.json")).warn_temp_c, 80.0);
+        assert_eq!(
+            Thresholds::load(&dir.path().join("none.json")).warn_temp_c,
+            80.0
+        );
     }
 }

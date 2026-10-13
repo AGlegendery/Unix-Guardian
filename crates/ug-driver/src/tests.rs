@@ -35,9 +35,18 @@ fn laptop() -> TestFs {
     for u in ["nvidia-suspend", "nvidia-resume", "nvidia-hibernate"] {
         fs.write(&format!("lib/systemd/system/{u}.service"), "");
     }
-    fs.write("etc/systemd/system/systemd-suspend.service.wants/nvidia-suspend.service", "")
-        .write("etc/systemd/system/systemd-suspend.service.wants/nvidia-resume.service", "")
-        .write("etc/systemd/system/systemd-hibernate.service.wants/nvidia-hibernate.service", "");
+    fs.write(
+        "etc/systemd/system/systemd-suspend.service.wants/nvidia-suspend.service",
+        "",
+    )
+    .write(
+        "etc/systemd/system/systemd-suspend.service.wants/nvidia-resume.service",
+        "",
+    )
+    .write(
+        "etc/systemd/system/systemd-hibernate.service.wants/nvidia-hibernate.service",
+        "",
+    );
     gpu(&fs, "0000:00:02.0", "0x8086", "0x46a3", "i915", true);
     gpu(&fs, "0000:01:00.0", "0x10de", "0x25a2", "nvidia", false);
     fs
@@ -51,16 +60,26 @@ fn gpu(fs: &TestFs, pci: &str, vendor: &str, device: &str, driver: &str, boot: b
         .write(&format!("{d}/boot_vga"), if boot { "1\n" } else { "0\n" });
     if !driver.is_empty() {
         fs.dir(&format!("sys/bus/pci/drivers/{driver}"));
-        let _ = std::os::unix::fs::symlink(fs.root().join(format!("sys/bus/pci/drivers/{driver}")), fs.root().join(format!("{d}/driver")));
+        let _ = std::os::unix::fs::symlink(
+            fs.root().join(format!("sys/bus/pci/drivers/{driver}")),
+            fs.root().join(format!("{d}/driver")),
+        );
     }
 }
 
 fn wayland() -> Env {
-    Env { session_type: "wayland".into(), ..Default::default() }
+    Env {
+        session_type: "wayland".into(),
+        ..Default::default()
+    }
 }
 
 fn ids(fs: &TestFs, env: &Env) -> Vec<String> {
-    diagnose(&SysRoot::at(fs.root()), env).findings.into_iter().map(|f| f.id).collect()
+    diagnose(&SysRoot::at(fs.root()), env)
+        .findings
+        .into_iter()
+        .map(|f| f.id)
+        .collect()
 }
 
 #[test]
@@ -71,14 +90,32 @@ fn every_fact_a_shipped_rule_names_exists() {
     for r in &rules {
         for c in &r.when {
             for f in rules::named_facts(c) {
-                assert!(facts.contains_key(&f), "rule {} names unknown fact {f}", r.id);
+                assert!(
+                    facts.contains_key(&f),
+                    "rule {} names unknown fact {f}",
+                    r.id
+                );
             }
         }
-        assert!(!r.title_fa.is_empty() && !r.how_fa.is_empty(), "rule {} has its Persian text", r.id);
-        assert!(r.fix.is_empty() || !fixes::commands(&r.fix, &facts).is_empty() || fixes::AUTO.contains(&r.fix.as_str()), "rule {} fix {} has commands", r.id, r.fix);
+        assert!(
+            !r.title_fa.is_empty() && !r.how_fa.is_empty(),
+            "rule {} has its Persian text",
+            r.id
+        );
+        assert!(
+            r.fix.is_empty()
+                || !fixes::commands(&r.fix, &facts).is_empty()
+                || fixes::AUTO.contains(&r.fix.as_str()),
+            "rule {} fix {} has commands",
+            r.id,
+            r.fix
+        );
     }
     let mut seen = std::collections::HashSet::new();
-    assert!(rules.iter().all(|r| seen.insert(r.id.clone())), "rule ids are unique");
+    assert!(
+        rules.iter().all(|r| seen.insert(r.id.clone())),
+        "rule ids are unique"
+    );
 }
 
 #[test]
@@ -90,10 +127,27 @@ fn the_development_laptop_reads_as_it_really_is() {
     assert_eq!(t("nvidia.lib_version"), "550.163.01");
     assert_eq!(t("nvidia.bound_driver"), "nvidia");
     assert_eq!(t("distro.family"), "apt");
-    for yes in ["module.nvidia", "nvidia.module_built", "dkms.nvidia_built", "kernel.headers", "nouveau.blacklisted", "nvidia.drm_modeset", "nvidia.suspend_units_enabled", "flatpak.gl_nvidia_matches", "gpu.hybrid", "boot.efi"] {
+    for yes in [
+        "module.nvidia",
+        "nvidia.module_built",
+        "dkms.nvidia_built",
+        "kernel.headers",
+        "nouveau.blacklisted",
+        "nvidia.drm_modeset",
+        "nvidia.suspend_units_enabled",
+        "flatpak.gl_nvidia_matches",
+        "gpu.hybrid",
+        "boot.efi",
+    ] {
         assert!(f[yes].truthy(), "{yes}");
     }
-    for no in ["module.nouveau", "nvidia.preserve_vram", "nvidia.drm_fbdev", "boot.secure_boot", "nvidia.lib32"] {
+    for no in [
+        "module.nouveau",
+        "nvidia.preserve_vram",
+        "nvidia.drm_fbdev",
+        "boot.secure_boot",
+        "nvidia.lib32",
+    ] {
         assert!(!f[no].truthy(), "{no}");
     }
     assert_eq!(t("boot.initramfs_tool"), "update-initramfs");
@@ -104,18 +158,36 @@ fn the_laptop_gets_exactly_its_real_problems() {
     let fs = laptop();
     let mut got = ids(&fs, &wayland());
     got.sort();
-    assert_eq!(got, ["nvidia-drm-fbdev-off", "nvidia-suspend-vram", "nvidia-wayland-old-driver"]);
+    assert_eq!(
+        got,
+        [
+            "nvidia-drm-fbdev-off",
+            "nvidia-suspend-vram",
+            "nvidia-wayland-old-driver"
+        ]
+    );
     let r = diagnose(&SysRoot::at(fs.root()), &wayland());
-    let vram = r.findings.iter().find(|f| f.id == "nvidia-suspend-vram").unwrap();
+    let vram = r
+        .findings
+        .iter()
+        .find(|f| f.id == "nvidia-suspend-vram")
+        .unwrap();
     assert!(vram.fix_auto, "Unix Guardian can fix this one itself");
     assert_eq!(r.findings[0].severity, "important", "most severe first");
-    assert!(r.facts.iter().any(|f| f.key == "nvidia.kernel_version" && f.value == "550.163.01"));
+    assert!(r
+        .facts
+        .iter()
+        .any(|f| f.key == "nvidia.kernel_version" && f.value == "550.163.01"));
 }
 
 #[test]
 fn a_driver_update_without_a_restart_is_a_version_mismatch() {
     let fs = laptop();
-    std::fs::remove_file(fs.root().join("usr/lib/x86_64-linux-gnu/libnvidia-ml.so.550.163.01")).unwrap();
+    std::fs::remove_file(
+        fs.root()
+            .join("usr/lib/x86_64-linux-gnu/libnvidia-ml.so.550.163.01"),
+    )
+    .unwrap();
     fs.write("usr/lib/x86_64-linux-gnu/libnvidia-ml.so.550.180.01", "");
     let r = diagnose(&SysRoot::at(fs.root()), &wayland());
     assert_eq!(r.findings[0].id, "nvidia-version-mismatch");
@@ -127,11 +199,21 @@ fn a_driver_update_without_a_restart_is_a_version_mismatch() {
 fn nouveau_holding_the_card_is_critical_and_fixable() {
     let fs = laptop();
     fs.write("proc/modules", "nouveau 3000000 1 - Live 0x0\n");
-    std::fs::remove_file(fs.root().join("etc/modprobe.d/nvidia-blacklists-nouveau.conf")).unwrap();
+    std::fs::remove_file(
+        fs.root()
+            .join("etc/modprobe.d/nvidia-blacklists-nouveau.conf"),
+    )
+    .unwrap();
     let got = ids(&fs, &Env::default());
     assert_eq!(got[0], "nouveau-with-nvidia");
-    assert!(!got.contains(&"nouveau-not-blacklisted".to_string()), "one finding, not two, for one cause");
-    assert!(!got.contains(&"nvidia-drm-modeset-off".to_string()), "nvidia is not loaded, so modeset is not the question");
+    assert!(
+        !got.contains(&"nouveau-not-blacklisted".to_string()),
+        "one finding, not two, for one cause"
+    );
+    assert!(
+        !got.contains(&"nvidia-drm-modeset-off".to_string()),
+        "nvidia is not loaded, so modeset is not the question"
+    );
 }
 
 #[test]
@@ -140,23 +222,43 @@ fn missing_headers_and_an_unbuilt_module_are_told_apart() {
     let kr = "7.0.13+parrot7-amd64";
     std::fs::remove_dir_all(fs.root().join(format!("lib/modules/{kr}/build"))).unwrap();
     std::fs::write(fs.root().join(format!("lib/modules/{kr}/modules.dep")), "").unwrap();
-    std::fs::remove_dir_all(fs.root().join(format!("var/lib/dkms/nvidia-current/550.163.01/{kr}"))).unwrap();
+    std::fs::remove_dir_all(
+        fs.root()
+            .join(format!("var/lib/dkms/nvidia-current/550.163.01/{kr}")),
+    )
+    .unwrap();
     fs.write("proc/modules", "i915 1 1 - Live 0x0\n");
     let got = ids(&fs, &Env::default());
-    assert!(got.contains(&"nvidia-kernel-headers-missing".to_string()), "{got:?}");
-    assert!(!got.contains(&"nvidia-module-not-built".to_string()), "headers first: DKMS cannot build without them");
+    assert!(
+        got.contains(&"nvidia-kernel-headers-missing".to_string()),
+        "{got:?}"
+    );
+    assert!(
+        !got.contains(&"nvidia-module-not-built".to_string()),
+        "headers first: DKMS cannot build without them"
+    );
     fs.write(&format!("lib/modules/{kr}/build/Makefile"), "");
     let got = ids(&fs, &Env::default());
-    assert!(got.contains(&"nvidia-module-not-built".to_string()), "{got:?}");
+    assert!(
+        got.contains(&"nvidia-module-not-built".to_string()),
+        "{got:?}"
+    );
 }
 
 #[test]
 fn secure_boot_refusing_the_module_needs_the_user_at_boot() {
     let fs = laptop();
-    fs.write("sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c", "\x06\0\0\0\x01");
+    fs.write(
+        "sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c",
+        "\x06\0\0\0\x01",
+    );
     fs.write("proc/modules", "i915 1 1 - Live 0x0\n");
     let r = diagnose(&SysRoot::at(fs.root()), &Env::default());
-    let sb = r.findings.iter().find(|f| f.id == "nvidia-secure-boot-blocks-module").expect("found");
+    let sb = r
+        .findings
+        .iter()
+        .find(|f| f.id == "nvidia-secure-boot-blocks-module")
+        .expect("found");
     assert!(!sb.fix_auto);
     assert!(sb.commands[0].contains("mokutil --import /var/lib/dkms/mok.pub"));
 }
@@ -164,10 +266,18 @@ fn secure_boot_refusing_the_module_needs_the_user_at_boot() {
 #[test]
 fn flatpak_apps_need_the_runtime_of_this_exact_driver() {
     let fs = laptop();
-    std::fs::remove_dir_all(fs.root().join("var/lib/flatpak/runtime/org.freedesktop.Platform.GL.nvidia-550-163-01")).unwrap();
+    std::fs::remove_dir_all(
+        fs.root()
+            .join("var/lib/flatpak/runtime/org.freedesktop.Platform.GL.nvidia-550-163-01"),
+    )
+    .unwrap();
     fs.dir("var/lib/flatpak/runtime/org.freedesktop.Platform.GL.nvidia-550-120");
     let r = diagnose(&SysRoot::at(fs.root()), &Env::default());
-    let f = r.findings.iter().find(|f| f.id == "nvidia-flatpak-gl-mismatch").expect("found");
+    let f = r
+        .findings
+        .iter()
+        .find(|f| f.id == "nvidia-flatpak-gl-mismatch")
+        .expect("found");
     assert!(f.commands[1].contains("org.freedesktop.Platform.GL.nvidia-550-163-01 org.freedesktop.Platform.GL32.nvidia-550-163-01"));
 }
 
@@ -176,10 +286,20 @@ fn old_cards_nomodeset_and_native_steam() {
     let fs = laptop();
     // A pci.ids-style name is what classifies the family.
     assert_eq!(inventory::nvidia_family("GK107 [GeForce GT 640]"), "kepler");
-    assert_eq!(inventory::nvidia_family("GA107M [GeForce RTX 3050 Mobile]"), "ampere");
-    assert_eq!(inventory::nvidia_family("TU117 [GeForce GTX 1650]"), "turing");
-    assert_eq!(inventory::nvidia_family("GP104 [GeForce GTX 1080]"), "pascal");
-    fs.write("proc/cmdline", "ro quiet nomodeset\n").write("usr/games/steam", "");
+    assert_eq!(
+        inventory::nvidia_family("GA107M [GeForce RTX 3050 Mobile]"),
+        "ampere"
+    );
+    assert_eq!(
+        inventory::nvidia_family("TU117 [GeForce GTX 1650]"),
+        "turing"
+    );
+    assert_eq!(
+        inventory::nvidia_family("GP104 [GeForce GTX 1080]"),
+        "pascal"
+    );
+    fs.write("proc/cmdline", "ro quiet nomodeset\n")
+        .write("usr/games/steam", "");
     let got = ids(&fs, &Env::default());
     assert_eq!(got[0], "kernel-nomodeset");
     assert!(got.contains(&"nvidia-steam-lib32-missing".to_string()));
@@ -190,10 +310,28 @@ fn old_cards_nomodeset_and_native_steam() {
 #[test]
 fn a_machine_with_nothing_wrong_has_no_findings_and_no_gpu_is_not_an_error() {
     let fs = laptop();
-    fs.write("etc/modprobe.d/nvidia-options.conf", "options nvidia NVreg_PreserveVideoMemoryAllocations=1\n")
-        .write("proc/driver/nvidia/params", "PreserveVideoMemoryAllocations: 1\n")
-        .write("proc/cmdline", "ro quiet nvidia-drm.modeset=1 nvidia-drm.fbdev=1\n");
-    assert_eq!(ids(&fs, &Env { session_type: "x11".into(), ..Default::default() }), Vec::<String>::new());
+    fs.write(
+        "etc/modprobe.d/nvidia-options.conf",
+        "options nvidia NVreg_PreserveVideoMemoryAllocations=1\n",
+    )
+    .write(
+        "proc/driver/nvidia/params",
+        "PreserveVideoMemoryAllocations: 1\n",
+    )
+    .write(
+        "proc/cmdline",
+        "ro quiet nvidia-drm.modeset=1 nvidia-drm.fbdev=1\n",
+    );
+    assert_eq!(
+        ids(
+            &fs,
+            &Env {
+                session_type: "x11".into(),
+                ..Default::default()
+            }
+        ),
+        Vec::<String>::new()
+    );
     let empty = TestFs::new();
     empty.write("usr/lib/x86_64-linux-gnu/libvulkan.so.1", "");
     assert_eq!(ids(&empty, &Env::default()), Vec::<String>::new());
@@ -203,10 +341,16 @@ fn a_machine_with_nothing_wrong_has_no_findings_and_no_gpu_is_not_an_error() {
 /// time to.
 fn plain() -> TestFs {
     let fs = TestFs::new();
-    fs.write("etc/os-release", "ID=debian\nPRETTY_NAME=\"Debian GNU/Linux 13\"\n")
-        .write("etc/apt/sources.list", "deb http://deb.debian.org/debian trixie main non-free-firmware\n")
-        .write("usr/lib/x86_64-linux-gnu/libvulkan.so.1", "")
-        .write("sys/class/power_supply/BAT0/type", "Battery\n");
+    fs.write(
+        "etc/os-release",
+        "ID=debian\nPRETTY_NAME=\"Debian GNU/Linux 13\"\n",
+    )
+    .write(
+        "etc/apt/sources.list",
+        "deb http://deb.debian.org/debian trixie main non-free-firmware\n",
+    )
+    .write("usr/lib/x86_64-linux-gnu/libvulkan.so.1", "")
+    .write("sys/class/power_supply/BAT0/type", "Battery\n");
     fs
 }
 
@@ -217,20 +361,28 @@ fn pci(fs: &TestFs, slot: &str, class: &str, vendor: &str, device: &str, driver:
         .write(&format!("{d}/device"), &format!("{device}\n"));
     if !driver.is_empty() {
         fs.dir(&format!("sys/bus/pci/drivers/{driver}"));
-        let _ = std::os::unix::fs::symlink(fs.root().join(format!("sys/bus/pci/drivers/{driver}")), fs.root().join(format!("{d}/driver")));
+        let _ = std::os::unix::fs::symlink(
+            fs.root().join(format!("sys/bus/pci/drivers/{driver}")),
+            fs.root().join(format!("{d}/driver")),
+        );
     }
 }
 
 fn usb(fs: &TestFs, dev: &str, class: &str, sub: &str, proto: &str, vendor: &str, driver: &str) {
     let d = format!("sys/bus/usb/devices/{dev}");
-    fs.write(&format!("{d}/idVendor"), &format!("{vendor}\n")).write(&format!("{d}/idProduct"), "0001\n").write(&format!("{d}/product"), "Thing\n");
+    fs.write(&format!("{d}/idVendor"), &format!("{vendor}\n"))
+        .write(&format!("{d}/idProduct"), "0001\n")
+        .write(&format!("{d}/product"), "Thing\n");
     let i = format!("sys/bus/usb/devices/{dev}:1.0");
     fs.write(&format!("{i}/bInterfaceClass"), &format!("{class}\n"))
         .write(&format!("{i}/bInterfaceSubClass"), &format!("{sub}\n"))
         .write(&format!("{i}/bInterfaceProtocol"), &format!("{proto}\n"));
     if !driver.is_empty() {
         fs.dir(&format!("sys/bus/usb/drivers/{driver}"));
-        let _ = std::os::unix::fs::symlink(fs.root().join(format!("sys/bus/usb/drivers/{driver}")), fs.root().join(format!("{i}/driver")));
+        let _ = std::os::unix::fs::symlink(
+            fs.root().join(format!("sys/bus/usb/drivers/{driver}")),
+            fs.root().join(format!("{i}/driver")),
+        );
     }
 }
 
@@ -246,25 +398,66 @@ fn a_plain_laptop_has_nothing_wrong() {
 #[test]
 fn wifi_switched_off_without_a_driver_or_without_firmware() {
     let fs = plain();
-    pci(&fs, "0000:08:00.0", "0x028000", "0x10ec", "0xb852", "rtw89_8852be");
+    pci(
+        &fs,
+        "0000:08:00.0",
+        "0x028000",
+        "0x10ec",
+        "0xb852",
+        "rtw89_8852be",
+    );
     fs.write("sys/class/net/wlan0/phy80211/name", "phy0\n");
-    fs.write("sys/class/rfkill/rfkill0/type", "wlan\n").write("sys/class/rfkill/rfkill0/soft", "1\n").write("sys/class/rfkill/rfkill0/hard", "0\n");
+    fs.write("sys/class/rfkill/rfkill0/type", "wlan\n")
+        .write("sys/class/rfkill/rfkill0/soft", "1\n")
+        .write("sys/class/rfkill/rfkill0/hard", "0\n");
     let r = diagnose(&SysRoot::at(fs.root()), &Env::default());
-    let f = r.findings.iter().find(|f| f.id == "wifi-blocked-soft").expect("airplane mode found");
-    assert_eq!((f.category.as_str(), f.fix_auto), ("wifi", true), "switched on by Unix Guardian, no package needed");
+    let f = r
+        .findings
+        .iter()
+        .find(|f| f.id == "wifi-blocked-soft")
+        .expect("airplane mode found");
+    assert_eq!(
+        (f.category.as_str(), f.fix_auto),
+        ("wifi", true),
+        "switched on by Unix Guardian, no package needed"
+    );
     fs.write("sys/class/rfkill/rfkill0/hard", "1\n");
-    assert!(has(&fs, &Env::default(), "wifi-blocked-hard") && !has(&fs, &Env::default(), "wifi-blocked-soft"));
+    assert!(
+        has(&fs, &Env::default(), "wifi-blocked-hard")
+            && !has(&fs, &Env::default(), "wifi-blocked-soft")
+    );
 
     let fs = plain();
-    pci(&fs, "0000:08:00.0", "0x028000", "0x10ec", "0xb852", "rtw89_8852be");
-    assert!(has(&fs, &Env::default(), "wifi-driver-no-interface"), "a driver but no wlan0: firmware");
+    pci(
+        &fs,
+        "0000:08:00.0",
+        "0x028000",
+        "0x10ec",
+        "0xb852",
+        "rtw89_8852be",
+    );
+    assert!(
+        has(&fs, &Env::default(), "wifi-driver-no-interface"),
+        "a driver but no wlan0: firmware"
+    );
     let r = diagnose(&SysRoot::at(fs.root()), &Env::default());
-    let f = r.findings.iter().find(|f| f.id == "wifi-driver-no-interface").unwrap();
-    assert!(f.commands.iter().any(|c| c.contains("firmware-realtek")), "{:?}", f.commands);
+    let f = r
+        .findings
+        .iter()
+        .find(|f| f.id == "wifi-driver-no-interface")
+        .unwrap();
+    assert!(
+        f.commands.iter().any(|c| c.contains("firmware-realtek")),
+        "{:?}",
+        f.commands
+    );
 
     let fs = plain();
     pci(&fs, "0000:03:00.0", "0x028000", "0x14e4", "0x43b1", "");
-    assert!(has(&fs, &Env::default(), "wifi-broadcom-no-driver") && !has(&fs, &Env::default(), "wifi-no-driver"));
+    assert!(
+        has(&fs, &Env::default(), "wifi-broadcom-no-driver")
+            && !has(&fs, &Env::default(), "wifi-no-driver")
+    );
 }
 
 #[test]
@@ -273,9 +466,13 @@ fn bluetooth_off_without_its_service_or_without_bluez() {
     usb(&fs, "1-10", "e0", "01", "01", "8087", "btusb");
     fs.dir("sys/class/bluetooth/hci0");
     assert!(has(&fs, &Env::default(), "bt-no-bluez"));
-    fs.write("usr/libexec/bluetooth/bluetoothd", "").write("usr/lib/systemd/system/bluetooth.service", "");
+    fs.write("usr/libexec/bluetooth/bluetoothd", "")
+        .write("usr/lib/systemd/system/bluetooth.service", "");
     assert!(has(&fs, &Env::default(), "bt-service-off"));
-    fs.write("etc/systemd/system/bluetooth.target.wants/bluetooth.service", "");
+    fs.write(
+        "etc/systemd/system/bluetooth.target.wants/bluetooth.service",
+        "",
+    );
     assert!(!has(&fs, &Env::default(), "bt-service-off"));
     std::fs::remove_dir(fs.root().join("sys/class/bluetooth/hci0")).unwrap();
     assert!(has(&fs, &Env::default(), "bt-adapter-not-ready"));
@@ -284,44 +481,90 @@ fn bluetooth_off_without_its_service_or_without_bluez() {
 #[test]
 fn no_sound_because_of_sof_firmware_or_no_sound_server() {
     let fs = plain();
-    pci(&fs, "0000:00:1f.3", "0x040100", "0x8086", "0x51c8", "sof-audio-pci-intel-tgl");
+    pci(
+        &fs,
+        "0000:00:1f.3",
+        "0x040100",
+        "0x8086",
+        "0x51c8",
+        "sof-audio-pci-intel-tgl",
+    );
     fs.write("proc/asound/cards", "--- no soundcards ---\n");
     let got = ids(&fs, &Env::default());
-    assert!(got.contains(&"audio-sof-firmware-missing".into()) && !got.contains(&"audio-no-cards".into()), "{got:?}");
+    assert!(
+        got.contains(&"audio-sof-firmware-missing".into())
+            && !got.contains(&"audio-no-cards".into()),
+        "{got:?}"
+    );
     fs.write("lib/firmware/intel/sof/sof-adl.ri", "");
     assert!(!has(&fs, &Env::default(), "audio-sof-firmware-missing"));
 
     let fs = plain();
-    pci(&fs, "0000:00:1f.3", "0x040300", "0x8086", "0x7ad0", "snd_hda_intel");
-    fs.write("proc/asound/cards", " 0 [PCH            ]: HDA-Intel - HDA Intel PCH\n");
+    pci(
+        &fs,
+        "0000:00:1f.3",
+        "0x040300",
+        "0x8086",
+        "0x7ad0",
+        "snd_hda_intel",
+    );
+    fs.write(
+        "proc/asound/cards",
+        " 0 [PCH            ]: HDA-Intel - HDA Intel PCH\n",
+    );
     let run = tempfile::tempdir().unwrap();
-    let env = Env { runtime_dir: Some(run.path().to_path_buf()), ..Default::default() };
+    let env = Env {
+        runtime_dir: Some(run.path().to_path_buf()),
+        ..Default::default()
+    };
     assert!(has(&fs, &env, "audio-no-server"));
     std::fs::write(run.path().join("pipewire-0"), "").unwrap();
     assert!(!has(&fs, &env, "audio-no-server"));
-    assert!(!has(&fs, &Env::default(), "audio-no-server"), "unknown without the user's runtime directory");
+    assert!(
+        !has(&fs, &Env::default(), "audio-no-server"),
+        "unknown without the user's runtime directory"
+    );
 }
 
 #[test]
 fn touchpad_camera_and_printer_problems() {
     let fs = plain();
-    fs.write("sys/bus/acpi/devices/PNP0C50:00/hid", "PNP0C50\n").write("sys/bus/acpi/devices/PNP0C50:00/status", "15\n");
+    fs.write("sys/bus/acpi/devices/PNP0C50:00/hid", "PNP0C50\n")
+        .write("sys/bus/acpi/devices/PNP0C50:00/status", "15\n");
     assert!(has(&fs, &Env::default(), "touchpad-i2c-no-driver"));
     fs.write("sys/bus/acpi/devices/PNP0C50:00/status", "0\n");
-    assert!(!has(&fs, &Env::default(), "touchpad-i2c-no-driver"), "listed but absent (_STA 0) is not a touchpad");
+    assert!(
+        !has(&fs, &Env::default(), "touchpad-i2c-no-driver"),
+        "listed but absent (_STA 0) is not a touchpad"
+    );
 
     let fs = plain();
     usb(&fs, "3-6", "0e", "01", "00", "0c45", "");
     assert!(has(&fs, &Env::default(), "camera-uvc-no-driver"));
-    pci(&fs, "0000:00:05.0", "0x048000", "0x8086", "0xa75d", "intel-ipu6");
+    pci(
+        &fs,
+        "0000:00:05.0",
+        "0x048000",
+        "0x8086",
+        "0xa75d",
+        "intel-ipu6",
+    );
     assert!(has(&fs, &Env::default(), "camera-ipu6"));
 
     let fs = plain();
     usb(&fs, "1-2", "07", "01", "04", "03f0", "");
     let got = ids(&fs, &Env::default());
-    assert!(got.contains(&"print-no-cups".into()) && got.contains(&"print-ipp-usb-missing".into()), "{got:?}");
-    assert!(!got.contains(&"print-hp-no-hplip".into()), "a driverless HP printer needs no HPLIP");
-    fs.write("usr/sbin/cupsd", "").write("usr/sbin/ipp-usb", "").write("usr/lib/systemd/system/cups.socket", "");
+    assert!(
+        got.contains(&"print-no-cups".into()) && got.contains(&"print-ipp-usb-missing".into()),
+        "{got:?}"
+    );
+    assert!(
+        !got.contains(&"print-hp-no-hplip".into()),
+        "a driverless HP printer needs no HPLIP"
+    );
+    fs.write("usr/sbin/cupsd", "")
+        .write("usr/sbin/ipp-usb", "")
+        .write("usr/lib/systemd/system/cups.socket", "");
     assert!(has(&fs, &Env::default(), "print-cups-off"));
 }
 
@@ -332,17 +575,34 @@ fn sleep_firmware_and_debian_s_firmware_component() {
     assert!(has(&fs, &Env::default(), "sleep-s2idle-with-deep"));
     fs.write("sys/power/mem_sleep", "s2idle [deep]\n");
     assert!(!has(&fs, &Env::default(), "sleep-s2idle-with-deep"));
-    fs.write("sys/power/state", "freeze mem disk\n").write("proc/meminfo", "MemTotal:       16000000 kB\n");
-    fs.write("proc/swaps", "Filename Type Size Used Priority\n/dev/zram0 partition 4000000 0 100\n");
+    fs.write("sys/power/state", "freeze mem disk\n")
+        .write("proc/meminfo", "MemTotal:       16000000 kB\n");
+    fs.write(
+        "proc/swaps",
+        "Filename Type Size Used Priority\n/dev/zram0 partition 4000000 0 100\n",
+    );
     assert!(has(&fs, &Env::default(), "hibernate-swap-too-small"));
 
     let fs = plain();
     let log = Env { kernel_log: "iwlwifi 0000:00:14.3: Direct firmware load for iwlwifi-so-a0-gf-a0-86.ucode failed with error -2\n".into(), ..Default::default() };
     let r = diagnose(&SysRoot::at(fs.root()), &log);
-    let f = r.findings.iter().find(|f| f.id == "firmware-missing-from-log").expect("found in the log");
-    assert!(f.commands.iter().any(|c| c == "sudo apt install firmware-iwlwifi"), "{:?}", f.commands);
+    let f = r
+        .findings
+        .iter()
+        .find(|f| f.id == "firmware-missing-from-log")
+        .expect("found in the log");
+    assert!(
+        f.commands
+            .iter()
+            .any(|c| c == "sudo apt install firmware-iwlwifi"),
+        "{:?}",
+        f.commands
+    );
     fs.write("lib/firmware/iwlwifi-so-a0-gf-a0-83.ucode", "");
-    assert!(!has(&fs, &log, "firmware-missing-from-log"), "an older version on disk is what the driver uses");
+    assert!(
+        !has(&fs, &log, "firmware-missing-from-log"),
+        "an older version on disk is what the driver uses"
+    );
 
     fs.write("etc/apt/sources.list", "deb http://deb.debian.org/debian trixie main\n# deb http://deb.debian.org/debian trixie main non-free-firmware\n");
     assert!(has(&fs, &Env::default(), "firmware-debian-nonfree-off"));

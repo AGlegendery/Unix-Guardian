@@ -16,7 +16,6 @@
 use crate::polkit::{action, Gate};
 use std::path::{Path, PathBuf};
 
-
 /// Biggest download accepted (the tarball is ~10 MB).
 const MAX_BYTES: u64 = 256 << 20;
 
@@ -37,7 +36,9 @@ pub struct UpdateIface {
 impl UpdateIface {
     /// The version a rollback returns to; "" when there is none.
     async fn previous(&self) -> String {
-        std::fs::read_to_string(self.dir.join("previous/VERSION")).map(|v| v.trim().to_string()).unwrap_or_default()
+        std::fs::read_to_string(self.dir.join("previous/VERSION"))
+            .map(|v| v.trim().to_string())
+            .unwrap_or_default()
     }
 
     /// Installs the release tarball at `tarball`, signed by `signature`
@@ -58,10 +59,17 @@ impl UpdateIface {
                 kind.id()
             )));
         }
-        let key = ug_core::update::trusted_key(&self.root.join("etc/unix-guardian"))
-            .ok_or_else(|| zbus::fdo::Error::NotSupported("This build has no update key, so it cannot check a download.".into()))?;
+        let key = ug_core::update::trusted_key(&self.root.join("etc/unix-guardian")).ok_or_else(
+            || {
+                zbus::fdo::Error::NotSupported(
+                    "This build has no update key, so it cannot check a download.".into(),
+                )
+            },
+        )?;
         self.gate.authorize(&hdr, action::UPDATE).await?;
-        let _busy = self.busy.try_lock().map_err(|_| zbus::fdo::Error::Failed("An update is being installed already.".into()))?;
+        let _busy = self.busy.try_lock().map_err(|_| {
+            zbus::fdo::Error::Failed("An update is being installed already.".into())
+        })?;
         let (tarball, signature) = (PathBuf::from(tarball), PathBuf::from(signature));
         let (dir, root, scratch) = (self.dir.clone(), self.root.clone(), self.scratch);
         tokio::task::spawn_blocking(move || -> Result<String, String> {
@@ -81,16 +89,23 @@ impl UpdateIface {
     }
 
     /// Puts the version from before the last update back.
-    async fn rollback(&self, #[zbus(header)] hdr: zbus::message::Header<'_>) -> zbus::fdo::Result<String> {
+    async fn rollback(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+    ) -> zbus::fdo::Result<String> {
         if let Some(r) = &self.refused {
             return Err(zbus::fdo::Error::NotSupported(r.clone()));
         }
         let prev = self.dir.join("previous");
         if !prev.join("install.sh").exists() {
-            return Err(zbus::fdo::Error::NotSupported("There is no earlier version to go back to.".into()));
+            return Err(zbus::fdo::Error::NotSupported(
+                "There is no earlier version to go back to.".into(),
+            ));
         }
         self.gate.authorize(&hdr, action::UPDATE).await?;
-        let _busy = self.busy.try_lock().map_err(|_| zbus::fdo::Error::Failed("An update is being installed already.".into()))?;
+        let _busy = self.busy.try_lock().map_err(|_| {
+            zbus::fdo::Error::Failed("An update is being installed already.".into())
+        })?;
         let version = std::fs::read_to_string(prev.join("VERSION")).unwrap_or_default();
         let (root, scratch) = (self.root.clone(), self.scratch);
         tokio::task::spawn_blocking(move || run_install(&prev, &root, scratch))
@@ -98,7 +113,10 @@ impl UpdateIface {
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
             .map_err(zbus::fdo::Error::Failed)?;
         tracing::warn!(version = version.trim(), "rolling back an update");
-        Ok(format!("Going back to {}. Unix Guardian restarts by itself in a moment.", version.trim()))
+        Ok(format!(
+            "Going back to {}. Unix Guardian restarts by itself in a moment.",
+            version.trim()
+        ))
     }
 }
 
@@ -106,7 +124,9 @@ fn read_limited(p: &Path) -> Result<Vec<u8>, String> {
     use std::io::Read;
     let f = std::fs::File::open(p).map_err(|e| format!("{}: {e}", p.display()))?;
     let mut data = Vec::new();
-    f.take(MAX_BYTES + 1).read_to_end(&mut data).map_err(|e| e.to_string())?;
+    f.take(MAX_BYTES + 1)
+        .read_to_end(&mut data)
+        .map_err(|e| e.to_string())?;
     if data.len() as u64 > MAX_BYTES {
         return Err("The download is far bigger than a release; not installed.".into());
     }
@@ -121,23 +141,47 @@ fn unpack(data: &[u8], dir: &Path) -> Result<PathBuf, String> {
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).map_err(|e| format!("{}: {e}", work.display()))?;
     let mut child = std::process::Command::new("tar")
-        .args(["-xzf", "-", "--no-same-owner", "--no-same-permissions", "-C"])
+        .args([
+            "-xzf",
+            "-",
+            "--no-same-owner",
+            "--no-same-permissions",
+            "-C",
+        ])
         .arg(&work)
         .stdin(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("could not run tar: {e}"))?;
-    child.stdin.take().expect("piped").write_all(data).map_err(|e| e.to_string())?;
+    child
+        .stdin
+        .take()
+        .expect("piped")
+        .write_all(data)
+        .map_err(|e| e.to_string())?;
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if !out.status.success() {
-        return Err(format!("The release could not be unpacked: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(format!(
+            "The release could not be unpacked: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
-    let tops: Vec<PathBuf> = std::fs::read_dir(&work).map_err(|e| e.to_string())?.flatten().map(|e| e.path()).collect();
-    let [top] = tops.as_slice() else { return Err("The release is not one folder.".into()) };
+    let tops: Vec<PathBuf> = std::fs::read_dir(&work)
+        .map_err(|e| e.to_string())?
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    let [top] = tops.as_slice() else {
+        return Err("The release is not one folder.".into());
+    };
     if !top.join("install.sh").is_file() || !top.join("files").is_dir() {
         return Err("The release has no install.sh and files/; not installed.".into());
     }
-    let name = top.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let name = top
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     if !name.starts_with("unix-guardian-") {
         return Err(format!("Unexpected release folder {name:?}."));
     }
@@ -169,8 +213,13 @@ fn keep_previous(root: &Path, release: &Path, prev: &Path) -> Result<(), String>
             tracing::warn!(file = f, error = %e, "not kept for the rollback");
         }
     }
-    std::fs::copy(release.join("install.sh"), prev.join("install.sh")).map_err(|e| e.to_string())?;
-    std::fs::write(prev.join("VERSION"), format!("{}\n", ug_core::update::VERSION)).map_err(|e| e.to_string())?;
+    std::fs::copy(release.join("install.sh"), prev.join("install.sh"))
+        .map_err(|e| e.to_string())?;
+    std::fs::write(
+        prev.join("VERSION"),
+        format!("{}\n", ug_core::update::VERSION),
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -179,11 +228,24 @@ fn keep_previous(root: &Path, release: &Path, prev: &Path) -> Result<(), String>
 fn run_install(release: &Path, root: &Path, scratch: bool) -> Result<(), String> {
     let script = release.join("install.sh");
     let out = if scratch {
-        std::process::Command::new("bash").arg(&script).arg("--root").arg(root).stdin(std::process::Stdio::null()).output()
+        std::process::Command::new("bash")
+            .arg(&script)
+            .arg("--root")
+            .arg(root)
+            .stdin(std::process::Stdio::null())
+            .output()
     } else {
         let unit = format!("unix-guardian-update-{}", std::process::id());
         std::process::Command::new("systemd-run")
-            .args(["--no-block", "--collect", "--quiet", "--unit", &unit, "--", "bash"])
+            .args([
+                "--no-block",
+                "--collect",
+                "--quiet",
+                "--unit",
+                &unit,
+                "--",
+                "bash",
+            ])
             .arg(&script)
             .stdin(std::process::Stdio::null())
             .output()
@@ -192,7 +254,11 @@ fn run_install(release: &Path, root: &Path, scratch: bool) -> Result<(), String>
     if out.status.success() {
         Ok(())
     } else {
-        Err(format!("The installer failed: {}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr).trim()))
+        Err(format!(
+            "The installer failed: {}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
     }
 }
 
@@ -205,8 +271,19 @@ mod tests {
         let top = work.join(name);
         std::fs::create_dir_all(top.join("files/usr/local/bin")).unwrap();
         std::fs::write(top.join("files/usr/local/bin/ug"), version_text).unwrap();
-        std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../packaging/install.sh"), top.join("install.sh")).unwrap();
-        let out = std::process::Command::new("tar").arg("-czf").arg("-").arg("-C").arg(work).arg(name).output().unwrap();
+        std::fs::copy(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../../packaging/install.sh"),
+            top.join("install.sh"),
+        )
+        .unwrap();
+        let out = std::process::Command::new("tar")
+            .arg("-czf")
+            .arg("-")
+            .arg("-C")
+            .arg(work)
+            .arg(name)
+            .output()
+            .unwrap();
         assert!(out.status.success());
         out.stdout
     }
@@ -219,18 +296,30 @@ mod tests {
         let v1 = release(&d.path().join("w1"), "unix-guardian-1-x86_64", "one");
         let r1 = unpack(&v1, &d.path().join("u1")).unwrap();
         run_install(&r1, &root, true).unwrap();
-        assert_eq!(ug_core::update::install_kind(&root), ug_core::update::InstallKind::Tarball);
-        assert_eq!(std::fs::read_to_string(root.join("usr/local/bin/ug")).unwrap(), "one");
+        assert_eq!(
+            ug_core::update::install_kind(&root),
+            ug_core::update::InstallKind::Tarball
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("usr/local/bin/ug")).unwrap(),
+            "one"
+        );
         // Version 2 over it, keeping version 1 aside.
         let dir = d.path().join("updates");
         let v2 = release(&d.path().join("w2"), "unix-guardian-2-x86_64", "two");
         let r2 = unpack(&v2, &dir).unwrap();
         keep_previous(&root, &r2, &dir.join("previous")).unwrap();
         run_install(&r2, &root, true).unwrap();
-        assert_eq!(std::fs::read_to_string(root.join("usr/local/bin/ug")).unwrap(), "two");
+        assert_eq!(
+            std::fs::read_to_string(root.join("usr/local/bin/ug")).unwrap(),
+            "two"
+        );
         // And back.
         run_install(&dir.join("previous"), &root, true).unwrap();
-        assert_eq!(std::fs::read_to_string(root.join("usr/local/bin/ug")).unwrap(), "one");
+        assert_eq!(
+            std::fs::read_to_string(root.join("usr/local/bin/ug")).unwrap(),
+            "one"
+        );
     }
 
     #[test]
@@ -238,8 +327,17 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(d.path().join("w/other")).unwrap();
         std::fs::write(d.path().join("w/other/x"), "x").unwrap();
-        let out = std::process::Command::new("tar").args(["-czf", "-", "-C"]).arg(d.path().join("w")).arg("other").output().unwrap();
-        assert!(unpack(&out.stdout, &d.path().join("u")).unwrap_err().contains("no install.sh"));
-        assert!(unpack(b"not a tarball", &d.path().join("u")).unwrap_err().contains("could not be unpacked"));
+        let out = std::process::Command::new("tar")
+            .args(["-czf", "-", "-C"])
+            .arg(d.path().join("w"))
+            .arg("other")
+            .output()
+            .unwrap();
+        assert!(unpack(&out.stdout, &d.path().join("u"))
+            .unwrap_err()
+            .contains("no install.sh"));
+        assert!(unpack(b"not a tarball", &d.path().join("u"))
+            .unwrap_err()
+            .contains("could not be unpacked"));
     }
 }

@@ -199,7 +199,10 @@ mod tests {
     /// 7950X3D: two CCDs, only one with stacked cache.
     fn asymmetric_x3d() -> TestFs {
         let fs = TestFs::new();
-        fs.write("proc/cpuinfo", "model name\t: AMD Ryzen 9 7950X3D 16-Core Processor");
+        fs.write(
+            "proc/cpuinfo",
+            "model name\t: AMD Ryzen 9 7950X3D 16-Core Processor",
+        );
         for cpu in 0..16 {
             fs.cpu(cpu, "performance", "amd_pstate_epp", 4_200_000);
             fs.cpu_l3(cpu, 0, "96M", "0-15");
@@ -236,7 +239,10 @@ mod tests {
     #[test]
     fn a_uniform_cpu_has_no_preferred_domain() {
         let fs = TestFs::new();
-        fs.write("proc/cpuinfo", "model name\t: 12th Gen Intel(R) Core(TM) i5-12450HX");
+        fs.write(
+            "proc/cpuinfo",
+            "model name\t: 12th Gen Intel(R) Core(TM) i5-12450HX",
+        );
         for cpu in 0..12 {
             fs.cpu(cpu, "powersave", "intel_pstate", 2_400_000);
             fs.cpu_l3(cpu, 0, "12288K", "0-11");

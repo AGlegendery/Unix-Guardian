@@ -35,13 +35,17 @@ impl Units for ServiceManager {
     // prompting the user mid-game.
     fn stop(&self, unit: &str) -> Result<(), String> {
         match self {
-            ServiceManager::Disabled => Err("service management is disabled in development mode".into()),
+            ServiceManager::Disabled => {
+                Err("service management is disabled in development mode".into())
+            }
             ServiceManager::Systemctl => run(&["stop", "--no-block", "--no-ask-password", unit]),
         }
     }
     fn start(&self, unit: &str) -> Result<(), String> {
         match self {
-            ServiceManager::Disabled => Err("service management is disabled in development mode".into()),
+            ServiceManager::Disabled => {
+                Err("service management is disabled in development mode".into())
+            }
             ServiceManager::Systemctl => run(&["start", "--no-block", "--no-ask-password", unit]),
         }
     }
@@ -49,7 +53,10 @@ impl Units for ServiceManager {
         if let ServiceManager::Disabled = self {
             return None;
         }
-        let out = std::process::Command::new(iw()?).args(["dev", iface, "get", "power_save"]).output().ok()?;
+        let out = std::process::Command::new(iw()?)
+            .args(["dev", iface, "get", "power_save"])
+            .output()
+            .ok()?;
         let text = String::from_utf8_lossy(&out.stdout);
         let v = text.trim().strip_prefix("Power save:")?.trim();
         Some(v == "on")
@@ -60,7 +67,13 @@ impl Units for ServiceManager {
         }
         let iw = iw().ok_or("the iw program is not installed")?;
         let out = std::process::Command::new(iw)
-            .args(["dev", iface, "set", "power_save", if on { "on" } else { "off" }])
+            .args([
+                "dev",
+                iface,
+                "set",
+                "power_save",
+                if on { "on" } else { "off" },
+            ])
             .output()
             .map_err(|e| e.to_string())?;
         if out.status.success() {
@@ -73,11 +86,16 @@ impl Units for ServiceManager {
 
 /// The `iw` program, which sets Wi-Fi power saving through nl80211.
 fn iw() -> Option<&'static str> {
-    ["/usr/sbin/iw", "/sbin/iw", "/usr/bin/iw"].into_iter().find(|p| std::path::Path::new(p).exists())
+    ["/usr/sbin/iw", "/sbin/iw", "/usr/bin/iw"]
+        .into_iter()
+        .find(|p| std::path::Path::new(p).exists())
 }
 
 fn run(args: &[&str]) -> Result<(), String> {
-    let out = std::process::Command::new("systemctl").args(args).output().map_err(|e| e.to_string())?;
+    let out = std::process::Command::new("systemctl")
+        .args(args)
+        .output()
+        .map_err(|e| e.to_string())?;
     if out.status.success() {
         Ok(())
     } else {
@@ -96,7 +114,10 @@ pub fn tuner(root: SysRoot, state: std::path::PathBuf, services: ServiceManager)
 }
 
 fn to_wire(r: Report) -> GameModeReport {
-    GameModeReport { applied: r.applied, skipped: r.skipped }
+    GameModeReport {
+        applied: r.applied,
+        skipped: r.skipped,
+    }
 }
 
 /// Who turned game mode on.
@@ -123,12 +144,20 @@ pub struct GameModeIface {
 
 impl GameModeIface {
     /// Reverts game mode if `client` owned it. Called when a name leaves the bus.
-    pub fn owner_gone(tuner: &SharedTuner, owner: &Mutex<Option<Owner>>, active: &AtomicBool, client: &str) {
+    pub fn owner_gone(
+        tuner: &SharedTuner,
+        owner: &Mutex<Option<Owner>>,
+        active: &AtomicBool,
+        client: &str,
+    ) {
         let mut o = owner.lock().unwrap_or_else(|e| e.into_inner());
         if o.as_ref().is_some_and(|o| o.name == client) {
             *o = None;
             drop(o);
-            tracing::warn!(client, "game mode owner left the bus without leaving game mode; reverting");
+            tracing::warn!(
+                client,
+                "game mode owner left the bus without leaving game mode; reverting"
+            );
             let mut t = tuner.lock().unwrap_or_else(|e| e.into_inner());
             t.leave();
             active.store(t.active(), Ordering::SeqCst);
@@ -155,7 +184,10 @@ impl GameModeIface {
                     "game mode is in use by another user's session".into(),
                 ));
             }
-            *owner = Some(Owner { name: sender.clone(), uid });
+            *owner = Some(Owner {
+                name: sender.clone(),
+                uid,
+            });
         }
 
         let req = Request {
@@ -197,7 +229,9 @@ impl GameModeIface {
         {
             let mut owner = self.owner.lock().unwrap_or_else(|e| e.into_inner());
             if owner.as_ref().is_some_and(|o| o.uid != uid) {
-                return Err(zbus::fdo::Error::AccessDenied("game mode belongs to another user's session".into()));
+                return Err(zbus::fdo::Error::AccessDenied(
+                    "game mode belongs to another user's session".into(),
+                ));
             }
             *owner = None;
         }
@@ -224,6 +258,7 @@ impl GameModeIface {
 /// The Unix user behind a bus name, as the bus itself vouches for it.
 async fn caller_uid(conn: &zbus::Connection, sender: &str) -> zbus::fdo::Result<u32> {
     let dbus = zbus::fdo::DBusProxy::new(conn).await?;
-    let name = zbus::names::BusName::try_from(sender).map_err(|e| zbus::fdo::Error::InvalidArgs(e.to_string()))?;
+    let name = zbus::names::BusName::try_from(sender)
+        .map_err(|e| zbus::fdo::Error::InvalidArgs(e.to_string()))?;
     dbus.get_connection_unix_user(name).await
 }

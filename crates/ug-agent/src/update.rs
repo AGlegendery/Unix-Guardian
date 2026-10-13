@@ -36,7 +36,10 @@ pub struct Updater {
 impl Updater {
     pub fn new(ug_config: &Path, root: &Path) -> Updater {
         let file = ug_config.join("update.json");
-        let saved: Saved = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let saved: Saved = std::fs::read_to_string(&file)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
         let kind = update::install_kind(root);
         let state = UpdateState {
             current: update::VERSION.into(),
@@ -48,7 +51,9 @@ impl Updater {
         let cache = std::env::var_os("XDG_CACHE_HOME")
             .map(PathBuf::from)
             .filter(|p| p.is_absolute())
-            .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache"))
+            .unwrap_or_else(|| {
+                PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache")
+            })
             .join("unix-guardian/update");
         Updater {
             file,
@@ -95,14 +100,27 @@ impl Updater {
                 s.problem.clear();
                 let newest = update::newest(&releases, update::VERSION);
                 s.latest = newest.map(|r| r.tag_name.clone()).unwrap_or_default();
-                s.name = newest.and_then(|r| r.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| s.latest.clone());
+                s.name = newest
+                    .and_then(|r| r.name.clone())
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| s.latest.clone());
                 s.notes = newest.and_then(|r| r.body.clone()).unwrap_or_default();
                 s.url = newest.map(|r| r.html_url.clone()).unwrap_or_default();
-                s.published = newest.and_then(|r| r.published_at.clone()).unwrap_or_default();
-                let files = newest.and_then(|r| update::tarball_assets(r, std::env::consts::ARCH)).and_then(|(tar, sig, _)| {
-                    Some((tar.browser_download_url.clone(), sig?.browser_download_url.clone(), tar.name.clone()))
-                });
-                s.can_install = kind == InstallKind::Tarball && files.is_some() && update::trusted_key(&self.etc).is_some();
+                s.published = newest
+                    .and_then(|r| r.published_at.clone())
+                    .unwrap_or_default();
+                let files = newest
+                    .and_then(|r| update::tarball_assets(r, std::env::consts::ARCH))
+                    .and_then(|(tar, sig, _)| {
+                        Some((
+                            tar.browser_download_url.clone(),
+                            sig?.browser_download_url.clone(),
+                            tar.name.clone(),
+                        ))
+                    });
+                s.can_install = kind == InstallKind::Tarball
+                    && files.is_some()
+                    && update::trusted_key(&self.etc).is_some();
                 *self.assets.lock().unwrap_or_else(|e| e.into_inner()) = files;
                 let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
                 if !s.latest.is_empty() && saved.told != s.latest {
@@ -148,7 +166,12 @@ impl Updater {
         if !s.step.is_empty() {
             return Err("It is being installed already.".into());
         }
-        let Some((tar, sig, name)) = self.assets.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
+        let Some((tar, sig, name)) = self
+            .assets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+        else {
             return Err("Check for updates first.".into());
         };
         self.set(|s| {
@@ -170,12 +193,30 @@ impl Updater {
         Ok(())
     }
 
-    async fn install(&self, daemon_session: bool, tar: &str, sig: &str, name: &str) -> Result<String, String> {
-        std::fs::create_dir_all(&self.cache).map_err(|e| format!("{}: {e}", self.cache.display()))?;
-        let (tar_path, sig_path) = (self.cache.join(name), self.cache.join(format!("{name}.minisig")));
+    async fn install(
+        &self,
+        daemon_session: bool,
+        tar: &str,
+        sig: &str,
+        name: &str,
+    ) -> Result<String, String> {
+        std::fs::create_dir_all(&self.cache)
+            .map_err(|e| format!("{}: {e}", self.cache.display()))?;
+        let (tar_path, sig_path) = (
+            self.cache.join(name),
+            self.cache.join(format!("{name}.minisig")),
+        );
         for (url, path) in [(tar, &tar_path), (sig, &sig_path)] {
             let out = tokio::process::Command::new("curl")
-                .args(["--fail", "--silent", "--show-error", "--location", "--max-time", "1800", "--output"])
+                .args([
+                    "--fail",
+                    "--silent",
+                    "--show-error",
+                    "--location",
+                    "--max-time",
+                    "1800",
+                    "--output",
+                ])
                 .arg(path)
                 .arg(url)
                 .stdin(std::process::Stdio::null())
@@ -183,13 +224,22 @@ impl Updater {
                 .await
                 .map_err(|e| format!("curl is needed to download the update ({e})"))?;
             if !out.status.success() {
-                return Err(format!("The download failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
+                return Err(format!(
+                    "The download failed: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
             }
         }
         self.set(|s| s.step = "installing".into());
-        let conn = if daemon_session { zbus::Connection::session().await } else { zbus::Connection::system().await }
-            .map_err(|e| format!("The Unix Guardian service is not reachable ({e})."))?;
-        let d = ug_proto::daemon::UpdateProxy::new(&conn).await.map_err(|e| e.to_string())?;
+        let conn = if daemon_session {
+            zbus::Connection::session().await
+        } else {
+            zbus::Connection::system().await
+        }
+        .map_err(|e| format!("The Unix Guardian service is not reachable ({e})."))?;
+        let d = ug_proto::daemon::UpdateProxy::new(&conn)
+            .await
+            .map_err(|e| e.to_string())?;
         let msg = d
             .install(&tar_path.to_string_lossy(), &sig_path.to_string_lossy())
             .await
@@ -228,11 +278,23 @@ mod tests {
         .unwrap();
         let etc = d.path().join("root/etc/unix-guardian");
         std::fs::create_dir_all(&etc).unwrap();
-        std::fs::write(etc.join("update.toml"), format!("feed = \"file://{}\"\n", feed.display())).unwrap();
+        std::fs::write(
+            etc.join("update.toml"),
+            format!("feed = \"file://{}\"\n", feed.display()),
+        )
+        .unwrap();
         let u = Updater::new(&d.path().join("cfg"), &d.path().join("root"));
         assert!(u.due(EVERY_MS));
         let (s, tell) = u.check(EVERY_MS);
-        assert_eq!((s.latest.as_str(), s.name.as_str(), s.notes.as_str(), s.kind.as_str()), ("v99.0.0", "Big one", "- New things", "none"));
+        assert_eq!(
+            (
+                s.latest.as_str(),
+                s.name.as_str(),
+                s.notes.as_str(),
+                s.kind.as_str()
+            ),
+            ("v99.0.0", "Big one", "- New things", "none")
+        );
         assert_eq!(tell.as_deref(), Some("Big one"));
         assert!(!s.can_install, "not a tarball install, and no signature");
         assert!(!u.due(EVERY_MS + 1000), "a day apart");
@@ -247,8 +309,15 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let etc = d.path().join("etc/unix-guardian");
         std::fs::create_dir_all(&etc).unwrap();
-        std::fs::write(etc.join("update.toml"), format!("feed = \"file://{}/none.json\"\n", d.path().display())).unwrap();
+        std::fs::write(
+            etc.join("update.toml"),
+            format!("feed = \"file://{}/none.json\"\n", d.path().display()),
+        )
+        .unwrap();
         let (s, tell) = Updater::new(&d.path().join("cfg"), d.path()).check(5);
-        assert!(s.problem.contains("Could not reach") && s.latest.is_empty() && tell.is_none(), "{s:?}");
+        assert!(
+            s.problem.contains("Could not reach") && s.latest.is_empty() && tell.is_none(),
+            "{s:?}"
+        );
     }
 }

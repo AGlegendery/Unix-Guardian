@@ -421,7 +421,12 @@ pub struct AgentSettings {
 
 impl Default for AgentSettings {
     fn default() -> Self {
-        AgentSettings { notifications: true, scan_interval_s: 2, close_window_on_game: false, check_updates: true }
+        AgentSettings {
+            notifications: true,
+            scan_interval_s: 2,
+            close_window_on_game: false,
+            check_updates: true,
+        }
     }
 }
 

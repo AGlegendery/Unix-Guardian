@@ -41,14 +41,20 @@ fn walk(base: &Path, dir: &Path, level: u8, out: &mut Vec<Group>) {
             .collect();
         if !pids.is_empty() {
             if let Ok(rel) = dir.strip_prefix(base) {
-                out.push(Group { path: rel.to_string_lossy().into_owned(), level, pids });
+                out.push(Group {
+                    path: rel.to_string_lossy().into_owned(),
+                    level,
+                    pids,
+                });
             }
         }
     }
     if level >= MAX_LEVEL {
         return;
     }
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.flatten() {
         if e.file_type().is_ok_and(|t| t.is_dir()) {
             walk(base, &e.path(), level + 1, out);
@@ -73,7 +79,12 @@ pub fn label(path: &str, exe: &str) -> Label {
     let parts: Vec<&str> = path.split('/').collect();
     let uid = parts
         .iter()
-        .find_map(|p| p.strip_prefix("user-")?.strip_suffix(".slice")?.parse().ok())
+        .find_map(|p| {
+            p.strip_prefix("user-")?
+                .strip_suffix(".slice")?
+                .parse()
+                .ok()
+        })
         .unwrap_or(0);
     // The innermost systemd unit names the app; deeper groups are the app's own.
     let unit = parts
@@ -92,9 +103,19 @@ pub fn label(path: &str, exe: &str) -> Label {
         "service"
     };
     if session {
-        return Label { name: format!("Terminal and session ({})", if exe.is_empty() { "login" } else { exe }), kind, uid };
+        return Label {
+            name: format!(
+                "Terminal and session ({})",
+                if exe.is_empty() { "login" } else { exe }
+            ),
+            kind,
+            uid,
+        };
     }
-    let mut name = unit.trim_end_matches(".scope").trim_end_matches(".service").to_string();
+    let mut name = unit
+        .trim_end_matches(".scope")
+        .trim_end_matches(".service")
+        .to_string();
     if let Some(n) = name.strip_prefix("app-") {
         name = n.to_string();
     }
@@ -115,7 +136,11 @@ pub fn label(path: &str, exe: &str) -> Label {
         }
     }
     if name.is_empty() {
-        name = if exe.is_empty() { path.to_string() } else { exe.to_string() };
+        name = if exe.is_empty() {
+            path.to_string()
+        } else {
+            exe.to_string()
+        };
     }
     Label { name, kind, uid }
 }
@@ -126,7 +151,9 @@ fn unescape(s: &str) -> String {
     let mut rest = s;
     while let Some(i) = rest.find("\\x") {
         out.push_str(&rest[..i]);
-        let hex = rest.get(i + 2..i + 4).and_then(|h| u8::from_str_radix(h, 16).ok());
+        let hex = rest
+            .get(i + 2..i + 4)
+            .and_then(|h| u8::from_str_radix(h, 16).ok());
         match hex {
             Some(b) if b.is_ascii() => {
                 out.push(b as char);
@@ -146,14 +173,133 @@ fn unescape(s: &str) -> String {
 /// their app or command name.
 const CATALOG: &[(&str, &[&str])] = &[
     // First: a VPN or proxy carries other apps' traffic (see `nft`).
-    ("vpn", &["v2rayn", "v2ray", "xray", "sing-box", "singbox", "clash", "mihomo", "hysteria", "tun2socks", "nekoray", "nekobox", "throne", "hiddify", "openvpn", "wireguard-go", "warp-svc", "outline", "shadowsocks", "ss-local", "trojan", "naiveproxy", "tailscaled", "psiphon", "lantern"]),
+    (
+        "vpn",
+        &[
+            "v2rayn",
+            "v2ray",
+            "xray",
+            "sing-box",
+            "singbox",
+            "clash",
+            "mihomo",
+            "hysteria",
+            "tun2socks",
+            "nekoray",
+            "nekobox",
+            "throne",
+            "hiddify",
+            "openvpn",
+            "wireguard-go",
+            "warp-svc",
+            "outline",
+            "shadowsocks",
+            "ss-local",
+            "trojan",
+            "naiveproxy",
+            "tailscaled",
+            "psiphon",
+            "lantern",
+        ],
+    ),
     // DNS managers answer every other app's lookups; slowing them slows all.
-    ("dns", &["systemd-resolve", "resolved", "dnsmasq", "dnscrypt", "stubby", "unbound", "networkmanager", "nextdns", "adguardhome", "coredns", "pdnsd", "kresd", "dnsproxy", "smartdns", "dnsdist", "cloudflared", "dns"]),
-    ("torrent", &["qbittorrent", "transmission", "deluge", "ktorrent", "fragments", "rtorrent", "aria2c", "tixati", "biglybt"]),
-    ("sync", &["dropbox", "syncthing", "nextcloud", "owncloud", "megasync", "onedrive", "insync", "rclone", "seafile", "pcloud", "maestral", "rsync"]),
-    ("updates", &["packagekit", "flatpak-system-helper", "snapd", "apt", "dnf", "zypper", "pamac", "discover", "fwupd", "unattended-upgr", "gnome-software", "mintupdate"]),
-    ("launcher", &["steam", "epicgameslauncher", "heroic", "lutris", "battle.net", "legendary", "itch", "gogdl", "bottles"]),
-    ("backup", &["backblaze", "duplicati", "deja-dup", "restic", "borg", "timeshift", "kopia", "vorta"]),
+    (
+        "dns",
+        &[
+            "systemd-resolve",
+            "resolved",
+            "dnsmasq",
+            "dnscrypt",
+            "stubby",
+            "unbound",
+            "networkmanager",
+            "nextdns",
+            "adguardhome",
+            "coredns",
+            "pdnsd",
+            "kresd",
+            "dnsproxy",
+            "smartdns",
+            "dnsdist",
+            "cloudflared",
+            "dns",
+        ],
+    ),
+    (
+        "torrent",
+        &[
+            "qbittorrent",
+            "transmission",
+            "deluge",
+            "ktorrent",
+            "fragments",
+            "rtorrent",
+            "aria2c",
+            "tixati",
+            "biglybt",
+        ],
+    ),
+    (
+        "sync",
+        &[
+            "dropbox",
+            "syncthing",
+            "nextcloud",
+            "owncloud",
+            "megasync",
+            "onedrive",
+            "insync",
+            "rclone",
+            "seafile",
+            "pcloud",
+            "maestral",
+            "rsync",
+        ],
+    ),
+    (
+        "updates",
+        &[
+            "packagekit",
+            "flatpak-system-helper",
+            "snapd",
+            "apt",
+            "dnf",
+            "zypper",
+            "pamac",
+            "discover",
+            "fwupd",
+            "unattended-upgr",
+            "gnome-software",
+            "mintupdate",
+        ],
+    ),
+    (
+        "launcher",
+        &[
+            "steam",
+            "epicgameslauncher",
+            "heroic",
+            "lutris",
+            "battle.net",
+            "legendary",
+            "itch",
+            "gogdl",
+            "bottles",
+        ],
+    ),
+    (
+        "backup",
+        &[
+            "backblaze",
+            "duplicati",
+            "deja-dup",
+            "restic",
+            "borg",
+            "timeshift",
+            "kopia",
+            "vorta",
+        ],
+    ),
     ("streaming", &["obs"]),
 ];
 
@@ -166,7 +312,8 @@ pub fn category(name: &str, exe: &str) -> &'static str {
             // or "jobs" do not count; substring for the distinctive ones.
             let hit = |s: &str| {
                 if w.len() <= 4 {
-                    s.split(|c: char| !c.is_ascii_alphanumeric()).any(|part| part == *w)
+                    s.split(|c: char| !c.is_ascii_alphanumeric())
+                        .any(|part| part == *w)
                 } else {
                     s.contains(w)
                 }
@@ -181,7 +328,9 @@ pub fn category(name: &str, exe: &str) -> &'static str {
 
 /// The command name of a process, from `/proc/<pid>/comm`.
 pub fn comm(root: &SysRoot, pid: i32) -> String {
-    std::fs::read_to_string(root.join(format!("proc/{pid}/comm"))).map(|s| s.trim().to_string()).unwrap_or_default()
+    std::fs::read_to_string(root.join(format!("proc/{pid}/comm")))
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -194,9 +343,15 @@ mod tests {
     #[test]
     fn scan_finds_groups_with_processes_only() {
         let fs = TestFs::new();
-        fs.write(format!("sys/fs/cgroup/{APPS}/app-com.google.Chrome-6072.scope/cgroup.procs"), "6072\n6100");
+        fs.write(
+            format!("sys/fs/cgroup/{APPS}/app-com.google.Chrome-6072.scope/cgroup.procs"),
+            "6072\n6100",
+        );
         fs.write(format!("sys/fs/cgroup/{APPS}/cgroup.procs"), "");
-        fs.write("sys/fs/cgroup/system.slice/packagekit.service/cgroup.procs", "812");
+        fs.write(
+            "sys/fs/cgroup/system.slice/packagekit.service/cgroup.procs",
+            "812",
+        );
         fs.write("sys/fs/cgroup/system.slice/cgroup.procs", "");
         fs.write("sys/fs/cgroup/init.scope/cgroup.procs", "1"); // level 1: not counted
         let got = scan(&SysRoot::at(fs.root()));
@@ -217,7 +372,11 @@ mod tests {
         assert_eq!(category("v2rayn", "xray"), "vpn");
         assert_eq!(category("sing-box", ""), "vpn");
         assert_eq!(category("mullvad-xray-helper", ""), "vpn");
-        assert_eq!(category("jobs-app", "captain"), "", "short words match whole words only");
+        assert_eq!(
+            category("jobs-app", "captain"),
+            "",
+            "short words match whole words only"
+        );
         assert_eq!(category("firefox-esr", "firefox-esr"), "");
         assert_eq!(category("systemd-resolved", "systemd-resolve"), "dns");
         assert_eq!(category("NetworkManager", "NetworkManager"), "dns");
@@ -227,20 +386,38 @@ mod tests {
 
     #[test]
     fn labels_read_like_app_names() {
-        let l = label(&format!("{APPS}/app-com.google.Chrome-6072.scope"), "chrome");
+        let l = label(
+            &format!("{APPS}/app-com.google.Chrome-6072.scope"),
+            "chrome",
+        );
         assert_eq!((l.name.as_str(), l.kind, l.uid), ("Chrome", "app", 1000));
-        let l = label(&format!("{APPS}/app-firefox\\x2desr@7fb6f6ecbac84ba091c548cd422013d2.service"), "firefox-esr");
+        let l = label(
+            &format!("{APPS}/app-firefox\\x2desr@7fb6f6ecbac84ba091c548cd422013d2.service"),
+            "firefox-esr",
+        );
         assert_eq!(l.name, "firefox-esr");
-        let l = label(&format!("{APPS}/app-org.kde.konsole-344352.scope"), "konsole");
+        let l = label(
+            &format!("{APPS}/app-org.kde.konsole-344352.scope"),
+            "konsole",
+        );
         assert_eq!(l.name, "konsole");
         let l = label("system.slice/packagekit.service", "packagekitd");
-        assert_eq!((l.name.as_str(), l.kind, l.uid), ("packagekit", "service", 0));
+        assert_eq!(
+            (l.name.as_str(), l.kind, l.uid),
+            ("packagekit", "service", 0)
+        );
         let l = label("user.slice/user-1000.slice/session-2.scope", "sddm-helper");
         assert_eq!(l.kind, "session");
-        let l = label("user.slice/user-1000.slice/user@1000.service/session.slice/pipewire.service", "pipewire");
+        let l = label(
+            "user.slice/user-1000.slice/user@1000.service/session.slice/pipewire.service",
+            "pipewire",
+        );
         assert_eq!((l.name.as_str(), l.kind), ("pipewire", "service"));
         // An app's own sub-group is still the app.
-        let l = label(&format!("{APPS}/app-steam@abc.service/steamwebhelper"), "steamwebhelper");
+        let l = label(
+            &format!("{APPS}/app-steam@abc.service/steamwebhelper"),
+            "steamwebhelper",
+        );
         assert_eq!(l.name, "steam");
     }
 }

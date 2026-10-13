@@ -227,7 +227,11 @@ mod tests {
         // 50 more busy jiffies, 50 more idle => 50%.
         fs.proc_stat(2, 150, 950);
         let load = r.read(&root);
-        assert!((load.total_pct - 50.0).abs() < 0.001, "got {}", load.total_pct);
+        assert!(
+            (load.total_pct - 50.0).abs() < 0.001,
+            "got {}",
+            load.total_pct
+        );
         assert!((load.per_core_pct[0] - 50.0).abs() < 0.001);
     }
 
@@ -272,7 +276,10 @@ mod tests {
         assert_eq!(st.driver.as_deref(), Some("intel_pstate"));
         assert_eq!(st.epp.as_deref(), Some("balance_power"));
         assert_eq!(st.freq_avg_mhz, 3000);
-        assert_eq!(st.freq_max_mhz, 3600, "a boosting core survives the average");
+        assert_eq!(
+            st.freq_max_mhz, 3600,
+            "a boosting core survives the average"
+        );
     }
 
     #[test]

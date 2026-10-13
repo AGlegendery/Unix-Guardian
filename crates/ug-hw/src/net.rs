@@ -117,7 +117,10 @@ mod tests {
     #[test]
     fn lowest_metric_default_route_wins() {
         let fs = route_fs();
-        assert_eq!(default_iface(&SysRoot::at(fs.root())).as_deref(), Some("eth0"));
+        assert_eq!(
+            default_iface(&SysRoot::at(fs.root())).as_deref(),
+            Some("eth0")
+        );
     }
 
     #[test]
@@ -148,7 +151,11 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(100));
         fs.write("sys/class/net/eth0/statistics/rx_bytes", "11000");
         let second = r.read(&root);
-        assert!(second.rx_bps > 50_000, "10 kB in ~0.1 s, got {}", second.rx_bps);
+        assert!(
+            second.rx_bps > 50_000,
+            "10 kB in ~0.1 s, got {}",
+            second.rx_bps
+        );
     }
 
     #[test]

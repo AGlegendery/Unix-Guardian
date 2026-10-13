@@ -13,7 +13,10 @@ use std::path::{Path, PathBuf};
 fn installs(home: &Path) -> Vec<(PathBuf, Vec<PathBuf>)> {
     let native = (
         home.join(".local/share/lutris/pga.db"),
-        vec![home.join(".local/share/lutris/games"), home.join(".config/lutris/games")],
+        vec![
+            home.join(".local/share/lutris/games"),
+            home.join(".config/lutris/games"),
+        ],
     );
     let flatpak = (
         home.join(".var/app/net.lutris.Lutris/data/lutris/pga.db"),
@@ -22,7 +25,10 @@ fn installs(home: &Path) -> Vec<(PathBuf, Vec<PathBuf>)> {
             home.join(".var/app/net.lutris.Lutris/config/lutris/games"),
         ],
     );
-    [native, flatpak].into_iter().filter(|(db, _)| db.is_file()).collect()
+    [native, flatpak]
+        .into_iter()
+        .filter(|(db, _)| db.is_file())
+        .collect()
 }
 
 pub fn scan(home: &Path) -> Vec<InstalledGame> {
@@ -30,7 +36,9 @@ pub fn scan(home: &Path) -> Vec<InstalledGame> {
     for (db_path, config_dirs) in installs(home) {
         match read_db(&db_path, &config_dirs) {
             Ok(mut games) => out.append(&mut games),
-            Err(e) => tracing::warn!(db = %db_path.display(), error = %e, "could not read Lutris library"),
+            Err(e) => {
+                tracing::warn!(db = %db_path.display(), error = %e, "could not read Lutris library")
+            }
         }
     }
     out
@@ -54,10 +62,14 @@ fn read_db(db_path: &Path, config_dirs: &[PathBuf]) -> rusqlite::Result<Vec<Inst
     let mut games = Vec::new();
     for row in rows.flatten() {
         let (id, name, directory, configpath) = row;
-        let Some(name) = name.filter(|n| !n.is_empty()) else { continue };
-        let exe = configpath
-            .as_deref()
-            .and_then(|cp| config_dirs.iter().find_map(|d| exe_from_config(&d.join(format!("{cp}.yml")))));
+        let Some(name) = name.filter(|n| !n.is_empty()) else {
+            continue;
+        };
+        let exe = configpath.as_deref().and_then(|cp| {
+            config_dirs
+                .iter()
+                .find_map(|d| exe_from_config(&d.join(format!("{cp}.yml"))))
+        });
         games.push(InstalledGame {
             id: format!("lutris:{id}"),
             name,

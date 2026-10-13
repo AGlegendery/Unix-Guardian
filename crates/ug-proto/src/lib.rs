@@ -184,7 +184,13 @@ pub mod daemon {
         /// Queues it for `at_unix_ms`, repeating `once`, `daily` or `weekly`.
         /// Survives daemon restarts; a one-off time missed while the daemon
         /// was down is dropped, never run late.
-        fn schedule(&self, action: &str, at_unix_ms: u64, repeat: &str, note: &str) -> zbus::Result<PowerJob>;
+        fn schedule(
+            &self,
+            action: &str,
+            at_unix_ms: u64,
+            repeat: &str,
+            note: &str,
+        ) -> zbus::Result<PowerJob>;
 
         /// The queue, soonest first.
         fn jobs(&self) -> zbus::Result<Vec<PowerJob>>;
@@ -202,7 +208,15 @@ pub mod daemon {
         /// `cpu-idle` (load below `threshold` % for `minutes`),
         /// `process-gone` (the process `name` has exited), `game-over` (the
         /// running game has ended).
-        fn when(&self, action: &str, kind: &str, threshold: f64, minutes: u32, name: &str, note: &str) -> zbus::Result<PowerWatch>;
+        fn when(
+            &self,
+            action: &str,
+            kind: &str,
+            threshold: f64,
+            minutes: u32,
+            name: &str,
+            note: &str,
+        ) -> zbus::Result<PowerWatch>;
 
         fn watches(&self) -> zbus::Result<Vec<PowerWatch>>;
 
@@ -361,7 +375,13 @@ pub mod daemon {
         fn background(&self) -> zbus::Result<(bool, u32, u32, String)>;
 
         /// Turns "slow down background apps" on or off (polkit, as rules).
-        fn set_background(&self, on: bool, up_kbps: u32, down_kbps: u32, when: &str) -> zbus::Result<()>;
+        fn set_background(
+            &self,
+            on: bool,
+            up_kbps: u32,
+            down_kbps: u32,
+            when: &str,
+        ) -> zbus::Result<()>;
 
         /// Every app and service with its traffic, busiest first. Asking
         /// makes the next minute's rates update every two seconds.
@@ -373,7 +393,14 @@ pub mod daemon {
         /// Blocks an app, or caps its upload and/or download in kbit/s
         /// (0 = no cap), `always` or only while `gaming`. Needs the
         /// `org.unixguardian.net.control` polkit action.
-        fn set_rule(&self, app: &str, block: bool, up_kbps: u32, down_kbps: u32, when: &str) -> zbus::Result<()>;
+        fn set_rule(
+            &self,
+            app: &str,
+            block: bool,
+            up_kbps: u32,
+            down_kbps: u32,
+            when: &str,
+        ) -> zbus::Result<()>;
 
         /// Removes an app's rule; false if it had none.
         fn remove_rule(&self, app: &str) -> zbus::Result<bool>;
@@ -408,10 +435,20 @@ pub mod agent {
         fn launch_options(&self, appid: u32) -> zbus::Result<LaunchInfo>;
         /// The launch options this choice would give (nothing is written).
         /// `gpu` is a PCI address or "" for the system's choice.
-        fn preview_launch_options(&self, appid: u32, gpu: &str, overlay: bool) -> zbus::Result<String>;
+        fn preview_launch_options(
+            &self,
+            appid: u32,
+            gpu: &str,
+            overlay: bool,
+        ) -> zbus::Result<String>;
         /// Writes them into Steam's settings (Steam must be closed; backed up
         /// first). Returns (options, backup path).
-        fn set_launch_options(&self, appid: u32, gpu: &str, overlay: bool) -> zbus::Result<(String, String)>;
+        fn set_launch_options(
+            &self,
+            appid: u32,
+            gpu: &str,
+            overlay: bool,
+        ) -> zbus::Result<(String, String)>;
         /// Puts the game's own launch options back.
         fn undo_launch_options(&self, appid: u32) -> zbus::Result<(String, String)>;
 
@@ -474,17 +511,31 @@ pub mod agent {
     )]
     pub trait Monitor {
         /// Readings between two times, averaged into at most `points` buckets.
-        fn history(&self, since_unix_ms: u64, until_unix_ms: u64, points: u32) -> zbus::Result<Vec<HistoryPoint>>;
+        fn history(
+            &self,
+            since_unix_ms: u64,
+            until_unix_ms: u64,
+            points: u32,
+        ) -> zbus::Result<Vec<HistoryPoint>>;
 
         /// Bytes received and sent per local day since `since_unix_ms`.
         fn traffic(&self, since_unix_ms: u64) -> zbus::Result<Vec<DayTraffic>>;
 
         /// Bytes received and sent in equal buckets from `since_unix_ms`
         /// (an hour each from local midnight: a day's hours).
-        fn traffic_buckets(&self, since_unix_ms: u64, until_unix_ms: u64, bucket_ms: u64) -> zbus::Result<Vec<TrafficBucket>>;
+        fn traffic_buckets(
+            &self,
+            since_unix_ms: u64,
+            until_unix_ms: u64,
+            bucket_ms: u64,
+        ) -> zbus::Result<Vec<TrafficBucket>>;
 
         /// Each app's internet use between two times, most used first.
-        fn app_traffic(&self, since_unix_ms: u64, until_unix_ms: u64) -> zbus::Result<Vec<AppUsage>>;
+        fn app_traffic(
+            &self,
+            since_unix_ms: u64,
+            until_unix_ms: u64,
+        ) -> zbus::Result<Vec<AppUsage>>;
 
         /// Starts the traffic counts again from now (totals, days and apps).
         fn reset_traffic(&self) -> zbus::Result<bool>;
@@ -519,7 +570,12 @@ pub mod agent {
         fn recent(&self, since_unix_ms: u64) -> zbus::Result<PingReport>;
 
         /// Stats for the `window_s` seconds before and after `mark_unix_ms`.
-        fn compare(&self, target: &str, mark_unix_ms: u64, window_s: u32) -> zbus::Result<PingComparison>;
+        fn compare(
+            &self,
+            target: &str,
+            mark_unix_ms: u64,
+            window_s: u32,
+        ) -> zbus::Result<PingComparison>;
     }
 
     /// The tray icon the agent shows.

@@ -14,17 +14,27 @@ use std::collections::BTreeSet;
 /// its file descriptors cannot be read (another user's process).
 pub fn gpus_of(root: &SysRoot, pid: i32) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
-    let Ok(dir) = std::fs::read_dir(root.join(format!("proc/{pid}/fd"))) else { return out };
+    let Ok(dir) = std::fs::read_dir(root.join(format!("proc/{pid}/fd"))) else {
+        return out;
+    };
     for e in dir.flatten() {
-        let Ok(target) = std::fs::read_link(e.path()) else { continue };
+        let Ok(target) = std::fs::read_link(e.path()) else {
+            continue;
+        };
         let Some(t) = target.to_str() else { continue };
         if t.starts_with("/dev/dri/") {
             let fd = e.file_name();
-            let info = std::fs::read_to_string(root.join(format!("proc/{pid}/fdinfo/{}", fd.to_string_lossy()))).unwrap_or_default();
+            let info = std::fs::read_to_string(
+                root.join(format!("proc/{pid}/fdinfo/{}", fd.to_string_lossy())),
+            )
+            .unwrap_or_default();
             if let Some(pci) = busy_pdev(&info) {
                 out.insert(pci);
             }
-        } else if let Some(minor) = t.strip_prefix("/dev/nvidia").and_then(|m| m.parse::<u32>().ok()) {
+        } else if let Some(minor) = t
+            .strip_prefix("/dev/nvidia")
+            .and_then(|m| m.parse::<u32>().ok())
+        {
             if let Some(pci) = nvidia_pci(root, minor) {
                 out.insert(pci);
             }
@@ -42,7 +52,11 @@ fn busy_pdev(fdinfo: &str) -> Option<String> {
         if let Some(v) = l.strip_prefix("drm-pdev:") {
             pdev = Some(v.trim().to_string());
         } else if l.starts_with("drm-engine-") && !l.starts_with("drm-engine-capacity") {
-            let n: u64 = l.split(':').nth(1).and_then(|v| v.split_whitespace().next()?.parse().ok()).unwrap_or(0);
+            let n: u64 = l
+                .split(':')
+                .nth(1)
+                .and_then(|v| v.split_whitespace().next()?.parse().ok())
+                .unwrap_or(0);
             busy |= n > 0;
         }
     }
@@ -51,9 +65,14 @@ fn busy_pdev(fdinfo: &str) -> Option<String> {
 
 /// The PCI address of `/dev/nvidia<minor>`, from the driver's own listing.
 fn nvidia_pci(root: &SysRoot, minor: u32) -> Option<String> {
-    for e in std::fs::read_dir(root.join("proc/driver/nvidia/gpus")).ok()?.flatten() {
+    for e in std::fs::read_dir(root.join("proc/driver/nvidia/gpus"))
+        .ok()?
+        .flatten()
+    {
         let info = std::fs::read_to_string(e.path().join("information")).unwrap_or_default();
-        let m = info.lines().find_map(|l| l.strip_prefix("Device Minor:")?.trim().parse::<u32>().ok());
+        let m = info
+            .lines()
+            .find_map(|l| l.strip_prefix("Device Minor:")?.trim().parse::<u32>().ok());
         if m == Some(minor) {
             return e.file_name().to_str().map(str::to_string);
         }
@@ -69,7 +88,10 @@ pub fn gpu_of_game(root: &SysRoot, pids: &[i32], boot_vga: &str) -> Option<Strin
     for &p in pids {
         all.extend(gpus_of(root, p));
     }
-    all.iter().find(|g| g.as_str() != boot_vga).or_else(|| all.iter().next()).cloned()
+    all.iter()
+        .find(|g| g.as_str() != boot_vga)
+        .or_else(|| all.iter().next())
+        .cloned()
 }
 
 /// A display GPU the machine has, as the kernel lists it.
@@ -108,9 +130,15 @@ pub fn gpus(root: &SysRoot) -> Vec<Gpu> {
         })
         .filter_map(|e| {
             let dev = e.path().join("device");
-            let pci = std::fs::read_link(&dev).ok()?.file_name()?.to_str()?.to_string();
+            let pci = std::fs::read_link(&dev)
+                .ok()?
+                .file_name()?
+                .to_str()?
+                .to_string();
             let hex = |f: &str| {
-                std::fs::read_to_string(dev.join(f)).ok().and_then(|s| u16::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok())
+                std::fs::read_to_string(dev.join(f))
+                    .ok()
+                    .and_then(|s| u16::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok())
             };
             let driver = std::fs::read_link(dev.join("driver"))
                 .ok()
@@ -120,7 +148,8 @@ pub fn gpus(root: &SysRoot) -> Vec<Gpu> {
                 pci,
                 vendor: hex("vendor")?,
                 device: hex("device").unwrap_or(0),
-                boot_vga: std::fs::read_to_string(dev.join("boot_vga")).is_ok_and(|b| b.trim() == "1"),
+                boot_vga: std::fs::read_to_string(dev.join("boot_vga"))
+                    .is_ok_and(|b| b.trim() == "1"),
                 driver,
             })
         })
@@ -148,17 +177,27 @@ pub fn pick<'a>(gpus: &'a [Gpu], want: &str) -> Option<&'a Gpu> {
 /// for everything else. For the integrated GPU, Vulkan is pinned to it too:
 /// programs such as vkcube otherwise pick the discrete card on their own.
 pub fn offload_env(root: &SysRoot, gpu: &Gpu) -> Vec<(String, String)> {
-    let dri = ("DRI_PRIME".to_string(), format!("pci-{}", gpu.pci.replace([':', '.'], "_")));
+    let dri = (
+        "DRI_PRIME".to_string(),
+        format!("pci-{}", gpu.pci.replace([':', '.'], "_")),
+    );
     if gpu.driver == "nvidia" {
-        [("__NV_PRIME_RENDER_OFFLOAD", "1"), ("__GLX_VENDOR_LIBRARY_NAME", "nvidia"), ("__VK_LAYER_NV_optimus", "NVIDIA_only")]
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .to_vec()
+        [
+            ("__NV_PRIME_RENDER_OFFLOAD", "1"),
+            ("__GLX_VENDOR_LIBRARY_NAME", "nvidia"),
+            ("__VK_LAYER_NV_optimus", "NVIDIA_only"),
+        ]
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .to_vec()
     } else if gpu.boot_vga {
         vec![
             dri,
             // Mesa's device-select layer: this GPU only (`!`), which also
             // keeps Vulkan programs off the NVIDIA card.
-            ("MESA_VK_DEVICE_SELECT".into(), format!("{:04x}:{:04x}!", gpu.vendor, gpu.device)),
+            (
+                "MESA_VK_DEVICE_SELECT".into(),
+                format!("{:04x}:{:04x}!", gpu.vendor, gpu.device),
+            ),
             ("__GLX_VENDOR_LIBRARY_NAME".into(), "mesa".into()),
         ]
         .into_iter()
@@ -174,12 +213,25 @@ pub fn offload_env(root: &SysRoot, gpu: &Gpu) -> Vec<(String, String)> {
 fn mesa_icds(root: &SysRoot) -> Option<String> {
     let mut v: Vec<String> = ["usr/share/vulkan/icd.d", "etc/vulkan/icd.d"]
         .iter()
-        .flat_map(|d| std::fs::read_dir(root.join(d)).into_iter().flatten().flatten())
+        .flat_map(|d| {
+            std::fs::read_dir(root.join(d))
+                .into_iter()
+                .flatten()
+                .flatten()
+        })
         .filter(|e| {
             let n = e.file_name().to_string_lossy().to_lowercase();
             n.ends_with(".json") && !n.contains("nvidia")
         })
-        .map(|e| format!("/{}", e.path().strip_prefix(root.join("")).unwrap_or(&e.path()).display()))
+        .map(|e| {
+            format!(
+                "/{}",
+                e.path()
+                    .strip_prefix(root.join(""))
+                    .unwrap_or(&e.path())
+                    .display()
+            )
+        })
         .collect();
     v.sort();
     (!v.is_empty()).then(|| v.join(":"))
@@ -187,7 +239,10 @@ fn mesa_icds(root: &SysRoot) -> Option<String> {
 
 /// The same as a line for a game's launch options in Steam.
 pub fn launch_options(root: &SysRoot, gpu: &Gpu) -> String {
-    let env: Vec<String> = offload_env(root, gpu).into_iter().map(|(k, v)| format!("{k}={v}")).collect();
+    let env: Vec<String> = offload_env(root, gpu)
+        .into_iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect();
     format!("{} %command%", env.join(" "))
 }
 
@@ -199,11 +254,23 @@ mod tests {
 
     fn laptop() -> TestFs {
         let fs = TestFs::new();
-        for (node, pci) in [("renderD128", "0000:00:02.0"), ("renderD129", "0000:01:00.0"), ("card0", "0000:00:02.0")] {
-            fs.dir(format!("sys/devices/pci0000:00/{pci}")).dir(format!("sys/class/drm/{node}"));
-            symlink(format!("../../../devices/pci0000:00/{pci}"), fs.root().join(format!("sys/class/drm/{node}/device"))).unwrap();
+        for (node, pci) in [
+            ("renderD128", "0000:00:02.0"),
+            ("renderD129", "0000:01:00.0"),
+            ("card0", "0000:00:02.0"),
+        ] {
+            fs.dir(format!("sys/devices/pci0000:00/{pci}"))
+                .dir(format!("sys/class/drm/{node}"));
+            symlink(
+                format!("../../../devices/pci0000:00/{pci}"),
+                fs.root().join(format!("sys/class/drm/{node}/device")),
+            )
+            .unwrap();
         }
-        fs.write("proc/driver/nvidia/gpus/0000:01:00.0/information", "Model: RTX 3050\nDevice Minor: \t 0\n");
+        fs.write(
+            "proc/driver/nvidia/gpus/0000:01:00.0/information",
+            "Model: RTX 3050\nDevice Minor: \t 0\n",
+        );
         fs
     }
 
@@ -228,7 +295,10 @@ mod tests {
         open(&fs, 10, 4, "/dev/null");
         let root = SysRoot::at(fs.root());
         assert_eq!(gpus_of(&root, 10), ["0000:00:02.0".to_string()].into());
-        assert_eq!(gpu_of_game(&root, &[10], "0000:00:02.0").as_deref(), Some("0000:00:02.0"));
+        assert_eq!(
+            gpu_of_game(&root, &[10], "0000:00:02.0").as_deref(),
+            Some("0000:00:02.0")
+        );
     }
 
     #[test]
@@ -241,7 +311,10 @@ mod tests {
         open(&fs, 20, 5, "/dev/nvidiactl");
         let root = SysRoot::at(fs.root());
         assert_eq!(gpus_of(&root, 20).len(), 2, "nvidiactl is not a GPU");
-        assert_eq!(gpu_of_game(&root, &[20, 21], "0000:00:02.0").as_deref(), Some("0000:01:00.0"));
+        assert_eq!(
+            gpu_of_game(&root, &[20, 21], "0000:00:02.0").as_deref(),
+            Some("0000:01:00.0")
+        );
     }
 
     #[test]
@@ -253,15 +326,29 @@ mod tests {
         open(&fs, 30, 8, "/dev/dri/renderD129");
         fs.write("proc/30/fdinfo/8", "pos:\t0\nflags:\t02100002");
         let root = SysRoot::at(fs.root());
-        assert_eq!(gpu_of_game(&root, &[30], "0000:00:02.0").as_deref(), Some("0000:00:02.0"));
+        assert_eq!(
+            gpu_of_game(&root, &[30], "0000:00:02.0").as_deref(),
+            Some("0000:00:02.0")
+        );
     }
 
     fn card(fs: &TestFs, n: u32, pci: &str, vendor: &str, boot: bool, driver: &str) {
         let dev = format!("sys/devices/pci0000:00/{pci}");
-        fs.write(format!("{dev}/vendor"), vendor).write(format!("{dev}/device"), "0x25a2").write(format!("{dev}/boot_vga"), if boot { "1" } else { "0" });
-        fs.dir(format!("sys/bus/pci/drivers/{driver}")).dir(format!("sys/class/drm/card{n}"));
-        symlink(format!("../../../../bus/pci/drivers/{driver}"), fs.root().join(format!("{dev}/driver"))).unwrap();
-        symlink(format!("../../../devices/pci0000:00/{pci}"), fs.root().join(format!("sys/class/drm/card{n}/device"))).unwrap();
+        fs.write(format!("{dev}/vendor"), vendor)
+            .write(format!("{dev}/device"), "0x25a2")
+            .write(format!("{dev}/boot_vga"), if boot { "1" } else { "0" });
+        fs.dir(format!("sys/bus/pci/drivers/{driver}"))
+            .dir(format!("sys/class/drm/card{n}"));
+        symlink(
+            format!("../../../../bus/pci/drivers/{driver}"),
+            fs.root().join(format!("{dev}/driver")),
+        )
+        .unwrap();
+        symlink(
+            format!("../../../devices/pci0000:00/{pci}"),
+            fs.root().join(format!("sys/class/drm/card{n}/device")),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -271,7 +358,8 @@ mod tests {
         card(&fs, 1, "0000:01:00.0", "0x10de", false, "nvidia");
         card(&fs, 2, "0000:03:00.0", "0x1002", false, "amdgpu");
         let root = SysRoot::at(fs.root());
-        fs.write("usr/share/vulkan/icd.d/intel_icd.json", "{}").write("usr/share/vulkan/icd.d/nvidia_icd.json", "{}");
+        fs.write("usr/share/vulkan/icd.d/intel_icd.json", "{}")
+            .write("usr/share/vulkan/icd.d/nvidia_icd.json", "{}");
         let g = gpus(&root);
         assert_eq!(g.len(), 3);
         assert!(g[0].boot_vga);
@@ -279,10 +367,22 @@ mod tests {
         assert_eq!(nv.driver, "nvidia");
         assert_eq!(launch_options(&root, nv), "__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only %command%");
         let amd = pick(&g, "amd").unwrap();
-        assert_eq!(offload_env(&root, amd), vec![("DRI_PRIME".to_string(), "pci-0000_03_00_0".to_string())]);
+        assert_eq!(
+            offload_env(&root, amd),
+            vec![("DRI_PRIME".to_string(), "pci-0000_03_00_0".to_string())]
+        );
         let igpu = offload_env(&root, pick(&g, "integrated").unwrap());
-        assert!(igpu.contains(&("VK_DRIVER_FILES".to_string(), "/usr/share/vulkan/icd.d/intel_icd.json".to_string())), "{igpu:?}");
-        assert!(igpu.contains(&("MESA_VK_DEVICE_SELECT".to_string(), "8086:25a2!".to_string())));
+        assert!(
+            igpu.contains(&(
+                "VK_DRIVER_FILES".to_string(),
+                "/usr/share/vulkan/icd.d/intel_icd.json".to_string()
+            )),
+            "{igpu:?}"
+        );
+        assert!(igpu.contains(&(
+            "MESA_VK_DEVICE_SELECT".to_string(),
+            "8086:25a2!".to_string()
+        )));
         assert!(igpu.contains(&("DRI_PRIME".to_string(), "pci-0000_00_02_0".to_string())));
         assert_eq!(pick(&g, "01:00.0").unwrap().vendor_name(), "nvidia");
         assert!(pick(&g, "matrox").is_none());

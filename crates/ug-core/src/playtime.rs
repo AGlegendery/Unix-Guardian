@@ -38,7 +38,9 @@ pub fn local_midnight_ms() -> u64 {
 /// a day with a clock change is 23 or 25 hours), as Unix milliseconds.
 pub fn local_day_ms(date: &str) -> Option<(u64, u64)> {
     let mut it = date.split('-').map(|p| p.parse::<i32>().ok());
-    let (Some(Some(y)), Some(Some(m)), Some(Some(d)), None) = (it.next(), it.next(), it.next(), it.next()) else {
+    let (Some(Some(y)), Some(Some(m)), Some(Some(d)), None) =
+        (it.next(), it.next(), it.next(), it.next())
+    else {
         return None;
     };
     if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
@@ -87,7 +89,10 @@ pub fn local_week(unix_ms: u64) -> (u64, u64) {
         tm.tm_wday
     };
     let back = (wday + 1) % 7;
-    (local_midnight_offset(unix_ms, -back), local_midnight_offset(unix_ms, 7 - back))
+    (
+        local_midnight_offset(unix_ms, -back),
+        local_midnight_offset(unix_ms, 7 - back),
+    )
 }
 
 /// The local calendar month holding `unix_ms`: its first midnight and the
@@ -105,7 +110,10 @@ pub fn local_month(unix_ms: u64) -> (u64, u64) {
         tm.tm_isdst = -1;
         let mut next = tm;
         next.tm_mon += 1;
-        ((libc::mktime(&mut tm).max(0) as u64) * 1000, (libc::mktime(&mut next).max(0) as u64) * 1000)
+        (
+            (libc::mktime(&mut tm).max(0) as u64) * 1000,
+            (libc::mktime(&mut next).max(0) as u64) * 1000,
+        )
     }
 }
 
@@ -122,7 +130,10 @@ fn local_hour(unix_ms: u64) -> usize {
 
 /// Seconds of a session inside `[a, b)`.
 pub fn overlap_s(s: &PlaytimeSession, a: u64, b: u64) -> u64 {
-    s.ended_unix_ms.min(b).saturating_sub(s.started_unix_ms.max(a)) / 1000
+    s.ended_unix_ms
+        .min(b)
+        .saturating_sub(s.started_unix_ms.max(a))
+        / 1000
 }
 
 /// Seconds played on each of the `n` local days ending today: (that day's
@@ -147,7 +158,10 @@ pub fn per_hour(sessions: &[PlaytimeSession]) -> [u64; 24] {
             // The next whole hour (every zone's offset here is whole minutes,
             // so stepping to the next minute boundary of a whole hour works).
             let next = ((t / 3_600_000) + 1) * 3_600_000;
-            let next = (t..=next).step_by(60_000).find(|m| *m > t && local_hour(*m) != local_hour(t)).unwrap_or(next);
+            let next = (t..=next)
+                .step_by(60_000)
+                .find(|m| *m > t && local_hour(*m) != local_hour(t))
+                .unwrap_or(next);
             let end = next.min(s.ended_unix_ms);
             out[local_hour(t)] += (end - t) / 1000;
             t = end;
@@ -224,7 +238,9 @@ pub fn csv_row(s: &PlaytimeSession) -> String {
 
 /// The user's Downloads folder (from `user-dirs.dirs`), else their home.
 pub fn downloads_dir() -> PathBuf {
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"));
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
     let dirs = crate::gpu_default::config_home().join("user-dirs.dirs");
     std::fs::read_to_string(dirs)
         .ok()
@@ -234,7 +250,9 @@ pub fn downloads_dir() -> PathBuf {
 }
 
 fn downloads_from(user_dirs: &str, home: &Path) -> Option<PathBuf> {
-    let v = user_dirs.lines().find_map(|l| l.trim().strip_prefix("XDG_DOWNLOAD_DIR="))?;
+    let v = user_dirs
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("XDG_DOWNLOAD_DIR="))?;
     let v = v.trim().trim_matches('"');
     Some(match v.strip_prefix("$HOME") {
         Some(rest) => home.join(rest.trim_start_matches('/')),
@@ -247,7 +265,12 @@ mod tests {
     use super::*;
 
     fn session(start: u64, end: u64) -> PlaytimeSession {
-        PlaytimeSession { key: "steam:730".into(), name: "CS2".into(), started_unix_ms: start, ended_unix_ms: end }
+        PlaytimeSession {
+            key: "steam:730".into(),
+            name: "CS2".into(),
+            started_unix_ms: start,
+            ended_unix_ms: end,
+        }
     }
 
     #[test]
@@ -255,7 +278,10 @@ mod tests {
         let (today, _) = local_day_ms(&local_time(local_midnight_ms())[..10]).unwrap();
         let yesterday = local_midnight_offset(today, -1);
         // 23:30 yesterday to 00:45 today, and 10:00–10:30 today.
-        let s = [session(today - 1_800_000, today + 2_700_000), session(today + 36_000_000, today + 37_800_000)];
+        let s = [
+            session(today - 1_800_000, today + 2_700_000),
+            session(today + 36_000_000, today + 37_800_000),
+        ];
         let d = per_day(&s, today + 40_000_000, 3);
         assert_eq!(d.len(), 3);
         assert_eq!(d[1], (yesterday, 1_800));
@@ -264,7 +290,11 @@ mod tests {
         assert_eq!((h[23], h[0], h[10]), (1_800, 2_700, 1_800));
         assert_eq!(h.iter().sum::<u64>(), 6_300);
         assert_eq!(streak(&d), 2);
-        assert_eq!(streak(&[(0, 600), (1, 0)]), 1, "nothing yet today keeps yesterday's streak");
+        assert_eq!(
+            streak(&[(0, 600), (1, 0)]),
+            1,
+            "nothing yet today keeps yesterday's streak"
+        );
         assert_eq!(streak(&[(0, 600), (1, 0), (2, 0)]), 0);
     }
 
@@ -287,7 +317,12 @@ mod tests {
 
     #[test]
     fn the_export_has_a_header_and_a_row_per_session() {
-        let s = PlaytimeSession { key: "steam:730".into(), name: "Counter-Strike 2".into(), started_unix_ms: 0, ended_unix_ms: 90_000 };
+        let s = PlaytimeSession {
+            key: "steam:730".into(),
+            name: "Counter-Strike 2".into(),
+            started_unix_ms: 0,
+            ended_unix_ms: 90_000,
+        };
         let text = csv(&[s.clone(), s]);
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines[0], "game,key,started,ended,minutes");
@@ -298,8 +333,14 @@ mod tests {
     #[test]
     fn downloads_come_from_user_dirs() {
         let home = Path::new("/home/u");
-        assert_eq!(downloads_from("XDG_DOWNLOAD_DIR=\"$HOME/Downloads\"\n", home), Some(PathBuf::from("/home/u/Downloads")));
-        assert_eq!(downloads_from("XDG_DOWNLOAD_DIR=\"/data/dl\"", home), Some(PathBuf::from("/data/dl")));
+        assert_eq!(
+            downloads_from("XDG_DOWNLOAD_DIR=\"$HOME/Downloads\"\n", home),
+            Some(PathBuf::from("/home/u/Downloads"))
+        );
+        assert_eq!(
+            downloads_from("XDG_DOWNLOAD_DIR=\"/data/dl\"", home),
+            Some(PathBuf::from("/data/dl"))
+        );
         assert_eq!(downloads_from("# nothing", home), None);
     }
 
@@ -315,7 +356,10 @@ mod tests {
         let now = 1_791_180_000_000; // a Monday in October 2026
         let (a, b) = local_week(now);
         assert!(a <= now && now < b);
-        assert!((b - a).abs_diff(7 * 86_400_000) <= 3_600_000, "seven days (give or take a clock change)");
+        assert!(
+            (b - a).abs_diff(7 * 86_400_000) <= 3_600_000,
+            "seven days (give or take a clock change)"
+        );
         // SAFETY: localtime_r writes only into the struct we pass.
         let wday = unsafe {
             let t = (a / 1000) as libc::time_t;

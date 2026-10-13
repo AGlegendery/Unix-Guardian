@@ -126,13 +126,21 @@ impl Profiles {
         if let Ok(entries) = std::fs::read_dir(config_dir.join("profiles")) {
             let mut paths: Vec<_> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
             paths.sort();
-            for path in paths.into_iter().filter(|p| p.extension().is_some_and(|e| e == "toml")) {
-                let Some(id) = path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else {
+            for path in paths
+                .into_iter()
+                .filter(|p| p.extension().is_some_and(|e| e == "toml"))
+            {
+                let Some(id) = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(str::to_string)
+                else {
                     continue;
                 };
-                match std::fs::read_to_string(&path).map_err(|e| e.to_string()).and_then(|s| {
-                    toml::from_str::<Profile>(&s).map_err(|e| e.to_string())
-                }) {
+                match std::fs::read_to_string(&path)
+                    .map_err(|e| e.to_string())
+                    .and_then(|s| toml::from_str::<Profile>(&s).map_err(|e| e.to_string()))
+                {
                     Ok(mut p) => {
                         p.id = id.clone();
                         profiles.retain(|q| q.id != id);
@@ -205,22 +213,36 @@ pub const OPTIONS: [&str; 10] = [
 
 /// A profile name a file can carry: letters, digits, `-` and `_`.
 fn valid_id(id: &str) -> Result<(), String> {
-    if id.is_empty() || id.len() > 40 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
-        return Err(format!("{id:?} is not a valid profile name (letters, digits, - and _ only)"));
+    if id.is_empty()
+        || id.len() > 40
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(format!(
+            "{id:?} is not a valid profile name (letters, digits, - and _ only)"
+        ));
     }
     Ok(())
 }
 
 /// Reads the user's file for a profile as a table (empty when there is
 /// none), changes it, checks it still loads, and writes it atomically.
-fn edit_file(config_dir: &Path, id: &str, change: impl FnOnce(&mut toml::Table)) -> Result<(), String> {
+fn edit_file(
+    config_dir: &Path,
+    id: &str,
+    change: impl FnOnce(&mut toml::Table),
+) -> Result<(), String> {
     valid_id(id)?;
     let dir = config_dir.join("profiles");
     let path = dir.join(format!("{id}.toml"));
     let mut table = match std::fs::read_to_string(&path) {
-        Ok(s) => s
-            .parse::<toml::Table>()
-            .map_err(|e| format!("{} does not parse, so it was not changed: {e}", path.display()))?,
+        Ok(s) => s.parse::<toml::Table>().map_err(|e| {
+            format!(
+                "{} does not parse, so it was not changed: {e}",
+                path.display()
+            )
+        })?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => toml::Table::new(),
         Err(e) => return Err(format!("{}: {e}", path.display())),
     };
@@ -248,7 +270,10 @@ pub fn set_pause_apps(config_dir: &Path, id: &str, apps: &[String]) -> Result<()
         }
     }
     edit_file(config_dir, id, |t| {
-        t.insert("pause_apps".into(), toml::Value::Array(list.into_iter().map(toml::Value::String).collect()));
+        t.insert(
+            "pause_apps".into(),
+            toml::Value::Array(list.into_iter().map(toml::Value::String).collect()),
+        );
     })
 }
 
@@ -270,7 +295,9 @@ pub fn create_profile(config_dir: &Path, id: &str, from: &Profile) -> Result<(),
 pub fn delete_profile(config_dir: &Path, id: &str) -> Result<(), String> {
     valid_id(id)?;
     if is_builtin(id) {
-        return Err(format!("{id} is built in and cannot be deleted; its settings can be changed"));
+        return Err(format!(
+            "{id} is built in and cannot be deleted; its settings can be changed"
+        ));
     }
     let path = config_dir.join("profiles").join(format!("{id}.toml"));
     std::fs::remove_file(&path).map_err(|e| match e.kind() {
@@ -291,9 +318,17 @@ pub fn delete_profile(config_dir: &Path, id: &str) -> Result<(), String> {
 ///
 /// Same safety rules as [`set_game_profile`]: a user file that does not parse
 /// is reported and left alone, and the write is atomic.
-pub fn set_profile_option(config_dir: &Path, id: &str, option: &str, value: bool) -> Result<(), String> {
+pub fn set_profile_option(
+    config_dir: &Path,
+    id: &str,
+    option: &str,
+    value: bool,
+) -> Result<(), String> {
     if !OPTIONS.contains(&option) {
-        return Err(format!("unknown setting {option:?}; settings are: {}", OPTIONS.join(", ")));
+        return Err(format!(
+            "unknown setting {option:?}; settings are: {}",
+            OPTIONS.join(", ")
+        ));
     }
     edit_file(config_dir, id, |t| {
         t.insert(option.to_string(), toml::Value::Boolean(value));
@@ -311,8 +346,12 @@ pub fn set_profile_option(config_dir: &Path, id: &str, option: &str, value: bool
 pub fn set_game_profile(config_dir: &Path, key: &str, profile: Option<&str>) -> Result<(), String> {
     let path = config_dir.join("games.toml");
     let mut file = match std::fs::read_to_string(&path) {
-        Ok(s) => toml::from_str::<GamesFile>(&s)
-            .map_err(|e| format!("{} does not parse, so it was not changed: {e}", path.display()))?,
+        Ok(s) => toml::from_str::<GamesFile>(&s).map_err(|e| {
+            format!(
+                "{} does not parse, so it was not changed: {e}",
+                path.display()
+            )
+        })?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => GamesFile::default(),
         Err(e) => return Err(format!("{}: {e}", path.display())),
     };
@@ -379,7 +418,11 @@ mod tests {
     #[test]
     fn choosing_a_profile_for_a_game_keeps_the_other_choices() {
         let d = dir();
-        std::fs::write(d.path().join("games.toml"), "[games]\n\"steam:570\" = \"quiet\"\n").unwrap();
+        std::fs::write(
+            d.path().join("games.toml"),
+            "[games]\n\"steam:570\" = \"quiet\"\n",
+        )
+        .unwrap();
         set_game_profile(d.path(), "steam:730", Some("competitive")).unwrap();
         let (p, problems) = Profiles::load(d.path());
         assert!(problems.is_empty(), "{problems:?}");
@@ -402,7 +445,10 @@ mod tests {
         let d = dir();
         let cfg = d.path().join("not/there/yet");
         set_game_profile(&cfg, "lutris:3", Some("quiet")).unwrap();
-        assert_eq!(Profiles::load(&cfg).0.for_game("lutris:3", "balanced").id, "quiet");
+        assert_eq!(
+            Profiles::load(&cfg).0.for_game("lutris:3", "balanced").id,
+            "quiet"
+        );
     }
 
     #[test]
@@ -412,7 +458,10 @@ mod tests {
         std::fs::write(d.path().join("games.toml"), broken).unwrap();
         let err = set_game_profile(d.path(), "steam:570", Some("quiet")).unwrap_err();
         assert!(err.contains("not changed"), "{err}");
-        assert_eq!(std::fs::read_to_string(d.path().join("games.toml")).unwrap(), broken);
+        assert_eq!(
+            std::fs::read_to_string(d.path().join("games.toml")).unwrap(),
+            broken
+        );
     }
 
     #[test]
@@ -430,7 +479,11 @@ mod tests {
     fn changing_a_setting_keeps_the_rest_of_the_users_file() {
         let d = dir();
         std::fs::create_dir_all(d.path().join("profiles")).unwrap();
-        std::fs::write(d.path().join("profiles/mine.toml"), "pause_apps = [\"discord\"]\ncpu_performance = false\n").unwrap();
+        std::fs::write(
+            d.path().join("profiles/mine.toml"),
+            "pause_apps = [\"discord\"]\ncpu_performance = false\n",
+        )
+        .unwrap();
         set_profile_option(d.path(), "mine", "cpu_preferred_cores", true).unwrap();
         let (p, _) = Profiles::load(d.path());
         let m = p.get("mine").unwrap();
@@ -441,7 +494,9 @@ mod tests {
     #[test]
     fn an_unknown_setting_or_a_path_like_name_is_refused() {
         let d = dir();
-        assert!(set_profile_option(d.path(), "quiet", "overclock", true).unwrap_err().contains("cpu_performance"));
+        assert!(set_profile_option(d.path(), "quiet", "overclock", true)
+            .unwrap_err()
+            .contains("cpu_performance"));
         assert!(set_profile_option(d.path(), "../../etc/x", "cpu_priority", true).is_err());
         assert!(!d.path().join("profiles").exists());
     }
@@ -452,8 +507,13 @@ mod tests {
         std::fs::create_dir_all(d.path().join("profiles")).unwrap();
         let broken = "cpu_performance = maybe\n";
         std::fs::write(d.path().join("profiles/mine.toml"), broken).unwrap();
-        assert!(set_profile_option(d.path(), "mine", "cpu_priority", true).unwrap_err().contains("not changed"));
-        assert_eq!(std::fs::read_to_string(d.path().join("profiles/mine.toml")).unwrap(), broken);
+        assert!(set_profile_option(d.path(), "mine", "cpu_priority", true)
+            .unwrap_err()
+            .contains("not changed"));
+        assert_eq!(
+            std::fs::read_to_string(d.path().join("profiles/mine.toml")).unwrap(),
+            broken
+        );
     }
 
     #[test]
@@ -462,31 +522,60 @@ mod tests {
         let (p, _) = Profiles::load(d.path());
         create_profile(d.path(), "night", p.get("quiet").unwrap()).unwrap();
         set_game_profile(d.path(), "steam:730", Some("night")).unwrap();
-        set_pause_apps(d.path(), "night", &["discord".into(), " discord ".into(), "".into(), "steamwebhelper".into()]).unwrap();
+        set_pause_apps(
+            d.path(),
+            "night",
+            &[
+                "discord".into(),
+                " discord ".into(),
+                "".into(),
+                "steamwebhelper".into(),
+            ],
+        )
+        .unwrap();
         let (p, problems) = Profiles::load(d.path());
         assert!(problems.is_empty(), "{problems:?}");
         let n = p.get("night").unwrap();
         assert!(!n.cpu_performance, "a copy of quiet");
         assert_eq!(n.pause_apps, vec!["discord", "steamwebhelper"]);
-        assert!(create_profile(d.path(), "night", n).unwrap_err().contains("already"));
-        assert!(create_profile(d.path(), "quiet", n).unwrap_err().contains("already"));
+        assert!(create_profile(d.path(), "night", n)
+            .unwrap_err()
+            .contains("already"));
+        assert!(create_profile(d.path(), "quiet", n)
+            .unwrap_err()
+            .contains("already"));
         assert!(set_pause_apps(d.path(), "night", &["/usr/bin/x".into()]).is_err());
-        assert!(delete_profile(d.path(), "balanced").unwrap_err().contains("built in"));
+        assert!(delete_profile(d.path(), "balanced")
+            .unwrap_err()
+            .contains("built in"));
         delete_profile(d.path(), "night").unwrap();
         let (p, _) = Profiles::load(d.path());
         assert!(p.get("night").is_none());
-        assert!(p.per_game().is_empty(), "its games went back to their suggestion");
-        assert!(delete_profile(d.path(), "night").unwrap_err().contains("no profile"));
+        assert!(
+            p.per_game().is_empty(),
+            "its games went back to their suggestion"
+        );
+        assert!(delete_profile(d.path(), "night")
+            .unwrap_err()
+            .contains("no profile"));
     }
 
     #[test]
     fn the_new_settings_have_defaults_and_can_be_changed() {
         let d = dir();
         let (p, _) = Profiles::load(d.path());
-        assert!(p.get("balanced").unwrap().keep_screen_on && !p.get("balanced").unwrap().do_not_disturb);
+        assert!(
+            p.get("balanced").unwrap().keep_screen_on && !p.get("balanced").unwrap().do_not_disturb
+        );
         assert!(p.get("competitive").unwrap().do_not_disturb);
         set_profile_option(d.path(), "balanced", "do_not_disturb", true).unwrap();
-        assert!(Profiles::load(d.path()).0.get("balanced").unwrap().do_not_disturb);
+        assert!(
+            Profiles::load(d.path())
+                .0
+                .get("balanced")
+                .unwrap()
+                .do_not_disturb
+        );
     }
 
     #[test]
@@ -499,10 +588,22 @@ mod tests {
     fn a_broken_file_is_reported_and_skipped_not_fatal() {
         let d = dir();
         std::fs::create_dir_all(d.path().join("profiles")).unwrap();
-        std::fs::write(d.path().join("profiles/mine.toml"), "cpu_performance = \"yes please\"").unwrap();
-        std::fs::write(d.path().join("profiles/typo.toml"), "cpu_performanse = true").unwrap();
+        std::fs::write(
+            d.path().join("profiles/mine.toml"),
+            "cpu_performance = \"yes please\"",
+        )
+        .unwrap();
+        std::fs::write(
+            d.path().join("profiles/typo.toml"),
+            "cpu_performanse = true",
+        )
+        .unwrap();
         let (p, problems) = Profiles::load(d.path());
-        assert_eq!(problems.len(), 2, "wrong type and unknown key both reported: {problems:?}");
+        assert_eq!(
+            problems.len(),
+            2,
+            "wrong type and unknown key both reported: {problems:?}"
+        );
         assert!(p.get("mine").is_none());
         assert!(p.get("balanced").is_some());
     }

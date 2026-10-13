@@ -20,7 +20,10 @@ use ug_hw::SysRoot;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Method {
     /// `charge_control_end_threshold` (and `_start_` when present).
-    Threshold { end: PathBuf, start: Option<PathBuf> },
+    Threshold {
+        end: PathBuf,
+        start: Option<PathBuf>,
+    },
     /// `charge_types`: write `Long_Life` to protect, the previous type to stop.
     ChargeTypes { path: PathBuf },
     /// ideapad_acpi `conservation_mode`: 1 protects, 0 charges fully.
@@ -64,14 +67,24 @@ pub struct Battery {
 }
 
 fn read(p: &Path) -> Option<String> {
-    std::fs::read_to_string(p).ok().map(|s| s.trim().to_string())
+    std::fs::read_to_string(p)
+        .ok()
+        .map(|s| s.trim().to_string())
 }
 
 impl Battery {
     pub fn new(root: SysRoot, state: &Path, simulate: bool) -> Battery {
         let method = detect(&root);
-        let care = read(state).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(Care::Off);
-        Battery { root, state: state.to_path_buf(), method, care, simulate }
+        let care = read(state)
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or(Care::Off);
+        Battery {
+            root,
+            state: state.to_path_buf(),
+            method,
+            care,
+            simulate,
+        }
     }
 
     /// Battery charge (%) and status (`Charging`, `Full`, …), if a battery exists.
@@ -103,7 +116,9 @@ impl Battery {
     /// Writes the wanted state to the hardware. Called at start, after
     /// resume, and on changes; harmless to repeat.
     pub fn apply(&mut self) -> Result<(), String> {
-        let Some(method) = self.method.clone() else { return Ok(()) };
+        let Some(method) = self.method.clone() else {
+            return Ok(());
+        };
         // A full charge done: back to protecting.
         if let Care::FullOnce { limit } = self.care {
             if self.level().is_some_and(|(c, s)| c >= 100 || s == "Full") {
@@ -116,10 +131,14 @@ impl Battery {
             Care::Protect { limit } => Some(limit),
         };
         if self.simulate {
-            tracing::warn!(?protect, "development run: battery protection simulated, nothing written");
+            tracing::warn!(
+                ?protect,
+                "development run: battery protection simulated, nothing written"
+            );
             return Ok(());
         }
-        let write = |p: &Path, v: &str| std::fs::write(p, v).map_err(|e| format!("{}: {e}", p.display()));
+        let write =
+            |p: &Path, v: &str| std::fs::write(p, v).map_err(|e| format!("{}: {e}", p.display()));
         match (&method, protect) {
             (Method::Threshold { end, start }, Some(limit)) => {
                 // Start charging again a few percent below the end, so the
@@ -151,9 +170,14 @@ pub fn unsupported_reason() -> &'static str {
 
 fn battery_dir(root: &SysRoot) -> Option<PathBuf> {
     let base = root.join("sys/class/power_supply");
-    let mut dirs: Vec<PathBuf> = std::fs::read_dir(base).ok()?.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(base)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .collect();
     dirs.sort();
-    dirs.into_iter().find(|p| read(&p.join("type")).as_deref() == Some("Battery"))
+    dirs.into_iter()
+        .find(|p| read(&p.join("type")).as_deref() == Some("Battery"))
 }
 
 fn detect(root: &SysRoot) -> Option<Method> {
@@ -161,10 +185,16 @@ fn detect(root: &SysRoot) -> Option<Method> {
         let end = bat.join("charge_control_end_threshold");
         if end.exists() {
             let start = bat.join("charge_control_start_threshold");
-            return Some(Method::Threshold { end, start: start.exists().then_some(start) });
+            return Some(Method::Threshold {
+                end,
+                start: start.exists().then_some(start),
+            });
         }
         let types = bat.join("charge_types");
-        if read(&types).is_some_and(|t| t.split_whitespace().any(|w| w.trim_matches(['[', ']']) == "Long_Life")) {
+        if read(&types).is_some_and(|t| {
+            t.split_whitespace()
+                .any(|w| w.trim_matches(['[', ']']) == "Long_Life")
+        }) {
             return Some(Method::ChargeTypes { path: types });
         }
     }
@@ -186,7 +216,11 @@ mod tests {
 
     fn battery(fs: &TestFs, simulate: bool) -> (tempfile::TempDir, Battery) {
         let d = tempfile::tempdir().unwrap();
-        let b = Battery::new(SysRoot::at(fs.root()), &d.path().join("battery.json"), simulate);
+        let b = Battery::new(
+            SysRoot::at(fs.root()),
+            &d.path().join("battery.json"),
+            simulate,
+        );
         (d, b)
     }
 
@@ -205,10 +239,31 @@ mod tests {
         let (_d, mut b) = battery(&fs, false);
         assert!(b.method.as_ref().unwrap().adjustable());
         b.set(Care::Protect { limit: 80 }).unwrap();
-        assert_eq!(read(&fs.root().join(format!("{BAT}/charge_control_end_threshold"))).unwrap(), "80");
-        assert_eq!(read(&fs.root().join(format!("{BAT}/charge_control_start_threshold"))).unwrap(), "75");
+        assert_eq!(
+            read(
+                &fs.root()
+                    .join(format!("{BAT}/charge_control_end_threshold"))
+            )
+            .unwrap(),
+            "80"
+        );
+        assert_eq!(
+            read(
+                &fs.root()
+                    .join(format!("{BAT}/charge_control_start_threshold"))
+            )
+            .unwrap(),
+            "75"
+        );
         b.set(Care::Off).unwrap();
-        assert_eq!(read(&fs.root().join(format!("{BAT}/charge_control_end_threshold"))).unwrap(), "100");
+        assert_eq!(
+            read(
+                &fs.root()
+                    .join(format!("{BAT}/charge_control_end_threshold"))
+            )
+            .unwrap(),
+            "100"
+        );
     }
 
     #[test]
@@ -221,7 +276,10 @@ mod tests {
         assert_eq!(b.method.as_ref().unwrap().name(), "vendor-long-life");
         assert!(!b.method.as_ref().unwrap().adjustable());
         b.set(Care::Protect { limit: 80 }).unwrap();
-        assert_eq!(read(&fs.root().join(format!("{BAT}/charge_types"))).unwrap(), "Long_Life");
+        assert_eq!(
+            read(&fs.root().join(format!("{BAT}/charge_types"))).unwrap(),
+            "Long_Life"
+        );
     }
 
     #[test]
@@ -231,7 +289,14 @@ mod tests {
         fs.write("sys/bus/platform/devices/VPC2004:00/conservation_mode", "0");
         let (_d, mut b) = battery(&fs, false);
         b.set(Care::Protect { limit: 80 }).unwrap();
-        assert_eq!(read(&fs.root().join("sys/bus/platform/devices/VPC2004:00/conservation_mode")).unwrap(), "1");
+        assert_eq!(
+            read(
+                &fs.root()
+                    .join("sys/bus/platform/devices/VPC2004:00/conservation_mode")
+            )
+            .unwrap(),
+            "1"
+        );
     }
 
     #[test]
@@ -241,13 +306,22 @@ mod tests {
         fs.write(&format!("{BAT}/charge_control_end_threshold"), "100");
         let d = tempfile::tempdir().unwrap();
         let state = d.path().join("battery.json");
-        Battery::new(SysRoot::at(fs.root()), &state, false).set(Care::Protect { limit: 70 }).unwrap();
+        Battery::new(SysRoot::at(fs.root()), &state, false)
+            .set(Care::Protect { limit: 70 })
+            .unwrap();
         // Firmware forgot it across a reboot.
         fs.write(&format!("{BAT}/charge_control_end_threshold"), "100");
         let mut b = Battery::new(SysRoot::at(fs.root()), &state, false);
         assert_eq!(b.care, Care::Protect { limit: 70 });
         b.apply().unwrap();
-        assert_eq!(read(&fs.root().join(format!("{BAT}/charge_control_end_threshold"))).unwrap(), "70");
+        assert_eq!(
+            read(
+                &fs.root()
+                    .join(format!("{BAT}/charge_control_end_threshold"))
+            )
+            .unwrap(),
+            "70"
+        );
     }
 
     #[test]
@@ -257,12 +331,26 @@ mod tests {
         fs.write(&format!("{BAT}/charge_control_end_threshold"), "80");
         let (_d, mut b) = battery(&fs, false);
         b.set(Care::FullOnce { limit: 80 }).unwrap();
-        assert_eq!(read(&fs.root().join(format!("{BAT}/charge_control_end_threshold"))).unwrap(), "100");
+        assert_eq!(
+            read(
+                &fs.root()
+                    .join(format!("{BAT}/charge_control_end_threshold"))
+            )
+            .unwrap(),
+            "100"
+        );
         fs.write(&format!("{BAT}/capacity"), "100");
         fs.write(&format!("{BAT}/status"), "Full");
         b.apply().unwrap();
         assert_eq!(b.care, Care::Protect { limit: 80 });
-        assert_eq!(read(&fs.root().join(format!("{BAT}/charge_control_end_threshold"))).unwrap(), "80");
+        assert_eq!(
+            read(
+                &fs.root()
+                    .join(format!("{BAT}/charge_control_end_threshold"))
+            )
+            .unwrap(),
+            "80"
+        );
     }
 
     #[test]
@@ -271,7 +359,10 @@ mod tests {
         base(&fs);
         let (_d, mut b) = battery(&fs, false);
         assert!(b.method.is_none());
-        assert!(b.set(Care::Protect { limit: 80 }).unwrap_err().contains("does not expose"));
+        assert!(b
+            .set(Care::Protect { limit: 80 })
+            .unwrap_err()
+            .contains("does not expose"));
         fs.write(&format!("{BAT}/charge_control_end_threshold"), "100");
         let (_d, mut b) = battery(&fs, false);
         assert!(b.set(Care::Protect { limit: 20 }).is_err());
@@ -284,6 +375,13 @@ mod tests {
         fs.write(&format!("{BAT}/charge_control_end_threshold"), "100");
         let (_d, mut b) = battery(&fs, true);
         b.set(Care::Protect { limit: 60 }).unwrap();
-        assert_eq!(read(&fs.root().join(format!("{BAT}/charge_control_end_threshold"))).unwrap(), "100");
+        assert_eq!(
+            read(
+                &fs.root()
+                    .join(format!("{BAT}/charge_control_end_threshold"))
+            )
+            .unwrap(),
+            "100"
+        );
     }
 }

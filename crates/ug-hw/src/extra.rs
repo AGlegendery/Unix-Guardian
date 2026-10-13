@@ -15,7 +15,11 @@ pub struct ExtraReader {
 /// Whole disks only: `nvme0n1`, `sda`, `vda`, `mmcblk0` — not partitions,
 /// loop devices, zram or device-mapper volumes, which would double-count.
 fn is_whole_disk(root: &SysRoot, name: &str) -> bool {
-    if name.starts_with("loop") || name.starts_with("zram") || name.starts_with("ram") || name.starts_with("dm-") {
+    if name.starts_with("loop")
+        || name.starts_with("zram")
+        || name.starts_with("ram")
+        || name.starts_with("dm-")
+    {
         return false;
     }
     root.join(format!("sys/block/{name}")).exists()
@@ -30,7 +34,10 @@ impl ExtraReader {
         let now = Instant::now();
         // sectors read, sectors written, ms doing I/O
         let mut disks: HashMap<String, [u64; 3]> = HashMap::new();
-        for line in read_trimmed(root.join("proc/diskstats")).unwrap_or_default().lines() {
+        for line in read_trimmed(root.join("proc/diskstats"))
+            .unwrap_or_default()
+            .lines()
+        {
             let f: Vec<&str> = line.split_whitespace().collect();
             if f.len() < 13 || !is_whole_disk(root, f[2]) {
                 continue;
@@ -102,12 +109,18 @@ pub fn battery(root: &SysRoot) -> (f64, f64, String, bool) {
         let p = e.path();
         match read_trimmed(p.join("type")).as_deref() {
             Some("Mains") => on_ac |= read_u64(p.join("online")) == Some(1),
-            Some("Battery") if bat.is_none() && read_u64(p.join("present")) != Some(0) => bat = Some(p),
+            Some("Battery") if bat.is_none() && read_u64(p.join("present")) != Some(0) => {
+                bat = Some(p)
+            }
             _ => {}
         }
     }
-    let Some(p) = bat else { return (f64::NAN, f64::NAN, String::new(), on_ac) };
-    let pct = read_u64(p.join("capacity")).map(|v| v as f64).unwrap_or(f64::NAN);
+    let Some(p) = bat else {
+        return (f64::NAN, f64::NAN, String::new(), on_ac);
+    };
+    let pct = read_u64(p.join("capacity"))
+        .map(|v| v as f64)
+        .unwrap_or(f64::NAN);
     let status = read_trimmed(p.join("status")).unwrap_or_default();
     // power_now is µW; some batteries report current_now (µA) × voltage_now (µV).
     let uw = read_u64(p.join("power_now")).map(|v| v as f64).or_else(|| {
@@ -151,20 +164,34 @@ mod tests {
         fs.write("proc/diskstats", &stats(1000 + 2048, 2000 + 4096, 150));
         let s = r.read(&root, 0);
         // 2048 sectors = 1 MiB in ~0.2 s, partitions and loop ignored.
-        assert!(s.disk_read_bps > 3_000_000 && s.disk_read_bps < 5_300_000, "{}", s.disk_read_bps);
+        assert!(
+            s.disk_read_bps > 3_000_000 && s.disk_read_bps < 5_300_000,
+            "{}",
+            s.disk_read_bps
+        );
         assert!((s.disk_write_bps as f64 / s.disk_read_bps as f64 - 2.0).abs() < 0.01);
-        assert!(s.disk_busy_pct > 15.0 && s.disk_busy_pct <= 25.0, "{}", s.disk_busy_pct);
+        assert!(
+            s.disk_busy_pct > 15.0 && s.disk_busy_pct <= 25.0,
+            "{}",
+            s.disk_busy_pct
+        );
     }
 
     #[test]
     fn battery_power_is_negative_while_charging() {
         let fs = TestFs::new();
-        fs.write("sys/class/power_supply/ACAD/type", "Mains").write("sys/class/power_supply/ACAD/online", "1");
+        fs.write("sys/class/power_supply/ACAD/type", "Mains")
+            .write("sys/class/power_supply/ACAD/online", "1");
         let b = "sys/class/power_supply/BAT1";
-        fs.write(format!("{b}/type"), "Battery").write(format!("{b}/capacity"), "80");
-        fs.write(format!("{b}/status"), "Charging").write(format!("{b}/power_now"), "12500000");
+        fs.write(format!("{b}/type"), "Battery")
+            .write(format!("{b}/capacity"), "80");
+        fs.write(format!("{b}/status"), "Charging")
+            .write(format!("{b}/power_now"), "12500000");
         let (pct, w, status, ac) = battery(&SysRoot::at(fs.root()));
-        assert_eq!((pct, w, status.as_str(), ac), (80.0, -12.5, "Charging", true));
+        assert_eq!(
+            (pct, w, status.as_str(), ac),
+            (80.0, -12.5, "Charging", true)
+        );
         fs.write(format!("{b}/status"), "Discharging");
         assert_eq!(battery(&SysRoot::at(fs.root())).1, 12.5);
     }

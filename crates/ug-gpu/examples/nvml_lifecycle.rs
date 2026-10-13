@@ -25,14 +25,20 @@ fn rss_mb() -> f64 {
 
 fn gpu_state() -> String {
     // The discrete GPU on the development laptop; pass another address as argv[1].
-    let pci = std::env::args().nth(1).unwrap_or_else(|| "0000:01:00.0".into());
+    let pci = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "0000:01:00.0".into());
     std::fs::read_to_string(format!("/sys/bus/pci/devices/{pci}/power/runtime_status"))
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| "n/a".into())
 }
 
 fn main() {
-    println!("baseline                 RSS {:5.1} MB   dGPU {}", rss_mb(), gpu_state());
+    println!(
+        "baseline                 RSS {:5.1} MB   dGPU {}",
+        rss_mb(),
+        gpu_state()
+    );
 
     for round in 1..=2 {
         let before = gpu_state();
@@ -56,6 +62,10 @@ fn main() {
         );
 
         drop(nvml);
-        println!("round {round}: shut down      RSS {:5.1} MB   dGPU {}", rss_mb(), gpu_state());
+        println!(
+            "round {round}: shut down      RSS {:5.1} MB   dGPU {}",
+            rss_mb(),
+            gpu_state()
+        );
     }
 }

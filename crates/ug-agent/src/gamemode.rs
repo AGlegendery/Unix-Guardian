@@ -53,7 +53,11 @@ impl GameModeCompat {
     /// Games end when their processes exit; detection sees that on its own, so
     /// an explicit unregister needs no action. Accepting it keeps clients happy.
     async fn unregister_game(&self, pid: i32) -> i32 {
-        if pid <= 0 { ERROR } else { OK }
+        if pid <= 0 {
+            ERROR
+        } else {
+            OK
+        }
     }
 
     async fn query_status(&self, pid: i32) -> i32 {
@@ -67,7 +71,11 @@ impl GameModeCompat {
 
     #[zbus(name = "UnregisterGameByPID")]
     async fn unregister_game_by_pid(&self, _caller: i32, pid: i32) -> i32 {
-        if pid <= 0 { ERROR } else { OK }
+        if pid <= 0 {
+            ERROR
+        } else {
+            OK
+        }
     }
 
     #[zbus(name = "QueryStatusByPID")]

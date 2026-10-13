@@ -92,7 +92,9 @@ impl GameDb {
     pub fn by_cmdline(&self, args: &[String]) -> Option<&KnownGame> {
         self.games.iter().find(|g| {
             !g.cmdline.is_empty()
-                && g.cmdline.iter().any(|needle| args.iter().any(|a| a.contains(needle.as_str())))
+                && g.cmdline
+                    .iter()
+                    .any(|needle| args.iter().any(|a| a.contains(needle.as_str())))
         })
     }
 
@@ -140,7 +142,11 @@ mod tests {
                 g.profile
             );
             if g.blocked_on_linux() {
-                assert!(g.linux_note.is_some(), "{} is blocked but says not why", g.id);
+                assert!(
+                    g.linux_note.is_some(),
+                    "{} is blocked but says not why",
+                    g.id
+                );
             }
         }
     }
@@ -150,10 +156,21 @@ mod tests {
         let db = GameDb::bundled();
         assert_eq!(db.by_steam_appid(730).unwrap().name, "Counter-Strike 2");
         assert_eq!(db.by_exe("Cyberpunk2077.exe").unwrap().id, "cyberpunk2077");
-        assert_eq!(db.by_exe(r"C:\Games\Cyberpunk 2077\bin\x64\CYBERPUNK2077.EXE").unwrap().id, "cyberpunk2077");
-        let args = vec!["java".into(), "-Xmx4G".into(), "net.minecraft.client.main.Main".into()];
+        assert_eq!(
+            db.by_exe(r"C:\Games\Cyberpunk 2077\bin\x64\CYBERPUNK2077.EXE")
+                .unwrap()
+                .id,
+            "cyberpunk2077"
+        );
+        let args = vec![
+            "java".into(),
+            "-Xmx4G".into(),
+            "net.minecraft.client.main.Main".into(),
+        ];
         assert_eq!(db.by_cmdline(&args).unwrap().id, "minecraft-java");
-        assert!(db.by_cmdline(&["java".into(), "-jar".into(), "server.jar".into()]).is_none());
+        assert!(db
+            .by_cmdline(&["java".into(), "-jar".into(), "server.jar".into()])
+            .is_none());
     }
 
     #[test]

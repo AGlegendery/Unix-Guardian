@@ -10,7 +10,10 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use ug_proto::agent::{GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy, SettingsProxy, ShortcutsProxy};
+use ug_proto::agent::{
+    GamesProxy, MonitorProxy, OverlayProxy, PingProxy, PlaytimeProxy, ProfilesProxy, SettingsProxy,
+    ShortcutsProxy,
+};
 use ug_proto::daemon::{CoolingProxy, DaemonProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{GpuCapabilities, Inventory, PowerWatch, Snapshot};
 
@@ -407,7 +410,9 @@ fn parse_kbps(s: &str) -> Result<u32> {
     } else {
         (t.as_str(), 1.0)
     };
-    let v: f64 = num.parse().map_err(|_| anyhow::anyhow!("\"{s}\" is not a speed; try 500k or 2m (bits per second)"))?;
+    let v: f64 = num
+        .parse()
+        .map_err(|_| anyhow::anyhow!("\"{s}\" is not a speed; try 500k or 2m (bits per second)"))?;
     Ok((v * mul).round() as u32)
 }
 
@@ -680,7 +685,10 @@ async fn main() -> std::process::ExitCode {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("Error: {e:#}");
-            eprintln!("If this looks like a bug in Unix Guardian, please report it to {}.", ug_core::BUG_REPORT_EMAIL);
+            eprintln!(
+                "If this looks like a bug in Unix Guardian, please report it to {}.",
+                ug_core::BUG_REPORT_EMAIL
+            );
             std::process::ExitCode::FAILURE
         }
     }
@@ -692,17 +700,33 @@ async fn run() -> Result<()> {
     if let Command::Tui = cli.command {
         return tui(cli.session);
     }
-    if let Command::Run { gpu, steam, command } = &cli.command {
-        let gpu = gpu.clone().or_else(|| ug_core::gpu_default::chosen(&ug_core::paths::user_config()));
+    if let Command::Run {
+        gpu,
+        steam,
+        command,
+    } = &cli.command
+    {
+        let gpu = gpu
+            .clone()
+            .or_else(|| ug_core::gpu_default::chosen(&ug_core::paths::user_config()));
         return run_on_gpu(gpu.as_deref().unwrap_or("discrete"), *steam, command);
     }
-    if let Command::Gpu { command: GpuCommand::Default { gpu } } = &cli.command {
+    if let Command::Gpu {
+        command: GpuCommand::Default { gpu },
+    } = &cli.command
+    {
         return default_gpu(gpu.as_deref(), cli.json);
     }
-    if let Command::Gpu { command: GpuCommand::App { id, off } } = &cli.command {
+    if let Command::Gpu {
+        command: GpuCommand::App { id, off },
+    } = &cli.command
+    {
         return gpu_app(id, *off);
     }
-    if let Command::Driver { command: DriverCommand::Snapshot } = cli.command {
+    if let Command::Driver {
+        command: DriverCommand::Snapshot,
+    } = cli.command
+    {
         return driver_snapshot();
     }
     if let Command::Diagnose = cli.command {
@@ -716,19 +740,48 @@ async fn run() -> Result<()> {
     // work whether or not the daemon is reachable.
     match cli.command {
         Command::Game { command } => return game(command, cli.json).await,
-        Command::Playtime { command: Some(c), .. } => return playtime_command(c, cli.json).await,
-        Command::Playtime { today, week, forget, csv, command: None } => return playtime(today, week, forget, csv, cli.json).await,
+        Command::Playtime {
+            command: Some(c), ..
+        } => return playtime_command(c, cli.json).await,
+        Command::Playtime {
+            today,
+            week,
+            forget,
+            csv,
+            command: None,
+        } => return playtime(today, week, forget, csv, cli.json).await,
         Command::Profile { command } => return profile(command, cli.json).await,
         Command::History { hours } => return history(hours, cli.json).await,
-        Command::Traffic { days, day, apps, reset } => return traffic(days, day, apps, reset, cli.json).await,
+        Command::Traffic {
+            days,
+            day,
+            apps,
+            reset,
+        } => return traffic(days, day, apps, reset, cli.json).await,
         Command::Ping { seconds } => return ping(seconds, cli.json).await,
         Command::Overlay { command } => return overlay(command, cli.json).await,
         Command::Shortcut { action, args } => return shortcut(action, args, cli.json).await,
         Command::Record { command } => return record(command, cli.json).await,
-        Command::Settings { notifications, scan_interval, close_window_on_game, check_updates } => {
-            return settings(notifications, scan_interval, close_window_on_game, check_updates, cli.json).await
+        Command::Settings {
+            notifications,
+            scan_interval,
+            close_window_on_game,
+            check_updates,
+        } => {
+            return settings(
+                notifications,
+                scan_interval,
+                close_window_on_game,
+                check_updates,
+                cli.json,
+            )
+            .await
         }
-        Command::Update { check, install, rollback } => {
+        Command::Update {
+            check,
+            install,
+            rollback,
+        } => {
             return if install {
                 update_install(cli.json).await
             } else if rollback {
@@ -740,7 +793,11 @@ async fn run() -> Result<()> {
         Command::Tray { hide } => return tray(hide).await,
         Command::Quit => {
             let conn = agent_conn().await?;
-            ug_proto::agent::TrayProxy::new(&conn).await?.quit().await.map_err(agent_hint)?;
+            ug_proto::agent::TrayProxy::new(&conn)
+                .await?
+                .quit()
+                .await
+                .map_err(agent_hint)?;
             println!("Unix Guardian is closing. It starts again at your next login, or when you open it.");
             return Ok(());
         }
@@ -777,19 +834,39 @@ async fn run() -> Result<()> {
         Command::Monitor { interval } => monitor(&daemon, interval, cli.json).await,
         Command::Gpu { command } => gpu(&conn, &daemon, command, cli.json).await,
         Command::Power { command } => power(&conn, command, cli.json).await,
-        Command::Battery { command } => battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await,
+        Command::Battery { command } => {
+            battery(&conn, command.unwrap_or(BatteryCommand::Status), cli.json).await
+        }
         Command::Net { command, all } => net(&conn, command, all, cli.json).await,
         Command::Fans { curve, auto, mode } => fans(&conn, curve, auto, mode, cli.json).await,
         Command::Driver { command } => driver(&conn, command, cli.json).await,
         Command::Diagnose => unreachable!("handled above"),
-        Command::Game { .. } | Command::Playtime { .. } | Command::Profile { .. } | Command::History { .. } | Command::Traffic { .. } | Command::Ping { .. } | Command::Overlay { .. } | Command::Shortcut { .. } | Command::Record { .. } | Command::Settings { .. } | Command::Update { .. } | Command::Tray { .. } | Command::Quit | Command::Fps { .. } | Command::Run { .. } | Command::Tui | Command::Testlab { .. } => {
+        Command::Game { .. }
+        | Command::Playtime { .. }
+        | Command::Profile { .. }
+        | Command::History { .. }
+        | Command::Traffic { .. }
+        | Command::Ping { .. }
+        | Command::Overlay { .. }
+        | Command::Shortcut { .. }
+        | Command::Record { .. }
+        | Command::Settings { .. }
+        | Command::Update { .. }
+        | Command::Tray { .. }
+        | Command::Quit
+        | Command::Fps { .. }
+        | Command::Run { .. }
+        | Command::Tui
+        | Command::Testlab { .. } => {
             unreachable!("handled above")
         }
     }
 }
 
 async fn agent_conn() -> Result<zbus::Connection> {
-    zbus::Connection::session().await.context("connecting to the session bus")
+    zbus::Connection::session()
+        .await
+        .context("connecting to the session bus")
 }
 
 fn agent_hint(e: zbus::Error) -> anyhow::Error {
@@ -798,11 +875,17 @@ fn agent_hint(e: zbus::Error) -> anyhow::Error {
     }
     // The agent answered and said why: it is running, so no hint.
     if let zbus::Error::MethodError(name, Some(m), _) = &e {
-        if matches!(name.as_str(), "org.freedesktop.DBus.Error.Failed" | "org.freedesktop.DBus.Error.InvalidArgs") {
+        if matches!(
+            name.as_str(),
+            "org.freedesktop.DBus.Error.Failed" | "org.freedesktop.DBus.Error.InvalidArgs"
+        ) {
             return anyhow::anyhow!("{m}");
         }
     }
-    anyhow::anyhow!("{e}\n{}", ug_core::missing::agent_down(std::path::Path::new("/")))
+    anyhow::anyhow!(
+        "{e}\n{}",
+        ug_core::missing::agent_down(std::path::Path::new("/"))
+    )
 }
 
 async fn game(command: GameCommand, json: bool) -> Result<()> {
@@ -834,8 +917,15 @@ async fn game(command: GameCommand, json: bool) -> Result<()> {
                 let now = now_ms();
                 for g in &list {
                     let mins = now.saturating_sub(g.started_unix_ms) / 60_000;
-                    println!("{}  [{} profile]  {} min  ({})", g.name, g.profile, mins, g.key);
-                    println!("    recognised by: {}   processes: {:?}", g.evidence.replace('_', " "), g.pids);
+                    println!(
+                        "{}  [{} profile]  {} min  ({})",
+                        g.name, g.profile, mins, g.key
+                    );
+                    println!(
+                        "    recognised by: {}   processes: {:?}",
+                        g.evidence.replace('_', " "),
+                        g.pids
+                    );
                     if !g.blocked_note.is_empty() {
                         println!("    note: {}", g.blocked_note);
                     }
@@ -847,17 +937,41 @@ async fn game(command: GameCommand, json: bool) -> Result<()> {
             println!("{n} installed games found.");
         }
         GameCommand::Ignore { executable } => {
-            games.ignore_executable(&executable).await.map_err(agent_hint)?;
+            games
+                .ignore_executable(&executable)
+                .await
+                .map_err(agent_hint)?;
             println!("{executable} will no longer be treated as a game.");
         }
-        GameCommand::Launch { game, gpu, overlay, apply, undo } => {
-            return steam_launch(&games, &game, gpu.as_deref(), overlay.as_deref(), apply, undo, json).await;
+        GameCommand::Launch {
+            game,
+            gpu,
+            overlay,
+            apply,
+            undo,
+        } => {
+            return steam_launch(
+                &games,
+                &game,
+                gpu.as_deref(),
+                overlay.as_deref(),
+                apply,
+                undo,
+                json,
+            )
+            .await;
         }
     }
     Ok(())
 }
 
-async fn playtime(today: bool, week: bool, forget: Option<String>, csv: bool, json: bool) -> Result<()> {
+async fn playtime(
+    today: bool,
+    week: bool,
+    forget: Option<String>,
+    csv: bool,
+    json: bool,
+) -> Result<()> {
     let conn = agent_conn().await?;
     let pt = PlaytimeProxy::new(&conn).await?;
     if let Some(key) = forget {
@@ -895,7 +1009,16 @@ async fn playtime(today: bool, week: bool, forget: Option<String>, csv: bool, js
         return Ok(());
     }
     if entries.is_empty() {
-        println!("No playtime recorded{}.", if today { " today" } else if week { " this week" } else { "" });
+        println!(
+            "No playtime recorded{}.",
+            if today {
+                " today"
+            } else if week {
+                " this week"
+            } else {
+                ""
+            }
+        );
         return Ok(());
     }
     let (apps, games): (Vec<_>, Vec<_>) = entries.iter().partition(|e| e.key.starts_with("app:"));
@@ -903,7 +1026,11 @@ async fn playtime(today: bool, week: bool, forget: Option<String>, csv: bool, js
     if !games.is_empty() {
         let total: u64 = games.iter().map(|e| e.seconds).sum();
         for e in &games {
-            let pct = if total > 0 { e.seconds * 100 / total } else { 0 };
+            let pct = if total > 0 {
+                e.seconds * 100 / total
+            } else {
+                0
+            };
             println!("{:>8}  {:>3}%  {}", hms(e.seconds), pct, e.name);
         }
         println!("{:>8}        total, {} games", hms(total), games.len());
@@ -939,7 +1066,12 @@ async fn playtime_command(command: PlaytimeCommand, json: bool) -> Result<()> {
             let hours = ug_core::playtime::per_hour(&sessions);
             if json {
                 let d: Vec<_> = per_day.iter().map(|(ms, secs)| serde_json::json!({ "date": &local_time(*ms)[..10], "seconds": secs })).collect();
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "days": d, "hours": hours }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &serde_json::json!({ "days": d, "hours": hours })
+                    )?
+                );
                 return Ok(());
             }
             let most = per_day.iter().map(|d| d.1).max().unwrap_or(0).max(1);
@@ -948,21 +1080,40 @@ async fn playtime_command(command: PlaytimeCommand, json: bool) -> Result<()> {
                 println!("{}  {:>8}  {bar}", &local_time(*ms)[..10], hms(*secs));
             }
             let total: u64 = per_day.iter().map(|d| d.1).sum();
-            let lens: Vec<u64> = sessions.iter().map(|s| (s.ended_unix_ms - s.started_unix_ms) / 1000).collect();
+            let lens: Vec<u64> = sessions
+                .iter()
+                .map(|s| (s.ended_unix_ms - s.started_unix_ms) / 1000)
+                .collect();
             println!();
             println!("Daily average    {}", hms(total / days as u64));
-            println!("Days played      {} of {days}", per_day.iter().filter(|d| d.1 >= 60).count());
+            println!(
+                "Days played      {} of {days}",
+                per_day.iter().filter(|d| d.1 >= 60).count()
+            );
             if !lens.is_empty() {
-                println!("Average session  {}", hms(lens.iter().sum::<u64>() / lens.len() as u64));
+                println!(
+                    "Average session  {}",
+                    hms(lens.iter().sum::<u64>() / lens.len() as u64)
+                );
                 println!("Longest session  {}", hms(*lens.iter().max().unwrap_or(&0)));
             }
-            println!("Streak           {} days", ug_core::playtime::streak(&per_day));
+            println!(
+                "Streak           {} days",
+                ug_core::playtime::streak(&per_day)
+            );
             let hmax = hours.iter().copied().max().unwrap_or(0);
             if hmax > 0 {
                 let peak = hours.iter().position(|h| *h == hmax).unwrap_or(0);
                 println!("\nWhen you play (local hour, most around {peak:02}:00)");
                 let bars = " ▁▂▃▄▅▆▇█";
-                let line: String = hours.iter().map(|h| bars.chars().nth((h * 8).div_ceil(hmax) as usize).unwrap_or(' ')).collect();
+                let line: String = hours
+                    .iter()
+                    .map(|h| {
+                        bars.chars()
+                            .nth((h * 8).div_ceil(hmax) as usize)
+                            .unwrap_or(' ')
+                    })
+                    .collect();
                 println!("  {line}\n  0     6     12    18   23");
             }
         }
@@ -970,7 +1121,10 @@ async fn playtime_command(command: PlaytimeCommand, json: bool) -> Result<()> {
             let tracked = pt.tracked_apps().await.map_err(agent_hint)?;
             let open = pt.running_programs().await.map_err(agent_hint)?;
             if json {
-                println!("{}", serde_json::json!({ "tracked": tracked, "open": open }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "tracked": tracked, "open": open })
+                );
                 return Ok(());
             }
             if tracked.is_empty() {
@@ -989,7 +1143,9 @@ async fn playtime_command(command: PlaytimeCommand, json: bool) -> Result<()> {
             }
         }
         PlaytimeCommand::Track { exe, name } => {
-            pt.track_app(&exe, name.as_deref().unwrap_or("")).await.map_err(agent_hint)?;
+            pt.track_app(&exe, name.as_deref().unwrap_or(""))
+                .await
+                .map_err(agent_hint)?;
             println!("Counting the time of {exe} from now on (it is never treated as a game).");
         }
         PlaytimeCommand::Untrack { exe } => {
@@ -1012,7 +1168,10 @@ async fn playtime_command(command: PlaytimeCommand, json: bool) -> Result<()> {
             if games == 0 {
                 println!("Nothing to add: Steam has no playtime that Unix Guardian has not counted already.");
             } else {
-                println!("Added {} of Steam playtime across {games} games to the all-time totals.", hms(seconds));
+                println!(
+                    "Added {} of Steam playtime across {games} games to the all-time totals.",
+                    hms(seconds)
+                );
             }
         }
     }
@@ -1029,10 +1188,22 @@ fn tui(session: bool) -> Result<()> {
         ug_tui::Exit::Quit => Ok(()),
         ug_tui::Exit::OpenWindow => {
             // The window lives beside ug when installed, or in the dev build.
-            let here = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("ug-app")));
-            let candidates = [here, Some("ug-app".into()), Some("app/src-tauri/target/release/ug-app".into())];
+            let here = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.join("ug-app")));
+            let candidates = [
+                here,
+                Some("ug-app".into()),
+                Some("app/src-tauri/target/release/ug-app".into()),
+            ];
             for c in candidates.into_iter().flatten() {
-                if std::process::Command::new(&c).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().is_ok() {
+                if std::process::Command::new(&c)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .is_ok()
+                {
                     println!("Opened the Unix Guardian window.");
                     return Ok(());
                 }
@@ -1046,7 +1217,10 @@ async fn history(hours: u32, json: bool) -> Result<()> {
     let conn = agent_conn().await?;
     let m = MonitorProxy::new(&conn).await?;
     let now = now_ms();
-    let pts = m.history(now.saturating_sub(hours as u64 * 3_600_000), now, 24).await.map_err(agent_hint)?;
+    let pts = m
+        .history(now.saturating_sub(hours as u64 * 3_600_000), now, 24)
+        .await
+        .map_err(agent_hint)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&pts)?);
         return Ok(());
@@ -1055,11 +1229,32 @@ async fn history(hours: u32, json: bool) -> Result<()> {
         println!("No history yet: the agent records one reading a minute.");
         return Ok(());
     }
-    let f = |v: f64, unit: &str| if v.is_nan() { "—".to_string() } else { format!("{v:.0}{unit}") };
-    let mbs = |v: f64| if v.is_nan() { "—".to_string() } else { format!("{:.2}", v / 1e6) };
+    let f = |v: f64, unit: &str| {
+        if v.is_nan() {
+            "—".to_string()
+        } else {
+            format!("{v:.0}{unit}")
+        }
+    };
+    let mbs = |v: f64| {
+        if v.is_nan() {
+            "—".to_string()
+        } else {
+            format!("{:.2}", v / 1e6)
+        }
+    };
     println!(
         "{:<17} {:>7} {:>6} {:>6} {:>7} {:>6} {:>7} {:>9} {:>9} {:>9}",
-        "time", "CPU °C", "CPU %", "CPU W", "GPU °C", "GPU %", "RAM GB", "down MB/s", "disk MB/s", "load avg"
+        "time",
+        "CPU °C",
+        "CPU %",
+        "CPU W",
+        "GPU °C",
+        "GPU %",
+        "RAM GB",
+        "down MB/s",
+        "disk MB/s",
+        "load avg"
     );
     for p in &pts {
         println!(
@@ -1073,13 +1268,21 @@ async fn history(hours: u32, json: bool) -> Result<()> {
             p.mem_used_kb as f64 / 1_048_576.0,
             mbs(p.net_rx_bps),
             mbs(p.disk_read_bps + p.disk_write_bps),
-            if p.load_avg_1.is_nan() { "—".to_string() } else { format!("{:.2}", p.load_avg_1) },
+            if p.load_avg_1.is_nan() {
+                "—".to_string()
+            } else {
+                format!("{:.2}", p.load_avg_1)
+            },
         );
     }
     // Averages over the whole range, missing readings left out.
     let avg = |g: fn(&ug_proto::HistoryPoint) -> f64| {
         let v: Vec<f64> = pts.iter().map(g).filter(|x| !x.is_nan()).collect();
-        if v.is_empty() { f64::NAN } else { v.iter().sum::<f64>() / v.len() as f64 }
+        if v.is_empty() {
+            f64::NAN
+        } else {
+            v.iter().sum::<f64>() / v.len() as f64
+        }
     };
     println!(
         "\nAverage: CPU {} °C {} % {} W, GPU {} °C {} %, internet down {} MB/s up {} MB/s",
@@ -1094,10 +1297,22 @@ async fn history(hours: u32, json: bool) -> Result<()> {
     Ok(())
 }
 
-async fn traffic(days: u32, day: Option<String>, apps: bool, reset: bool, json: bool) -> Result<()> {
+async fn traffic(
+    days: u32,
+    day: Option<String>,
+    apps: bool,
+    reset: bool,
+    json: bool,
+) -> Result<()> {
     let conn = agent_conn().await?;
     let m = MonitorProxy::new(&conn).await?;
-    let size = |b: u64| if b >= 1_000_000_000 { format!("{:.2} GB", b as f64 / 1e9) } else { format!("{:.1} MB", b as f64 / 1e6) };
+    let size = |b: u64| {
+        if b >= 1_000_000_000 {
+            format!("{:.2} GB", b as f64 / 1e9)
+        } else {
+            format!("{:.1} MB", b as f64 / 1e6)
+        }
+    };
     if reset {
         let ok = m.reset_traffic().await.map_err(agent_hint)?;
         if json {
@@ -1105,7 +1320,9 @@ async fn traffic(days: u32, day: Option<String>, apps: bool, reset: bool, json: 
         } else if ok {
             println!("The internet-use counts start from now. The speed history is kept.");
         } else {
-            anyhow::bail!("the agent could not reset the counts (see its log: journalctl --user -u ug-agent)");
+            anyhow::bail!(
+                "the agent could not reset the counts (see its log: journalctl --user -u ug-agent)"
+            );
         }
         return Ok(());
     }
@@ -1114,11 +1331,19 @@ async fn traffic(days: u32, day: Option<String>, apps: bool, reset: bool, json: 
             let a = ug_core::playtime::local_midnight_ms();
             Some((a, a + 86_400_000))
         }
-        Some(day) => Some(ug_core::playtime::local_day_ms(day).with_context(|| format!("{day:?} is not a date like 2026-10-04"))?),
+        Some(day) => Some(
+            ug_core::playtime::local_day_ms(day)
+                .with_context(|| format!("{day:?} is not a date like 2026-10-04"))?,
+        ),
         None => None,
     };
     if apps {
-        let (start, end) = span.unwrap_or_else(|| (now_ms().saturating_sub(days as u64 * 86_400_000), now_ms() + 1));
+        let (start, end) = span.unwrap_or_else(|| {
+            (
+                now_ms().saturating_sub(days as u64 * 86_400_000),
+                now_ms() + 1,
+            )
+        });
         let list = m.app_traffic(start, end).await.map_err(agent_hint)?;
         if json {
             println!("{}", serde_json::to_string_pretty(&list)?);
@@ -1129,19 +1354,41 @@ async fn traffic(days: u32, day: Option<String>, apps: bool, reset: bool, json: 
             return Ok(());
         }
         for a in list.iter().take(25) {
-            println!("{:<28} {:>10}  down {:>10}  up {:>10}  {}", a.name, size(a.rx_bytes + a.tx_bytes), size(a.rx_bytes), size(a.tx_bytes), a.category);
+            println!(
+                "{:<28} {:>10}  down {:>10}  up {:>10}  {}",
+                a.name,
+                size(a.rx_bytes + a.tx_bytes),
+                size(a.rx_bytes),
+                size(a.tx_bytes),
+                a.category
+            );
         }
         return Ok(());
     }
     if let Some((start, end)) = span {
-        let hours = m.traffic_buckets(start, end, 3_600_000).await.map_err(agent_hint)?;
+        let hours = m
+            .traffic_buckets(start, end, 3_600_000)
+            .await
+            .map_err(agent_hint)?;
         if json {
             println!("{}", serde_json::to_string_pretty(&hours)?);
             return Ok(());
         }
-        let (rx, tx) = hours.iter().fold((0, 0), |(r, t), h| (r + h.rx_bytes, t + h.tx_bytes));
-        println!("{}: down {}, up {}", &ug_core::playtime::local_time(start)[..10], size(rx), size(tx));
-        let most = hours.iter().map(|h| h.rx_bytes + h.tx_bytes).max().unwrap_or(0).max(1);
+        let (rx, tx) = hours
+            .iter()
+            .fold((0, 0), |(r, t), h| (r + h.rx_bytes, t + h.tx_bytes));
+        println!(
+            "{}: down {}, up {}",
+            &ug_core::playtime::local_time(start)[..10],
+            size(rx),
+            size(tx)
+        );
+        let most = hours
+            .iter()
+            .map(|h| h.rx_bytes + h.tx_bytes)
+            .max()
+            .unwrap_or(0)
+            .max(1);
         for h in hours.iter().filter(|h| h.start_unix_ms <= now_ms()) {
             let bar = "█".repeat(((h.rx_bytes + h.tx_bytes) * 30 / most) as usize);
             println!(
@@ -1154,14 +1401,32 @@ async fn traffic(days: u32, day: Option<String>, apps: bool, reset: bool, json: 
         return Ok(());
     }
     let now = now_ms();
-    let month = m.traffic(now.saturating_sub(30 * 86_400_000)).await.map_err(agent_hint)?;
-    let hour = m.traffic_buckets(now.saturating_sub(3_600_000), now, 3_600_000).await.map_err(agent_hint)?;
-    let today = m.traffic_buckets(ug_core::playtime::local_midnight_ms(), now, 86_400_000).await.map_err(agent_hint)?;
+    let month = m
+        .traffic(now.saturating_sub(30 * 86_400_000))
+        .await
+        .map_err(agent_hint)?;
+    let hour = m
+        .traffic_buckets(now.saturating_sub(3_600_000), now, 3_600_000)
+        .await
+        .map_err(agent_hint)?;
+    let today = m
+        .traffic_buckets(ug_core::playtime::local_midnight_ms(), now, 86_400_000)
+        .await
+        .map_err(agent_hint)?;
     let sum = |v: &[ug_proto::DayTraffic], n: usize| {
-        v.iter().rev().take(n).fold((0u64, 0u64), |(r, t), d| (r + d.rx_bytes, t + d.tx_bytes))
+        v.iter()
+            .rev()
+            .take(n)
+            .fold((0u64, 0u64), |(r, t), d| (r + d.rx_bytes, t + d.tx_bytes))
     };
-    let one = |v: &[ug_proto::TrafficBucket]| v.iter().fold((0u64, 0u64), |(r, t), d| (r + d.rx_bytes, t + d.tx_bytes));
-    let t = m.traffic(now.saturating_sub(days as u64 * 86_400_000)).await.map_err(agent_hint)?;
+    let one = |v: &[ug_proto::TrafficBucket]| {
+        v.iter()
+            .fold((0u64, 0u64), |(r, t), d| (r + d.rx_bytes, t + d.tx_bytes))
+    };
+    let t = m
+        .traffic(now.saturating_sub(days as u64 * 86_400_000))
+        .await
+        .map_err(agent_hint)?;
     if json {
         let summary = serde_json::json!({
             "last_hour": one(&hour), "today": one(&today), "last_7_days": sum(&month, 7), "last_30_days": sum(&month, 30), "days": t,
@@ -1173,12 +1438,27 @@ async fn traffic(days: u32, day: Option<String>, apps: bool, reset: bool, json: 
         println!("No traffic recorded yet.");
         return Ok(());
     }
-    for (name, (rx, tx)) in [("Last hour", one(&hour)), ("Today", one(&today)), ("Last 7 days", sum(&month, 7)), ("Last 30 days", sum(&month, 30))] {
-        println!("{name:<13} {:>10} ({} down, {} up)", size(rx + tx), size(rx), size(tx));
+    for (name, (rx, tx)) in [
+        ("Last hour", one(&hour)),
+        ("Today", one(&today)),
+        ("Last 7 days", sum(&month, 7)),
+        ("Last 30 days", sum(&month, 30)),
+    ] {
+        println!(
+            "{name:<13} {:>10} ({} down, {} up)",
+            size(rx + tx),
+            size(rx),
+            size(tx)
+        );
     }
     println!();
     for d in t {
-        println!("{}  down {:>10}  up {:>10}", d.date, size(d.rx_bytes), size(d.tx_bytes));
+        println!(
+            "{}  down {:>10}  up {:>10}",
+            d.date,
+            size(d.rx_bytes),
+            size(d.tx_bytes)
+        );
     }
     println!("\nOne day hour by hour: ug traffic --day YYYY-MM-DD");
     Ok(())
@@ -1212,10 +1492,23 @@ async fn ping(seconds: u32, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&r)?);
         return Ok(());
     }
-    let f = |v: f64| if v.is_nan() { "—".to_string() } else { format!("{v:.1} ms") };
-    println!("{:<24} {:<16} {:>10} {:>10} {:>10} {:>6}", "", "address", "median", "jitter", "95%", "loss");
+    let f = |v: f64| {
+        if v.is_nan() {
+            "—".to_string()
+        } else {
+            format!("{v:.1} ms")
+        }
+    };
+    println!(
+        "{:<24} {:<16} {:>10} {:>10} {:>10} {:>6}",
+        "", "address", "median", "jitter", "95%", "loss"
+    );
     for t in r.targets {
-        let name = if t.id == "game" { format!("Game: {}", t.label) } else { t.label.clone() };
+        let name = if t.id == "game" {
+            format!("Game: {}", t.label)
+        } else {
+            t.label.clone()
+        };
         if !t.problem.is_empty() {
             println!("{name:<24} {}", t.problem);
             continue;
@@ -1250,7 +1543,10 @@ async fn steam_launch(
         Err(_) => {
             let q = game.to_lowercase();
             let installed = games.installed().await.map_err(agent_hint)?;
-            let hits: Vec<_> = installed.iter().filter(|g| g.launcher == "steam" && g.name.to_lowercase().contains(&q)).collect();
+            let hits: Vec<_> = installed
+                .iter()
+                .filter(|g| g.launcher == "steam" && g.name.to_lowercase().contains(&q))
+                .collect();
             match hits[..] {
                 [g] => g.id.trim_start_matches("steam:").parse().unwrap_or(0),
                 [] => anyhow::bail!("no installed Steam game matches {game:?}; give its App ID, e.g. ug game launch 730"),
@@ -1264,7 +1560,10 @@ async fn steam_launch(
     let info = games.launch_options(appid).await.map_err(agent_hint)?;
     if undo {
         let (options, backup) = games.undo_launch_options(appid).await.map_err(agent_hint)?;
-        println!("{}: launch options back to {:?}. Steam's settings were backed up to {backup}", info.name, options);
+        println!(
+            "{}: launch options back to {:?}. Steam's settings were backed up to {backup}",
+            info.name, options
+        );
         return Ok(());
     }
     let mut want_gpu = info.gpu.clone();
@@ -1273,13 +1572,24 @@ async fn steam_launch(
             "default" | "none" | "" => String::new(),
             other => {
                 let gpus = ug_hw::gpu_use::gpus(&ug_hw::SysRoot::real());
-                ug_hw::gpu_use::pick(&gpus, other).map(|g| g.pci.clone()).ok_or_else(|| anyhow::anyhow!("no GPU matches {other:?}; see ug gpu list"))?
+                ug_hw::gpu_use::pick(&gpus, other)
+                    .map(|g| g.pci.clone())
+                    .ok_or_else(|| anyhow::anyhow!("no GPU matches {other:?}; see ug gpu list"))?
             }
         };
     }
     let want_overlay = overlay.map(|o| o == "on").unwrap_or(info.overlay);
-    let after = games.preview_launch_options(appid, &want_gpu, want_overlay).await.map_err(agent_hint)?;
-    let shown = |s: &str| if s.is_empty() { "(none)".to_string() } else { s.to_string() };
+    let after = games
+        .preview_launch_options(appid, &want_gpu, want_overlay)
+        .await
+        .map_err(agent_hint)?;
+    let shown = |s: &str| {
+        if s.is_empty() {
+            "(none)".to_string()
+        } else {
+            s.to_string()
+        }
+    };
     if json {
         println!("{}", serde_json::json!({ "info": info, "after": after }));
     } else {
@@ -1298,7 +1608,11 @@ async fn steam_launch(
         if !unchanged && !json {
             println!(
                 "Nothing written. Add --apply to write it{}.",
-                if info.steam_running { " once Steam is closed (it rewrites its settings when it exits)" } else { " (Steam's settings are backed up first)" }
+                if info.steam_running {
+                    " once Steam is closed (it rewrites its settings when it exits)"
+                } else {
+                    " (Steam's settings are backed up first)"
+                }
             );
         }
         return Ok(());
@@ -1307,7 +1621,10 @@ async fn steam_launch(
         println!("Already set; nothing to write.");
         return Ok(());
     }
-    let (_, backup) = games.set_launch_options(appid, &want_gpu, want_overlay).await.map_err(agent_hint)?;
+    let (_, backup) = games
+        .set_launch_options(appid, &want_gpu, want_overlay)
+        .await
+        .map_err(agent_hint)?;
     println!("Written: Steam uses it the next time the game starts. Steam's settings were backed up to {backup}");
     Ok(())
 }
@@ -1328,14 +1645,23 @@ fn default_gpu(want: Option<&str>, json: bool) -> Result<()> {
     let describe = |pci: &str| {
         gpus.iter()
             .find(|g| g.pci == pci)
-            .map(|g| format!("{pci} ({}{})", g.vendor_name(), if g.boot_vga { ", integrated" } else { "" }))
+            .map(|g| {
+                format!(
+                    "{pci} ({}{})",
+                    g.vendor_name(),
+                    if g.boot_vga { ", integrated" } else { "" }
+                )
+            })
             .unwrap_or_else(|| pci.to_string())
     };
     if json {
         println!("{}", serde_json::json!({ "chosen": st.chosen }));
         return Ok(());
     }
-    println!("Programs Unix Guardian starts (`ug run -- <program>`) use {}", describe(&st.chosen));
+    println!(
+        "Programs Unix Guardian starts (`ug run -- <program>`) use {}",
+        describe(&st.chosen)
+    );
     println!("The desktop and programs started elsewhere are not changed; for one app's menu entry use `ug gpu app <name>`.");
     if gpus.len() < 2 {
         println!("This machine has one GPU, so there is nothing to switch.");
@@ -1347,18 +1673,31 @@ fn default_gpu(want: Option<&str>, json: bool) -> Result<()> {
 /// the discrete GPU.
 fn gpu_app(id: &str, off: bool) -> Result<()> {
     use ug_core::gpu_default;
-    let name = if id.ends_with(".desktop") { id.to_string() } else { format!("{id}.desktop") };
+    let name = if id.ends_with(".desktop") {
+        id.to_string()
+    } else {
+        format!("{id}.desktop")
+    };
     anyhow::ensure!(!name.contains('/'), "give the entry's name, not a path");
-    let user_dir = ug_core::paths::user_data().parent().map(|p| p.join("applications")).unwrap_or_default();
+    let user_dir = ug_core::paths::user_data()
+        .parent()
+        .map(|p| p.join("applications"))
+        .unwrap_or_default();
     let target = user_dir.join(&name);
     let existing = std::fs::read_to_string(&target).ok();
     if off {
         match existing {
             Some(t) if gpu_default::is_our_override(&t) => {
                 std::fs::remove_file(&target)?;
-                println!("Removed {}; the app starts on the system's choice again.", target.display());
+                println!(
+                    "Removed {}; the app starts on the system's choice again.",
+                    target.display()
+                );
             }
-            Some(_) => anyhow::bail!("{} was not written by Unix Guardian; leaving it alone", target.display()),
+            Some(_) => anyhow::bail!(
+                "{} was not written by Unix Guardian; leaving it alone",
+                target.display()
+            ),
             None => println!("Unix Guardian has no entry for {name}; nothing to remove."),
         }
         return Ok(());
@@ -1366,12 +1705,19 @@ fn gpu_app(id: &str, off: bool) -> Result<()> {
     // A user's own copy is edited in place only when it is ours.
     let source = match &existing {
         Some(t) if !gpu_default::is_our_override(t) => {
-            anyhow::bail!("{} is your own copy; add PrefersNonDefaultGPU=true to it by hand", target.display())
+            anyhow::bail!(
+                "{} is your own copy; add PrefersNonDefaultGPU=true to it by hand",
+                target.display()
+            )
         }
         _ => {
-            let dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+            let dirs = std::env::var("XDG_DATA_DIRS")
+                .unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
             let flatpak = [
-                ug_core::paths::user_data().parent().map(|p| p.join("flatpak/exports/share")).unwrap_or_default(),
+                ug_core::paths::user_data()
+                    .parent()
+                    .map(|p| p.join("flatpak/exports/share"))
+                    .unwrap_or_default(),
                 "/var/lib/flatpak/exports/share".into(),
             ];
             let found = dirs
@@ -1383,7 +1729,9 @@ fn gpu_app(id: &str, off: bool) -> Result<()> {
             match (found, existing) {
                 (Some(p), _) => std::fs::read_to_string(p)?,
                 (None, Some(t)) => t,
-                (None, None) => anyhow::bail!("no application entry {name}; see the names in /usr/share/applications"),
+                (None, None) => anyhow::bail!(
+                    "no application entry {name}; see the names in /usr/share/applications"
+                ),
             }
         }
     };
@@ -1391,7 +1739,10 @@ fn gpu_app(id: &str, off: bool) -> Result<()> {
         anyhow::bail!("{name} has no [Desktop Entry] group");
     };
     ug_core::paths::write_atomic(&target, text.as_bytes())?;
-    println!("Wrote {}: the app starts on the discrete GPU from its menu entry.", target.display());
+    println!(
+        "Wrote {}: the app starts on the discrete GPU from its menu entry.",
+        target.display()
+    );
     println!("Undo with `ug gpu app {id} --off`.");
     Ok(())
 }
@@ -1402,8 +1753,21 @@ fn run_on_gpu(want: &str, steam: bool, command: &[String]) -> Result<()> {
     let root = ug_hw::SysRoot::real();
     let gpus = ug_hw::gpu_use::gpus(&root);
     let Some(gpu) = ug_hw::gpu_use::pick(&gpus, want) else {
-        let have: Vec<String> = gpus.iter().map(|g| format!("{} ({}{})", g.pci, g.vendor_name(), if g.boot_vga { ", integrated" } else { "" })).collect();
-        anyhow::bail!("no GPU matches {want:?}; this machine has: {}", have.join(", "));
+        let have: Vec<String> = gpus
+            .iter()
+            .map(|g| {
+                format!(
+                    "{} ({}{})",
+                    g.pci,
+                    g.vendor_name(),
+                    if g.boot_vga { ", integrated" } else { "" }
+                )
+            })
+            .collect();
+        anyhow::bail!(
+            "no GPU matches {want:?}; this machine has: {}",
+            have.join(", ")
+        );
     };
     if steam {
         println!("{}", ug_hw::gpu_use::launch_options(&root, gpu));
@@ -1412,7 +1776,10 @@ fn run_on_gpu(want: &str, steam: bool, command: &[String]) -> Result<()> {
     let Some((prog, args)) = command.split_first() else {
         anyhow::bail!("give a program to run, e.g. ug run --gpu {want} -- vkcube");
     };
-    let err = std::process::Command::new(prog).args(args).envs(ug_hw::gpu_use::offload_env(&root, gpu)).exec();
+    let err = std::process::Command::new(prog)
+        .args(args)
+        .envs(ug_hw::gpu_use::offload_env(&root, gpu))
+        .exec();
     anyhow::bail!("could not run {prog}: {err}")
 }
 
@@ -1427,14 +1794,33 @@ async fn overlay(command: Option<OverlayCommand>, json: bool) -> Result<()> {
             println!("MangoHud's configuration is back as it was.");
             return Ok(());
         }
-        Some(OverlayCommand::Set { show, layout, position, size, opacity, key }) => {
+        Some(OverlayCommand::Set {
+            show,
+            layout,
+            position,
+            size,
+            opacity,
+            key,
+        }) => {
             let mut s = o.state().await.map_err(agent_hint)?.settings;
-            if let Some(v) = show { s.show = v; }
-            if let Some(v) = layout { s.layout = v; }
-            if let Some(v) = position { s.position = v; }
-            if let Some(v) = size { s.size = v; }
-            if let Some(v) = opacity { s.opacity_pct = v; }
-            if let Some(v) = key { s.toggle_key = v; }
+            if let Some(v) = show {
+                s.show = v;
+            }
+            if let Some(v) = layout {
+                s.layout = v;
+            }
+            if let Some(v) = position {
+                s.position = v;
+            }
+            if let Some(v) = size {
+                s.size = v;
+            }
+            if let Some(v) = opacity {
+                s.opacity_pct = v;
+            }
+            if let Some(v) = key {
+                s.toggle_key = v;
+            }
             o.set(&s).await.map_err(agent_hint)?;
         }
     }
@@ -1444,13 +1830,33 @@ async fn overlay(command: Option<OverlayCommand>, json: bool) -> Result<()> {
         return Ok(());
     }
     if !st.installed {
-        println!("MangoHud is not installed. Install it with: {}", st.install_hint);
+        println!(
+            "MangoHud is not installed. Install it with: {}",
+            st.install_hint
+        );
         return Ok(());
     }
     let s = &st.settings;
-    println!("Overlay     {}", if st.set_up { "set up" } else { "not set up (ug overlay setup)" });
-    println!("Shows       {}", match s.show.as_str() { "gaming" => "only while a game runs", "always" => "always", _ => "never (FPS is still recorded)" });
-    println!("Layout      {}, {}, {} size, background {} %", s.layout, s.position, s.size, s.opacity_pct);
+    println!(
+        "Overlay     {}",
+        if st.set_up {
+            "set up"
+        } else {
+            "not set up (ug overlay setup)"
+        }
+    );
+    println!(
+        "Shows       {}",
+        match s.show.as_str() {
+            "gaming" => "only while a game runs",
+            "always" => "always",
+            _ => "never (FPS is still recorded)",
+        }
+    );
+    println!(
+        "Layout      {}, {}, {} size, background {} %",
+        s.layout, s.position, s.size, s.opacity_pct
+    );
     println!("Key         {} shows and hides it in game", s.toggle_key);
     println!("Games       per game: `mangohud %command%` in a Steam game's launch options, or `mangohud <game>`");
     Ok(())
@@ -1464,7 +1870,13 @@ fn on_off(v: &str) -> Result<bool> {
     }
 }
 
-async fn settings(notifications: Option<String>, scan: Option<u32>, close: Option<String>, updates: Option<String>, json: bool) -> Result<()> {
+async fn settings(
+    notifications: Option<String>,
+    scan: Option<u32>,
+    close: Option<String>,
+    updates: Option<String>,
+    json: bool,
+) -> Result<()> {
     let conn = agent_conn().await?;
     let p = SettingsProxy::new(&conn).await?;
     if notifications.is_some() || scan.is_some() || close.is_some() || updates.is_some() {
@@ -1494,7 +1906,11 @@ async fn settings(notifications: Option<String>, scan: Option<u32>, close: Optio
     println!(
         "Look for games every   {} s{}",
         s.scan_interval_s,
-        if st.scan_interval_fixed { " (set by ug-agent --scan-interval)" } else { "" }
+        if st.scan_interval_fixed {
+            " (set by ug-agent --scan-interval)"
+        } else {
+            ""
+        }
     );
     println!("Close window in game   {}", yes(s.close_window_on_game));
     println!("Look for updates daily {}", yes(s.check_updates));
@@ -1506,7 +1922,12 @@ async fn settings(notifications: Option<String>, scan: Option<u32>, close: Optio
 async fn update(check: bool, json: bool) -> Result<()> {
     let conn = agent_conn().await?;
     let p = ug_proto::agent::UpdateProxy::new(&conn).await?;
-    let st = if check { p.check().await } else { p.state().await }.map_err(agent_hint)?;
+    let st = if check {
+        p.check().await
+    } else {
+        p.state().await
+    }
+    .map_err(agent_hint)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&st)?);
         return Ok(());
@@ -1523,7 +1944,15 @@ async fn update(check: bool, json: bool) -> Result<()> {
         println!("Up to date (checked {}).", ago(st.checked_unix_ms));
         return Ok(());
     }
-    println!("New version    {}{}", st.name, if st.published.is_empty() { String::new() } else { format!("  ({})", &st.published[..st.published.len().min(10)]) });
+    println!(
+        "New version    {}{}",
+        st.name,
+        if st.published.is_empty() {
+            String::new()
+        } else {
+            format!("  ({})", &st.published[..st.published.len().min(10)])
+        }
+    );
     if !st.notes.trim().is_empty() {
         println!();
         for l in st.notes.trim().lines() {
@@ -1549,13 +1978,20 @@ async fn update_install(json: bool) -> Result<()> {
     let before = p.state().await.map_err(agent_hint)?;
     p.install().await.map_err(agent_hint)?;
     if !json {
-        println!("Installing {}: downloading, then the service asks for your password.", before.name);
+        println!(
+            "Installing {}: downloading, then the service asks for your password.",
+            before.name
+        );
     }
     let mut shown = String::from("downloading");
     let mut lost = 0;
     let st = loop {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        let st = match ug_proto::agent::UpdateProxy::new(&agent_conn().await?).await?.state().await {
+        let st = match ug_proto::agent::UpdateProxy::new(&agent_conn().await?)
+            .await?
+            .state()
+            .await
+        {
             Ok(st) => st,
             // The install restarts the agent; wait for the new one.
             Err(_) if lost < 60 => {
@@ -1568,7 +2004,14 @@ async fn update_install(json: bool) -> Result<()> {
             break st;
         }
         if !json && st.step != shown {
-            println!("{}", if st.step == "installing" { "Checking the signature and installing…" } else { st.step.as_str() });
+            println!(
+                "{}",
+                if st.step == "installing" {
+                    "Checking the signature and installing…"
+                } else {
+                    st.step.as_str()
+                }
+            );
             shown = st.step.clone();
         }
     };
@@ -1583,7 +2026,10 @@ async fn update_install(json: bool) -> Result<()> {
         println!("{}", st.result);
     }
     if st.current != before.current {
-        println!("Unix Guardian is now {} (it was {}). ug update --rollback goes back.", st.current, before.current);
+        println!(
+            "Unix Guardian is now {} (it was {}). ug update --rollback goes back.",
+            st.current, before.current
+        );
     }
     Ok(())
 }
@@ -1602,7 +2048,10 @@ async fn update_rollback(json: bool) -> Result<()> {
 
 /// "5 minutes ago" for a time in the past.
 fn ago(ms: u64) -> String {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
     let m = now.saturating_sub(ms) / 60_000;
     match m {
         0 => "just now".into(),
@@ -1614,7 +2063,13 @@ fn ago(ms: u64) -> String {
 
 /// `ug testlab`: explains, asks, runs with a progress line, prints the
 /// report and says where to send it.
-async fn testlab(yes: bool, out: Option<&std::path::Path>, recover: bool, session: bool, json: bool) -> Result<()> {
+async fn testlab(
+    yes: bool,
+    out: Option<&std::path::Path>,
+    recover: bool,
+    session: bool,
+    json: bool,
+) -> Result<()> {
     use std::io::{BufRead, IsTerminal, Write};
     let opts = ug_testlab::Options::new("command line", session);
     let put_back = ug_testlab::recover(&opts).await;
@@ -1632,7 +2087,10 @@ async fn testlab(yes: bool, out: Option<&std::path::Path>, recover: bool, sessio
         eprintln!();
         eprintln!("Unix Guardian is made for every Linux system, but it has only been tested on");
         eprintln!("a few computers. This test tries every feature on yours, measures a few things");
-        eprintln!("and writes a report you can send to {}.", ug_core::BUG_REPORT_EMAIL);
+        eprintln!(
+            "and writes a report you can send to {}.",
+            ug_core::BUG_REPORT_EMAIL
+        );
         eprintln!();
         eprintln!("For a moment it turns on, then off again:");
         for t in ug_testlab::TEMPORARY_EN {
@@ -1676,7 +2134,10 @@ async fn testlab(yes: bool, out: Option<&std::path::Path>, recover: bool, sessio
     } else {
         print!("{}", report.text);
         eprintln!();
-        eprintln!("Copy everything above (or save it with --out FILE) and email it to {}.", ug_core::BUG_REPORT_EMAIL);
+        eprintln!(
+            "Copy everything above (or save it with --out FILE) and email it to {}.",
+            ug_core::BUG_REPORT_EMAIL
+        );
         if let Some(path) = out {
             eprintln!("Saved to {}.", path.display());
         }
@@ -1688,7 +2149,11 @@ async fn diagnose(json: bool, session: bool) -> Result<()> {
     let mut env = ug_driver::Env::from_process();
     if env.kernel_log.is_empty() {
         // Most users may not read the kernel log; the service may.
-        let conn = if session { zbus::Connection::session().await } else { zbus::Connection::system().await };
+        let conn = if session {
+            zbus::Connection::session().await
+        } else {
+            zbus::Connection::system().await
+        };
         if let Ok(conn) = conn {
             if let Ok(d) = ug_proto::daemon::DriverProxy::new(&conn).await {
                 env.kernel_log = d.firmware_log().await.unwrap_or_default();
@@ -1696,7 +2161,11 @@ async fn diagnose(json: bool, session: bool) -> Result<()> {
         }
     }
     let r = ug_driver::diagnose(&ug_hw::SysRoot::real(), &env);
-    let text = if json { serde_json::to_string_pretty(&r)? + "\n" } else { diagnosis_text(&r) };
+    let text = if json {
+        serde_json::to_string_pretty(&r)? + "\n"
+    } else {
+        diagnosis_text(&r)
+    };
     // `ug diagnose | head` closes the pipe early: a clean end, not an error.
     use std::io::Write;
     match std::io::stdout().write_all(text.as_bytes()) {
@@ -1735,10 +2204,16 @@ fn diagnosis_text(r: &ug_proto::DriverReport) -> String {
         println!("          Why: {}", f.why_en);
         println!("          Fix: {}", f.how_en);
         if f.fix_auto {
-            println!("          Unix Guardian can do it, with a backup: ug driver fix {}", f.fix_id);
+            println!(
+                "          Unix Guardian can do it, with a backup: ug driver fix {}",
+                f.fix_id
+            );
         }
         if !f.commands.is_empty() {
-            println!("          {}:", if f.fix_auto { "Or by hand" } else { "Commands" });
+            println!(
+                "          {}:",
+                if f.fix_auto { "Or by hand" } else { "Commands" }
+            );
             for c in &f.commands {
                 println!("            {c}");
             }
@@ -1826,30 +2301,41 @@ fn driver_snapshot() -> Result<()> {
 async fn driver(conn: &zbus::Connection, command: DriverCommand, json: bool) -> Result<()> {
     let command = match command {
         DriverCommand::Param { action, param, yes } => match action.as_str() {
-            "add" | "remove" => DriverCommand::Fix { fix: format!("param-{action}:{param}"), yes },
-            other => anyhow::bail!("`{other}`: say add or remove, e.g. ug driver param add mem_sleep_default=deep"),
+            "add" | "remove" => DriverCommand::Fix {
+                fix: format!("param-{action}:{param}"),
+                yes,
+            },
+            other => anyhow::bail!(
+                "`{other}`: say add or remove, e.g. ug driver param add mem_sleep_default=deep"
+            ),
         },
         c => c,
     };
     let d = ug_proto::daemon::DriverProxy::new(conn).await?;
-    let _agent = matches!(command, DriverCommand::Fix { .. } | DriverCommand::Rollback { .. }).then(TtyAgent::start);
+    let _agent = matches!(
+        command,
+        DriverCommand::Fix { .. } | DriverCommand::Rollback { .. }
+    )
+    .then(TtyAgent::start);
     let follow = |id: String| {
         let d = d.clone();
         async move {
-        let mut shown = 0;
-        loop {
-            let ops = d.ops().await?;
-            let Some(op) = ops.iter().find(|o| o.id == id) else { anyhow::bail!("the change {id} disappeared") };
-            for l in &op.log[shown..] {
-                println!("  {l}");
+            let mut shown = 0;
+            loop {
+                let ops = d.ops().await?;
+                let Some(op) = ops.iter().find(|o| o.id == id) else {
+                    anyhow::bail!("the change {id} disappeared")
+                };
+                for l in &op.log[shown..] {
+                    println!("  {l}");
+                }
+                shown = op.log.len();
+                if op.state != "running" && op.state != "undoing" {
+                    println!("{}: {}", op.id, op.state);
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
-            shown = op.log.len();
-            if op.state != "running" && op.state != "undoing" {
-                println!("{}: {}", op.id, op.state);
-                return Ok::<_, anyhow::Error>(());
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        }
         }
     };
     match command {
@@ -1892,7 +2378,9 @@ async fn driver(conn: &zbus::Connection, command: DriverCommand, json: bool) -> 
                 for o in ops {
                     let check = match o.verify.as_str() {
                         "restart" => "  (restart to finish)",
-                        "check" => "  (restarted: does it work? ug driver keep, or ug driver rollback)",
+                        "check" => {
+                            "  (restarted: does it work? ug driver keep, or ug driver rollback)"
+                        }
                         _ => "",
                     };
                     println!("{}  {}  {}{check}", o.id, o.state, o.title);
@@ -1906,7 +2394,11 @@ async fn driver(conn: &zbus::Connection, command: DriverCommand, json: bool) -> 
             let ops = d.ops().await?;
             let id = match id {
                 Some(i) => i,
-                None => ops.iter().find(|o| o.verify == "check").map(|o| o.id.clone()).ok_or_else(|| anyhow::anyhow!("No change is waiting to be checked."))?,
+                None => ops
+                    .iter()
+                    .find(|o| o.verify == "check")
+                    .map(|o| o.id.clone())
+                    .ok_or_else(|| anyhow::anyhow!("No change is waiting to be checked."))?,
             };
             d.keep(&id).await?;
             println!("Kept {id}.");
@@ -1916,7 +2408,9 @@ async fn driver(conn: &zbus::Connection, command: DriverCommand, json: bool) -> 
             let ops = d.ops().await?;
             let op = match &id {
                 Some(i) => ops.iter().find(|o| &o.id == i),
-                None => ops.iter().find(|o| o.state == "undone" || o.state == "interrupted"),
+                None => ops
+                    .iter()
+                    .find(|o| o.state == "undone" || o.state == "interrupted"),
             };
             if let Some(o) = op {
                 println!("{}: {} ({})", o.id, o.state, o.title);
@@ -1946,7 +2440,14 @@ async fn record(command: Option<RecordCommand>, json: bool) -> Result<()> {
         }
         Some(RecordCommand::Stop) => {
             let f = r.stop().await.map_err(agent_hint)?;
-            println!("{}", if f.is_empty() { "Replay buffer stopped.".to_string() } else { format!("Saved {f}") });
+            println!(
+                "{}",
+                if f.is_empty() {
+                    "Replay buffer stopped.".to_string()
+                } else {
+                    format!("Saved {f}")
+                }
+            );
             return Ok(());
         }
         Some(RecordCommand::Replay) => {
@@ -1959,7 +2460,10 @@ async fn record(command: Option<RecordCommand>, json: bool) -> Result<()> {
         Some(RecordCommand::Setup) | Some(RecordCommand::Remove) => {
             let on = matches!(command, Some(RecordCommand::Setup));
             r.set_up(on).await.map_err(agent_hint)?;
-            println!("{} gpu-screen-recorder (Flatpak, for you only)…", if on { "Installing" } else { "Removing" });
+            println!(
+                "{} gpu-screen-recorder (Flatpak, for you only)…",
+                if on { "Installing" } else { "Removing" }
+            );
             use std::io::{IsTerminal, Write};
             let tty = std::io::stdout().is_terminal();
             let mut shown = String::new();
@@ -1979,25 +2483,60 @@ async fn record(command: Option<RecordCommand>, json: bool) -> Result<()> {
                     continue;
                 }
                 let filled = st.setup_pct as usize / 5;
-                let line = format!("[{}{}] {:>3} %  step {}", "#".repeat(filled), "-".repeat(20 - filled), st.setup_pct, st.setup_step);
+                let line = format!(
+                    "[{}{}] {:>3} %  step {}",
+                    "#".repeat(filled),
+                    "-".repeat(20 - filled),
+                    st.setup_pct,
+                    st.setup_step
+                );
                 if line != shown {
                     // On a terminal one line redrawn; into a pipe one line each.
-                    if tty { print!("\r{line}"); } else { println!("{line}"); }
+                    if tty {
+                        print!("\r{line}");
+                    } else {
+                        println!("{line}");
+                    }
                     std::io::stdout().flush().ok();
                     shown = line;
                 }
             }
         }
-        Some(RecordCommand::Set { quality, fps, capture, codec, sound, mic, replay, folder }) => {
+        Some(RecordCommand::Set {
+            quality,
+            fps,
+            capture,
+            codec,
+            sound,
+            mic,
+            replay,
+            folder,
+        }) => {
             let mut s = r.state().await.map_err(agent_hint)?.settings;
-            if let Some(v) = quality { s.quality = v; }
-            if let Some(v) = fps { s.fps = v; }
-            if let Some(v) = capture { s.capture = v; }
-            if let Some(v) = codec { s.codec = v; }
-            if let Some(v) = sound { s.audio_output = onoff(&v)?; }
-            if let Some(v) = mic { s.audio_mic = onoff(&v)?; }
-            if let Some(v) = replay { s.replay_seconds = v; }
-            if let Some(v) = folder { s.folder = v; }
+            if let Some(v) = quality {
+                s.quality = v;
+            }
+            if let Some(v) = fps {
+                s.fps = v;
+            }
+            if let Some(v) = capture {
+                s.capture = v;
+            }
+            if let Some(v) = codec {
+                s.codec = v;
+            }
+            if let Some(v) = sound {
+                s.audio_output = onoff(&v)?;
+            }
+            if let Some(v) = mic {
+                s.audio_mic = onoff(&v)?;
+            }
+            if let Some(v) = replay {
+                s.replay_seconds = v;
+            }
+            if let Some(v) = folder {
+                s.folder = v;
+            }
             r.set(&s).await.map_err(agent_hint)?;
         }
     }
@@ -2014,12 +2553,37 @@ async fn record(command: Option<RecordCommand>, json: bool) -> Result<()> {
     };
     let s = &st.settings;
     println!("Recorder      {engine}");
-    println!("Now           {}", match st.mode.as_str() { "recording" => format!("recording to {}", st.file), "replay" => format!("keeping the last {} s (ug record save)", s.replay_seconds), "installing" => "installing…".into(), _ => "idle".into() });
-    let capture = if s.capture.is_empty() { "default".to_string() } else { s.capture.clone() };
-    println!("Capture       {capture}   (offered: {})", st.captures.join(", "));
-    println!("Quality       {}, {} fps, codec {}  ≈ {} MB a minute", s.quality, s.fps, s.codec, st.mb_per_minute);
-    println!("Sound         game {}, microphone {}", if s.audio_output { "on" } else { "off" }, if s.audio_mic { "on" } else { "off" });
-    println!("Replay        last {} s ≈ {} MB in memory", s.replay_seconds, st.replay_mb);
+    println!(
+        "Now           {}",
+        match st.mode.as_str() {
+            "recording" => format!("recording to {}", st.file),
+            "replay" => format!("keeping the last {} s (ug record save)", s.replay_seconds),
+            "installing" => "installing…".into(),
+            _ => "idle".into(),
+        }
+    );
+    let capture = if s.capture.is_empty() {
+        "default".to_string()
+    } else {
+        s.capture.clone()
+    };
+    println!(
+        "Capture       {capture}   (offered: {})",
+        st.captures.join(", ")
+    );
+    println!(
+        "Quality       {}, {} fps, codec {}  ≈ {} MB a minute",
+        s.quality, s.fps, s.codec, st.mb_per_minute
+    );
+    println!(
+        "Sound         game {}, microphone {}",
+        if s.audio_output { "on" } else { "off" },
+        if s.audio_mic { "on" } else { "off" }
+    );
+    println!(
+        "Replay        last {} s ≈ {} MB in memory",
+        s.replay_seconds, st.replay_mb
+    );
     println!("Folder        {}", st.folder);
     if !st.last_saved.is_empty() {
         println!("Last saved    {}", st.last_saved);
@@ -2034,7 +2598,12 @@ async fn shortcut(action: Option<String>, args: Vec<String>, json: bool) -> Resu
     let conn = agent_conn().await?;
     let s = ShortcutsProxy::new(&conn).await?;
     if action.as_deref() == Some("setup") {
-        let on = match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        let on = match args
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .as_slice()
+        {
             [] => true,
             ["undo"] => false,
             _ => anyhow::bail!("ug shortcut setup, or ug shortcut setup undo"),
@@ -2047,7 +2616,10 @@ async fn shortcut(action: Option<String>, args: Vec<String>, json: bool) -> Resu
         return Ok(());
     }
     if action.as_deref() != Some("keys") && !args.is_empty() {
-        anyhow::bail!("Unexpected `{}`. To pick keys: ug shortcut keys <id> <keys>", args.join(" "));
+        anyhow::bail!(
+            "Unexpected `{}`. To pick keys: ug shortcut keys <id> <keys>",
+            args.join(" ")
+        );
     }
     match action.as_deref() {
         None => {}
@@ -2055,7 +2627,10 @@ async fn shortcut(action: Option<String>, args: Vec<String>, json: bool) -> Resu
             let Some((id, keys)) = args.split_first() else {
                 anyhow::bail!("Which shortcut? ug shortcut keys <id> <keys>, e.g. ug shortcut keys toggle-gamemode Meta+Alt+G");
             };
-            println!("{}", s.set_keys(id, &keys.join("+")).await.map_err(agent_hint)?);
+            println!(
+                "{}",
+                s.set_keys(id, &keys.join("+")).await.map_err(agent_hint)?
+            );
             return Ok(());
         }
         Some("on") => s.set_enabled(true).await.map_err(agent_hint)?,
@@ -2106,9 +2681,19 @@ async fn shortcut(action: Option<String>, args: Vec<String>, json: bool) -> Resu
     if st.status == "unavailable" || st.status == "failed" {
         let d = s.desktop_keys().await.map_err(agent_hint)?;
         if d.set_up {
-            println!("Desktop     written into {}'s keyboard settings (undo: ug shortcut setup undo)", if d.desktop.is_empty() { "the desktop" } else { &d.desktop });
+            println!(
+                "Desktop     written into {}'s keyboard settings (undo: ug shortcut setup undo)",
+                if d.desktop.is_empty() {
+                    "the desktop"
+                } else {
+                    &d.desktop
+                }
+            );
         } else if !d.desktop.is_empty() {
-            println!("Desktop     ug shortcut setup writes them into {}'s keyboard settings", d.desktop);
+            println!(
+                "Desktop     ug shortcut setup writes them into {}'s keyboard settings",
+                d.desktop
+            );
         }
         if !d.problem.is_empty() {
             println!("            {}", d.problem);
@@ -2128,7 +2713,11 @@ async fn fps_sessions(week: bool, forget: bool, json: bool) -> Result<()> {
         println!("Deleted {n} sessions.");
         return Ok(());
     }
-    let since = if week { now_ms().saturating_sub(7 * 86_400_000) } else { 0 };
+    let since = if week {
+        now_ms().saturating_sub(7 * 86_400_000)
+    } else {
+        0
+    };
     let list = m.fps_sessions(since).await.map_err(agent_hint)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&list)?);
@@ -2138,7 +2727,10 @@ async fn fps_sessions(week: bool, forget: bool, json: bool) -> Result<()> {
         println!("No sessions yet. They are recorded when a game runs with MangoHud and Unix Guardian's overlay set up.");
         return Ok(());
     }
-    println!("{:<17} {:<22} {:>7} {:>6} {:>7} {:>8} {:>9}", "started", "game", "minutes", "avg", "1% low", "0.1% low", "stutters");
+    println!(
+        "{:<17} {:<22} {:>7} {:>6} {:>7} {:>8} {:>9}",
+        "started", "game", "minutes", "avg", "1% low", "0.1% low", "stutters"
+    );
     for s in list {
         println!(
             "{:<17} {:<22} {:>7} {:>6.0} {:>7.0} {:>8.0} {:>9}",
@@ -2187,25 +2779,44 @@ async fn profile(command: ProfileCommand, json: bool) -> Result<()> {
             println!("\nChange one with a file in ~/.config/unix-guardian/profiles/<name>.toml");
         }
         ProfileCommand::Set { game, profile } => {
-            profiles.set_game_profile(&game, &profile).await.map_err(agent_error)?;
+            profiles
+                .set_game_profile(&game, &profile)
+                .await
+                .map_err(agent_error)?;
             println!("{game} now runs with the {profile} profile.");
         }
-        ProfileCommand::Option { profile, setting, value } => {
-            profiles.set_option(&profile, &setting, value == "on").await.map_err(agent_error)?;
+        ProfileCommand::Option {
+            profile,
+            setting,
+            value,
+        } => {
+            profiles
+                .set_option(&profile, &setting, value == "on")
+                .await
+                .map_err(agent_error)?;
             println!("{profile}: {setting} is now {value}.");
         }
         ProfileCommand::On { profile } => {
-            profiles.set_game_mode(true, profile.as_deref().unwrap_or("")).await.map_err(agent_hint)?;
+            profiles
+                .set_game_mode(true, profile.as_deref().unwrap_or(""))
+                .await
+                .map_err(agent_hint)?;
             let (_, used) = profiles.game_mode().await.map_err(agent_hint)?;
             println!("Game mode on with the {used} profile. `ug profile off` turns it off.");
         }
         ProfileCommand::Off => {
-            profiles.set_game_mode(false, "").await.map_err(agent_hint)?;
+            profiles
+                .set_game_mode(false, "")
+                .await
+                .map_err(agent_hint)?;
             println!("Game mode off.");
         }
         ProfileCommand::New { profile, from } => {
             let from = from.unwrap_or_default();
-            profiles.create(&profile, &from).await.map_err(agent_error)?;
+            profiles
+                .create(&profile, &from)
+                .await
+                .map_err(agent_error)?;
             println!(
                 "Made {profile}, a copy of {}. Change it with: ug profile option {profile} <setting> on|off",
                 if from.is_empty() { "balanced" } else { &from }
@@ -2213,11 +2824,16 @@ async fn profile(command: ProfileCommand, json: bool) -> Result<()> {
         }
         ProfileCommand::Delete { profile } => {
             profiles.delete(&profile).await.map_err(agent_error)?;
-            println!("Deleted {profile}; its games are back on the profile the game database suggests.");
+            println!(
+                "Deleted {profile}; its games are back on the profile the game database suggests."
+            );
         }
         ProfileCommand::PauseApps { profile, apps } => {
             let list: Vec<&str> = apps.iter().map(String::as_str).collect();
-            profiles.set_pause_apps(&profile, &list).await.map_err(agent_error)?;
+            profiles
+                .set_pause_apps(&profile, &list)
+                .await
+                .map_err(agent_error)?;
             if apps.is_empty() {
                 println!("{profile} pauses no apps.");
             } else {
@@ -2225,7 +2841,10 @@ async fn profile(command: ProfileCommand, json: bool) -> Result<()> {
             }
         }
         ProfileCommand::Reset { game } => {
-            profiles.set_game_profile(&game, "").await.map_err(agent_error)?;
+            profiles
+                .set_game_profile(&game, "")
+                .await
+                .map_err(agent_error)?;
             println!("{game} is back on the profile the game database suggests.");
         }
     }
@@ -2236,13 +2855,14 @@ async fn profile(command: ProfileCommand, json: bool) -> Result<()> {
 /// agent is not running.
 fn agent_error(e: zbus::Error) -> anyhow::Error {
     match e {
-        zbus::Error::MethodError(name, Some(msg), _) if name.as_str() == "org.freedesktop.DBus.Error.InvalidArgs" => {
+        zbus::Error::MethodError(name, Some(msg), _)
+            if name.as_str() == "org.freedesktop.DBus.Error.InvalidArgs" =>
+        {
             anyhow::anyhow!(msg)
         }
         other => agent_hint(other),
     }
 }
-
 
 /// `2026-09-30 21:04:05` in local time, which spreadsheets read as a date.
 fn local_time(unix_ms: u64) -> String {
@@ -2385,22 +3005,39 @@ async fn power(conn: &zbus::Connection, command: PowerCommand, json: bool) -> Re
         }
         PowerCommand::Now { action, yes } => {
             if !yes {
-                anyhow::bail!("this will {action} the computer now; run again with --yes to confirm");
+                anyhow::bail!(
+                    "this will {action} the computer now; run again with --yes to confirm"
+                );
             }
             p.now(&action).await.map_err(daemon_error)?;
             println!("{action}: requested.");
         }
-        PowerCommand::At { action, r#in, at, repeat, note } => {
+        PowerCommand::At {
+            action,
+            r#in,
+            at,
+            repeat,
+            note,
+        } => {
             let when = match (r#in, at) {
                 (Some(d), _) => now_ms() + parse_duration(&d)?,
                 (None, Some(t)) => next_local_time_ms(&t)?,
                 (None, None) => unreachable!("clap requires one"),
             };
-            let job = p.schedule(&action, when, &repeat, &note).await.map_err(daemon_error)?;
+            let job = p
+                .schedule(&action, when, &repeat, &note)
+                .await
+                .map_err(daemon_error)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&job)?);
             } else {
-                println!("Scheduled #{}: {} at {} ({}).", job.id, job.action, local_time(job.at_unix_ms), job.repeat);
+                println!(
+                    "Scheduled #{}: {} at {} ({}).",
+                    job.id,
+                    job.action,
+                    local_time(job.at_unix_ms),
+                    job.repeat
+                );
             }
         }
         PowerCommand::Wake { r#in, at, clear } => {
@@ -2417,21 +3054,44 @@ async fn power(conn: &zbus::Connection, command: PowerCommand, json: bool) -> Re
                 println!("The computer will wake at {}.", local_time(when));
             }
         }
-        PowerCommand::When { action, download_done, cpu_idle, process, game_over, below, minutes } => {
+        PowerCommand::When {
+            action,
+            download_done,
+            cpu_idle,
+            process,
+            game_over,
+            below,
+            minutes,
+        } => {
             let (kind, threshold, name) = if download_done {
-                ("net-idle", parse_rate(below.as_deref().unwrap_or("50k"))?, String::new())
+                (
+                    "net-idle",
+                    parse_rate(below.as_deref().unwrap_or("50k"))?,
+                    String::new(),
+                )
             } else if cpu_idle {
-                let pct: f64 = below.as_deref().unwrap_or("10").trim_end_matches('%').parse()
-                    .map_err(|_| anyhow::anyhow!("--below for --cpu-idle is a percentage, e.g. 10"))?;
+                let pct: f64 = below
+                    .as_deref()
+                    .unwrap_or("10")
+                    .trim_end_matches('%')
+                    .parse()
+                    .map_err(|_| {
+                        anyhow::anyhow!("--below for --cpu-idle is a percentage, e.g. 10")
+                    })?;
                 ("cpu-idle", pct, String::new())
             } else if let Some(p) = process {
                 ("process-gone", 0.0, p)
             } else if game_over {
                 ("game-over", 0.0, String::new())
             } else {
-                anyhow::bail!("say when: --download-done, --cpu-idle, --process NAME or --game-over");
+                anyhow::bail!(
+                    "say when: --download-done, --cpu-idle, --process NAME or --game-over"
+                );
             };
-            let w = p.when(&action, kind, threshold, minutes, &name, "").await.map_err(daemon_error)?;
+            let w = p
+                .when(&action, kind, threshold, minutes, &name, "")
+                .await
+                .map_err(daemon_error)?;
             println!("Armed #w{}: {} {}.", w.id, w.action, describe_watch(&w));
         }
         PowerCommand::Usage => {
@@ -2440,17 +3100,33 @@ async fn power(conn: &zbus::Connection, command: PowerCommand, json: bool) -> Re
                 println!("{}", serde_json::to_string_pretty(&u)?);
                 return Ok(());
             }
-            let w = |v: f64| if v.is_nan() { "—".to_string() } else { format!("{v:.1} W") };
+            let w = |v: f64| {
+                if v.is_nan() {
+                    "—".to_string()
+                } else {
+                    format!("{v:.1} W")
+                }
+            };
             println!("CPU package   {}", w(u.cpu_w));
             println!("GPU           {}", w(u.gpu_w));
-            println!("On battery    {}{}", w(u.battery_w), if u.battery_w.is_nan() { "  (only measurable while on battery)" } else { "  (whole machine)" });
+            println!(
+                "On battery    {}{}",
+                w(u.battery_w),
+                if u.battery_w.is_nan() {
+                    "  (only measurable while on battery)"
+                } else {
+                    "  (whole machine)"
+                }
+            );
             if u.cpu_energy_recorded {
                 println!("\nCPU energy per day (the rest of the machine has no sensor):");
                 for d in u.days.iter().rev().take(7) {
                     println!("  {}  {:.0} Wh", d.date, d.cpu_wh);
                 }
             } else {
-                println!("\nDaily energy is not recorded: this machine has no readable RAPL counter.");
+                println!(
+                    "\nDaily energy is not recorded: this machine has no readable RAPL counter."
+                );
             }
         }
         PowerCommand::Unwatch { id } => {
@@ -2476,8 +3152,18 @@ async fn power(conn: &zbus::Connection, command: PowerCommand, json: bool) -> Re
                 println!("Nothing scheduled.");
             } else {
                 for j in jobs {
-                    let note = if j.note.is_empty() { String::new() } else { format!("  {}", j.note) };
-                    println!("#{:<3} {:<24} {}  {}{note}", j.id, j.action, local_time(j.at_unix_ms), j.repeat);
+                    let note = if j.note.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  {}", j.note)
+                    };
+                    println!(
+                        "#{:<3} {:<24} {}  {}{note}",
+                        j.id,
+                        j.action,
+                        local_time(j.at_unix_ms),
+                        j.repeat
+                    );
                 }
             }
         }
@@ -2494,8 +3180,14 @@ async fn power(conn: &zbus::Connection, command: PowerCommand, json: bool) -> Re
 
 fn describe_watch(w: &PowerWatch) -> String {
     match w.kind.as_str() {
-        "net-idle" => format!("when downloads stay below {} B/s for {} min", w.threshold as u64, w.minutes),
-        "cpu-idle" => format!("when CPU load stays below {} % for {} min", w.threshold, w.minutes),
+        "net-idle" => format!(
+            "when downloads stay below {} B/s for {} min",
+            w.threshold as u64, w.minutes
+        ),
+        "cpu-idle" => format!(
+            "when CPU load stays below {} % for {} min",
+            w.threshold, w.minutes
+        ),
         "process-gone" => format!("when {} exits", w.name),
         "game-over" => "when the running game ends".into(),
         other => other.into(),
@@ -2510,17 +3202,29 @@ fn parse_rate(s: &str) -> Result<f64> {
         Some('m' | 'M') => (&s[..s.len() - 1], 1e6),
         _ => (s, 1.0),
     };
-    num.parse::<f64>().map(|n| n * mult).map_err(|_| anyhow::anyhow!("cannot read {s:?} as a rate; e.g. 50k or 2M"))
+    num.parse::<f64>()
+        .map(|n| n * mult)
+        .map_err(|_| anyhow::anyhow!("cannot read {s:?} as a rate; e.g. 50k or 2M"))
 }
 
-async fn fans(conn: &zbus::Connection, curve: Option<String>, auto: Option<String>, mode: Option<String>, json: bool) -> Result<()> {
+async fn fans(
+    conn: &zbus::Connection,
+    curve: Option<String>,
+    auto: Option<String>,
+    mode: Option<String>,
+    json: bool,
+) -> Result<()> {
     let c = CoolingProxy::new(conn).await?;
     if let Some(spec) = curve {
-        let (id, pts) = spec.split_once('=').ok_or_else(|| anyhow::anyhow!("write it as ID=T:P,T:P (e.g. amdgpu/pwm1=40:25,85:100)"))?;
+        let (id, pts) = spec.split_once('=').ok_or_else(|| {
+            anyhow::anyhow!("write it as ID=T:P,T:P (e.g. amdgpu/pwm1=40:25,85:100)")
+        })?;
         let points: Vec<(f64, f64)> = pts
             .split(',')
             .map(|p| {
-                let (t, d) = p.split_once(':').ok_or_else(|| anyhow::anyhow!("{p:?} is not T:P"))?;
+                let (t, d) = p
+                    .split_once(':')
+                    .ok_or_else(|| anyhow::anyhow!("{p:?} is not T:P"))?;
                 Ok((t.trim().parse()?, d.trim().parse()?))
             })
             .collect::<Result<_>>()?;
@@ -2531,10 +3235,22 @@ async fn fans(conn: &zbus::Connection, curve: Option<String>, auto: Option<Strin
     }
     let st = c.state().await.map_err(daemon_error)?;
     if let Some(m) = mode {
-        let v = st.fan_modes.iter().find(|(_, n)| n == &m).map(|(v, _)| *v).ok_or_else(|| {
-            let names: Vec<&str> = st.fan_modes.iter().map(|(_, n)| n.as_str()).collect();
-            anyhow::anyhow!("unknown fan mode {m:?}; this machine has: {}", if names.is_empty() { "none".into() } else { names.join(", ") })
-        })?;
+        let v = st
+            .fan_modes
+            .iter()
+            .find(|(_, n)| n == &m)
+            .map(|(v, _)| *v)
+            .ok_or_else(|| {
+                let names: Vec<&str> = st.fan_modes.iter().map(|(_, n)| n.as_str()).collect();
+                anyhow::anyhow!(
+                    "unknown fan mode {m:?}; this machine has: {}",
+                    if names.is_empty() {
+                        "none".into()
+                    } else {
+                        names.join(", ")
+                    }
+                )
+            })?;
         c.set_fan_mode(v).await.map_err(daemon_error)?;
     }
     let st = c.state().await.map_err(daemon_error)?;
@@ -2543,7 +3259,11 @@ async fn fans(conn: &zbus::Connection, curve: Option<String>, auto: Option<Strin
         return Ok(());
     }
     for f in &st.fans {
-        let curve: Vec<String> = f.curve.iter().map(|(t, p)| format!("{t:.0}°C→{p:.0}%")).collect();
+        let curve: Vec<String> = f
+            .curve
+            .iter()
+            .map(|(t, p)| format!("{t:.0}°C→{p:.0}%"))
+            .collect();
         println!(
             "{:<18} {:<24} {:>5} rpm {:>4.0} %  {:>4.0} °C  {}",
             f.id,
@@ -2551,11 +3271,20 @@ async fn fans(conn: &zbus::Connection, curve: Option<String>, auto: Option<Strin
             f.rpm,
             f.pct,
             f.temp_c,
-            if f.mode == "curve" { curve.join(" ") } else { "automatic".into() }
+            if f.mode == "curve" {
+                curve.join(" ")
+            } else {
+                "automatic".into()
+            }
         );
     }
     if st.fan_mode >= 0 {
-        let now = st.fan_modes.iter().find(|(v, _)| *v == st.fan_mode).map(|(_, n)| n.as_str()).unwrap_or("other");
+        let now = st
+            .fan_modes
+            .iter()
+            .find(|(v, _)| *v == st.fan_mode)
+            .map(|(_, n)| n.as_str())
+            .unwrap_or("other");
         let all: Vec<&str> = st.fan_modes.iter().map(|(_, n)| n.as_str()).collect();
         println!("Firmware fan mode: {now} (choices: {})", all.join(", "));
     }
@@ -2565,24 +3294,44 @@ async fn fans(conn: &zbus::Connection, curve: Option<String>, auto: Option<Strin
     Ok(())
 }
 
-async fn net(conn: &zbus::Connection, command: Option<NetCommand>, all: bool, json: bool) -> Result<()> {
+async fn net(
+    conn: &zbus::Connection,
+    command: Option<NetCommand>,
+    all: bool,
+    json: bool,
+) -> Result<()> {
     let p = NetProxy::new(conn).await?;
     let when = |g: bool| if g { "gaming" } else { "always" };
     match command {
         None => {}
         Some(NetCommand::Block { app, gaming }) => {
-            p.set_rule(&app, true, 0, 0, when(gaming)).await.map_err(daemon_error)?;
-            println!("{app} is blocked{}.", if gaming { " while game mode is on" } else { "" });
+            p.set_rule(&app, true, 0, 0, when(gaming))
+                .await
+                .map_err(daemon_error)?;
+            println!(
+                "{app} is blocked{}.",
+                if gaming { " while game mode is on" } else { "" }
+            );
             return Ok(());
         }
-        Some(NetCommand::Limit { app, up, down, gaming }) => {
+        Some(NetCommand::Limit {
+            app,
+            up,
+            down,
+            gaming,
+        }) => {
             let up = up.as_deref().map(parse_kbps).transpose()?.unwrap_or(0);
             let down = down.as_deref().map(parse_kbps).transpose()?.unwrap_or(0);
             if up == 0 && down == 0 {
                 anyhow::bail!("give --up and/or --down, e.g. --up 500k");
             }
-            p.set_rule(&app, false, up, down, when(gaming)).await.map_err(daemon_error)?;
-            println!("{app} is capped{}.", if gaming { " while game mode is on" } else { "" });
+            p.set_rule(&app, false, up, down, when(gaming))
+                .await
+                .map_err(daemon_error)?;
+            println!(
+                "{app} is capped{}.",
+                if gaming { " while game mode is on" } else { "" }
+            );
             let st = p.status().await.map_err(daemon_error)?;
             for problem in st.shaping_problems {
                 println!("Note: {problem}");
@@ -2597,9 +3346,24 @@ async fn net(conn: &zbus::Connection, command: Option<NetCommand>, all: bool, js
             }
             return Ok(());
         }
-        Some(NetCommand::Background { state, up, down, gaming, always }) => {
-            let (mut on, mut up_k, mut down_k, mut when_s) = p.background().await.map_err(daemon_error)?;
-            let f = |k: u32| if k == 0 { "no cap".to_string() } else if k >= 1000 { format!("{:.1} Mbit/s", k as f64 / 1000.0) } else { format!("{k} kbit/s") };
+        Some(NetCommand::Background {
+            state,
+            up,
+            down,
+            gaming,
+            always,
+        }) => {
+            let (mut on, mut up_k, mut down_k, mut when_s) =
+                p.background().await.map_err(daemon_error)?;
+            let f = |k: u32| {
+                if k == 0 {
+                    "no cap".to_string()
+                } else if k >= 1000 {
+                    format!("{:.1} Mbit/s", k as f64 / 1000.0)
+                } else {
+                    format!("{k} kbit/s")
+                }
+            };
             let changing = state.is_some() || up.is_some() || down.is_some() || gaming || always;
             if changing {
                 match state.as_deref() {
@@ -2619,10 +3383,15 @@ async fn net(conn: &zbus::Connection, command: Option<NetCommand>, all: bool, js
                 } else if always {
                     when_s = "always".into();
                 }
-                p.set_background(on, up_k, down_k, &when_s).await.map_err(daemon_error)?;
+                p.set_background(on, up_k, down_k, &when_s)
+                    .await
+                    .map_err(daemon_error)?;
             }
             if json {
-                println!("{}", serde_json::json!({ "on": on, "up_kbps": up_k, "down_kbps": down_k, "when": when_s }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "on": on, "up_kbps": up_k, "down_kbps": down_k, "when": when_s })
+                );
                 return Ok(());
             }
             println!(
@@ -2630,12 +3399,20 @@ async fn net(conn: &zbus::Connection, command: Option<NetCommand>, all: bool, js
                 if on { "on" } else { "off" },
                 f(up_k),
                 f(down_k),
-                if when_s == "gaming" { "while game mode is on" } else { "whenever it is on" }
+                if when_s == "gaming" {
+                    "while game mode is on"
+                } else {
+                    "whenever it is on"
+                }
             );
             println!("Left alone: the running game, VPNs and proxies, DNS managers, and apps with a rule of their own.");
             if on {
                 let apps = p.apps().await.map_err(daemon_error)?;
-                let slowed: Vec<&str> = apps.iter().filter(|a| a.state == "background").map(|a| a.name.as_str()).collect();
+                let slowed: Vec<&str> = apps
+                    .iter()
+                    .filter(|a| a.state == "background")
+                    .map(|a| a.name.as_str())
+                    .collect();
                 if !slowed.is_empty() {
                     println!("Slowed now: {}", slowed.join(", "));
                 }
@@ -2656,11 +3433,29 @@ async fn net(conn: &zbus::Connection, command: Option<NetCommand>, all: bool, js
                     let what = if r.block {
                         "blocked".to_string()
                     } else {
-                        let f = |k: u32| if k == 0 { "—".to_string() } else if k >= 1000 { format!("{:.1} Mbit/s", k as f64 / 1000.0) } else { format!("{k} kbit/s") };
+                        let f = |k: u32| {
+                            if k == 0 {
+                                "—".to_string()
+                            } else if k >= 1000 {
+                                format!("{:.1} Mbit/s", k as f64 / 1000.0)
+                            } else {
+                                format!("{k} kbit/s")
+                            }
+                        };
                         format!("up {}  down {}", f(r.up_kbps), f(r.down_kbps))
                     };
-                    let when = if r.when == "gaming" { "while gaming" } else { "always" };
-                    println!("{:<24} {:<32} {:<13} {}", r.app, what, when, if r.active { "in effect" } else { "waiting" });
+                    let when = if r.when == "gaming" {
+                        "while gaming"
+                    } else {
+                        "always"
+                    };
+                    println!(
+                        "{:<24} {:<32} {:<13} {}",
+                        r.app,
+                        what,
+                        when,
+                        if r.active { "in effect" } else { "waiting" }
+                    );
                 }
             }
             return Ok(());
@@ -2682,7 +3477,10 @@ async fn net(conn: &zbus::Connection, command: Option<NetCommand>, all: bool, js
         println!("(development service: invented numbers)");
     }
     let mb = |b: u64| format!("{:.1} MB", b as f64 / 1e6);
-    println!("{:<28} {:<8} {:>12} {:>12} {:>11} {:>11}", "app", "kind", "down", "up", "down total", "up total");
+    println!(
+        "{:<28} {:<8} {:>12} {:>12} {:>11} {:>11}",
+        "app", "kind", "down", "up", "down total", "up total"
+    );
     let mut hidden = 0;
     let (vpn, apps): (Vec<_>, Vec<_>) = apps.into_iter().partition(|a| a.category == "vpn");
     for a in apps {
@@ -2728,8 +3526,14 @@ async fn battery(conn: &zbus::Connection, command: BatteryCommand, json: bool) -
     let p = PowerProxy::new(conn).await?;
     match command {
         BatteryCommand::Status => {}
-        BatteryCommand::Protect { limit } => p.set_battery_care("protect", limit).await.map_err(daemon_error)?,
-        BatteryCommand::FullOnce { limit } => p.set_battery_care("full-once", limit).await.map_err(daemon_error)?,
+        BatteryCommand::Protect { limit } => p
+            .set_battery_care("protect", limit)
+            .await
+            .map_err(daemon_error)?,
+        BatteryCommand::FullOnce { limit } => p
+            .set_battery_care("full-once", limit)
+            .await
+            .map_err(daemon_error)?,
         BatteryCommand::Off => p.set_battery_care("off", 100).await.map_err(daemon_error)?,
     }
     let b = p.battery().await.map_err(daemon_error)?;
@@ -2744,7 +3548,11 @@ async fn battery(conn: &zbus::Connection, command: BatteryCommand, json: bool) -
         println!("Protection    not available: {}", b.reason);
         return Ok(());
     }
-    let how = if b.adjustable { format!("stops at {} %", b.limit) } else { "the vendor's conservation mode (limit set by the firmware)".into() };
+    let how = if b.adjustable {
+        format!("stops at {} %", b.limit)
+    } else {
+        "the vendor's conservation mode (limit set by the firmware)".into()
+    };
     match b.mode.as_str() {
         "protect" => println!("Protection    on: {how}"),
         "full-once" => println!("Protection    paused for one full charge, then back on ({how})"),
@@ -2770,7 +3578,9 @@ fn parse_duration(s: &str) -> Result<u64> {
             num.push(c);
             continue;
         }
-        let n: u64 = num.parse().map_err(|_| anyhow::anyhow!("cannot read {s:?} as a duration; try 90s, 30m, 2h or 1h30m"))?;
+        let n: u64 = num.parse().map_err(|_| {
+            anyhow::anyhow!("cannot read {s:?} as a duration; try 90s, 30m, 2h or 1h30m")
+        })?;
         num.clear();
         total += n * match c {
             's' => 1_000,
@@ -2861,7 +3671,9 @@ async fn gpu(
             }
             Ok(())
         }
-        GpuCommand::Default { .. } | GpuCommand::App { .. } => unreachable!("handled before connecting to the daemon"),
+        GpuCommand::Default { .. } | GpuCommand::App { .. } => {
+            unreachable!("handled before connecting to the daemon")
+        }
         GpuCommand::Active { pci } => {
             match pci {
                 Some(p) => {
@@ -2873,7 +3685,10 @@ async fn gpu(
             Ok(())
         }
         GpuCommand::Autotune { pci, goal } => {
-            let pci = match pci { Some(p) => p, None => gpu.active_gpu().await? };
+            let pci = match pci {
+                Some(p) => p,
+                None => gpu.active_gpu().await?,
+            };
             gpu.auto_tune(&pci, &goal).await.map_err(daemon_error)?;
             let mut last = String::new();
             let st = loop {
@@ -2892,11 +3707,14 @@ async fn gpu(
                 return Ok(());
             }
             eprint!("Keep it? Type y and Enter within two minutes: ");
-            let answer = tokio::time::timeout(std::time::Duration::from_secs(115), tokio::task::spawn_blocking(|| {
-                let mut s = String::new();
-                let _ = std::io::stdin().read_line(&mut s);
-                s
-            }))
+            let answer = tokio::time::timeout(
+                std::time::Duration::from_secs(115),
+                tokio::task::spawn_blocking(|| {
+                    let mut s = String::new();
+                    let _ = std::io::stdin().read_line(&mut s);
+                    s
+                }),
+            )
             .await;
             if matches!(answer, Ok(Ok(ref s)) if s.trim().eq_ignore_ascii_case("y")) {
                 gpu.keep_tune(&pci).await.map_err(daemon_error)?;
@@ -2908,19 +3726,36 @@ async fn gpu(
             Ok(())
         }
         GpuCommand::Keep { pci } => {
-            let pci = match pci { Some(p) => p, None => gpu.active_gpu().await? };
+            let pci = match pci {
+                Some(p) => p,
+                None => gpu.active_gpu().await?,
+            };
             gpu.keep_tune(&pci).await.map_err(daemon_error)?;
-            println!("Kept. It is applied again whenever the card wakes; `ug gpu reset` undoes it.");
+            println!(
+                "Kept. It is applied again whenever the card wakes; `ug gpu reset` undoes it."
+            );
             Ok(())
         }
         GpuCommand::Reset { pci } => {
-            let pci = match pci { Some(p) => p, None => gpu.active_gpu().await? };
+            let pci = match pci {
+                Some(p) => p,
+                None => gpu.active_gpu().await?,
+            };
             gpu.reset_tune(&pci).await.map_err(daemon_error)?;
             println!("Back to the card's own defaults.");
             Ok(())
         }
-        GpuCommand::Tune { pci, power, core, mem, test } => {
-            let pci = match pci { Some(p) => p, None => gpu.active_gpu().await? };
+        GpuCommand::Tune {
+            pci,
+            power,
+            core,
+            mem,
+            test,
+        } => {
+            let pci = match pci {
+                Some(p) => p,
+                None => gpu.active_gpu().await?,
+            };
             let st = gpu.tune_state(&pci).await.map_err(daemon_error)?;
             if power.is_none() && core.is_none() && mem.is_none() {
                 if json {
@@ -2931,13 +3766,23 @@ async fn gpu(
                 return Ok(());
             }
             let mut t = st.applied;
-            if let Some(p) = power { t.power_limit_w = p; }
-            if let Some(c) = core { t.core_offset_mhz = c; }
-            if let Some(m) = mem { t.mem_offset_mhz = m; }
+            if let Some(p) = power {
+                t.power_limit_w = p;
+            }
+            if let Some(c) = core {
+                t.core_offset_mhz = c;
+            }
+            if let Some(m) = mem {
+                t.mem_offset_mhz = m;
+            }
             gpu.try_tune(&pci, &t).await.map_err(daemon_error)?;
             println!(
                 "Trying: power {}, core {:+} MHz, memory {:+} MHz.",
-                if t.power_limit_w == 0.0 { "default".to_string() } else { format!("{:.0} W", t.power_limit_w) },
+                if t.power_limit_w == 0.0 {
+                    "default".to_string()
+                } else {
+                    format!("{:.0} W", t.power_limit_w)
+                },
                 t.core_offset_mhz,
                 t.mem_offset_mhz
             );
@@ -2950,11 +3795,14 @@ async fn gpu(
                 }
             }
             eprint!("Keep it? Type y and Enter within 30 seconds (anything else, or nothing, undoes it): ");
-            let answer = tokio::time::timeout(std::time::Duration::from_secs(28), tokio::task::spawn_blocking(|| {
-                let mut s = String::new();
-                let _ = std::io::stdin().read_line(&mut s);
-                s
-            }))
+            let answer = tokio::time::timeout(
+                std::time::Duration::from_secs(28),
+                tokio::task::spawn_blocking(|| {
+                    let mut s = String::new();
+                    let _ = std::io::stdin().read_line(&mut s);
+                    s
+                }),
+            )
             .await;
             match answer {
                 Ok(Ok(s)) if s.trim().eq_ignore_ascii_case("y") => {
@@ -2973,16 +3821,28 @@ async fn gpu(
 
 fn print_tune(st: &ug_proto::GpuTuneState) {
     if st.power_limit {
-        println!("power limit   {:.0} W (default {:.0}, allowed {:.0}–{:.0} W)", st.power_limit_w, st.power_default_w, st.power_min_w, st.power_max_w);
+        println!(
+            "power limit   {:.0} W (default {:.0}, allowed {:.0}–{:.0} W)",
+            st.power_limit_w, st.power_default_w, st.power_min_w, st.power_max_w
+        );
     }
     if st.core_offset {
-        println!("core offset   {:+} MHz (allowed {:+}…{:+})", st.core_offset_mhz, st.core_min_mhz, st.core_max_mhz);
+        println!(
+            "core offset   {:+} MHz (allowed {:+}…{:+})",
+            st.core_offset_mhz, st.core_min_mhz, st.core_max_mhz
+        );
     }
     if st.mem_offset {
-        println!("memory offset {:+} MHz (allowed {:+}…{:+})", st.mem_offset_mhz, st.mem_min_mhz, st.mem_max_mhz);
+        println!(
+            "memory offset {:+} MHz (allowed {:+}…{:+})",
+            st.mem_offset_mhz, st.mem_min_mhz, st.mem_max_mhz
+        );
     }
     if !st.applied.is_default() {
-        println!("kept by Unix Guardian: {:.0} W, core {:+}, memory {:+}", st.applied.power_limit_w, st.applied.core_offset_mhz, st.applied.mem_offset_mhz);
+        println!(
+            "kept by Unix Guardian: {:.0} W, core {:+}, memory {:+}",
+            st.applied.power_limit_w, st.applied.core_offset_mhz, st.applied.mem_offset_mhz
+        );
     }
     if !st.crashed.is_default() {
         println!("NOT applied again: the setting being tried when the machine stopped ({:.0} W, core {:+}, memory {:+})", st.crashed.power_limit_w, st.crashed.core_offset_mhz, st.crashed.mem_offset_mhz);
@@ -3036,7 +3896,10 @@ fn print_snapshot(s: &Snapshot, inv: &Inventory) {
         print!("  {w:>5.1} W");
     }
     if s.cpu.freq_avg_mhz > 0 {
-        print!("  {} MHz avg / {} max", s.cpu.freq_avg_mhz, s.cpu.freq_max_mhz);
+        print!(
+            "  {} MHz avg / {} max",
+            s.cpu.freq_avg_mhz, s.cpu.freq_max_mhz
+        );
     }
     if !s.cpu.governor.is_empty() {
         print!("  [{}]", s.cpu.governor);

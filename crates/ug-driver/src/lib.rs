@@ -110,12 +110,20 @@ pub fn report(facts: &Facts) -> DriverReport {
     }
     let shown = SHOWN
         .iter()
-        .filter_map(|k| facts.get(*k).map(|v| DriverFact { key: k.to_string(), value: v.text() }))
+        .filter_map(|k| {
+            facts.get(*k).map(|v| DriverFact {
+                key: k.to_string(),
+                value: v.text(),
+            })
+        })
         .collect();
     DriverReport {
         facts: shown,
         findings,
-        distro: facts.get("distro.name").map(Value::text).unwrap_or_default(),
+        distro: facts
+            .get("distro.name")
+            .map(Value::text)
+            .unwrap_or_default(),
         can_change: facts.get("distro.can_change").is_some_and(Value::truthy),
     }
 }

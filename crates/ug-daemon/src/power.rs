@@ -7,12 +7,12 @@
 //! (`--session` / `--sysroot`) never talks to logind: it records what it would
 //! have done, which the end-to-end checks read back.
 
+use crate::conditions::{Condition, Observation, Watch, Watches};
 use crate::polkit::{action, Gate};
 use crate::schedule::{Action, Job, Repeat, Schedule};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
-use crate::conditions::{Condition, Observation, Watch, Watches};
-use std::sync::atomic::{AtomicBool, Ordering};
 use ug_hw::SysRoot;
 use ug_proto::{BatteryCare, DayEnergy, PowerCapability, PowerJob, PowerUsage, PowerWatch};
 use zbus::object_server::SignalEmitter;
@@ -81,15 +81,23 @@ impl Backend {
             Ok("na") => (false, not_supported(a)),
             Ok("no") => (false, "The system's policy does not allow this.".into()),
             Ok(other) => (false, format!("The login manager answered {other:?}.")),
-            Err(_) => (false, "The login manager (systemd-logind or elogind) is not running.".into()),
+            Err(_) => (
+                false,
+                "The login manager (systemd-logind or elogind) is not running.".into(),
+            ),
         }
     }
 
     async fn perform(&self, a: Action) -> Result<(), String> {
         let conn = match self {
             Backend::Simulated(log) => {
-                tracing::warn!(action = a.name(), "development run: power action simulated, nothing happened");
-                log.lock().unwrap_or_else(|e| e.into_inner()).push(a.name().to_string());
+                tracing::warn!(
+                    action = a.name(),
+                    "development run: power action simulated, nothing happened"
+                );
+                log.lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(a.name().to_string());
                 return Ok(());
             }
             Backend::Logind(c) => c,
@@ -183,13 +191,21 @@ fn battery_to_wire(b: &crate::battery::Battery) -> BatteryCare {
     let (capacity, status) = b.level().unwrap_or((255, String::new()));
     BatteryCare {
         supported: b.method.is_some(),
-        method: b.method.as_ref().map(|m| m.name().to_string()).unwrap_or_default(),
+        method: b
+            .method
+            .as_ref()
+            .map(|m| m.name().to_string())
+            .unwrap_or_default(),
         adjustable: b.method.as_ref().is_some_and(|m| m.adjustable()),
         mode: mode.into(),
         limit,
         capacity,
         status,
-        reason: if b.method.is_some() { String::new() } else { crate::battery::unsupported_reason().into() },
+        reason: if b.method.is_some() {
+            String::new()
+        } else {
+            crate::battery::unsupported_reason().into()
+        },
     }
 }
 
@@ -217,9 +233,16 @@ impl Observer {
 /// Every running process's name (`/proc/<pid>/comm`, which the kernel cuts
 /// at 15 bytes).
 fn process_names(root: &SysRoot) -> Vec<String> {
-    let Ok(dir) = std::fs::read_dir(root.join("proc")) else { return Vec::new() };
+    let Ok(dir) = std::fs::read_dir(root.join("proc")) else {
+        return Vec::new();
+    };
     dir.filter_map(|e| e.ok())
-        .filter(|e| e.file_name().to_string_lossy().bytes().all(|b| b.is_ascii_digit()))
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .bytes()
+                .all(|b| b.is_ascii_digit())
+        })
         .filter_map(|e| std::fs::read_to_string(e.path().join("comm")).ok())
         .map(|s| s.trim().to_string())
         .collect()
@@ -227,12 +250,24 @@ fn process_names(root: &SysRoot) -> Vec<String> {
 
 fn watch_to_wire(w: &Watch) -> PowerWatch {
     let (kind, threshold, minutes, name) = match &w.condition {
-        Condition::NetIdle { below_bps, minutes } => ("net-idle", *below_bps as f64, *minutes, String::new()),
-        Condition::CpuIdle { below_pct, minutes } => ("cpu-idle", *below_pct, *minutes, String::new()),
+        Condition::NetIdle { below_bps, minutes } => {
+            ("net-idle", *below_bps as f64, *minutes, String::new())
+        }
+        Condition::CpuIdle { below_pct, minutes } => {
+            ("cpu-idle", *below_pct, *minutes, String::new())
+        }
         Condition::ProcessGone { name } => ("process-gone", 0.0, 0, name.clone()),
         Condition::GameOver => ("game-over", 0.0, 0, String::new()),
     };
-    PowerWatch { id: w.id, action: w.action.name().into(), kind: kind.into(), threshold, minutes, name, note: w.note.clone() }
+    PowerWatch {
+        id: w.id,
+        action: w.action.name().into(),
+        kind: kind.into(),
+        threshold,
+        minutes,
+        name,
+        note: w.note.clone(),
+    }
 }
 
 fn lock(s: &SharedSchedule) -> std::sync::MutexGuard<'_, Schedule> {
@@ -249,12 +284,20 @@ impl PowerIface {
         let mut out = Vec::new();
         for a in Action::ALL {
             let (available, reason) = self.backend.capability(a).await;
-            out.push(PowerCapability { action: a.name().to_string(), available, reason });
+            out.push(PowerCapability {
+                action: a.name().to_string(),
+                available,
+                reason,
+            });
         }
         out
     }
 
-    async fn now(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, action: &str) -> zbus::fdo::Result<()> {
+    async fn now(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        action: &str,
+    ) -> zbus::fdo::Result<()> {
         let a = Action::parse(action).map_err(invalid)?;
         self.gate.authorize(&hdr, action::POWER).await?;
         let (ok, why) = self.backend.capability(a).await;
@@ -262,7 +305,10 @@ impl PowerIface {
             return Err(zbus::fdo::Error::NotSupported(why));
         }
         tracing::info!(action = a.name(), "power action requested now");
-        self.backend.perform(a).await.map_err(zbus::fdo::Error::Failed)
+        self.backend
+            .perform(a)
+            .await
+            .map_err(zbus::fdo::Error::Failed)
     }
 
     async fn schedule(
@@ -280,8 +326,16 @@ impl PowerIface {
         if !ok {
             return Err(zbus::fdo::Error::NotSupported(why));
         }
-        let job = lock(&self.schedule).add(a, at_unix_ms, r, note, now_ms()).map_err(invalid)?;
-        tracing::info!(id = job.id, action = a.name(), at_ms = job.at_ms, repeat = r.name(), "power action scheduled");
+        let job = lock(&self.schedule)
+            .add(a, at_unix_ms, r, note, now_ms())
+            .map_err(invalid)?;
+        tracing::info!(
+            id = job.id,
+            action = a.name(),
+            at_ms = job.at_ms,
+            repeat = r.name(),
+            "power action scheduled"
+        );
         self.changed.notify_one();
         Ok(to_wire(&job))
     }
@@ -290,9 +344,15 @@ impl PowerIface {
         lock(&self.schedule).jobs().iter().map(to_wire).collect()
     }
 
-    async fn cancel(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, id: u32) -> zbus::fdo::Result<bool> {
+    async fn cancel(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        id: u32,
+    ) -> zbus::fdo::Result<bool> {
         self.gate.authorize(&hdr, action::POWER).await?;
-        let removed = lock(&self.schedule).cancel(id).map_err(zbus::fdo::Error::Failed)?;
+        let removed = lock(&self.schedule)
+            .cancel(id)
+            .map_err(zbus::fdo::Error::Failed)?;
         if removed {
             tracing::info!(id, "scheduled power action cancelled");
             self.changed.notify_one();
@@ -313,12 +373,24 @@ impl PowerIface {
     ) -> zbus::fdo::Result<PowerWatch> {
         let a = Action::parse(action).map_err(invalid)?;
         let cond = match kind {
-            "net-idle" => Condition::NetIdle { below_bps: threshold.max(0.0) as u64, minutes },
-            "cpu-idle" => Condition::CpuIdle { below_pct: threshold, minutes },
+            "net-idle" => Condition::NetIdle {
+                below_bps: threshold.max(0.0) as u64,
+                minutes,
+            },
+            "cpu-idle" => Condition::CpuIdle {
+                below_pct: threshold,
+                minutes,
+            },
             // comm is cut at 15 bytes, so compare against what /proc shows.
-            "process-gone" => Condition::ProcessGone { name: name.trim().chars().take(15).collect() },
+            "process-gone" => Condition::ProcessGone {
+                name: name.trim().chars().take(15).collect(),
+            },
             "game-over" => Condition::GameOver,
-            _ => return Err(invalid(format!("unknown condition {kind:?}; use net-idle, cpu-idle, process-gone or game-over"))),
+            _ => {
+                return Err(invalid(format!(
+                    "unknown condition {kind:?}; use net-idle, cpu-idle, process-gone or game-over"
+                )))
+            }
         };
         cond.validate().map_err(invalid)?;
         self.gate.authorize(&hdr, action::POWER).await?;
@@ -327,20 +399,46 @@ impl PowerIface {
             return Err(zbus::fdo::Error::NotSupported(why));
         }
         let observer = Arc::clone(&self.observer);
-        let now = tokio::task::spawn_blocking(move || observer.read()).await.map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
-        let w = self.watches.lock().unwrap_or_else(|e| e.into_inner()).add(a, cond, note, &now).map_err(invalid)?;
-        tracing::info!(id = w.id, action = a.name(), kind, "conditional power action armed");
+        let now = tokio::task::spawn_blocking(move || observer.read())
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        let w = self
+            .watches
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .add(a, cond, note, &now)
+            .map_err(invalid)?;
+        tracing::info!(
+            id = w.id,
+            action = a.name(),
+            kind,
+            "conditional power action armed"
+        );
         self.watches_changed.notify_one();
         Ok(watch_to_wire(&w))
     }
 
     async fn watches(&self) -> Vec<PowerWatch> {
-        self.watches.lock().unwrap_or_else(|e| e.into_inner()).list().iter().map(watch_to_wire).collect()
+        self.watches
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .list()
+            .iter()
+            .map(watch_to_wire)
+            .collect()
     }
 
-    async fn cancel_watch(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, id: u32) -> zbus::fdo::Result<bool> {
+    async fn cancel_watch(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        id: u32,
+    ) -> zbus::fdo::Result<bool> {
         self.gate.authorize(&hdr, action::POWER).await?;
-        self.watches.lock().unwrap_or_else(|e| e.into_inner()).cancel(id).map_err(zbus::fdo::Error::Failed)
+        self.watches
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .cancel(id)
+            .map_err(zbus::fdo::Error::Failed)
     }
 
     async fn usage(&self) -> PowerUsage {
@@ -348,56 +446,101 @@ impl PowerIface {
         let energy = Arc::clone(&self.energy);
         tokio::task::spawn_blocking(move || {
             let snap = observer.sampler.snapshot();
-            let gpus: Vec<f64> = snap.gpus.iter().filter(|g| !g.asleep && !g.power_w.is_nan()).map(|g| g.power_w).collect();
+            let gpus: Vec<f64> = snap
+                .gpus
+                .iter()
+                .filter(|g| !g.asleep && !g.power_w.is_nan())
+                .map(|g| g.power_w)
+                .collect();
             let meter = energy.lock().unwrap_or_else(|e| e.into_inner());
             PowerUsage {
                 cpu_w: snap.cpu.power_w,
-                gpu_w: if gpus.is_empty() { f64::NAN } else { gpus.iter().sum() },
+                gpu_w: if gpus.is_empty() {
+                    f64::NAN
+                } else {
+                    gpus.iter().sum()
+                },
                 battery_w: crate::energy::battery_discharge_w(&observer.root).unwrap_or(f64::NAN),
                 cpu_energy_recorded: meter.available(),
-                days: meter.days().into_iter().map(|(date, cpu_wh)| DayEnergy { date, cpu_wh }).collect(),
+                days: meter
+                    .days()
+                    .into_iter()
+                    .map(|(date, cpu_wh)| DayEnergy { date, cpu_wh })
+                    .collect(),
             }
         })
         .await
-        .unwrap_or(PowerUsage { cpu_w: f64::NAN, gpu_w: f64::NAN, battery_w: f64::NAN, cpu_energy_recorded: false, days: Vec::new() })
+        .unwrap_or(PowerUsage {
+            cpu_w: f64::NAN,
+            gpu_w: f64::NAN,
+            battery_w: f64::NAN,
+            cpu_energy_recorded: false,
+            days: Vec::new(),
+        })
     }
 
     async fn battery(&self) -> BatteryCare {
         battery_to_wire(&self.battery.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
-    async fn set_battery_care(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, mode: &str, limit: u8) -> zbus::fdo::Result<()> {
+    async fn set_battery_care(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        mode: &str,
+        limit: u8,
+    ) -> zbus::fdo::Result<()> {
         use crate::battery::Care;
         let care = match mode {
             "off" => Care::Off,
             "protect" => Care::Protect { limit },
             "full-once" => Care::FullOnce { limit },
-            _ => return Err(invalid(format!("unknown mode {mode:?}; use off, protect or full-once"))),
+            _ => {
+                return Err(invalid(format!(
+                    "unknown mode {mode:?}; use off, protect or full-once"
+                )))
+            }
         };
         self.gate.authorize(&hdr, action::POWER).await?;
         let battery = Arc::clone(&self.battery);
-        tokio::task::spawn_blocking(move || battery.lock().unwrap_or_else(|e| e.into_inner()).set(care))
-            .await
-            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
-            .map_err(invalid)?;
+        tokio::task::spawn_blocking(move || {
+            battery.lock().unwrap_or_else(|e| e.into_inner()).set(care)
+        })
+        .await
+        .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+        .map_err(invalid)?;
         tracing::info!(mode, limit, "battery protection set");
         Ok(())
     }
 
     /// Wakes the computer at `at_unix_ms` (from sleep, or from off where the
     /// firmware allows it). Replaces any alarm already set.
-    async fn set_wake_alarm(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, at_unix_ms: u64) -> zbus::fdo::Result<()> {
+    async fn set_wake_alarm(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        at_unix_ms: u64,
+    ) -> zbus::fdo::Result<()> {
         if at_unix_ms <= now_ms() + 30_000 {
             return Err(invalid("pick a time at least a minute from now".into()));
         }
         self.gate.authorize(&hdr, action::POWER).await?;
         match &self.rtc {
-            Some(r) if r.available() => r.set(at_unix_ms / 1000).map_err(zbus::fdo::Error::Failed)?,
-            Some(_) => return Err(zbus::fdo::Error::NotSupported("This computer has no wake-capable hardware clock.".into())),
+            Some(r) if r.available() => {
+                r.set(at_unix_ms / 1000).map_err(zbus::fdo::Error::Failed)?
+            }
+            Some(_) => {
+                return Err(zbus::fdo::Error::NotSupported(
+                    "This computer has no wake-capable hardware clock.".into(),
+                ))
+            }
             None => {
-                *self.simulated_alarm.lock().unwrap_or_else(|e| e.into_inner()) = Some(at_unix_ms / 1000);
+                *self
+                    .simulated_alarm
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = Some(at_unix_ms / 1000);
                 if let Backend::Simulated(log) = &*self.backend {
-                    log.lock().unwrap_or_else(|e| e.into_inner()).push(format!("wake-alarm {}", at_unix_ms / 1000));
+                    log.lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(format!("wake-alarm {}", at_unix_ms / 1000));
                 }
             }
         }
@@ -405,12 +548,20 @@ impl PowerIface {
         Ok(())
     }
 
-    async fn clear_wake_alarm(&self, #[zbus(header)] hdr: zbus::message::Header<'_>) -> zbus::fdo::Result<()> {
+    async fn clear_wake_alarm(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+    ) -> zbus::fdo::Result<()> {
         self.gate.authorize(&hdr, action::POWER).await?;
         match &self.rtc {
             Some(r) if r.available() => r.clear().map_err(zbus::fdo::Error::Failed)?,
             Some(_) => {}
-            None => *self.simulated_alarm.lock().unwrap_or_else(|e| e.into_inner()) = None,
+            None => {
+                *self
+                    .simulated_alarm
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = None
+            }
         }
         Ok(())
     }
@@ -420,7 +571,10 @@ impl PowerIface {
     async fn wake_alarm(&self) -> u64 {
         let s = match &self.rtc {
             Some(r) => r.get(),
-            None => *self.simulated_alarm.lock().unwrap_or_else(|e| e.into_inner()),
+            None => *self
+                .simulated_alarm
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()),
         };
         s.map(|s| s * 1000).unwrap_or(0)
     }
@@ -431,7 +585,11 @@ impl PowerIface {
     }
 
     #[zbus(signal)]
-    pub async fn upcoming(emitter: &SignalEmitter<'_>, job: PowerJob, seconds: u32) -> zbus::Result<()>;
+    pub async fn upcoming(
+        emitter: &SignalEmitter<'_>,
+        job: PowerJob,
+        seconds: u32,
+    ) -> zbus::Result<()>;
 
     #[zbus(property)]
     async fn simulated(&self) -> Vec<String> {
@@ -444,7 +602,12 @@ impl PowerIface {
 
 /// Runs queued jobs on time. With nothing queued it parks until the queue
 /// changes: no periodic work on an idle machine.
-pub async fn run(conn: zbus::Connection, schedule: SharedSchedule, backend: Arc<Backend>, changed: Arc<Notify>) {
+pub async fn run(
+    conn: zbus::Connection,
+    schedule: SharedSchedule,
+    backend: Arc<Backend>,
+    changed: Arc<Notify>,
+) {
     // (job id, time) pairs already warned about, so each gets one warning.
     let mut warned: Vec<(u32, u64)> = Vec::new();
     loop {
@@ -460,10 +623,19 @@ pub async fn run(conn: zbus::Connection, schedule: SharedSchedule, backend: Arc<
             if now >= warn_at && !warned.contains(&(job.id, job.at_ms)) {
                 warned.push((job.id, job.at_ms));
                 let secs = ((job.at_ms - now) / 1000) as u32;
-                if let Ok(iface) = conn.object_server().interface::<_, PowerIface>(ug_proto::DAEMON_OBJECT_PATH).await {
+                if let Ok(iface) = conn
+                    .object_server()
+                    .interface::<_, PowerIface>(ug_proto::DAEMON_OBJECT_PATH)
+                    .await
+                {
                     let _ = PowerIface::upcoming(iface.signal_emitter(), to_wire(&job), secs).await;
                 }
-                tracing::info!(id = job.id, action = job.action.name(), secs, "power action coming up");
+                tracing::info!(
+                    id = job.id,
+                    action = job.action.name(),
+                    secs,
+                    "power action coming up"
+                );
             }
             let target = if now < warn_at { warn_at } else { job.at_ms };
             let nap = (target - now).clamp(1, MAX_NAP_MS);
@@ -475,18 +647,29 @@ pub async fn run(conn: zbus::Connection, schedule: SharedSchedule, backend: Arc<
         }
         let (due, missed) = lock(&schedule).take_due(now, GRACE_MS);
         for j in missed {
-            tracing::warn!(id = j.id, action = j.action.name(), "skipped: it fell due while the machine was asleep");
+            tracing::warn!(
+                id = j.id,
+                action = j.action.name(),
+                "skipped: it fell due while the machine was asleep"
+            );
         }
         // Several jobs due together: the first one decides the machine's fate
         // (a shutdown ends everything after it), so run them in order and stop
         // at the first that takes the machine away.
         for j in due {
-            tracing::info!(id = j.id, action = j.action.name(), "running scheduled power action");
+            tracing::info!(
+                id = j.id,
+                action = j.action.name(),
+                "running scheduled power action"
+            );
             if let Err(e) = backend.perform(j.action).await {
                 tracing::error!(id = j.id, error = %e, "scheduled power action failed");
                 continue;
             }
-            if matches!(j.action, Action::PowerOff | Action::Reboot | Action::RebootFirmware) {
+            if matches!(
+                j.action,
+                Action::PowerOff | Action::Reboot | Action::RebootFirmware
+            ) {
                 break;
             }
         }
@@ -498,17 +681,31 @@ const WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Checks conditional actions every ten seconds while any exist; parks
 /// otherwise, so a machine with none does no work for them.
-pub async fn watch(watches: SharedWatches, observer: Arc<Observer>, backend: Arc<Backend>, changed: Arc<Notify>) {
+pub async fn watch(
+    watches: SharedWatches,
+    observer: Arc<Observer>,
+    backend: Arc<Backend>,
+    changed: Arc<Notify>,
+) {
     loop {
         if watches.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
             changed.notified().await;
             continue;
         }
         let obs_reader = Arc::clone(&observer);
-        let Ok(o) = tokio::task::spawn_blocking(move || obs_reader.read()).await else { continue };
-        let fired = watches.lock().unwrap_or_else(|e| e.into_inner()).observe(&o, now_ms());
+        let Ok(o) = tokio::task::spawn_blocking(move || obs_reader.read()).await else {
+            continue;
+        };
+        let fired = watches
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .observe(&o, now_ms());
         for w in fired {
-            tracing::info!(id = w.id, action = w.action.name(), "condition met; running power action");
+            tracing::info!(
+                id = w.id,
+                action = w.action.name(),
+                "condition met; running power action"
+            );
             if let Err(e) = backend.perform(w.action).await {
                 tracing::error!(id = w.id, error = %e, "conditional power action failed");
             }
@@ -541,7 +738,11 @@ pub async fn meter(energy: Arc<Mutex<crate::energy::EnergyMeter>>) {
     }
 }
 
-#[zbus::proxy(interface = "org.freedesktop.login1.Manager", default_service = "org.freedesktop.login1", default_path = "/org/freedesktop/login1")]
+#[zbus::proxy(
+    interface = "org.freedesktop.login1.Manager",
+    default_service = "org.freedesktop.login1",
+    default_path = "/org/freedesktop/login1"
+)]
 trait Login1Sleep {
     #[zbus(signal)]
     fn prepare_for_sleep(&self, start: bool) -> zbus::Result<()>;
@@ -555,7 +756,10 @@ pub async fn keep_battery(battery: SharedBattery, system: Option<zbus::Connectio
     let reapply = |b: &SharedBattery| {
         let b = Arc::clone(b);
         async move {
-            let r = tokio::task::spawn_blocking(move || b.lock().unwrap_or_else(|e| e.into_inner()).apply()).await;
+            let r = tokio::task::spawn_blocking(move || {
+                b.lock().unwrap_or_else(|e| e.into_inner()).apply()
+            })
+            .await;
             if let Ok(Err(e)) = r {
                 tracing::warn!(error = %e, "could not apply battery protection");
             }
@@ -570,7 +774,10 @@ pub async fn keep_battery(battery: SharedBattery, system: Option<zbus::Connectio
         None => None,
     };
     loop {
-        let full_once = matches!(battery.lock().unwrap_or_else(|e| e.into_inner()).care, crate::battery::Care::FullOnce { .. });
+        let full_once = matches!(
+            battery.lock().unwrap_or_else(|e| e.into_inner()).care,
+            crate::battery::Care::FullOnce { .. }
+        );
         let tick = async {
             if full_once {
                 tokio::time::sleep(std::time::Duration::from_secs(300)).await

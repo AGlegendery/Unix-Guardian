@@ -27,7 +27,11 @@ impl Rtc {
 
     /// The armed alarm as Unix seconds, if any.
     pub fn get(&self) -> Option<u64> {
-        let raw: u64 = std::fs::read_to_string(self.root.join(ALARM)).ok()?.trim().parse().ok()?;
+        let raw: u64 = std::fs::read_to_string(self.root.join(ALARM))
+            .ok()?
+            .trim()
+            .parse()
+            .ok()?;
         if raw == 0 {
             return None;
         }
@@ -103,7 +107,10 @@ mod tests {
         assert!(r.available());
         assert_eq!(r.get(), None, "nothing armed");
         r.set(1_800_000_000).unwrap();
-        assert_eq!(std::fs::read_to_string(fs.root().join(ALARM)).unwrap(), "1800000000");
+        assert_eq!(
+            std::fs::read_to_string(fs.root().join(ALARM)).unwrap(),
+            "1800000000"
+        );
         assert_eq!(r.get(), Some(1_800_000_000));
         r.clear().unwrap();
         assert_eq!(r.get(), None, "cleared");
@@ -114,9 +121,16 @@ mod tests {
         let fs = TestFs::new();
         let r = rtc(&fs, "0.0 0 0.0\n0\nLOCAL\n");
         r.set(1_800_000_000).unwrap();
-        let raw: i64 = std::fs::read_to_string(fs.root().join(ALARM)).unwrap().parse().unwrap();
+        let raw: i64 = std::fs::read_to_string(fs.root().join(ALARM))
+            .unwrap()
+            .parse()
+            .unwrap();
         assert_eq!(raw - 1_800_000_000, r.rtc_offset(1_800_000_000));
-        assert_eq!(r.get(), Some(1_800_000_000), "reads back as the same moment");
+        assert_eq!(
+            r.get(),
+            Some(1_800_000_000),
+            "reads back as the same moment"
+        );
     }
 
     #[test]
@@ -130,7 +144,10 @@ mod tests {
         let e = std::io::Error::from_raw_os_error(libc::EINVAL);
         let m = write_error(std::path::Path::new("/sys/class/rtc/rtc0/wakealarm"), &e);
         assert!(m.contains("within the next 24 hours"), "{m}");
-        let other = write_error(std::path::Path::new("/x"), &std::io::Error::from_raw_os_error(libc::EACCES));
+        let other = write_error(
+            std::path::Path::new("/x"),
+            &std::io::Error::from_raw_os_error(libc::EACCES),
+        );
         assert!(other.starts_with("/x: "), "{other}");
     }
 }

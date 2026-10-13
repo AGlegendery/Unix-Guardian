@@ -15,7 +15,10 @@ use clap::Parser;
 use std::time::{Duration, Instant};
 
 #[derive(Parser)]
-#[command(name = "ug-stress", about = "GPU stability test (compute, self-checking)")]
+#[command(
+    name = "ug-stress",
+    about = "GPU stability test (compute, self-checking)"
+)]
 struct Args {
     /// Seconds to run.
     #[arg(long, default_value_t = 120)]
@@ -84,7 +87,9 @@ impl Rng {
 /// `0000:01:00.0` → the (vendor, device) ids sysfs gives for it.
 fn pci_ids(pci: &str) -> Option<(u32, u32)> {
     let r = |f: &str| {
-        std::fs::read_to_string(format!("/sys/bus/pci/devices/{pci}/{f}")).ok().and_then(|s| u32::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok())
+        std::fs::read_to_string(format!("/sys/bus/pci/devices/{pci}/{f}"))
+            .ok()
+            .and_then(|s| u32::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok())
     };
     Some((r("vendor")?, r("device")?))
 }
@@ -95,19 +100,28 @@ fn main() {
         Ok(true) => std::process::exit(0),
         Ok(false) => std::process::exit(2),
         Err(e) => {
-            println!("{}", serde_json::json!({"event": "error", "message": format!("{e:#}")}));
+            println!(
+                "{}",
+                serde_json::json!({"event": "error", "message": format!("{e:#}")})
+            );
             std::process::exit(1)
         }
     }
 }
 
 fn run(args: &Args) -> Result<bool> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::VULKAN,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
     let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN));
     if args.list {
         for a in &adapters {
             let i = a.get_info();
-            println!("{:04x}:{:04x} {:?} {}", i.vendor, i.device, i.device_type, i.name);
+            println!(
+                "{:04x}:{:04x} {:?} {}",
+                i.vendor, i.device, i.device_type, i.name
+            );
         }
         return Ok(true);
     }
@@ -126,14 +140,20 @@ fn run(args: &Args) -> Result<bool> {
     let info = adapter.get_info();
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("ug-stress"),
-        required_limits: wgpu::Limits { max_storage_buffer_binding_size: 1 << 30, max_buffer_size: 1 << 30, ..wgpu::Limits::default() },
+        required_limits: wgpu::Limits {
+            max_storage_buffer_binding_size: 1 << 30,
+            max_buffer_size: 1 << 30,
+            ..wgpu::Limits::default()
+        },
         ..Default::default()
     }))
     .context("opening the GPU")?;
     let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     {
         let lost = std::sync::Arc::clone(&lost);
-        device.set_device_lost_callback(move |_, _| lost.store(true, std::sync::atomic::Ordering::SeqCst));
+        device.set_device_lost_callback(move |_, _| {
+            lost.store(true, std::sync::atomic::Ordering::SeqCst)
+        });
     }
 
     let len = (args.megabytes.max(4) as usize * 1024 * 1024 / 4) as u32;
@@ -146,10 +166,28 @@ fn run(args: &Args) -> Result<bool> {
         contents: bytemuck_cast(&src),
         usage: wgpu::BufferUsages::STORAGE,
     });
-    let dst_buf = device.create_buffer(&wgpu::BufferDescriptor { label: None, size: bytes, usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false });
-    let read_buf = device.create_buffer(&wgpu::BufferDescriptor { label: None, size: bytes, usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
-    let params = device.create_buffer(&wgpu::BufferDescriptor { label: None, size: 16, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: None, source: wgpu::ShaderSource::Wgsl(SHADER.into()) });
+    let dst_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: bytes,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let read_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: bytes,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let params = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 16,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: None,
+        source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+    });
     let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: None,
         layout: None,
@@ -162,15 +200,31 @@ fn run(args: &Args) -> Result<bool> {
         label: None,
         layout: &pipeline.get_bind_group_layout(0),
         entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: src_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 1, resource: dst_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 2, resource: params.as_entire_binding() },
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: src_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: dst_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: params.as_entire_binding(),
+            },
         ],
     });
     let groups = len.div_ceil(256);
-    let (gx, gy) = if groups > 65535 { (65535, groups.div_ceil(65535)) } else { (groups, 1) };
+    let (gx, gy) = if groups > 65535 {
+        (65535, groups.div_ceil(65535))
+    } else {
+        (groups, 1)
+    };
 
-    println!("{}", serde_json::json!({"event": "start", "gpu": info.name, "seconds": args.seconds, "megabytes": args.megabytes}));
+    println!(
+        "{}",
+        serde_json::json!({"event": "start", "gpu": info.name, "seconds": args.seconds, "megabytes": args.megabytes})
+    );
     let start = Instant::now();
     let (mut rounds, mut errors, mut checked) = (0u64, 0u64, 0u64);
     let mut iters: u32 = 8;
@@ -192,16 +246,26 @@ fn run(args: &Args) -> Result<bool> {
         slice.map_async(wgpu::MapMode::Read, |_| {});
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
         if lost.load(std::sync::atomic::Ordering::SeqCst) {
-            println!("{}", serde_json::json!({"event": "done", "stable": false, "reason": "the driver reset the GPU (device lost)", "rounds": rounds}));
+            println!(
+                "{}",
+                serde_json::json!({"event": "done", "stable": false, "reason": "the driver reset the GPU (device lost)", "rounds": rounds})
+            );
             return Ok(false);
         }
         {
-            let data = slice.get_mapped_range().context("reading the results back")?;
+            let data = slice
+                .get_mapped_range()
+                .context("reading the results back")?;
             let out: &[u32] = bytemuck_from(&data);
             for _ in 0..512 {
                 let i = (rng.next() % len as u64) as usize;
                 checked += 1;
-                let expect = reference(&src, if args.inject_fault { seed ^ 1 } else { seed }, i, iters);
+                let expect = reference(
+                    &src,
+                    if args.inject_fault { seed ^ 1 } else { seed },
+                    i,
+                    iters,
+                );
                 if out[i] != expect {
                     errors += 1;
                 }
@@ -217,18 +281,27 @@ fn run(args: &Args) -> Result<bool> {
             iters /= 2;
         }
         if errors > 0 {
-            println!("{}", serde_json::json!({"event": "done", "stable": false, "reason": format!("{errors} wrong results out of {checked} checked"), "rounds": rounds}));
+            println!(
+                "{}",
+                serde_json::json!({"event": "done", "stable": false, "reason": format!("{errors} wrong results out of {checked} checked"), "rounds": rounds})
+            );
             return Ok(false);
         }
         if last_report.elapsed() >= Duration::from_secs(1) {
             last_report = Instant::now();
-            println!("{}", serde_json::json!({"event": "progress", "elapsed_s": start.elapsed().as_secs(), "rounds": rounds, "checked": checked, "iters": iters}));
+            println!(
+                "{}",
+                serde_json::json!({"event": "progress", "elapsed_s": start.elapsed().as_secs(), "rounds": rounds, "checked": checked, "iters": iters})
+            );
         }
     }
     if rounds == 0 {
         bail!("not a single round completed");
     }
-    println!("{}", serde_json::json!({"event": "done", "stable": true, "rounds": rounds, "checked": checked}));
+    println!(
+        "{}",
+        serde_json::json!({"event": "done", "stable": true, "rounds": rounds, "checked": checked})
+    );
     Ok(true)
 }
 

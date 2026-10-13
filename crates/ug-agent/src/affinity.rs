@@ -33,7 +33,9 @@ pub fn pin(root: &SysRoot, pids: &[i32], cpus: &[u32]) -> usize {
                 continue;
             }
             // SAFETY: `set` is a valid, initialised cpu_set_t for its full size.
-            let rc = unsafe { libc::sched_setaffinity(tid, std::mem::size_of::<libc::cpu_set_t>(), &set) };
+            let rc = unsafe {
+                libc::sched_setaffinity(tid, std::mem::size_of::<libc::cpu_set_t>(), &set)
+            };
             if rc == 0 {
                 done += 1;
             }
@@ -47,17 +49,25 @@ pub fn pin(root: &SysRoot, pids: &[i32], cpus: &[u32]) -> usize {
 pub fn current(tid: i32) -> Option<Vec<u32>> {
     // SAFETY: as above; the kernel writes at most size_of::<cpu_set_t>() bytes.
     let mut set: libc::cpu_set_t = unsafe { std::mem::zeroed() };
-    let rc = unsafe { libc::sched_getaffinity(tid, std::mem::size_of::<libc::cpu_set_t>(), &mut set) };
+    let rc =
+        unsafe { libc::sched_getaffinity(tid, std::mem::size_of::<libc::cpu_set_t>(), &mut set) };
     if rc != 0 {
         return None;
     }
-    Some((0..libc::CPU_SETSIZE as u32).filter(|&c| unsafe { libc::CPU_ISSET(c as usize, &set) }).collect())
+    Some(
+        (0..libc::CPU_SETSIZE as u32)
+            .filter(|&c| unsafe { libc::CPU_ISSET(c as usize, &set) })
+            .collect(),
+    )
 }
 
 /// Thread IDs of a process, from `/proc/<pid>/task`.
 fn threads(root: &SysRoot, pid: i32) -> Vec<i32> {
     std::fs::read_dir(root.join(format!("proc/{pid}/task")))
-        .map(|d| d.filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok()).collect())
+        .map(|d| {
+            d.filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+                .collect()
+        })
         .unwrap_or_default()
 }
 

@@ -74,7 +74,10 @@ impl NvmlSlot {
         if let Some(lib) = &st.lib {
             return Some(Arc::clone(lib));
         }
-        if st.failed_at.is_some_and(|t| t.elapsed() < RETRY_AFTER_FAILURE) {
+        if st
+            .failed_at
+            .is_some_and(|t| t.elapsed() < RETRY_AFTER_FAILURE)
+        {
             return None;
         }
         match NvmlLib::init() {
@@ -176,7 +179,10 @@ impl NvidiaGpu {
         }
         *learned = Some(Learned {
             name: dev.name().unwrap_or_default(),
-            vram_total_mb: dev.memory_info().map(|m| m.total / 1024 / 1024).unwrap_or(0),
+            vram_total_mb: dev
+                .memory_info()
+                .map(|m| m.total / 1024 / 1024)
+                .unwrap_or(0),
         });
     }
 }
@@ -194,7 +200,11 @@ fn device_for_pci<'n>(lib: &'n NvmlLib, pci: &str) -> Option<Device<'n>> {
     let count = lib.device_count().ok()?;
     (0..count)
         .filter_map(|i| lib.device_by_index(i).ok())
-        .find(|d| d.pci_info().map(|p| pci_tail(&p.bus_id) == want).unwrap_or(false))
+        .find(|d| {
+            d.pci_info()
+                .map(|p| pci_tail(&p.bus_id) == want)
+                .unwrap_or(false)
+        })
 }
 
 /// The `bus:device.function` part of a PCI address, lowercased.
@@ -212,7 +222,12 @@ impl GpuBackend for NvidiaGpu {
     }
 
     fn enrich(&self, info: &mut GpuInfo) {
-        if let Some(l) = self.learned.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        if let Some(l) = self
+            .learned
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
             if !l.name.is_empty() {
                 info.name = l.name.clone();
             }
@@ -274,9 +289,9 @@ impl GpuBackend for NvidiaGpu {
                     caps.power_limit_min_w = c.min_limit as f64 / 1000.0;
                     caps.power_limit_max_w = c.max_limit as f64 / 1000.0;
                 }
-                Err(e) => caps
-                    .notes
-                    .push(format!("This GPU does not allow changing its power limit ({e}).")),
+                Err(e) => caps.notes.push(format!(
+                    "This GPU does not allow changing its power limit ({e})."
+                )),
             }
             // Clock offsets need driver 520 or newer; older drivers need an X11
             // session and Coolbits, which P5 handles as a separate path.
@@ -326,7 +341,11 @@ impl GpuBackend for NvidiaGpu {
 /// drivers before 520 (checked, never assumed: a missing symbol would abort).
 fn offset_bounds(dev: &Device<'_>, mem: bool) -> Option<(i32, i32)> {
     let lib = dev.nvml().lib();
-    let present = if mem { lib.nvmlDeviceGetMemClkMinMaxVfOffset.is_ok() } else { lib.nvmlDeviceGetGpcClkMinMaxVfOffset.is_ok() };
+    let present = if mem {
+        lib.nvmlDeviceGetMemClkMinMaxVfOffset.is_ok()
+    } else {
+        lib.nvmlDeviceGetGpcClkMinMaxVfOffset.is_ok()
+    };
     if !present {
         return None;
     }
@@ -346,8 +365,15 @@ fn offset_bounds(dev: &Device<'_>, mem: bool) -> Option<(i32, i32)> {
 impl NvidiaGpu {
     /// Everything `tune_state` reports, from an open device.
     fn read_tune(&self, dev: &Device<'_>) -> GpuTuneState {
-        let mut st = GpuTuneState { pci: self.pci.clone(), ..Default::default() };
-        match (dev.power_management_limit_constraints(), dev.power_management_limit_default(), dev.power_management_limit()) {
+        let mut st = GpuTuneState {
+            pci: self.pci.clone(),
+            ..Default::default()
+        };
+        match (
+            dev.power_management_limit_constraints(),
+            dev.power_management_limit_default(),
+            dev.power_management_limit(),
+        ) {
             (Ok(c), Ok(def), Ok(cur)) => {
                 st.power_limit = true;
                 st.power_min_w = c.min_limit as f64 / 1000.0;
@@ -356,17 +382,33 @@ impl NvidiaGpu {
                 st.power_limit_w = cur as f64 / 1000.0;
             }
             (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
-                st.notes.push(format!("The power limit cannot be read or changed here ({e})."));
+                st.notes.push(format!(
+                    "The power limit cannot be read or changed here ({e})."
+                ));
             }
         }
         for mem in [false, true] {
-            let cur = if mem { dev.mem_clock_vf_offset() } else { dev.gpc_clock_vf_offset() };
+            let cur = if mem {
+                dev.mem_clock_vf_offset()
+            } else {
+                dev.gpc_clock_vf_offset()
+            };
             match (cur, offset_bounds(dev, mem)) {
                 (Ok(v), Some((lo, hi))) => {
                     if mem {
-                        (st.mem_offset, st.mem_offset_mhz, st.mem_min_mhz, st.mem_max_mhz) = (true, v, lo, hi);
+                        (
+                            st.mem_offset,
+                            st.mem_offset_mhz,
+                            st.mem_min_mhz,
+                            st.mem_max_mhz,
+                        ) = (true, v, lo, hi);
                     } else {
-                        (st.core_offset, st.core_offset_mhz, st.core_min_mhz, st.core_max_mhz) = (true, v, lo, hi);
+                        (
+                            st.core_offset,
+                            st.core_offset_mhz,
+                            st.core_min_mhz,
+                            st.core_max_mhz,
+                        ) = (true, v, lo, hi);
                     }
                 }
                 (Err(e), _) => st.notes.push(format!(
@@ -398,19 +440,29 @@ impl NvidiaGpu {
     }
 
     pub fn apply_tune_impl(&self, t: &GpuTune) -> Result<(), String> {
-        let lib = self.slot.acquire().ok_or("the NVIDIA management library (NVML) is not available")?;
+        let lib = self
+            .slot
+            .acquire()
+            .ok_or("the NVIDIA management library (NVML) is not available")?;
         let mut dev = device_for_pci(&lib, &self.pci).ok_or("the GPU was not found by NVML")?;
         let st = self.read_tune(&dev);
         crate::check_tune(t, &st)?;
-        let pl = if t.power_limit_w == 0.0 { st.power_default_w } else { t.power_limit_w };
+        let pl = if t.power_limit_w == 0.0 {
+            st.power_default_w
+        } else {
+            t.power_limit_w
+        };
         if st.power_limit && (pl - st.power_limit_w).abs() > 0.5 {
-            dev.set_power_management_limit((pl * 1000.0).round() as u32).map_err(|e| format!("power limit: {e}"))?;
+            dev.set_power_management_limit((pl * 1000.0).round() as u32)
+                .map_err(|e| format!("power limit: {e}"))?;
         }
         if st.core_offset && t.core_offset_mhz != st.core_offset_mhz {
-            dev.set_gpc_clock_vf_offset(t.core_offset_mhz).map_err(|e| format!("core clock offset: {e}"))?;
+            dev.set_gpc_clock_vf_offset(t.core_offset_mhz)
+                .map_err(|e| format!("core clock offset: {e}"))?;
         }
         if st.mem_offset && t.mem_offset_mhz != st.mem_offset_mhz {
-            dev.set_mem_clock_vf_offset(t.mem_offset_mhz).map_err(|e| format!("memory clock offset: {e}"))?;
+            dev.set_mem_clock_vf_offset(t.mem_offset_mhz)
+                .map_err(|e| format!("memory clock offset: {e}"))?;
         }
         Ok(())
     }
@@ -447,7 +499,10 @@ mod tests {
     fn module_version_is_read_from_sysfs() {
         let fs = ug_testfs::TestFs::new();
         fs.write("sys/module/nvidia/version", "550.163.01");
-        assert_eq!(module_version(&SysRoot::at(fs.root())).as_deref(), Some("550.163.01"));
+        assert_eq!(
+            module_version(&SysRoot::at(fs.root())).as_deref(),
+            Some("550.163.01")
+        );
     }
 
     #[test]

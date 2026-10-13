@@ -30,8 +30,9 @@ impl CaptureEnv {
     pub fn detect(root: &Path) -> CaptureEnv {
         let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty())
             || std::env::var("XDG_SESSION_TYPE").is_ok_and(|v| v == "wayland");
-        let native = std::env::var_os("PATH")
-            .is_some_and(|p| std::env::split_paths(&p).any(|d| d.join("gpu-screen-recorder").is_file()));
+        let native = std::env::var_os("PATH").is_some_and(|p| {
+            std::env::split_paths(&p).any(|d| d.join("gpu-screen-recorder").is_file())
+        });
         CaptureEnv {
             wayland,
             nvidia_desktop: nvidia_desktop(root),
@@ -84,10 +85,16 @@ pub fn is_monitor(capture: &str) -> bool {
 }
 
 fn nvidia_desktop(root: &Path) -> bool {
-    let Ok(dir) = std::fs::read_dir(root.join("sys/class/drm")) else { return false };
+    let Ok(dir) = std::fs::read_dir(root.join("sys/class/drm")) else {
+        return false;
+    };
     dir.filter_map(|e| e.ok()).any(|e| {
         let d = e.path().join("device");
-        let read = |f: &str| std::fs::read_to_string(d.join(f)).map(|s| s.trim().to_string()).unwrap_or_default();
+        let read = |f: &str| {
+            std::fs::read_to_string(d.join(f))
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default()
+        };
         read("boot_vga") == "1" && read("vendor") == "0x10de"
     })
 }
@@ -97,7 +104,11 @@ mod tests {
     use super::*;
 
     fn env(wayland: bool, nvidia_desktop: bool, kms_reachable: bool) -> CaptureEnv {
-        CaptureEnv { wayland, nvidia_desktop, kms_reachable }
+        CaptureEnv {
+            wayland,
+            nvidia_desktop,
+            kms_reachable,
+        }
     }
 
     #[test]
@@ -131,7 +142,10 @@ mod tests {
         assert_eq!(e.auto_capture(), "portal");
         assert!(e.asks_first(""));
         assert!(e.asks_first("portal"));
-        assert!(e.asks_first("eDP-1"), "a monitor on Wayland needs the helper's password");
+        assert!(
+            e.asks_first("eDP-1"),
+            "a monitor on Wayland needs the helper's password"
+        );
     }
 
     #[test]

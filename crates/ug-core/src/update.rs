@@ -20,12 +20,16 @@ use std::path::Path;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// GitHub's API for the project's releases.
-pub const DEFAULT_FEED: &str = "https://api.github.com/repos/AGlegendery/Unix-Guardian/releases?per_page=20";
+pub const DEFAULT_FEED: &str =
+    "https://api.github.com/repos/AGlegendery/Unix-Guardian/releases?per_page=20";
 
 /// The feed to read: `UG_UPDATE_FEED`, else `feed` in `<etc>/update.toml`,
 /// else GitHub.
 pub fn feed(etc: &Path) -> String {
-    if let Some(f) = std::env::var("UG_UPDATE_FEED").ok().filter(|f| !f.is_empty()) {
+    if let Some(f) = std::env::var("UG_UPDATE_FEED")
+        .ok()
+        .filter(|f| !f.is_empty())
+    {
         return f;
     }
     #[derive(Deserialize)]
@@ -83,9 +87,15 @@ impl Version {
         let s = s.split('+').next()?;
         // Where the numbers end, the pre-release starts (`-beta.1`,
         // `~beta1`, `beta1`).
-        let end = s.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(s.len());
+        let end = s
+            .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+            .unwrap_or(s.len());
         let (core, pre) = s.split_at(end);
-        let core: Vec<u64> = core.trim_end_matches('.').split('.').map(|p| p.parse().ok()).collect::<Option<_>>()?;
+        let core: Vec<u64> = core
+            .trim_end_matches('.')
+            .split('.')
+            .map(|p| p.parse().ok())
+            .collect::<Option<_>>()?;
         if core.is_empty() || core.len() > 4 {
             return None;
         }
@@ -95,7 +105,9 @@ impl Version {
         for chunk in pre.split(['.', '-']).filter(|p| !p.is_empty()) {
             let mut cur = String::new();
             for c in chunk.chars() {
-                if !cur.is_empty() && cur.chars().last().unwrap().is_ascii_digit() != c.is_ascii_digit() {
+                if !cur.is_empty()
+                    && cur.chars().last().unwrap().is_ascii_digit() != c.is_ascii_digit()
+                {
                     parts.push(std::mem::take(&mut cur));
                 }
                 cur.push(c.to_ascii_lowercase());
@@ -114,7 +126,10 @@ impl Ord for Version {
     fn cmp(&self, o: &Self) -> Ordering {
         let n = self.core.len().max(o.core.len());
         for i in 0..n {
-            let (a, b) = (self.core.get(i).copied().unwrap_or(0), o.core.get(i).copied().unwrap_or(0));
+            let (a, b) = (
+                self.core.get(i).copied().unwrap_or(0),
+                o.core.get(i).copied().unwrap_or(0),
+            );
             if a != b {
                 return a.cmp(&b);
             }
@@ -171,7 +186,8 @@ pub fn newest<'a>(releases: &'a [Release], current: &str) -> Option<&'a Release>
 /// The minisign public key releases are signed with (made 2026-10-04;
 /// the secret key and its password are the repository's MINISIGN_KEY and
 /// MINISIGN_PASSWORD secrets, and the owner's offline copy).
-pub const PUBLIC_KEY: Option<&str> = Some("RWT9lQkAygfnHaPrOJctcDYWLCHT9FJGJYvPmQFVGJ87XDCorbjmrKK+");
+pub const PUBLIC_KEY: Option<&str> =
+    Some("RWT9lQkAygfnHaPrOJctcDYWLCHT9FJGJYvPmQFVGJ87XDCorbjmrKK+");
 
 /// The key a download must be signed with: `public_key` in
 /// `<etc>/update.toml` (root's file; tests use it), else [`PUBLIC_KEY`].
@@ -191,8 +207,10 @@ pub fn trusted_key(etc: &Path) -> Option<String> {
 /// Checks a download against its minisign signature (`.minisig` text) and
 /// the trusted public key (base64, as `minisign -G` prints it).
 pub fn verify(data: &[u8], signature: &str, key: &str) -> Result<(), String> {
-    let pk = minisign_verify::PublicKey::from_base64(key.trim()).map_err(|e| format!("the update key is not usable ({e})"))?;
-    let sig = minisign_verify::Signature::decode(signature).map_err(|e| format!("the signature file is not readable ({e})"))?;
+    let pk = minisign_verify::PublicKey::from_base64(key.trim())
+        .map_err(|e| format!("the update key is not usable ({e})"))?;
+    let sig = minisign_verify::Signature::decode(signature)
+        .map_err(|e| format!("the signature file is not readable ({e})"))?;
     pk.verify(data, &sig, false).map_err(|_| "The download does not match its signature: it was changed or damaged, so it is not installed.".to_string())
 }
 
@@ -226,19 +244,35 @@ pub fn install_kind(root: &Path) -> InstallKind {
     if root.join("usr/bin/ug-daemon").exists() {
         let how = if root.join("var/lib/dpkg/info/unix-guardian.list").exists() {
             "sudo apt update && sudo apt install --only-upgrade unix-guardian"
-        } else if root.join("var/lib/pacman/local").read_dir().into_iter().flatten().flatten().any(|e| {
-            e.file_name().to_string_lossy().starts_with("unix-guardian-")
-        }) {
+        } else if root
+            .join("var/lib/pacman/local")
+            .read_dir()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("unix-guardian-")
+            })
+        {
             "yay -Syu unix-guardian   (or your AUR helper; makepkg -si for a local PKGBUILD)"
         } else {
             "update the unix-guardian package with your package manager"
         };
         return InstallKind::Package(how.to_string());
     }
-    if root.join("usr/local/share/unix-guardian/installed-files").exists() {
+    if root
+        .join("usr/local/share/unix-guardian/installed-files")
+        .exists()
+    {
         return InstallKind::Tarball;
     }
-    if root.join("etc/systemd/system/unix-guardiand.service").exists() && root.join("usr/local/bin/ug-daemon").exists() {
+    if root
+        .join("etc/systemd/system/unix-guardiand.service")
+        .exists()
+        && root.join("usr/local/bin/ug-daemon").exists()
+    {
         return InstallKind::Development;
     }
     InstallKind::None
@@ -246,9 +280,17 @@ pub fn install_kind(root: &Path) -> InstallKind {
 
 /// The files of a release that update a tarball install: the tarball, its
 /// minisign signature and the checksum list, if the release has them.
-pub fn tarball_assets<'a>(r: &'a Release, arch: &str) -> Option<(&'a Asset, Option<&'a Asset>, Option<&'a Asset>)> {
-    let tar = r.assets.iter().find(|a| a.name.starts_with("unix-guardian-") && a.name.ends_with(&format!("-{arch}.tar.gz")))?;
-    let sig = r.assets.iter().find(|a| a.name == format!("{}.minisig", tar.name));
+pub fn tarball_assets<'a>(
+    r: &'a Release,
+    arch: &str,
+) -> Option<(&'a Asset, Option<&'a Asset>, Option<&'a Asset>)> {
+    let tar = r.assets.iter().find(|a| {
+        a.name.starts_with("unix-guardian-") && a.name.ends_with(&format!("-{arch}.tar.gz"))
+    })?;
+    let sig = r
+        .assets
+        .iter()
+        .find(|a| a.name == format!("{}.minisig", tar.name));
     let sums = r.assets.iter().find(|a| a.name == "SHA256SUMS");
     Some((tar, sig, sums))
 }
@@ -257,8 +299,20 @@ pub fn tarball_assets<'a>(r: &'a Release, arch: &str) -> Option<(&'a Asset, Opti
 /// for the user (offline, a private or missing repository, rate limits).
 pub fn fetch(feed: &str) -> Result<Vec<Release>, String> {
     let out = std::process::Command::new("curl")
-        .args(["--silent", "--show-error", "--location", "--max-time", "20", "--write-out", "\n%{http_code}"])
-        .args(["--header", "Accept: application/vnd.github+json", "--user-agent"])
+        .args([
+            "--silent",
+            "--show-error",
+            "--location",
+            "--max-time",
+            "20",
+            "--write-out",
+            "\n%{http_code}",
+        ])
+        .args([
+            "--header",
+            "Accept: application/vnd.github+json",
+            "--user-agent",
+        ])
         .arg(format!("unix-guardian/{VERSION}"))
         .arg(feed)
         .stdin(std::process::Stdio::null())
@@ -268,11 +322,15 @@ pub fn fetch(feed: &str) -> Result<Vec<Release>, String> {
     let (body, code) = text.rsplit_once('\n').unwrap_or((&text, ""));
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(format!("Could not reach the update server ({err}). Are you online, or behind a proxy?"));
+        return Err(format!(
+            "Could not reach the update server ({err}). Are you online, or behind a proxy?"
+        ));
     }
     match code.trim() {
         "200" | "000" | "" => {}
-        "404" => return Err("No releases found: the repository is private or has none yet.".into()),
+        "404" => {
+            return Err("No releases found: the repository is private or has none yet.".into())
+        }
         "403" | "429" => return Err("GitHub is limiting requests; try again in an hour.".into()),
         c => return Err(format!("The update server answered {c}.")),
     }
@@ -280,7 +338,8 @@ pub fn fetch(feed: &str) -> Result<Vec<Release>, String> {
 }
 
 pub fn parse_feed(body: &str) -> Result<Vec<Release>, String> {
-    serde_json::from_str::<Vec<Release>>(body).map_err(|e| format!("The release list could not be read ({e})."))
+    serde_json::from_str::<Vec<Release>>(body)
+        .map_err(|e| format!("The release list could not be read ({e})."))
 }
 
 #[cfg(test)]
@@ -317,8 +376,14 @@ mod tests {
     #[test]
     fn the_newest_release_skips_drafts_and_offers_betas_only_to_beta_users() {
         let r = parse_feed(FEED).unwrap();
-        assert_eq!(newest(&r, "0.1.0").map(|r| r.tag_name.as_str()), Some("v0.1.1"));
-        assert_eq!(newest(&r, "0.1.0-beta.1").map(|r| r.tag_name.as_str()), Some("v0.2.0-beta.1"));
+        assert_eq!(
+            newest(&r, "0.1.0").map(|r| r.tag_name.as_str()),
+            Some("v0.1.1")
+        );
+        assert_eq!(
+            newest(&r, "0.1.0-beta.1").map(|r| r.tag_name.as_str()),
+            Some("v0.2.0-beta.1")
+        );
         assert_eq!(newest(&r, "0.1.1"), None);
         assert_eq!(newest(&r, "0.3.0"), None);
         let (tar, sig, sums) = tarball_assets(newest(&r, "0.1.0").unwrap(), "x86_64").unwrap();
@@ -332,7 +397,12 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         assert_eq!(install_kind(d.path()), InstallKind::None);
         std::fs::create_dir_all(d.path().join("usr/local/share/unix-guardian")).unwrap();
-        std::fs::write(d.path().join("usr/local/share/unix-guardian/installed-files"), "").unwrap();
+        std::fs::write(
+            d.path()
+                .join("usr/local/share/unix-guardian/installed-files"),
+            "",
+        )
+        .unwrap();
         assert_eq!(install_kind(d.path()), InstallKind::Tarball);
         std::fs::create_dir_all(d.path().join("usr/bin")).unwrap();
         std::fs::write(d.path().join("usr/bin/ug-daemon"), "").unwrap();
@@ -346,15 +416,28 @@ mod tests {
         let kp = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
         let other = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
         let data = b"the release tarball";
-        let sig = minisign::sign(None, &kp.sk, &data[..], None, None).unwrap().to_string();
+        let sig = minisign::sign(None, &kp.sk, &data[..], None, None)
+            .unwrap()
+            .to_string();
         let key = kp.pk.to_base64();
         assert_eq!(verify(data, &sig, &key), Ok(()));
-        assert!(verify(b"the release tarbalL", &sig, &key).unwrap_err().contains("does not match"));
-        assert!(verify(data, &sig, &other.pk.to_base64()).is_err(), "another key");
-        assert!(verify(data, "garbage", &key).unwrap_err().contains("not readable"));
+        assert!(verify(b"the release tarbalL", &sig, &key)
+            .unwrap_err()
+            .contains("does not match"));
+        assert!(
+            verify(data, &sig, &other.pk.to_base64()).is_err(),
+            "another key"
+        );
+        assert!(verify(data, "garbage", &key)
+            .unwrap_err()
+            .contains("not readable"));
         let d = tempfile::tempdir().unwrap();
         assert_eq!(trusted_key(d.path()), PUBLIC_KEY.map(String::from));
-        std::fs::write(d.path().join("update.toml"), format!("public_key = \"{key}\"\n")).unwrap();
+        std::fs::write(
+            d.path().join("update.toml"),
+            format!("public_key = \"{key}\"\n"),
+        )
+        .unwrap();
         assert_eq!(trusted_key(d.path()), Some(key));
     }
 

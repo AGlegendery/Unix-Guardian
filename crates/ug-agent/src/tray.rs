@@ -22,13 +22,13 @@
 //! service needs an administrator. The agent comes back at the next login,
 //! or as soon as the window or `ug` asks for it (D-Bus activation).
 
+use crate::health::{Health, IconState, Reading, Temp, Thresholds};
+use crate::iface::{lock, Shared};
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use crate::health::{Health, IconState, Reading, Temp, Thresholds};
-use crate::iface::{lock, Shared};
 use ug_hw::SysRoot;
 use ug_proto::{GpuInfo, GpuSample, MemSample};
 use zbus::object_server::SignalEmitter;
@@ -36,7 +36,10 @@ use zbus::zvariant::{OwnedObjectPath, OwnedValue, StructureBuilder, Value};
 
 const ITEM_PATH: &str = "/StatusNotifierItem";
 const MENU_PATH: &str = "/MenuBar";
-const WATCHERS: [&str; 2] = ["org.kde.StatusNotifierWatcher", "org.freedesktop.StatusNotifierWatcher"];
+const WATCHERS: [&str; 2] = [
+    "org.kde.StatusNotifierWatcher",
+    "org.freedesktop.StatusNotifierWatcher",
+];
 
 /// How often usage is read: for the icon's colour, and for the preview.
 const EVERY: Duration = Duration::from_secs(2);
@@ -58,10 +61,30 @@ const ID_RAM: i32 = 11;
 const ID_GPU0: i32 = 12;
 const ID_BATTERY: i32 = ID_GPU0 + MAX_GPUS as i32;
 
-const PREVIEW_IDS: [i32; 3 + MAX_GPUS] = [ID_CPU, ID_RAM, ID_GPU0, ID_GPU0 + 1, ID_GPU0 + 2, ID_GPU0 + 3, ID_BATTERY];
+const PREVIEW_IDS: [i32; 3 + MAX_GPUS] = [
+    ID_CPU,
+    ID_RAM,
+    ID_GPU0,
+    ID_GPU0 + 1,
+    ID_GPU0 + 2,
+    ID_GPU0 + 3,
+    ID_BATTERY,
+];
 const MENU_ORDER: [i32; 7 + 3 + MAX_GPUS] = [
-    ID_OPEN, ID_SEP1, ID_CPU, ID_RAM, ID_GPU0, ID_GPU0 + 1, ID_GPU0 + 2, ID_GPU0 + 3, ID_BATTERY, ID_SEP2, ID_TERMINAL,
-    ID_SEP3, ID_HIDE, ID_QUIT,
+    ID_OPEN,
+    ID_SEP1,
+    ID_CPU,
+    ID_RAM,
+    ID_GPU0,
+    ID_GPU0 + 1,
+    ID_GPU0 + 2,
+    ID_GPU0 + 3,
+    ID_BATTERY,
+    ID_SEP2,
+    ID_TERMINAL,
+    ID_SEP3,
+    ID_HIDE,
+    ID_QUIT,
 ];
 
 /// One read of everything the preview shows. NaN where unknown.
@@ -91,14 +114,22 @@ pub fn preview_rows(u: &Usage) -> Vec<(i32, String)> {
         if u.mem.total_kb == 0 {
             String::new()
         } else {
-            format!("RAM  {:.1} / {:.1} GB  ({:.0} %)", gb(u.mem.used_kb()), gb(u.mem.total_kb), u.mem.used_pct())
+            format!(
+                "RAM  {:.1} / {:.1} GB  ({:.0} %)",
+                gb(u.mem.used_kb()),
+                gb(u.mem.total_kb),
+                u.mem.used_pct()
+            )
         },
     ));
     for i in 0..MAX_GPUS {
         let text = match &u.gpus {
             None if i == 0 => "GPU  —  the Unix Guardian service is not running".to_string(),
             None => String::new(),
-            Some(g) => g.get(i).map(|(name, s)| gpu_row(name, s)).unwrap_or_default(),
+            Some(g) => g
+                .get(i)
+                .map(|(name, s)| gpu_row(name, s))
+                .unwrap_or_default(),
         };
         rows.push((ID_GPU0 + i as i32, text));
     }
@@ -148,7 +179,13 @@ fn gpu_row(name: &str, s: &GpuSample) -> String {
 /// "NVIDIA GeForce RTX 3050 Laptop GPU" → "RTX 3050".
 pub fn short_gpu_name(name: &str) -> String {
     let mut n = name.replace("(R)", "").replace("(TM)", "");
-    for prefix in ["NVIDIA GeForce ", "NVIDIA ", "AMD Radeon ", "AMD ", "Intel "] {
+    for prefix in [
+        "NVIDIA GeForce ",
+        "NVIDIA ",
+        "AMD Radeon ",
+        "AMD ",
+        "Intel ",
+    ] {
         if let Some(rest) = n.strip_prefix(prefix) {
             n = rest.to_string();
             break;
@@ -215,7 +252,11 @@ impl Tray {
 
     /// Serves the icon and menu on `conn`, shows the icon, and keeps it
     /// registered across panel restarts.
-    pub async fn start(conn: &zbus::Connection, daemon_session: bool, core: Shared) -> zbus::Result<Tray> {
+    pub async fn start(
+        conn: &zbus::Connection,
+        daemon_session: bool,
+        core: Shared,
+    ) -> zbus::Result<Tray> {
         let tray = Tray {
             conn: conn.clone(),
             name: format!("org.kde.StatusNotifierItem-{}-1", std::process::id()),
@@ -226,7 +267,9 @@ impl Tray {
                 open: false,
                 load: ug_hw::cpu::LoadReader::new(),
                 gpu_names: Vec::new(),
-                health: Health::new(Thresholds::load(&ug_core::paths::user_config().join("tray.json"))),
+                health: Health::new(Thresholds::load(
+                    &ug_core::paths::user_config().join("tray.json"),
+                )),
                 icon: IconState::Normal,
                 cpu_sensor: cpu_sensor(&SysRoot::real()),
                 throttle_count: None,
@@ -237,8 +280,12 @@ impl Tray {
             themed: icons_installed(),
             hidden_flag: ug_core::paths::user_config().join("tray-hidden"),
         };
-        conn.object_server().at(ITEM_PATH, ItemIface { tray: tray.clone() }).await?;
-        conn.object_server().at(MENU_PATH, MenuIface { tray: tray.clone() }).await?;
+        conn.object_server()
+            .at(ITEM_PATH, ItemIface { tray: tray.clone() })
+            .await?;
+        conn.object_server()
+            .at(MENU_PATH, MenuIface { tray: tray.clone() })
+            .await?;
         tokio::spawn(tray.clone().follow_watcher());
         tokio::spawn(tray.clone().watch());
         if tray.hidden_flag.exists() {
@@ -264,7 +311,14 @@ impl Tray {
         if self.visible() {
             return;
         }
-        match self.conn.request_name_with_flags(self.name.as_str(), zbus::fdo::RequestNameFlags::DoNotQueue.into()).await {
+        match self
+            .conn
+            .request_name_with_flags(
+                self.name.as_str(),
+                zbus::fdo::RequestNameFlags::DoNotQueue.into(),
+            )
+            .await
+        {
             Ok(_) => {}
             Err(e) => {
                 tracing::warn!(error = %e, "could not claim the tray icon's bus name");
@@ -278,7 +332,10 @@ impl Tray {
     /// Takes the icon out of the panel, and keeps it out across logins.
     /// The watcher notices the name going.
     pub async fn hide(&self) {
-        if let Err(e) = ug_core::paths::write_atomic(&self.hidden_flag, b"The tray icon stays hidden until `ug tray` shows it.\n") {
+        if let Err(e) = ug_core::paths::write_atomic(
+            &self.hidden_flag,
+            b"The tray icon stays hidden until `ug tray` shows it.\n",
+        ) {
             tracing::warn!(error = %e, "could not remember that the tray icon is hidden");
         }
         if !self.visible() {
@@ -293,7 +350,13 @@ impl Tray {
         for w in WATCHERS {
             let r = self
                 .conn
-                .call_method(Some(w), "/StatusNotifierWatcher", Some(w), "RegisterStatusNotifierItem", &(self.name.as_str(),))
+                .call_method(
+                    Some(w),
+                    "/StatusNotifierWatcher",
+                    Some(w),
+                    "RegisterStatusNotifierItem",
+                    &(self.name.as_str(),),
+                )
                 .await;
             if r.is_ok() {
                 tracing::info!(watcher = w, "tray icon shown");
@@ -309,11 +372,16 @@ impl Tray {
     /// Registers again whenever a panel (re)starts.
     async fn follow_watcher(self) {
         use futures_lite::StreamExt;
-        let Ok(dbus) = zbus::fdo::DBusProxy::new(&self.conn).await else { return };
-        let Ok(mut changes) = dbus.receive_name_owner_changed().await else { return };
+        let Ok(dbus) = zbus::fdo::DBusProxy::new(&self.conn).await else {
+            return;
+        };
+        let Ok(mut changes) = dbus.receive_name_owner_changed().await else {
+            return;
+        };
         while let Some(sig) = changes.next().await {
             let Ok(args) = sig.args() else { continue };
-            if WATCHERS.contains(&args.name.as_str()) && args.new_owner.is_some() && self.visible() {
+            if WATCHERS.contains(&args.name.as_str()) && args.new_owner.is_some() && self.visible()
+            {
                 self.register().await;
             }
         }
@@ -350,25 +418,37 @@ impl Tray {
                 Some((path, crit)) => (read_milli(path).unwrap_or(f64::NAN), *crit),
                 None => (f64::NAN, None),
             };
-            let count = read_u64(&root.join("sys/devices/system/cpu/cpu0/thermal_throttle/package_throttle_count"));
+            let count = read_u64(
+                &root.join("sys/devices/system/cpu/cpu0/thermal_throttle/package_throttle_count"),
+            );
             let throttling = matches!((st.throttle_count, count), (Some(a), Some(b)) if b > a);
             st.throttle_count = count;
             let now = Instant::now();
             let swap_in = std::fs::read_to_string(root.join("proc/vmstat"))
                 .ok()
-                .and_then(|v| v.lines().find_map(|l| l.strip_prefix("pswpin ")?.trim().parse::<u64>().ok()));
+                .and_then(|v| {
+                    v.lines()
+                        .find_map(|l| l.strip_prefix("pswpin ")?.trim().parse::<u64>().ok())
+                });
             let swap_rate = match (st.swap_in, swap_in) {
-                (Some((a, t)), Some(b)) => b.saturating_sub(a) as f64 / now.duration_since(t).as_secs_f64().max(0.1),
+                (Some((a, t)), Some(b)) => {
+                    b.saturating_sub(a) as f64 / now.duration_since(t).as_secs_f64().max(0.1)
+                }
                 _ => 0.0,
             };
             st.swap_in = swap_in.map(|v| (v, now));
             let (pct, w, status, on_ac) = ug_hw::extra::battery(&root);
             let battery = (!pct.is_nan()).then_some((pct, w, status, on_ac));
             let mem = ug_hw::mem::read(&root);
-            (cpu_pct, cpu_temp_c, cpu_crit_c, throttling, swap_rate, mem, battery)
+            (
+                cpu_pct, cpu_temp_c, cpu_crit_c, throttling, swap_rate, mem, battery,
+            )
         })
         .await;
-        let Ok((cpu_pct, cpu_temp_c, cpu_crit_c, throttling, swap_rate, mem, battery)) = local else { return Vec::new() };
+        let Ok((cpu_pct, cpu_temp_c, cpu_crit_c, throttling, swap_rate, mem, battery)) = local
+        else {
+            return Vec::new();
+        };
 
         let mut reading = Reading {
             ram_pct: mem.used_pct(),
@@ -380,7 +460,11 @@ impl Tray {
             ..Default::default()
         };
         if !cpu_temp_c.is_nan() {
-            reading.temps.push(Temp { what: "CPU".into(), c: cpu_temp_c, crit_c: cpu_crit_c });
+            reading.temps.push(Temp {
+                what: "CPU".into(),
+                c: cpu_temp_c,
+                crit_c: cpu_crit_c,
+            });
         }
         if !cpu_pct.is_nan() {
             reading.usage.push(("CPU".into(), cpu_pct));
@@ -392,18 +476,34 @@ impl Tray {
             }
             let what = short_gpu_name(name);
             if !g.temp_c.is_nan() {
-                reading.temps.push(Temp { what: what.clone(), c: g.temp_c, crit_c: None });
+                reading.temps.push(Temp {
+                    what: what.clone(),
+                    c: g.temp_c,
+                    crit_c: None,
+                });
             }
             if !g.load_pct.is_nan() {
                 reading.usage.push((what.clone(), g.load_pct));
             }
-            let total = names.iter().find(|i| i.pci == g.pci).map(|i| i.vram_total_mb).unwrap_or(0);
+            let total = names
+                .iter()
+                .find(|i| i.pci == g.pci)
+                .map(|i| i.vram_total_mb)
+                .unwrap_or(0);
             if total > 0 && g.vram_used_mb > 0 {
-                reading.vram.push((what, g.vram_used_mb as f64 * 100.0 / total as f64));
+                reading
+                    .vram
+                    .push((what, g.vram_used_mb as f64 * 100.0 / total as f64));
             }
         }
 
-        let usage = Usage { cpu_pct, cpu_temp_c, mem, gpus, battery };
+        let usage = Usage {
+            cpu_pct,
+            cpu_temp_c,
+            mem,
+            gpus,
+            battery,
+        };
         let (icon_changed, changed) = {
             let mut st = self.st();
             let before = (st.icon, st.health.reasons().to_vec());
@@ -423,7 +523,12 @@ impl Tray {
                 let st = self.st();
                 tracing::info!(state = st.icon.name(), reasons = ?st.health.reasons(), "tray icon");
             }
-            if let Ok(iface) = self.conn.object_server().interface::<_, ItemIface>(ITEM_PATH).await {
+            if let Ok(iface) = self
+                .conn
+                .object_server()
+                .interface::<_, ItemIface>(ITEM_PATH)
+                .await
+            {
                 let e = iface.signal_emitter();
                 let _ = ItemIface::new_icon(e).await;
                 let _ = ItemIface::new_tool_tip(e).await;
@@ -440,30 +545,51 @@ impl Tray {
             let conn = match cached {
                 Some(c) => c,
                 None => {
-                    let c = if self.daemon_session { zbus::Connection::session().await } else { zbus::Connection::system().await }
-                        .ok()?;
+                    let c = if self.daemon_session {
+                        zbus::Connection::session().await
+                    } else {
+                        zbus::Connection::system().await
+                    }
+                    .ok()?;
                     self.st().daemon = Some(c.clone());
                     c
                 }
             };
             let need_names = self.st().gpu_names.is_empty();
             if need_names {
-                let list = ug_proto::daemon::GpuProxy::new(&conn).await.ok()?.list().await.ok()?;
+                let list = ug_proto::daemon::GpuProxy::new(&conn)
+                    .await
+                    .ok()?
+                    .list()
+                    .await
+                    .ok()?;
                 self.st().gpu_names = list;
             }
-            let snap = ug_proto::daemon::DaemonProxy::new(&conn).await.ok()?.snapshot().await.ok()?;
+            let snap = ug_proto::daemon::DaemonProxy::new(&conn)
+                .await
+                .ok()?
+                .snapshot()
+                .await
+                .ok()?;
             let names = self.st().gpu_names.clone();
             Some(
                 snap.gpus
                     .into_iter()
                     .map(|s| {
-                        let name = names.iter().find(|g| g.pci == s.pci).map(|g| g.name.clone()).unwrap_or_default();
+                        let name = names
+                            .iter()
+                            .find(|g| g.pci == s.pci)
+                            .map(|g| g.name.clone())
+                            .unwrap_or_default();
                         (name, s)
                     })
                     .collect(),
             )
         };
-        let r = tokio::time::timeout(Duration::from_secs(1), read).await.ok().flatten();
+        let r = tokio::time::timeout(Duration::from_secs(1), read)
+            .await
+            .ok()
+            .flatten();
         if r.is_none() {
             // A restarted daemon needs a fresh connection; the names may differ too.
             let mut st = self.st();
@@ -487,9 +613,17 @@ impl Tray {
         if ids.is_empty() {
             return;
         }
-        let updated: Vec<(i32, HashMap<String, OwnedValue>)> = ids.iter().map(|&id| (id, self.props(id))).collect();
-        if let Ok(iface) = self.conn.object_server().interface::<_, MenuIface>(MENU_PATH).await {
-            let _ = MenuIface::items_properties_updated(iface.signal_emitter(), updated, Vec::new()).await;
+        let updated: Vec<(i32, HashMap<String, OwnedValue>)> =
+            ids.iter().map(|&id| (id, self.props(id))).collect();
+        if let Ok(iface) = self
+            .conn
+            .object_server()
+            .interface::<_, MenuIface>(MENU_PATH)
+            .await
+        {
+            let _ =
+                MenuIface::items_properties_updated(iface.signal_emitter(), updated, Vec::new())
+                    .await;
         }
     }
 
@@ -583,10 +717,22 @@ type Pixmap = (i32, i32, Vec<u8>);
 macro_rules! state_pixmaps {
     ($state:literal) => {
         [
-            (22, &include_bytes!(concat!("../assets/tray-", $state, "-22.argb"))[..]),
-            (32, &include_bytes!(concat!("../assets/tray-", $state, "-32.argb"))[..]),
-            (48, &include_bytes!(concat!("../assets/tray-", $state, "-48.argb"))[..]),
-            (64, &include_bytes!(concat!("../assets/tray-", $state, "-64.argb"))[..]),
+            (
+                22,
+                &include_bytes!(concat!("../assets/tray-", $state, "-22.argb"))[..],
+            ),
+            (
+                32,
+                &include_bytes!(concat!("../assets/tray-", $state, "-32.argb"))[..],
+            ),
+            (
+                48,
+                &include_bytes!(concat!("../assets/tray-", $state, "-48.argb"))[..],
+            ),
+            (
+                64,
+                &include_bytes!(concat!("../assets/tray-", $state, "-64.argb"))[..],
+            ),
         ]
     };
 }
@@ -607,10 +753,14 @@ fn pixmaps(state: IconState) -> Vec<Pixmap> {
 /// `unix-guardian-normal` and the rest are in a hicolor theme directory.
 fn icons_installed() -> bool {
     let home = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share"));
-    let dirs = std::env::var_os("XDG_DATA_DIRS").unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+    let dirs =
+        std::env::var_os("XDG_DATA_DIRS").unwrap_or_else(|| "/usr/local/share:/usr/share".into());
     home.into_iter()
         .chain(std::env::split_paths(&dirs))
-        .any(|d| d.join("icons/hicolor/scalable/status/unix-guardian-normal.svg").is_file())
+        .any(|d| {
+            d.join("icons/hicolor/scalable/status/unix-guardian-normal.svg")
+                .is_file()
+        })
 }
 
 fn read_u64(p: &Path) -> Option<u64> {
@@ -629,7 +779,11 @@ fn cpu_sensor(root: &SysRoot) -> Option<(PathBuf, Option<f64>)> {
         .iter()
         .find_map(|l| chip.temp_by_label(l))
         .or_else(|| chip.temps.iter().min_by_key(|s| s.index))?;
-    let crit = sensor.input_path.to_str().map(|p| PathBuf::from(p.replace("_input", "_crit"))).and_then(|p| read_milli(&p));
+    let crit = sensor
+        .input_path
+        .to_str()
+        .map(|p| PathBuf::from(p.replace("_input", "_crit")))
+        .and_then(|p| read_milli(&p));
     Some((sensor.input_path.clone(), crit.filter(|c| *c > 0.0)))
 }
 
@@ -679,7 +833,12 @@ impl ItemIface {
     }
     #[zbus(property)]
     fn tool_tip(&self) -> (String, Vec<Pixmap>, String, String) {
-        (String::new(), Vec::new(), "Unix Guardian".into(), self.tray.tool_tip_text())
+        (
+            String::new(),
+            Vec::new(),
+            "Unix Guardian".into(),
+            self.tray.tool_tip_text(),
+        )
     }
     #[zbus(property)]
     fn item_is_menu(&self) -> bool {
@@ -744,21 +903,32 @@ impl MenuIface {
         _property_names: Vec<String>,
     ) -> zbus::fdo::Result<(u32, Layout)> {
         if !(parent_id == ID_ROOT || MENU_ORDER.contains(&parent_id)) {
-            return Err(zbus::fdo::Error::InvalidArgs(format!("no menu item {parent_id}")));
+            return Err(zbus::fdo::Error::InvalidArgs(format!(
+                "no menu item {parent_id}"
+            )));
         }
         Ok((1, self.tray.layout_of(parent_id, recursion_depth != 0)?))
     }
 
-    fn get_group_properties(&self, ids: Vec<i32>, _property_names: Vec<String>) -> Vec<(i32, HashMap<String, OwnedValue>)> {
-        let ids = if ids.is_empty() { std::iter::once(ID_ROOT).chain(MENU_ORDER).collect() } else { ids };
-        ids.into_iter().map(|id| (id, self.tray.props(id))).collect()
+    fn get_group_properties(
+        &self,
+        ids: Vec<i32>,
+        _property_names: Vec<String>,
+    ) -> Vec<(i32, HashMap<String, OwnedValue>)> {
+        let ids = if ids.is_empty() {
+            std::iter::once(ID_ROOT).chain(MENU_ORDER).collect()
+        } else {
+            ids
+        };
+        ids.into_iter()
+            .map(|id| (id, self.tray.props(id)))
+            .collect()
     }
 
     fn get_property(&self, id: i32, name: &str) -> zbus::fdo::Result<OwnedValue> {
-        self.tray
-            .props(id)
-            .remove(name)
-            .ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("item {id} has no property {name}")))
+        self.tray.props(id).remove(name).ok_or_else(|| {
+            zbus::fdo::Error::InvalidArgs(format!("item {id} has no property {name}"))
+        })
     }
 
     fn event(&self, id: i32, event_id: &str, _data: OwnedValue, _timestamp: u32) {
@@ -774,13 +944,20 @@ impl MenuIface {
 
     /// Called just before the menu shows: the preview is read now, so it is
     /// current when the menu appears.
-    async fn about_to_show(&self, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>, id: i32) -> bool {
+    async fn about_to_show(
+        &self,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        id: i32,
+    ) -> bool {
         if id != ID_ROOT {
             return false;
         }
         // The rows are at most a couple of seconds old; send them all so a
         // host that cached the menu shows the current ones.
-        let updated = PREVIEW_IDS.iter().map(|&i| (i, self.tray.props(i))).collect();
+        let updated = PREVIEW_IDS
+            .iter()
+            .map(|&i| (i, self.tray.props(i)))
+            .collect();
         let _ = Self::items_properties_updated(&emitter, updated, Vec::new()).await;
         false
     }
@@ -804,10 +981,18 @@ impl MenuIface {
     ) -> zbus::Result<()>;
 
     #[zbus(signal)]
-    async fn layout_updated(emitter: &SignalEmitter<'_>, revision: u32, parent: i32) -> zbus::Result<()>;
+    async fn layout_updated(
+        emitter: &SignalEmitter<'_>,
+        revision: u32,
+        parent: i32,
+    ) -> zbus::Result<()>;
 
     #[zbus(signal)]
-    async fn item_activation_requested(emitter: &SignalEmitter<'_>, id: i32, timestamp: u32) -> zbus::Result<()>;
+    async fn item_activation_requested(
+        emitter: &SignalEmitter<'_>,
+        id: i32,
+        timestamp: u32,
+    ) -> zbus::Result<()>;
 }
 
 impl MenuIface {
@@ -836,7 +1021,9 @@ impl TrayControl {
                 t.show().await;
                 Ok(())
             }
-            None => Err(zbus::fdo::Error::NotSupported("the agent was started with --no-tray".into())),
+            None => Err(zbus::fdo::Error::NotSupported(
+                "the agent was started with --no-tray".into(),
+            )),
         }
     }
 
@@ -867,9 +1054,14 @@ fn find_program(name: &str) -> Option<PathBuf> {
         let p = PathBuf::from(name);
         return p.is_file().then_some(p);
     }
-    let beside = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(name)));
+    let beside = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.join(name)));
     let path = std::env::var_os("PATH").unwrap_or_default();
-    beside.into_iter().chain(std::env::split_paths(&path).map(|d| d.join(name))).find(|p| is_executable(p))
+    beside
+        .into_iter()
+        .chain(std::env::split_paths(&path).map(|d| d.join(name)))
+        .find(|p| is_executable(p))
 }
 
 fn is_executable(p: &Path) -> bool {
@@ -887,13 +1079,22 @@ async fn launch(tag: &str, argv: Vec<OsString>) -> Result<(), String> {
         let mut cmd = tokio::process::Command::new(run);
         cmd.args(["--user", "--quiet", "--collect", "--unit"])
             .arg(format!("unix-guardian-{tag}-{}", crate::iface::now_ms()));
-        for key in ["DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE", "DBUS_SESSION_BUS_ADDRESS"]
-        {
+        for key in [
+            "DISPLAY",
+            "WAYLAND_DISPLAY",
+            "XAUTHORITY",
+            "XDG_CURRENT_DESKTOP",
+            "XDG_SESSION_TYPE",
+            "DBUS_SESSION_BUS_ADDRESS",
+        ] {
             if let Ok(v) = std::env::var(key) {
                 cmd.arg("-E").arg(format!("{key}={v}"));
             }
         }
-        cmd.arg("--").args(&argv).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null());
+        cmd.arg("--")
+            .args(&argv)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null());
         match cmd.status().await {
             Ok(s) if s.success() => return Ok(()),
             // No user manager (an XDG-autostarted agent on a non-systemd
@@ -906,7 +1107,9 @@ async fn launch(tag: &str, argv: Vec<OsString>) -> Result<(), String> {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    let mut child = cmd.spawn().map_err(|e| format!("Could not start {}: {e}", argv[0].to_string_lossy()))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Could not start {}: {e}", argv[0].to_string_lossy()))?;
     tokio::spawn(async move {
         let _ = child.wait().await;
     });
@@ -916,7 +1119,8 @@ async fn launch(tag: &str, argv: Vec<OsString>) -> Result<(), String> {
 /// Opens the window; if it is already open it comes to the front (the window
 /// is single-instance).
 pub async fn open_window() -> Result<(), String> {
-    let app = find_program("ug-app").ok_or("The Unix Guardian window (ug-app) is not installed. Try `ug tui` in a terminal.")?;
+    let app = find_program("ug-app")
+        .ok_or("The Unix Guardian window (ug-app) is not installed. Try `ug tui` in a terminal.")?;
     launch("window", vec![app.into()]).await
 }
 
@@ -945,10 +1149,14 @@ pub fn terminal_candidates(env_terminal: Option<&str>) -> Vec<(String, &'static 
 
 /// Opens `ug tui` in the user's terminal.
 async fn open_terminal() -> Result<(), String> {
-    let ug: OsString = find_program("ug").map(Into::into).unwrap_or_else(|| "ug".into());
+    let ug: OsString = find_program("ug")
+        .map(Into::into)
+        .unwrap_or_else(|| "ug".into());
     let terminal = std::env::var("TERMINAL").ok();
     for (term, flag) in terminal_candidates(terminal.as_deref()) {
-        let Some(path) = find_program(&term) else { continue };
+        let Some(path) = find_program(&term) else {
+            continue;
+        };
         return launch("terminal", vec![path.into(), flag.into(), ug, "tui".into()]).await;
     }
     Err("No terminal program was found. Open a terminal and run: ug tui".into())
@@ -997,10 +1205,21 @@ fn close(with_tui: bool) {
 /// terminal UI (`ug tui`, marked `true`). Other `ug` commands are left alone.
 fn ui_pids(root: &SysRoot, uid: u32) -> Vec<(i32, bool)> {
     let mut pids = Vec::new();
-    for e in std::fs::read_dir(root.join("proc")).into_iter().flatten().flatten() {
-        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<i32>().ok()) else { continue };
-        let Ok(status) = std::fs::read_to_string(e.path().join("status")) else { continue };
-        let name = status.lines().find_map(|l| l.strip_prefix("Name:")).map(str::trim);
+    for e in std::fs::read_dir(root.join("proc"))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<i32>().ok()) else {
+            continue;
+        };
+        let Ok(status) = std::fs::read_to_string(e.path().join("status")) else {
+            continue;
+        };
+        let name = status
+            .lines()
+            .find_map(|l| l.strip_prefix("Name:"))
+            .map(str::trim);
         let owner = status
             .lines()
             .find_map(|l| l.strip_prefix("Uid:"))
@@ -1010,7 +1229,8 @@ fn ui_pids(root: &SysRoot, uid: u32) -> Vec<(i32, bool)> {
             continue;
         }
         let tui = name == Some("ug")
-            && std::fs::read(e.path().join("cmdline")).is_ok_and(|c| c.split(|&b| b == 0).skip(1).any(|a| a == b"tui"));
+            && std::fs::read(e.path().join("cmdline"))
+                .is_ok_and(|c| c.split(|&b| b == 0).skip(1).any(|a| a == b"tui"));
         if name == Some("ug-app") || tui {
             pids.push((pid, tui));
         }
@@ -1050,10 +1270,20 @@ mod tests {
         let u = Usage {
             cpu_pct: 23.4,
             cpu_temp_c: 54.0,
-            mem: MemSample { total_kb: 16 * 1024 * 1024, available_kb: 10 * 1024 * 1024, ..Default::default() },
+            mem: MemSample {
+                total_kb: 16 * 1024 * 1024,
+                available_kb: 10 * 1024 * 1024,
+                ..Default::default()
+            },
             gpus: Some(vec![
-                ("Intel(R) UHD Graphics".into(), gpu(5.0, f64::NAN, f64::NAN, false)),
-                ("NVIDIA GeForce RTX 3050 Laptop GPU".into(), gpu(0.0, f64::NAN, f64::NAN, true)),
+                (
+                    "Intel(R) UHD Graphics".into(),
+                    gpu(5.0, f64::NAN, f64::NAN, false),
+                ),
+                (
+                    "NVIDIA GeForce RTX 3050 Laptop GPU".into(),
+                    gpu(0.0, f64::NAN, f64::NAN, true),
+                ),
             ]),
             battery: Some((80.0, 12.3, "Discharging".into(), false)),
         };
@@ -1068,16 +1298,34 @@ mod tests {
 
     #[test]
     fn preview_without_daemon_or_battery() {
-        let u = Usage { cpu_pct: 3.0, cpu_temp_c: f64::NAN, gpus: None, battery: None, ..Default::default() };
+        let u = Usage {
+            cpu_pct: 3.0,
+            cpu_temp_c: f64::NAN,
+            gpus: None,
+            battery: None,
+            ..Default::default()
+        };
         let r = preview_rows(&u);
         assert_eq!(row(&r, ID_CPU), "CPU  3 %");
         assert!(row(&r, ID_GPU0).contains("service is not running"));
         assert_eq!(row(&r, ID_GPU0 + 1), "");
         assert_eq!(row(&r, ID_BATTERY), "");
-        let charging = Usage { battery: Some((40.0, -20.0, "Charging".into(), true)), ..u.clone() };
-        assert_eq!(row(&preview_rows(&charging), ID_BATTERY), "Battery  40 %  ·  charging 20.0 W");
-        let full = Usage { battery: Some((100.0, f64::NAN, "Full".into(), true)), ..u };
-        assert_eq!(row(&preview_rows(&full), ID_BATTERY), "Battery  100 %  ·  plugged in");
+        let charging = Usage {
+            battery: Some((40.0, -20.0, "Charging".into(), true)),
+            ..u.clone()
+        };
+        assert_eq!(
+            row(&preview_rows(&charging), ID_BATTERY),
+            "Battery  40 %  ·  charging 20.0 W"
+        );
+        let full = Usage {
+            battery: Some((100.0, f64::NAN, "Full".into(), true)),
+            ..u
+        };
+        assert_eq!(
+            row(&preview_rows(&full), ID_BATTERY),
+            "Battery  100 %  ·  plugged in"
+        );
     }
 
     /// Qt's dbusmenu importer (KDE) only accepts `u(ia{sv}av)`; a reply typed
@@ -1090,7 +1338,10 @@ mod tests {
 
     #[test]
     fn gpu_names_are_shortened() {
-        assert_eq!(short_gpu_name("NVIDIA GeForce RTX 3050 Laptop GPU"), "RTX 3050");
+        assert_eq!(
+            short_gpu_name("NVIDIA GeForce RTX 3050 Laptop GPU"),
+            "RTX 3050"
+        );
         assert_eq!(short_gpu_name("AMD Radeon RX 7800 XT"), "RX 7800 XT");
         assert_eq!(short_gpu_name("Intel(R) UHD Graphics"), "UHD");
         assert_eq!(short_gpu_name(""), "GPU");
@@ -1110,30 +1361,54 @@ mod tests {
         assert_eq!(c[0], ("foot".to_string(), "-e"));
         assert_eq!(c[1].0, "konsole");
         assert_eq!(terminal_candidates(Some(" "))[0].0, "konsole");
-        assert!(terminal_candidates(None).iter().any(|(t, _)| t == "x-terminal-emulator"));
+        assert!(terminal_candidates(None)
+            .iter()
+            .any(|(t, _)| t == "x-terminal-emulator"));
     }
 
     #[test]
     fn only_this_users_windows_are_closed() {
         let fs = TestFs::new();
-        fs.write("proc/100/status", "Name:\tug-app\nUid:\t1000\t1000\t1000\t1000\n")
-            .write("proc/101/status", "Name:\tug-app\nUid:\t1001\t1001\t1001\t1001\n")
-            .write("proc/102/status", "Name:\tkonsole\nUid:\t1000\t1000\t1000\t1000\n")
-            .write("proc/self/status", "Name:\tug-app\nUid:\t1000\n");
+        fs.write(
+            "proc/100/status",
+            "Name:\tug-app\nUid:\t1000\t1000\t1000\t1000\n",
+        )
+        .write(
+            "proc/101/status",
+            "Name:\tug-app\nUid:\t1001\t1001\t1001\t1001\n",
+        )
+        .write(
+            "proc/102/status",
+            "Name:\tkonsole\nUid:\t1000\t1000\t1000\t1000\n",
+        )
+        .write("proc/self/status", "Name:\tug-app\nUid:\t1000\n");
         assert_eq!(ui_pids(&SysRoot::at(fs.root()), 1000), vec![(100, false)]);
     }
 
     #[test]
     fn terminal_uis_are_closed_but_other_ug_commands_are_not() {
         let fs = TestFs::new();
-        fs.write("proc/200/status", "Name:\tug\nUid:\t1000\t1000\t1000\t1000\n")
-            .write("proc/200/cmdline", "/usr/bin/ug\0tui\0")
-            .write("proc/201/status", "Name:\tug\nUid:\t1000\t1000\t1000\t1000\n")
-            .write("proc/201/cmdline", "ug\0monitor\0")
-            .write("proc/202/status", "Name:\tug\nUid:\t1000\t1000\t1000\t1000\n")
-            .write("proc/202/cmdline", "ug\0--session\0tui\0");
+        fs.write(
+            "proc/200/status",
+            "Name:\tug\nUid:\t1000\t1000\t1000\t1000\n",
+        )
+        .write("proc/200/cmdline", "/usr/bin/ug\0tui\0")
+        .write(
+            "proc/201/status",
+            "Name:\tug\nUid:\t1000\t1000\t1000\t1000\n",
+        )
+        .write("proc/201/cmdline", "ug\0monitor\0")
+        .write(
+            "proc/202/status",
+            "Name:\tug\nUid:\t1000\t1000\t1000\t1000\n",
+        )
+        .write("proc/202/cmdline", "ug\0--session\0tui\0");
         let mut pids = ui_pids(&SysRoot::at(fs.root()), 1000);
         pids.sort();
-        assert_eq!(pids, vec![(200, true), (202, true)], "marked as terminal UIs, which a game start leaves open");
+        assert_eq!(
+            pids,
+            vec![(200, true), (202, true)],
+            "marked as terminal UIs, which a game start leaves open"
+        );
     }
 }

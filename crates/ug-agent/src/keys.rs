@@ -35,7 +35,12 @@ const NAMED: &[(&str, &str, i32, &[&str])] = &[
     ("Right", "Right", 0x0100_0014, &["arrowright"]),
     ("Down", "Down", 0x0100_0015, &["arrowdown"]),
     ("Page_Up", "PgUp", 0x0100_0016, &["prior", "pageup", "pgup"]),
-    ("Page_Down", "PgDown", 0x0100_0017, &["next", "pagedown", "pgdown"]),
+    (
+        "Page_Down",
+        "PgDown",
+        0x0100_0017,
+        &["next", "pagedown", "pgdown"],
+    ),
     ("comma", ",", 0x2c, &[","]),
     ("period", ".", 0x2e, &["."]),
     ("minus", "-", 0x2d, &["-"]),
@@ -68,7 +73,13 @@ impl Combo {
         if text.is_empty() {
             return Err("No keys given.".into());
         }
-        let mut c = Combo { ctrl: false, alt: false, shift: false, logo: false, key: String::new() };
+        let mut c = Combo {
+            ctrl: false,
+            alt: false,
+            shift: false,
+            logo: false,
+            key: String::new(),
+        };
         // "+" itself can't be the key (it is the separator); "Ctrl++" is not
         // offered.
         let parts: Vec<&str> = text.split('+').map(str::trim).collect();
@@ -80,12 +91,17 @@ impl Combo {
                 "shift" => c.shift = true,
                 "logo" | "meta" | "super" | "win" | "mod4" => c.logo = true,
                 "" => return Err(format!("`{text}`: an empty part.")),
-                other => return Err(format!("`{other}` is not a modifier (Ctrl, Alt, Shift, Meta).")),
+                other => {
+                    return Err(format!(
+                        "`{other}` is not a modifier (Ctrl, Alt, Shift, Meta)."
+                    ))
+                }
             }
         }
         c.key = key_name(last).ok_or_else(|| {
             if is_modifier(last) {
-                "Press a key together with the modifiers, not only Ctrl, Alt, Shift or Meta.".to_string()
+                "Press a key together with the modifiers, not only Ctrl, Alt, Shift or Meta."
+                    .to_string()
             } else {
                 format!("`{last}` is not a key a shortcut can use.")
             }
@@ -102,7 +118,12 @@ impl Combo {
     /// The XDG shortcuts format, e.g. `LOGO+SHIFT+g`.
     pub fn xdg(&self) -> String {
         let mut s = String::new();
-        for (on, name) in [(self.ctrl, "CTRL"), (self.alt, "ALT"), (self.shift, "SHIFT"), (self.logo, "LOGO")] {
+        for (on, name) in [
+            (self.ctrl, "CTRL"),
+            (self.alt, "ALT"),
+            (self.shift, "SHIFT"),
+            (self.logo, "LOGO"),
+        ] {
             if on {
                 s.push_str(name);
                 s.push('+');
@@ -114,7 +135,12 @@ impl Combo {
     /// As KDE shows it, e.g. `Meta+Shift+G`.
     pub fn label(&self) -> String {
         let mut s = String::new();
-        for (on, name) in [(self.logo, "Meta"), (self.ctrl, "Ctrl"), (self.alt, "Alt"), (self.shift, "Shift")] {
+        for (on, name) in [
+            (self.logo, "Meta"),
+            (self.ctrl, "Ctrl"),
+            (self.alt, "Alt"),
+            (self.shift, "Shift"),
+        ] {
             if on {
                 s.push_str(name);
                 s.push('+');
@@ -136,10 +162,19 @@ impl Combo {
             n.2
         } else {
             // A letter or a digit: Qt uses the upper-case character.
-            self.key.to_ascii_uppercase().chars().next().map_or(0, |c| c as i32)
+            self.key
+                .to_ascii_uppercase()
+                .chars()
+                .next()
+                .map_or(0, |c| c as i32)
         };
         let mut code = key;
-        for (on, bit) in [(self.shift, SHIFT), (self.ctrl, CTRL), (self.alt, ALT), (self.logo, META)] {
+        for (on, bit) in [
+            (self.shift, SHIFT),
+            (self.ctrl, CTRL),
+            (self.alt, ALT),
+            (self.logo, META),
+        ] {
             if on {
                 code |= bit;
             }
@@ -151,7 +186,10 @@ impl Combo {
 fn is_modifier(k: &str) -> bool {
     let k = k.to_ascii_lowercase();
     let k = k.trim_end_matches("_l").trim_end_matches("_r");
-    matches!(k, "ctrl" | "control" | "alt" | "shift" | "logo" | "meta" | "super" | "win" | "os")
+    matches!(
+        k,
+        "ctrl" | "control" | "alt" | "shift" | "logo" | "meta" | "super" | "win" | "os"
+    )
 }
 
 /// The xkb name for a key in any common spelling (an xkb name, a browser
@@ -179,26 +217,47 @@ mod tests {
 
     #[test]
     fn reads_the_usual_spellings_into_one_form() {
-        for s in ["Meta+Shift+G", "LOGO+SHIFT+g", "shift+super+g", " Win + Shift + g "] {
+        for s in [
+            "Meta+Shift+G",
+            "LOGO+SHIFT+g",
+            "shift+super+g",
+            " Win + Shift + g ",
+        ] {
             let c = Combo::parse(s).unwrap();
             assert_eq!(c.xdg(), "SHIFT+LOGO+g", "{s}");
             assert_eq!(c.label(), "Meta+Shift+G", "{s}");
         }
         assert_eq!(Combo::parse("ctrl+alt+F5").unwrap().xdg(), "CTRL+ALT+F5");
-        assert_eq!(Combo::parse("Ctrl+Alt+PageUp").unwrap().xdg(), "CTRL+ALT+Page_Up");
-        assert_eq!(Combo::parse("Ctrl+Alt+Page_Up").unwrap().label(), "Ctrl+Alt+PgUp");
+        assert_eq!(
+            Combo::parse("Ctrl+Alt+PageUp").unwrap().xdg(),
+            "CTRL+ALT+Page_Up"
+        );
+        assert_eq!(
+            Combo::parse("Ctrl+Alt+Page_Up").unwrap().label(),
+            "Ctrl+Alt+PgUp"
+        );
         assert_eq!(Combo::parse("Meta+,").unwrap().xdg(), "LOGO+comma");
         assert_eq!(Combo::parse("Meta+Space").unwrap().xdg(), "LOGO+space");
     }
 
     #[test]
     fn a_shortcut_needs_ctrl_alt_or_meta_unless_it_is_a_function_key() {
-        assert!(Combo::parse("g").unwrap_err().contains("needs Ctrl, Alt or Meta"));
-        assert!(Combo::parse("Shift+g").unwrap_err().contains("Shift+G needs"));
+        assert!(Combo::parse("g")
+            .unwrap_err()
+            .contains("needs Ctrl, Alt or Meta"));
+        assert!(Combo::parse("Shift+g")
+            .unwrap_err()
+            .contains("Shift+G needs"));
         assert_eq!(Combo::parse("F9").unwrap().xdg(), "F9");
-        assert!(Combo::parse("Meta+Shift").unwrap_err().contains("not only Ctrl"));
-        assert!(Combo::parse("Meta+Shift_L").unwrap_err().contains("not only Ctrl"));
-        assert!(Combo::parse("Hyper+g").unwrap_err().contains("not a modifier"));
+        assert!(Combo::parse("Meta+Shift")
+            .unwrap_err()
+            .contains("not only Ctrl"));
+        assert!(Combo::parse("Meta+Shift_L")
+            .unwrap_err()
+            .contains("not only Ctrl"));
+        assert!(Combo::parse("Hyper+g")
+            .unwrap_err()
+            .contains("not a modifier"));
         assert!(Combo::parse("Meta+F25").is_err());
         assert!(Combo::parse("").is_err());
     }
@@ -208,9 +267,15 @@ mod tests {
         // Values from Qt: Key_G 0x47, Key_F5 0x01000034, MetaModifier
         // 0x10000000, ShiftModifier 0x02000000.
         assert_eq!(Combo::parse("Meta+Shift+G").unwrap().qt(), 0x1200_0047);
-        assert_eq!(Combo::parse("Ctrl+Alt+F5").unwrap().qt(), 0x0C00_0000 | 0x0100_0034);
+        assert_eq!(
+            Combo::parse("Ctrl+Alt+F5").unwrap().qt(),
+            0x0C00_0000 | 0x0100_0034
+        );
         assert_eq!(Combo::parse("Meta+5").unwrap().qt(), 0x1000_0035);
         assert_eq!(Combo::parse("Meta+Space").unwrap().qt(), 0x1000_0020);
-        assert_eq!(Combo::parse("Alt+Down").unwrap().qt(), 0x0800_0000 | 0x0100_0015);
+        assert_eq!(
+            Combo::parse("Alt+Down").unwrap().qt(),
+            0x0800_0000 | 0x0100_0015
+        );
     }
 }

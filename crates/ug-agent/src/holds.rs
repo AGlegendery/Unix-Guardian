@@ -13,17 +13,35 @@ use zbus::zvariant::Value;
 
 /// A call that never starts a service just to be told no (the desktop's
 /// own is running or the hold is not offered) and never holds up game mode.
-async fn call<B, R>(conn: &zbus::Connection, kind: Kind, method: &str, body: &B) -> Result<R, String>
+async fn call<B, R>(
+    conn: &zbus::Connection,
+    kind: Kind,
+    method: &str,
+    body: &B,
+) -> Result<R, String>
 where
     B: serde::Serialize + zbus::zvariant::DynamicType,
     R: for<'d> zbus::zvariant::DynamicDeserialize<'d>,
 {
     let (name, path) = match kind {
-        Kind::ScreenOn => ("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver"),
-        Kind::DoNotDisturb => ("org.freedesktop.Notifications", "/org/freedesktop/Notifications"),
+        Kind::ScreenOn => (
+            "org.freedesktop.ScreenSaver",
+            "/org/freedesktop/ScreenSaver",
+        ),
+        Kind::DoNotDisturb => (
+            "org.freedesktop.Notifications",
+            "/org/freedesktop/Notifications",
+        ),
     };
-    let p = zbus::Proxy::new(conn, name, path, name).await.map_err(|e| e.to_string())?;
-    match tokio::time::timeout(Duration::from_secs(2), p.call_with_flags(method, MethodFlags::NoAutoStart.into(), body)).await {
+    let p = zbus::Proxy::new(conn, name, path, name)
+        .await
+        .map_err(|e| e.to_string())?;
+    match tokio::time::timeout(
+        Duration::from_secs(2),
+        p.call_with_flags(method, MethodFlags::NoAutoStart.into(), body),
+    )
+    .await
+    {
         Ok(Ok(Some(r))) => Ok(r),
         Ok(Ok(None)) => Err("no reply".into()),
         Ok(Err(e)) => Err(e.to_string()),
@@ -47,7 +65,11 @@ pub struct Hold {
 
 impl Hold {
     pub fn new(kind: Kind) -> Self {
-        Hold { kind, cookie: None, refused: false }
+        Hold {
+            kind,
+            cookie: None,
+            refused: false,
+        }
     }
 
     pub fn held(&self) -> bool {
@@ -61,10 +83,13 @@ impl Hold {
         match (self.cookie, wanted && !self.refused) {
             (None, true) => {
                 let r = match self.kind {
-                    Kind::ScreenOn => call::<_, u32>(conn, self.kind, "Inhibit", &("Unix Guardian", why)).await,
+                    Kind::ScreenOn => {
+                        call::<_, u32>(conn, self.kind, "Inhibit", &("Unix Guardian", why)).await
+                    }
                     Kind::DoNotDisturb => {
                         let hints: HashMap<&str, Value<'_>> = HashMap::new();
-                        call::<_, u32>(conn, self.kind, "Inhibit", &("unix-guardian", why, hints)).await
+                        call::<_, u32>(conn, self.kind, "Inhibit", &("unix-guardian", why, hints))
+                            .await
                     }
                 };
                 match r {

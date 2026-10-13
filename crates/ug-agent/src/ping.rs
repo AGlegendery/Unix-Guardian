@@ -22,11 +22,22 @@ const LINGER: Duration = Duration::from_secs(60);
 /// Median, jitter, 95th percentile and loss of a run of samples.
 pub fn stats(samples: &[PingSample]) -> PingStats {
     let sent = samples.len() as u32;
-    let rtts: Vec<f64> = samples.iter().map(|s| s.rtt_ms).filter(|r| !r.is_nan()).collect();
+    let rtts: Vec<f64> = samples
+        .iter()
+        .map(|s| s.rtt_ms)
+        .filter(|r| !r.is_nan())
+        .collect();
     let received = rtts.len() as u32;
     if rtts.is_empty() {
         let loss_pct = if sent == 0 { 0.0 } else { 100.0 };
-        return PingStats { sent, received, median_ms: f64::NAN, jitter_ms: f64::NAN, p95_ms: f64::NAN, loss_pct };
+        return PingStats {
+            sent,
+            received,
+            median_ms: f64::NAN,
+            jitter_ms: f64::NAN,
+            p95_ms: f64::NAN,
+            loss_pct,
+        };
     }
     let mut sorted = rtts.clone();
     sorted.sort_by(f64::total_cmp);
@@ -49,10 +60,16 @@ pub fn stats(samples: &[PingSample]) -> PingStats {
 /// Before and after `mark`, judged on jitter, the 95th percentile and loss,
 /// so a label never claims an improvement the numbers do not show.
 pub fn compare(samples: &[PingSample], mark: u64, window_ms: u64) -> PingComparison {
-    let before: Vec<PingSample> =
-        samples.iter().filter(|s| s.ts_unix_ms < mark && s.ts_unix_ms + window_ms >= mark).copied().collect();
-    let after: Vec<PingSample> =
-        samples.iter().filter(|s| s.ts_unix_ms >= mark && s.ts_unix_ms < mark + window_ms).copied().collect();
+    let before: Vec<PingSample> = samples
+        .iter()
+        .filter(|s| s.ts_unix_ms < mark && s.ts_unix_ms + window_ms >= mark)
+        .copied()
+        .collect();
+    let after: Vec<PingSample> = samples
+        .iter()
+        .filter(|s| s.ts_unix_ms >= mark && s.ts_unix_ms < mark + window_ms)
+        .copied()
+        .collect();
     let (b, a) = (stats(&before), stats(&after));
     let verdict = if b.received < 10 || a.received < 10 {
         "not-enough-data"
@@ -61,14 +78,20 @@ pub fn compare(samples: &[PingSample], mark: u64, window_ms: u64) -> PingCompari
         let better = |x: f64, y: f64| y < x * 0.7 && x - y > 2.0;
         let worse = |x: f64, y: f64| y > x * 1.3 && y - x > 2.0;
         let improved = better(b.jitter_ms, a.jitter_ms) || better(b.p95_ms, a.p95_ms);
-        let degraded = worse(b.jitter_ms, a.jitter_ms) || worse(b.p95_ms, a.p95_ms) || a.loss_pct > b.loss_pct + 5.0;
+        let degraded = worse(b.jitter_ms, a.jitter_ms)
+            || worse(b.p95_ms, a.p95_ms)
+            || a.loss_pct > b.loss_pct + 5.0;
         match (improved, degraded) {
             (true, false) => "flatter",
             (false, true) => "worse",
             _ => "same",
         }
     };
-    PingComparison { before: b, after: a, verdict: verdict.into() }
+    PingComparison {
+        before: b,
+        after: a,
+        verdict: verdict.into(),
+    }
 }
 
 struct Target {
@@ -108,20 +131,29 @@ pub struct Pinger {
 
 impl Pinger {
     pub fn new(root: SysRoot) -> Pinger {
-        let targets = [("gateway", "Router"), ("internet", "DNS server"), ("game", "")]
-            .into_iter()
-            .map(|(id, label)| Target {
-                id,
-                label: label.into(),
-                addr: None,
-                samples: VecDeque::new(),
-                problem: String::new(),
-                via: String::new(),
-                through_vpn: false,
-            })
-            .collect();
+        let targets = [
+            ("gateway", "Router"),
+            ("internet", "DNS server"),
+            ("game", ""),
+        ]
+        .into_iter()
+        .map(|(id, label)| Target {
+            id,
+            label: label.into(),
+            addr: None,
+            samples: VecDeque::new(),
+            problem: String::new(),
+            via: String::new(),
+            through_vpn: false,
+        })
+        .collect();
         Pinger {
-            state: Arc::new(Mutex::new(State { targets, marks: Vec::new(), wanted_until: None, running: false })),
+            state: Arc::new(Mutex::new(State {
+                targets,
+                marks: Vec::new(),
+                wanted_until: None,
+                running: false,
+            })),
             root,
         }
     }
@@ -151,7 +183,11 @@ impl Pinger {
     /// The game's server, or `None` when no game is running.
     pub fn set_game(&self, game: Option<(String, Option<IpAddr>)>) {
         let mut s = self.lock();
-        let t = s.targets.iter_mut().find(|t| t.id == "game").expect("game target");
+        let t = s
+            .targets
+            .iter_mut()
+            .find(|t| t.id == "game")
+            .expect("game target");
         match game {
             Some((name, addr)) => {
                 if t.addr != addr && addr.is_some() {
@@ -159,7 +195,11 @@ impl Pinger {
                 }
                 t.label = name;
                 t.addr = addr.or(t.addr);
-                t.problem = if t.addr.is_none() { "No server connection seen yet.".into() } else { String::new() };
+                t.problem = if t.addr.is_none() {
+                    "No server connection seen yet.".into()
+                } else {
+                    String::new()
+                };
             }
             None => {
                 t.label.clear();
@@ -171,7 +211,10 @@ impl Pinger {
 
     pub fn mark(&self, kind: &str, ts: u64) {
         let mut s = self.lock();
-        s.marks.push(PingMark { ts_unix_ms: ts, kind: kind.into() });
+        s.marks.push(PingMark {
+            ts_unix_ms: ts,
+            kind: kind.into(),
+        });
         s.marks.retain(|m| m.ts_unix_ms + KEEP_MS > ts);
     }
 
@@ -184,15 +227,28 @@ impl Pinger {
                 .iter()
                 .filter(|t| t.addr.is_some() || !t.label.is_empty() || !t.problem.is_empty())
                 .map(|t| {
-                    let recent: Vec<PingSample> =
-                        t.samples.iter().filter(|p| p.ts_unix_ms + 60_000 >= now).copied().collect();
+                    let recent: Vec<PingSample> = t
+                        .samples
+                        .iter()
+                        .filter(|p| p.ts_unix_ms + 60_000 >= now)
+                        .copied()
+                        .collect();
                     let stats = stats(&recent);
-                    let problem = if t.problem.is_empty() { judge(t.id, t.through_vpn, &stats).unwrap_or_default() } else { t.problem.clone() };
+                    let problem = if t.problem.is_empty() {
+                        judge(t.id, t.through_vpn, &stats).unwrap_or_default()
+                    } else {
+                        t.problem.clone()
+                    };
                     PingTarget {
                         id: t.id.into(),
                         label: t.label.clone(),
                         addr: t.addr.map(|a| a.to_string()).unwrap_or_default(),
-                        samples: t.samples.iter().filter(|p| p.ts_unix_ms >= since).copied().collect(),
+                        samples: t
+                            .samples
+                            .iter()
+                            .filter(|p| p.ts_unix_ms >= since)
+                            .copied()
+                            .collect(),
                         stats,
                         problem,
                         via: t.via.clone(),
@@ -200,14 +256,23 @@ impl Pinger {
                     }
                 })
                 .collect(),
-            marks: s.marks.iter().filter(|m| m.ts_unix_ms >= since).cloned().collect(),
+            marks: s
+                .marks
+                .iter()
+                .filter(|m| m.ts_unix_ms >= since)
+                .cloned()
+                .collect(),
         }
     }
 
     pub fn compare(&self, target: &str, mark: u64, window_s: u32) -> PingComparison {
         let s = self.lock();
-        let samples: Vec<PingSample> =
-            s.targets.iter().find(|t| t.id == target).map(|t| t.samples.iter().copied().collect()).unwrap_or_default();
+        let samples: Vec<PingSample> = s
+            .targets
+            .iter()
+            .find(|t| t.id == target)
+            .map(|t| t.samples.iter().copied().collect())
+            .unwrap_or_default();
         compare(&samples, mark, window_s.clamp(10, 600) as u64 * 1000)
     }
 
@@ -227,18 +292,24 @@ impl Pinger {
                 if resolved.elapsed() > Duration::from_secs(30) {
                     resolved = Instant::now();
                     let gw = procnet::gateway4(&self.root).map(|(_, a)| IpAddr::V4(a));
-                    let dns = procnet::dns_servers(&self.root).into_iter().find(|a| a.is_ipv4()).or_else(|| {
-                        procnet::dns_servers(&self.root).into_iter().next()
-                    });
-                    for (id, addr, none) in
-                        [("gateway", gw, "No router: not connected."), ("internet", dns, "No DNS server configured.")]
-                    {
+                    let dns = procnet::dns_servers(&self.root)
+                        .into_iter()
+                        .find(|a| a.is_ipv4())
+                        .or_else(|| procnet::dns_servers(&self.root).into_iter().next());
+                    for (id, addr, none) in [
+                        ("gateway", gw, "No router: not connected."),
+                        ("internet", dns, "No DNS server configured."),
+                    ] {
                         let t = s.targets.iter_mut().find(|t| t.id == id).expect("target");
                         if t.addr != addr {
                             t.samples.clear();
                         }
                         t.addr = addr;
-                        t.problem = if addr.is_none() { none.into() } else { String::new() };
+                        t.problem = if addr.is_none() {
+                            none.into()
+                        } else {
+                            String::new()
+                        };
                     }
                     // Which way each host is reached: directly, or through a
                     // VPN's TUN device (which may answer pings itself).
@@ -246,7 +317,8 @@ impl Pinger {
                         match t.addr {
                             Some(a) => {
                                 t.via = procnet::route_dev(a).unwrap_or_default();
-                                t.through_vpn = !t.via.is_empty() && procnet::is_tun(&self.root, &t.via);
+                                t.through_vpn =
+                                    !t.via.is_empty() && procnet::is_tun(&self.root, &t.via);
                             }
                             None => {
                                 t.via.clear();
@@ -255,7 +327,11 @@ impl Pinger {
                         }
                     }
                 }
-                let want: Vec<(&'static str, IpAddr)> = s.targets.iter().filter_map(|t| Some((t.id, t.addr?))).collect();
+                let want: Vec<(&'static str, IpAddr)> = s
+                    .targets
+                    .iter()
+                    .filter_map(|t| Some((t.id, t.addr?)))
+                    .collect();
                 probes.retain(|(id, a, _)| want.contains(&(*id, *a)));
                 for (id, addr) in want {
                     if probes.iter().any(|(i, _, _)| *i == id) {
@@ -273,13 +349,23 @@ impl Pinger {
             }
 
             let ts = crate::iface::now_ms();
-            let rtts = Probe::round(&mut probes.iter_mut().map(|(_, _, p)| p).collect::<Vec<_>>(), TIMEOUT);
+            let rtts = Probe::round(
+                &mut probes.iter_mut().map(|(_, _, p)| p).collect::<Vec<_>>(),
+                TIMEOUT,
+            );
             {
                 let mut s = self.lock();
                 for ((id, _, _), rtt) in probes.iter().zip(rtts) {
                     if let Some(t) = s.targets.iter_mut().find(|t| t.id == *id) {
-                        t.samples.push_back(PingSample { ts_unix_ms: ts, rtt_ms: rtt.unwrap_or(f64::NAN) });
-                        while t.samples.front().is_some_and(|p| p.ts_unix_ms + KEEP_MS < ts) {
+                        t.samples.push_back(PingSample {
+                            ts_unix_ms: ts,
+                            rtt_ms: rtt.unwrap_or(f64::NAN),
+                        });
+                        while t
+                            .samples
+                            .front()
+                            .is_some_and(|p| p.ts_unix_ms + KEEP_MS < ts)
+                        {
                             t.samples.pop_front();
                         }
                     }
@@ -302,9 +388,19 @@ struct Probe {
 impl Probe {
     fn open(addr: IpAddr) -> std::io::Result<Probe> {
         let v6 = addr.is_ipv6();
-        let (domain, proto) = if v6 { (libc::AF_INET6, libc::IPPROTO_ICMPV6) } else { (libc::AF_INET, libc::IPPROTO_ICMP) };
+        let (domain, proto) = if v6 {
+            (libc::AF_INET6, libc::IPPROTO_ICMPV6)
+        } else {
+            (libc::AF_INET, libc::IPPROTO_ICMP)
+        };
         // SAFETY: plain socket(2); the result is checked before use.
-        let fd = unsafe { libc::socket(domain, libc::SOCK_DGRAM | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC, proto) };
+        let fd = unsafe {
+            libc::socket(
+                domain,
+                libc::SOCK_DGRAM | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC,
+                proto,
+            )
+        };
         if fd < 0 {
             let e = std::io::Error::last_os_error();
             return Err(if e.raw_os_error() == Some(libc::EACCES) {
@@ -317,10 +413,17 @@ impl Probe {
         let fd = unsafe { OwnedFd::from_raw_fd(fd) };
         let sa = socket2_addr(SocketAddr::new(addr, 0));
         // SAFETY: sa is a valid sockaddr of the stated length.
-        if unsafe { libc::connect(fd.as_raw_fd(), sa.0.as_ptr() as *const libc::sockaddr, sa.1) } < 0 {
+        if unsafe { libc::connect(fd.as_raw_fd(), sa.0.as_ptr() as *const libc::sockaddr, sa.1) }
+            < 0
+        {
             return Err(std::io::Error::last_os_error());
         }
-        Ok(Probe { fd, v6, seq: 0, sent_at: None })
+        Ok(Probe {
+            fd,
+            v6,
+            seq: 0,
+            sent_at: None,
+        })
     }
 
     fn send(&mut self) {
@@ -341,13 +444,23 @@ impl Probe {
         let mut buf = [0u8; 128];
         loop {
             // SAFETY: the buffer is valid for its length.
-            let n = unsafe { libc::recv(self.fd.as_raw_fd(), buf.as_mut_ptr() as *mut _, buf.len(), 0) };
+            let n = unsafe {
+                libc::recv(
+                    self.fd.as_raw_fd(),
+                    buf.as_mut_ptr() as *mut _,
+                    buf.len(),
+                    0,
+                )
+            };
             if n < 8 {
                 return None;
             }
             let reply = if self.v6 { 129 } else { 0 };
             if buf[0] == reply && u16::from_be_bytes([buf[6], buf[7]]) == self.seq {
-                return self.sent_at.take().map(|t| t.elapsed().as_secs_f64() * 1000.0);
+                return self
+                    .sent_at
+                    .take()
+                    .map(|t| t.elapsed().as_secs_f64() * 1000.0);
             }
             // A late reply to an earlier echo: skip it.
         }
@@ -367,12 +480,24 @@ impl Probe {
             }
             let mut fds: Vec<libc::pollfd> = probes
                 .iter()
-                .map(|p| libc::pollfd { fd: p.fd.as_raw_fd(), events: libc::POLLIN, revents: 0 })
+                .map(|p| libc::pollfd {
+                    fd: p.fd.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                })
                 .collect();
             // SAFETY: fds is a valid array of pollfd for its length.
-            let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, left.as_millis().max(1) as i32) };
+            let n = unsafe {
+                libc::poll(
+                    fds.as_mut_ptr(),
+                    fds.len() as libc::nfds_t,
+                    left.as_millis().max(1) as i32,
+                )
+            };
             if n <= 0 {
-                if n < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                if n < 0
+                    && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+                {
                     continue;
                 }
                 break;
@@ -397,7 +522,8 @@ fn socket2_addr(a: SocketAddr) -> (Vec<u8>, libc::socklen_t) {
             sa.sin_addr.s_addr = u32::from_ne_bytes(v4.ip().octets());
             let len = std::mem::size_of::<libc::sockaddr_in>();
             // SAFETY: reading the struct's bytes.
-            let bytes = unsafe { std::slice::from_raw_parts(&sa as *const _ as *const u8, len) }.to_vec();
+            let bytes =
+                unsafe { std::slice::from_raw_parts(&sa as *const _ as *const u8, len) }.to_vec();
             (bytes, len as libc::socklen_t)
         }
         SocketAddr::V6(v6) => {
@@ -408,7 +534,8 @@ fn socket2_addr(a: SocketAddr) -> (Vec<u8>, libc::socklen_t) {
             sa.sin6_scope_id = v6.scope_id();
             let len = std::mem::size_of::<libc::sockaddr_in6>();
             // SAFETY: reading the struct's bytes.
-            let bytes = unsafe { std::slice::from_raw_parts(&sa as *const _ as *const u8, len) }.to_vec();
+            let bytes =
+                unsafe { std::slice::from_raw_parts(&sa as *const _ as *const u8, len) }.to_vec();
             (bytes, len as libc::socklen_t)
         }
     }
@@ -419,7 +546,13 @@ mod tests {
     use super::*;
 
     fn run(rtts: &[f64], start: u64) -> Vec<PingSample> {
-        rtts.iter().enumerate().map(|(i, &r)| PingSample { ts_unix_ms: start + i as u64 * 1000, rtt_ms: r }).collect()
+        rtts.iter()
+            .enumerate()
+            .map(|(i, &r)| PingSample {
+                ts_unix_ms: start + i as u64 * 1000,
+                rtt_ms: r,
+            })
+            .collect()
     }
 
     #[test]
@@ -442,7 +575,9 @@ mod tests {
 
     #[test]
     fn compare_says_flatter_only_when_the_numbers_do() {
-        let spiky: Vec<f64> = (0..30).map(|i| if i % 2 == 0 { 20.0 } else { 90.0 }).collect();
+        let spiky: Vec<f64> = (0..30)
+            .map(|i| if i % 2 == 0 { 20.0 } else { 90.0 })
+            .collect();
         let flat: Vec<f64> = (0..30).map(|i| 24.0 + (i % 3) as f64).collect();
         let mut s = run(&spiky, 0);
         s.extend(run(&flat, 30_000));
@@ -459,12 +594,17 @@ mod tests {
         s.extend(run(&spiky, 30_000));
         assert_eq!(compare(&s, 30_000, 30_000).verdict, "worse");
 
-        assert_eq!(compare(&run(&flat[..5], 25_000), 30_000, 30_000).verdict, "not-enough-data");
+        assert_eq!(
+            compare(&run(&flat[..5], 25_000), 30_000, 30_000).verdict,
+            "not-enough-data"
+        );
     }
 
     #[test]
     fn compare_ignores_samples_outside_the_window() {
-        let spiky: Vec<f64> = (0..60).map(|i| if i % 2 == 0 { 20.0 } else { 90.0 }).collect();
+        let spiky: Vec<f64> = (0..60)
+            .map(|i| if i % 2 == 0 { 20.0 } else { 90.0 })
+            .collect();
         let flat: Vec<f64> = (0..30).map(|_| 25.0).collect();
         let mut s = run(&spiky, 0);
         s.extend(run(&flat, 60_000));
@@ -477,10 +617,19 @@ mod tests {
     fn a_vpn_answering_pings_itself_is_called_out() {
         let fast = stats(&run(&[0.3, 0.2, 0.4, 0.3, 0.3, 0.2], 0));
         assert!(judge("internet", true, &fast).is_some());
-        assert!(judge("internet", false, &fast).is_none(), "a direct fast host is fine (a LAN server)");
-        assert!(judge("gateway", true, &fast).is_none(), "the router is near");
+        assert!(
+            judge("internet", false, &fast).is_none(),
+            "a direct fast host is fine (a LAN server)"
+        );
+        assert!(
+            judge("gateway", true, &fast).is_none(),
+            "the router is near"
+        );
         let real = stats(&run(&[80.0, 82.0, 79.0, 81.0, 80.0], 0));
-        assert!(judge("internet", true, &real).is_none(), "a real ping through the VPN is kept");
+        assert!(
+            judge("internet", true, &real).is_none(),
+            "a real ping through the VPN is kept"
+        );
     }
 
     #[test]
@@ -498,7 +647,9 @@ mod tests {
     /// Real ICMP to this machine; skipped where ping sockets are not allowed.
     #[test]
     fn probe_measures_loopback() {
-        let Ok(mut p) = Probe::open("127.0.0.1".parse().unwrap()) else { return };
+        let Ok(mut p) = Probe::open("127.0.0.1".parse().unwrap()) else {
+            return;
+        };
         let r = Probe::round(&mut [&mut p], Duration::from_millis(500));
         assert!(r[0].is_some_and(|ms| ms >= 0.0 && ms < 100.0), "{r:?}");
     }

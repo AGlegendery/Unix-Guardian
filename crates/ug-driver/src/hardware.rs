@@ -32,7 +32,9 @@ impl PciDevice {
 }
 
 fn read(p: &Path) -> String {
-    std::fs::read_to_string(p).map(|s| s.trim().to_string()).unwrap_or_default()
+    std::fs::read_to_string(p)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
 }
 
 fn driver_of(dev: &Path) -> String {
@@ -81,10 +83,16 @@ pub struct UsbInterface {
 
 pub fn usb_interfaces(root: &SysRoot) -> Vec<UsbInterface> {
     let mut v = Vec::new();
-    for e in std::fs::read_dir(root.join("sys/bus/usb/devices")).into_iter().flatten().flatten() {
+    for e in std::fs::read_dir(root.join("sys/bus/usb/devices"))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
         let name = e.file_name().to_string_lossy().into_owned();
         // Interfaces are `<device>:<config>.<n>`; root hubs `usbN` have none.
-        let Some((dev, _)) = name.split_once(':') else { continue };
+        let Some((dev, _)) = name.split_once(':') else {
+            continue;
+        };
         let p = e.path();
         let d = root.join("sys/bus/usb/devices").join(dev);
         v.push(UsbInterface {
@@ -157,7 +165,10 @@ pub fn firmware_variant_present(root: &SysRoot, file: &str) -> bool {
 /// The kernel log lines about firmware, all the troubleshooter needs (no
 /// other kernel messages leave the daemon).
 pub fn firmware_lines(log: &str) -> String {
-    log.lines().filter(|l| l.contains("firmware")).map(|l| format!("{l}\n")).collect()
+    log.lines()
+        .filter(|l| l.contains("firmware"))
+        .map(|l| format!("{l}\n"))
+        .collect()
 }
 
 /// This boot's kernel messages about firmware, read with journalctl. Empty
@@ -241,18 +252,35 @@ pub fn firmware_packages(files: &[String], family: &str) -> Vec<String> {
 
 /// Firmware folders, in the order the kernel searches them.
 fn firmware_dirs(root: &SysRoot) -> Vec<PathBuf> {
-    ["lib/firmware/updates", "lib/firmware", "usr/lib/firmware"].iter().map(|d| root.join(d)).collect()
+    ["lib/firmware/updates", "lib/firmware", "usr/lib/firmware"]
+        .iter()
+        .map(|d| root.join(d))
+        .collect()
 }
 
 fn firmware_has(root: &SysRoot, rel_dir: &str, prefix: &str) -> bool {
     firmware_dirs(root).iter().any(|d| {
-        std::fs::read_dir(d.join(rel_dir)).into_iter().flatten().flatten().any(|e| e.file_name().to_string_lossy().starts_with(prefix))
+        std::fs::read_dir(d.join(rel_dir))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().starts_with(prefix))
     })
 }
 
 fn program(root: &SysRoot, names: &[&str]) -> bool {
-    let dirs = ["usr/bin", "usr/sbin", "bin", "sbin", "usr/lib/bluetooth", "usr/libexec/bluetooth", "usr/libexec"];
-    names.iter().any(|n| dirs.iter().any(|d| root.join(d).join(n).exists()))
+    let dirs = [
+        "usr/bin",
+        "usr/sbin",
+        "bin",
+        "sbin",
+        "usr/lib/bluetooth",
+        "usr/libexec/bluetooth",
+        "usr/libexec",
+    ];
+    names
+        .iter()
+        .any(|n| dirs.iter().any(|d| root.join(d).join(n).exists()))
 }
 
 /// Intel IPU6 camera controllers (laptops since Tiger Lake): the camera
@@ -263,14 +291,21 @@ const IPU6: &[u16] = &[0x9a19, 0x9a39, 0x4e19, 0x465d, 0x462e, 0xa75d, 0x7d19];
 /// blocked, the sysfs files to unblock).
 pub fn rfkill(root: &SysRoot, kind: &str) -> (bool, bool, Vec<String>) {
     let (mut soft, mut hard, mut files) = (false, false, Vec::new());
-    for e in std::fs::read_dir(root.join("sys/class/rfkill")).into_iter().flatten().flatten() {
+    for e in std::fs::read_dir(root.join("sys/class/rfkill"))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
         let p = e.path();
         if read(&p.join("type")) != kind {
             continue;
         }
         if read(&p.join("soft")) == "1" {
             soft = true;
-            files.push(format!("/sys/class/rfkill/{}/soft", e.file_name().to_string_lossy()));
+            files.push(format!(
+                "/sys/class/rfkill/{}/soft",
+                e.file_name().to_string_lossy()
+            ));
         }
         hard |= read(&p.join("hard")) == "1";
     }
@@ -302,11 +337,14 @@ pub fn facts(root: &SysRoot, env: &Env, modules: &[String], f: &mut Facts) {
             .collect::<Vec<_>>()
             .join(", ")
     };
-    put("machine.laptop", b(std::fs::read_dir(root.join("sys/class/power_supply"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .any(|e| read(&e.path().join("type")) == "Battery")));
+    put(
+        "machine.laptop",
+        b(std::fs::read_dir(root.join("sys/class/power_supply"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|e| read(&e.path().join("type")) == "Battery")),
+    );
 
     // Wi-Fi.
     let wifi: Vec<&PciDevice> = pci.iter().filter(|d| d.class16() == 0x0280).collect();
@@ -317,19 +355,46 @@ pub fn facts(root: &SysRoot, env: &Env, modules: &[String], f: &mut Facts) {
         .filter(|e| e.path().join("wireless").exists() || e.path().join("phy80211").exists())
         .count();
     put("wifi.pci", s(&names(wifi.clone())));
-    put("wifi.drivers", s(&wifi.iter().map(|d| d.driver.as_str()).filter(|d| !d.is_empty()).collect::<Vec<_>>().join(", ")));
+    put(
+        "wifi.drivers",
+        s(&wifi
+            .iter()
+            .map(|d| d.driver.as_str())
+            .filter(|d| !d.is_empty())
+            .collect::<Vec<_>>()
+            .join(", ")),
+    );
     put("wifi.interfaces", Value::Num(ifaces as f64));
     put("wifi.present", b(!wifi.is_empty() || ifaces > 0));
-    put("wifi.unbound", s(&names(wifi.iter().copied().filter(|d| d.driver.is_empty()).collect())));
-    put("wifi.broadcom_unbound", b(wifi.iter().any(|d| d.driver.is_empty() && d.vendor == 0x14e4)));
-    put("wifi.bound_no_interface", b(wifi.iter().any(|d| !d.driver.is_empty()) && ifaces == 0));
+    put(
+        "wifi.unbound",
+        s(&names(
+            wifi.iter()
+                .copied()
+                .filter(|d| d.driver.is_empty())
+                .collect(),
+        )),
+    );
+    put(
+        "wifi.broadcom_unbound",
+        b(wifi
+            .iter()
+            .any(|d| d.driver.is_empty() && d.vendor == 0x14e4)),
+    );
+    put(
+        "wifi.bound_no_interface",
+        b(wifi.iter().any(|d| !d.driver.is_empty()) && ifaces == 0),
+    );
     let (soft, hard, _) = rfkill(root, "wlan");
     put("rfkill.wifi_soft", b(soft));
     put("rfkill.wifi_hard", b(hard));
     put("net.networkmanager", b(program(root, &["NetworkManager"])));
 
     // Bluetooth.
-    let bt_usb: Vec<&UsbInterface> = usb.iter().filter(|i| (i.class, i.subclass, i.protocol) == (0xe0, 0x01, 0x01)).collect();
+    let bt_usb: Vec<&UsbInterface> = usb
+        .iter()
+        .filter(|i| (i.class, i.subclass, i.protocol) == (0xe0, 0x01, 0x01))
+        .collect();
     let adapters = std::fs::read_dir(root.join("sys/class/bluetooth"))
         .into_iter()
         .flatten()
@@ -337,29 +402,57 @@ pub fn facts(root: &SysRoot, env: &Env, modules: &[String], f: &mut Facts) {
         .filter(|e| e.file_name().to_string_lossy().starts_with("hci"))
         .count();
     put("bt.usb", b(!bt_usb.is_empty()));
-    put("bt.usb_unbound", b(bt_usb.iter().any(|i| i.driver.is_empty())));
+    put(
+        "bt.usb_unbound",
+        b(bt_usb.iter().any(|i| i.driver.is_empty())),
+    );
     put("bt.adapters", Value::Num(adapters as f64));
     put("bt.present", b(!bt_usb.is_empty() || adapters > 0));
     put("bt.bluez", b(program(root, &["bluetoothd"])));
-    put("bt.service_exists", b(crate::inventory::unit_exists(root, "bluetooth.service")));
+    put(
+        "bt.service_exists",
+        b(crate::inventory::unit_exists(root, "bluetooth.service")),
+    );
     put(
         "bt.service_enabled",
-        b(crate::inventory::unit_enabled(root, "bluetooth.service") || root.join("etc/systemd/system/dbus-org.bluez.service").exists()),
+        b(crate::inventory::unit_enabled(root, "bluetooth.service")
+            || root
+                .join("etc/systemd/system/dbus-org.bluez.service")
+                .exists()),
     );
     let (soft, hard, _) = rfkill(root, "bluetooth");
     put("rfkill.bt_soft", b(soft));
     put("rfkill.bt_hard", b(hard));
 
     // Sound.
-    let audio: Vec<&PciDevice> = pci.iter().filter(|d| matches!(d.class16(), 0x0401 | 0x0403)).collect();
+    let audio: Vec<&PciDevice> = pci
+        .iter()
+        .filter(|d| matches!(d.class16(), 0x0401 | 0x0403))
+        .collect();
     let cards = std::fs::read_to_string(root.join("proc/asound/cards"))
         .unwrap_or_default()
         .lines()
-        .filter(|l| l.trim_start().split_whitespace().next().is_some_and(|n| n.parse::<u32>().is_ok()))
+        .filter(|l| {
+            l.trim_start()
+                .split_whitespace()
+                .next()
+                .is_some_and(|n| n.parse::<u32>().is_ok())
+        })
         .count();
-    let sof = audio.iter().any(|d| d.driver.starts_with("sof-audio") || d.driver.starts_with("snd_sof"));
+    let sof = audio
+        .iter()
+        .any(|d| d.driver.starts_with("sof-audio") || d.driver.starts_with("snd_sof"));
     put("audio.pci", Value::Num(audio.len() as f64));
-    put("audio.unbound", s(&names(audio.iter().copied().filter(|d| d.driver.is_empty()).collect())));
+    put(
+        "audio.unbound",
+        s(&names(
+            audio
+                .iter()
+                .copied()
+                .filter(|d| d.driver.is_empty())
+                .collect(),
+        )),
+    );
     put("audio.cards", Value::Num(cards as f64));
     put("audio.sof", b(sof));
     put("audio.sof_firmware", b(firmware_has(root, "intel", "sof")));
@@ -372,14 +465,21 @@ pub fn facts(root: &SysRoot, env: &Env, modules: &[String], f: &mut Facts) {
     };
     put("audio.server", s(server));
     put("audio.pipewire", b(program(root, &["pipewire"])));
-    put("audio.pipewire_pulse", b(program(root, &["pipewire-pulse"])));
+    put(
+        "audio.pipewire_pulse",
+        b(program(root, &["pipewire-pulse"])),
+    );
     put("audio.pulseaudio", b(program(root, &["pulseaudio"])));
     put("audio.wireplumber", b(program(root, &["wireplumber"])));
 
     // Touchpads and other input.
     let mut i2c_present = false;
     let mut i2c_bound = false;
-    for e in std::fs::read_dir(root.join("sys/bus/acpi/devices")).into_iter().flatten().flatten() {
+    for e in std::fs::read_dir(root.join("sys/bus/acpi/devices"))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
         let p = e.path();
         let hid = read(&p.join("hid"));
         if hid != "PNP0C50" && hid != "ACPI0C50" {
@@ -394,73 +494,181 @@ pub fn facts(root: &SysRoot, env: &Env, modules: &[String], f: &mut Facts) {
         i2c_bound |= !driver_of(&p.join("physical_node")).is_empty();
     }
     let input = std::fs::read_to_string(root.join("proc/bus/input/devices")).unwrap_or_default();
-    let names_in: Vec<&str> = input.lines().filter_map(|l| l.strip_prefix("N: Name=")).map(|n| n.trim_matches('"')).collect();
+    let names_in: Vec<&str> = input
+        .lines()
+        .filter_map(|l| l.strip_prefix("N: Name="))
+        .map(|n| n.trim_matches('"'))
+        .collect();
     put("input.i2c_hid", b(i2c_present));
     put("input.i2c_hid_bound", b(i2c_bound));
-    put("input.touchpad", b(names_in.iter().any(|n| n.to_lowercase().contains("touchpad"))));
-    put("input.ps2_mouse_only", b(names_in.iter().any(|n| n.contains("PS/2 Generic Mouse") || n.contains("PS/2 Logitech Wheel Mouse"))));
-    put("input.xorg_synaptics", b(["usr/share/X11/xorg.conf.d/70-synaptics.conf", "etc/X11/xorg.conf.d/70-synaptics.conf"].iter().any(|p| root.join(p).exists())));
+    put(
+        "input.touchpad",
+        b(names_in
+            .iter()
+            .any(|n| n.to_lowercase().contains("touchpad"))),
+    );
+    put(
+        "input.ps2_mouse_only",
+        b(names_in
+            .iter()
+            .any(|n| n.contains("PS/2 Generic Mouse") || n.contains("PS/2 Logitech Wheel Mouse"))),
+    );
+    put(
+        "input.xorg_synaptics",
+        b([
+            "usr/share/X11/xorg.conf.d/70-synaptics.conf",
+            "etc/X11/xorg.conf.d/70-synaptics.conf",
+        ]
+        .iter()
+        .any(|p| root.join(p).exists())),
+    );
 
     // Cameras.
-    let uvc: Vec<&UsbInterface> = usb.iter().filter(|i| i.class == 0x0e && i.subclass == 0x01).collect();
+    let uvc: Vec<&UsbInterface> = usb
+        .iter()
+        .filter(|i| i.class == 0x0e && i.subclass == 0x01)
+        .collect();
     put("camera.uvc", b(!uvc.is_empty()));
-    put("camera.uvc_unbound", b(uvc.iter().any(|i| i.driver.is_empty())));
-    let v4l = std::fs::read_dir(root.join("sys/class/video4linux")).into_iter().flatten().count();
+    put(
+        "camera.uvc_unbound",
+        b(uvc.iter().any(|i| i.driver.is_empty())),
+    );
+    let v4l = std::fs::read_dir(root.join("sys/class/video4linux"))
+        .into_iter()
+        .flatten()
+        .count();
     put("camera.video_devices", Value::Num(v4l as f64));
-    let ipu = pci.iter().find(|d| d.vendor == 0x8086 && IPU6.contains(&d.device));
+    let ipu = pci
+        .iter()
+        .find(|d| d.vendor == 0x8086 && IPU6.contains(&d.device));
     put("camera.ipu6", b(ipu.is_some()));
-    put("camera.ipu6_driver", s(ipu.map(|d| d.driver.as_str()).unwrap_or("")));
-    put("camera.libcamera", b(program(root, &["cam", "libcamerify"])
-        || ["usr/lib/x86_64-linux-gnu", "usr/lib64", "usr/lib"].iter().any(|d| root.join(d).join("libcamera.so").exists()
-            || std::fs::read_dir(root.join(d)).into_iter().flatten().flatten().any(|e| e.file_name().to_string_lossy().starts_with("libcamera.so")))));
+    put(
+        "camera.ipu6_driver",
+        s(ipu.map(|d| d.driver.as_str()).unwrap_or("")),
+    );
+    put(
+        "camera.libcamera",
+        b(program(root, &["cam", "libcamerify"])
+            || ["usr/lib/x86_64-linux-gnu", "usr/lib64", "usr/lib"]
+                .iter()
+                .any(|d| {
+                    root.join(d).join("libcamera.so").exists()
+                        || std::fs::read_dir(root.join(d))
+                            .into_iter()
+                            .flatten()
+                            .flatten()
+                            .any(|e| e.file_name().to_string_lossy().starts_with("libcamera.so"))
+                })),
+    );
 
     // Printers and scanners.
     let printers: Vec<&UsbInterface> = usb.iter().filter(|i| i.class == 0x07).collect();
     put("print.usb_printer", b(!printers.is_empty()));
-    put("print.usb_printer_names", s(&printers.iter().map(|i| i.product.clone()).filter(|p| !p.is_empty()).collect::<Vec<_>>().join(", ")));
-    put("print.ipp_usb_device", b(printers.iter().any(|i| i.subclass == 0x01 && i.protocol == 0x04)));
+    put(
+        "print.usb_printer_names",
+        s(&printers
+            .iter()
+            .map(|i| i.product.clone())
+            .filter(|p| !p.is_empty())
+            .collect::<Vec<_>>()
+            .join(", ")),
+    );
+    put(
+        "print.ipp_usb_device",
+        b(printers
+            .iter()
+            .any(|i| i.subclass == 0x01 && i.protocol == 0x04)),
+    );
     put("print.hp", b(printers.iter().any(|i| i.vendor == 0x03f0)));
     put("print.cups", b(program(root, &["cupsd"])));
     put(
         "print.cups_enabled",
-        b(["cups.socket", "cups.service", "cups.path"].iter().any(|u| crate::inventory::unit_enabled(root, u))),
+        b(["cups.socket", "cups.service", "cups.path"]
+            .iter()
+            .any(|u| crate::inventory::unit_enabled(root, u))),
     );
     put("print.ipp_usb", b(program(root, &["ipp-usb"])));
     put("print.hplip", b(program(root, &["hp-setup"])));
     put("scan.sane", b(program(root, &["scanimage"])));
-    let sane_dirs = ["usr/lib/x86_64-linux-gnu/sane", "usr/lib64/sane", "usr/lib/sane"];
-    put("scan.airscan", b(sane_dirs.iter().any(|d| {
-        std::fs::read_dir(root.join(d)).into_iter().flatten().flatten().any(|e| e.file_name().to_string_lossy().starts_with("libsane-airscan"))
-    })));
+    let sane_dirs = [
+        "usr/lib/x86_64-linux-gnu/sane",
+        "usr/lib64/sane",
+        "usr/lib/sane",
+    ];
+    put(
+        "scan.airscan",
+        b(sane_dirs.iter().any(|d| {
+            std::fs::read_dir(root.join(d))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .any(|e| {
+                    e.file_name()
+                        .to_string_lossy()
+                        .starts_with("libsane-airscan")
+                })
+        })),
+    );
     put("net.avahi", b(program(root, &["avahi-daemon"])));
-    put("net.avahi_enabled", b(crate::inventory::unit_enabled(root, "avahi-daemon.service") || crate::inventory::unit_enabled(root, "avahi-daemon.socket")));
+    put(
+        "net.avahi_enabled",
+        b(crate::inventory::unit_enabled(root, "avahi-daemon.service")
+            || crate::inventory::unit_enabled(root, "avahi-daemon.socket")),
+    );
 
     // Sleep and hibernation.
     let mem_sleep = read(&root.join("sys/power/mem_sleep"));
-    let chosen = mem_sleep.split('[').nth(1).and_then(|r| r.split(']').next()).unwrap_or("");
+    let chosen = mem_sleep
+        .split('[')
+        .nth(1)
+        .and_then(|r| r.split(']').next())
+        .unwrap_or("");
     put("sleep.mem_sleep", s(chosen));
-    put("sleep.deep_available", b(mem_sleep.split_whitespace().any(|w| w.trim_matches(['[', ']']) == "deep")));
+    put(
+        "sleep.deep_available",
+        b(mem_sleep
+            .split_whitespace()
+            .any(|w| w.trim_matches(['[', ']']) == "deep")),
+    );
     let states = read(&root.join("sys/power/state"));
     put("sleep.states", s(&states));
-    put("hibernate.supported", b(states.split_whitespace().any(|w| w == "disk")));
+    put(
+        "hibernate.supported",
+        b(states.split_whitespace().any(|w| w == "disk")),
+    );
     // The image goes to one swap area, and never to zram (it is in RAM).
     let swap: f64 = std::fs::read_to_string(root.join("proc/swaps"))
         .unwrap_or_default()
         .lines()
         .skip(1)
         .filter(|l| !l.starts_with("/dev/zram"))
-        .filter_map(|l| l.split_whitespace().nth(2).and_then(|n| n.parse::<f64>().ok()))
+        .filter_map(|l| {
+            l.split_whitespace()
+                .nth(2)
+                .and_then(|n| n.parse::<f64>().ok())
+        })
         .fold(0.0, f64::max);
-    let mem = kb(&std::fs::read_to_string(root.join("proc/meminfo")).unwrap_or_default(), "MemTotal:");
+    let mem = kb(
+        &std::fs::read_to_string(root.join("proc/meminfo")).unwrap_or_default(),
+        "MemTotal:",
+    );
     put("hibernate.swap_mb", Value::Num((swap / 1024.0).round()));
     put("hibernate.mem_mb", Value::Num((mem / 1024.0).round()));
     // The image is compressed and the kernel trims caches first; about 60%
     // of RAM is the usual working minimum.
     put("hibernate.swap_enough", b(mem > 0.0 && swap >= mem * 0.6));
     // Where a hibernation swap file would go, for the fix and its guide.
-    let plan = crate::swap::plan(root, mem as u64, |d| crate::swap::free_bytes(&root.join(d.trim_start_matches('/'))));
+    let plan = crate::swap::plan(root, mem as u64, |d| {
+        crate::swap::free_bytes(&root.join(d.trim_start_matches('/')))
+    });
     let (file, gib, fs, sub, problem) = match &plan {
-        Ok(p) => (p.file.clone(), p.size_gib as f64, p.fs.clone(), p.new_subvolume.clone().unwrap_or_default(), String::new()),
+        Ok(p) => (
+            p.file.clone(),
+            p.size_gib as f64,
+            p.fs.clone(),
+            p.new_subvolume.clone().unwrap_or_default(),
+            String::new(),
+        ),
         Err(e) => (String::new(), 0.0, String::new(), String::new(), e.clone()),
     };
     put("hibernate.plan_file", s(&file));
@@ -475,21 +683,44 @@ pub fn facts(root: &SysRoot, env: &Env, modules: &[String], f: &mut Facts) {
     put("firmware.log_read", b(!env.kernel_log.is_empty()));
     put("firmware.missing", s(&missing.join(", ")));
     put("firmware.missing_count", Value::Num(missing.len() as f64));
-    put("firmware.iwlwifi_missing", b(loaded("iwlwifi") && !firmware_has(root, "", "iwlwifi-")));
-    put("firmware.amdgpu_missing", b(loaded("amdgpu") && !firmware_has(root, "amdgpu", "")));
-    put("firmware.i915_missing", b(loaded("i915") && !firmware_has(root, "i915", "")));
-    put("firmware.any_dir", b(firmware_dirs(root).iter().any(|d| d.is_dir())));
+    put(
+        "firmware.iwlwifi_missing",
+        b(loaded("iwlwifi") && !firmware_has(root, "", "iwlwifi-")),
+    );
+    put(
+        "firmware.amdgpu_missing",
+        b(loaded("amdgpu") && !firmware_has(root, "amdgpu", "")),
+    );
+    put(
+        "firmware.i915_missing",
+        b(loaded("i915") && !firmware_has(root, "i915", "")),
+    );
+    put(
+        "firmware.any_dir",
+        b(firmware_dirs(root).iter().any(|d| d.is_dir())),
+    );
     // Debian keeps most firmware in the non-free-firmware component, which
     // a netinst without it leaves off.
     let mut apt = String::new();
     for p in ["etc/apt/sources.list"] {
         apt.push_str(&std::fs::read_to_string(root.join(p)).unwrap_or_default());
     }
-    for e in std::fs::read_dir(root.join("etc/apt/sources.list.d")).into_iter().flatten().flatten() {
+    for e in std::fs::read_dir(root.join("etc/apt/sources.list.d"))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
         apt.push_str(&std::fs::read_to_string(e.path()).unwrap_or_default());
     }
-    let active: String = apt.lines().filter(|l| !l.trim_start().starts_with('#')).collect::<Vec<_>>().join("\n");
-    put("apt.nonfree_firmware", b(active.contains("non-free-firmware")));
+    let active: String = apt
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    put(
+        "apt.nonfree_firmware",
+        b(active.contains("non-free-firmware")),
+    );
 }
 
 #[cfg(test)]
@@ -506,24 +737,54 @@ sof-audio-pci-intel-tgl 0000:00:1f.3: Direct firmware load for intel/sof/sof-adl
 ";
         assert_eq!(
             missing_firmware(log),
-            ["intel/sof/sof-adl.ri", "iwlwifi-so-a0-gf-a0-85.ucode", "iwlwifi-so-a0-gf-a0-86.ucode", "rtw89/rtw8852b_fw-1.bin"]
+            [
+                "intel/sof/sof-adl.ri",
+                "iwlwifi-so-a0-gf-a0-85.ucode",
+                "iwlwifi-so-a0-gf-a0-86.ucode",
+                "rtw89/rtw8852b_fw-1.bin"
+            ]
         );
         // A driver trying versions newest-first, then loading an older one.
         let tried = "\
 [    5.1] iwlwifi 0000:00:14.3: Direct firmware load for iwlwifi-so-a0-gf-a0-89.ucode failed with error -2
 [    5.2] iwlwifi 0000:00:14.3: loaded firmware version 86.fb5c9aeb.0 so-a0-gf-a0-86.ucode op_mode iwlmvm
 ";
-        assert!(missing_firmware(tried).is_empty(), "nothing is missing once one version loaded");
+        assert!(
+            missing_firmware(tried).is_empty(),
+            "nothing is missing once one version loaded"
+        );
         assert!(missing_firmware("").is_empty());
     }
 
     #[test]
     fn firmware_maps_to_the_family_s_packages() {
         let f = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let files = f(&["iwlwifi-so-a0-gf-a0-86.ucode", "rtw89/rtw8852b_fw.bin", "intel/sof/sof-adl.ri", "rtw89/x.bin"]);
-        assert_eq!(firmware_packages(&files, "apt"), ["firmware-iwlwifi", "firmware-realtek", "firmware-sof-signed"]);
-        assert_eq!(firmware_packages(&files, "pacman"), ["linux-firmware", "sof-firmware"]);
-        assert_eq!(firmware_packages(&files, "dnf"), ["iwlwifi-mvm-firmware", "linux-firmware", "alsa-sof-firmware"]);
+        let files = f(&[
+            "iwlwifi-so-a0-gf-a0-86.ucode",
+            "rtw89/rtw8852b_fw.bin",
+            "intel/sof/sof-adl.ri",
+            "rtw89/x.bin",
+        ]);
+        assert_eq!(
+            firmware_packages(&files, "apt"),
+            [
+                "firmware-iwlwifi",
+                "firmware-realtek",
+                "firmware-sof-signed"
+            ]
+        );
+        assert_eq!(
+            firmware_packages(&files, "pacman"),
+            ["linux-firmware", "sof-firmware"]
+        );
+        assert_eq!(
+            firmware_packages(&files, "dnf"),
+            [
+                "iwlwifi-mvm-firmware",
+                "linux-firmware",
+                "alsa-sof-firmware"
+            ]
+        );
         assert!(firmware_packages(&files, "unknown").is_empty());
     }
 }

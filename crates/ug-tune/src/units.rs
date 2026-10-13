@@ -43,7 +43,10 @@ pub struct FakeUnits {
 
 impl FakeUnits {
     pub fn with(active: &[&str]) -> Self {
-        FakeUnits { active: RefCell::new(active.iter().map(|s| s.to_string()).collect()), ..Default::default() }
+        FakeUnits {
+            active: RefCell::new(active.iter().map(|s| s.to_string()).collect()),
+            ..Default::default()
+        }
     }
 }
 

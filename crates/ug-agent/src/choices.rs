@@ -29,7 +29,9 @@ impl Choices {
     /// save, which would lose the user's choices.
     pub fn load(dir: &Path) -> Result<Choices, String> {
         match std::fs::read_to_string(file(dir)) {
-            Ok(text) => serde_json::from_str(&text).map_err(|e| format!("{}: {e}", file(dir).display())),
+            Ok(text) => {
+                serde_json::from_str(&text).map_err(|e| format!("{}: {e}", file(dir).display()))
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Choices::default()),
             Err(e) => Err(format!("{}: {e}", file(dir).display())),
         }
@@ -37,7 +39,8 @@ impl Choices {
 
     pub fn save(&self, dir: &Path) -> Result<(), String> {
         let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        ug_core::paths::write_atomic(&file(dir), text.as_bytes()).map_err(|e| format!("{}: {e}", file(dir).display()))
+        ug_core::paths::write_atomic(&file(dir), text.as_bytes())
+            .map_err(|e| format!("{}: {e}", file(dir).display()))
     }
 
     /// Adds (or renames) a tracked app. Returns its normalised executable.
@@ -46,10 +49,17 @@ impl Choices {
         if exe.is_empty() {
             return Err("give a program's executable name, e.g. firefox or Filmora.exe".into());
         }
-        let name = if name.trim().is_empty() { exe.clone() } else { name.trim().to_string() };
+        let name = if name.trim().is_empty() {
+            exe.clone()
+        } else {
+            name.trim().to_string()
+        };
         match self.apps.iter_mut().find(|a| a.exe == exe) {
             Some(a) => a.name = name,
-            None => self.apps.push(TrackedApp { exe: exe.clone(), name }),
+            None => self.apps.push(TrackedApp {
+                exe: exe.clone(),
+                name,
+            }),
         }
         Ok(exe)
     }
@@ -73,7 +83,10 @@ impl Choices {
     }
 
     pub fn tracked_pairs(&self) -> Vec<(String, String)> {
-        self.apps.iter().map(|a| (a.exe.clone(), a.name.clone())).collect()
+        self.apps
+            .iter()
+            .map(|a| (a.exe.clone(), a.name.clone()))
+            .collect()
     }
 }
 
@@ -85,7 +98,10 @@ mod tests {
     fn choices_survive_a_restart_and_names_are_normalised() {
         let d = tempfile::tempdir().unwrap();
         let mut c = Choices::default();
-        assert_eq!(c.track("Wondershare Filmora.exe", "Filmora").unwrap(), "wondershare filmora");
+        assert_eq!(
+            c.track("Wondershare Filmora.exe", "Filmora").unwrap(),
+            "wondershare filmora"
+        );
         c.track("firefox-esr", "").unwrap();
         assert!(c.not_a_game("Render.EXE"));
         assert!(!c.not_a_game("render"), "already there");
@@ -93,7 +109,13 @@ mod tests {
 
         let back = Choices::load(d.path()).unwrap();
         assert_eq!(back, c);
-        assert_eq!(back.apps[1], TrackedApp { exe: "firefox-esr".into(), name: "firefox-esr".into() });
+        assert_eq!(
+            back.apps[1],
+            TrackedApp {
+                exe: "firefox-esr".into(),
+                name: "firefox-esr".into()
+            }
+        );
         assert_eq!(back.not_games, vec!["render"]);
     }
 
@@ -102,7 +124,10 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("playtime.json"), "{ not json").unwrap();
         assert!(Choices::load(d.path()).is_err());
-        assert!(Choices::load(&d.path().join("missing")).unwrap().apps.is_empty());
+        assert!(Choices::load(&d.path().join("missing"))
+            .unwrap()
+            .apps
+            .is_empty());
     }
 
     #[test]

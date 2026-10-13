@@ -44,23 +44,38 @@ impl Dir {
 pub fn table_script() -> String {
     let mut s = String::new();
     // `add` then `delete` succeeds whether or not the table exists.
-    s.push_str(&format!("add table inet {TABLE}\ndelete table inet {TABLE}\ntable inet {TABLE} {{\n"));
+    s.push_str(&format!(
+        "add table inet {TABLE}\ndelete table inet {TABLE}\ntable inet {TABLE} {{\n"
+    ));
     for l in MIN_LEVEL..=MAX_LEVEL {
         for d in [Dir::Rx, Dir::Tx] {
-            s.push_str(&format!("  set {} {{ type cgroupsv2; flags dynamic; counter; }}\n", d.set(l)));
+            s.push_str(&format!(
+                "  set {} {{ type cgroupsv2; flags dynamic; counter; }}\n",
+                d.set(l)
+            ));
         }
-        s.push_str(&format!("  set block{l} {{ type cgroupsv2; flags dynamic; }}\n"));
-        s.push_str(&format!("  set vpn{l} {{ type cgroupsv2; flags dynamic; }}\n"));
-        s.push_str(&format!("  map mark{l} {{ type cgroupsv2 : mark; flags dynamic; }}\n"));
+        s.push_str(&format!(
+            "  set block{l} {{ type cgroupsv2; flags dynamic; }}\n"
+        ));
+        s.push_str(&format!(
+            "  set vpn{l} {{ type cgroupsv2; flags dynamic; }}\n"
+        ));
+        s.push_str(&format!(
+            "  map mark{l} {{ type cgroupsv2 : mark; flags dynamic; }}\n"
+        ));
     }
     for (chain, hook, dir) in [("egress", "output", Dir::Tx), ("ingress", "input", Dir::Rx)] {
-        s.push_str(&format!("  chain {chain} {{\n    type filter hook {hook} priority -150; policy accept;\n"));
+        s.push_str(&format!(
+            "  chain {chain} {{\n    type filter hook {hook} priority -150; policy accept;\n"
+        ));
         if dir == Dir::Tx {
             for l in (MIN_LEVEL..=MAX_LEVEL).rev() {
                 s.push_str(&format!("    socket cgroupv2 level {l} @block{l} drop\n"));
             }
             for l in (MIN_LEVEL..=MAX_LEVEL).rev() {
-                s.push_str(&format!("    meta mark 0 meta mark set socket cgroupv2 level {l} map @mark{l}\n"));
+                s.push_str(&format!(
+                    "    meta mark 0 meta mark set socket cgroupv2 level {l} map @mark{l}\n"
+                ));
             }
             // Only our marks reach the connection: a VPN's own marks are left alone.
             s.push_str("    meta mark & 0xffff0000 == 0x55470000 ct mark set meta mark\n");
@@ -70,10 +85,15 @@ pub fn table_script() -> String {
         // with the outside world counts for it.
         let lo = if dir == Dir::Tx { "oifname" } else { "iifname" };
         for l in (MIN_LEVEL..=MAX_LEVEL).rev() {
-            s.push_str(&format!("    {lo} \"lo\" socket cgroupv2 level {l} @vpn{l} accept\n"));
+            s.push_str(&format!(
+                "    {lo} \"lo\" socket cgroupv2 level {l} @vpn{l} accept\n"
+            ));
         }
         for l in (MIN_LEVEL..=MAX_LEVEL).rev() {
-            s.push_str(&format!("    socket cgroupv2 level {l} @{} accept\n", dir.set(l)));
+            s.push_str(&format!(
+                "    socket cgroupv2 level {l} @{} accept\n",
+                dir.set(l)
+            ));
         }
         s.push_str("  }\n");
     }
@@ -93,12 +113,20 @@ fn quote(path: &str) -> String {
 pub fn add_script(groups: &[(String, u8)]) -> String {
     let mut s = String::new();
     for l in MIN_LEVEL..=MAX_LEVEL {
-        let paths: Vec<String> = groups.iter().filter(|(_, gl)| *gl == l).map(|(p, _)| quote(p)).collect();
+        let paths: Vec<String> = groups
+            .iter()
+            .filter(|(_, gl)| *gl == l)
+            .map(|(p, _)| quote(p))
+            .collect();
         if paths.is_empty() {
             continue;
         }
         for d in [Dir::Rx, Dir::Tx] {
-            s.push_str(&format!("add element inet {TABLE} {} {{ {} }}\n", d.set(l), paths.join(", ")));
+            s.push_str(&format!(
+                "add element inet {TABLE} {} {{ {} }}\n",
+                d.set(l),
+                paths.join(", ")
+            ));
         }
     }
     s
@@ -119,22 +147,46 @@ pub fn refill_script(groups: &[(String, u8)]) -> String {
 
 /// Replaces the block and mark members: `blocked` (path, level) and
 /// `marked` (path, level, mark).
-pub fn policy_script(blocked: &[(String, u8)], marked: &[(String, u8, u32)], vpn: &[(String, u8)]) -> String {
+pub fn policy_script(
+    blocked: &[(String, u8)],
+    marked: &[(String, u8, u32)],
+    vpn: &[(String, u8)],
+) -> String {
     let mut s = String::new();
     for l in MIN_LEVEL..=MAX_LEVEL {
         s.push_str(&format!("flush set inet {TABLE} block{l}\nflush map inet {TABLE} mark{l}\nflush set inet {TABLE} vpn{l}\n"));
-        let v: Vec<String> = vpn.iter().filter(|(_, gl)| *gl == l).map(|(p, _)| quote(p)).collect();
+        let v: Vec<String> = vpn
+            .iter()
+            .filter(|(_, gl)| *gl == l)
+            .map(|(p, _)| quote(p))
+            .collect();
         if !v.is_empty() {
-            s.push_str(&format!("add element inet {TABLE} vpn{l} {{ {} }}\n", v.join(", ")));
+            s.push_str(&format!(
+                "add element inet {TABLE} vpn{l} {{ {} }}\n",
+                v.join(", ")
+            ));
         }
-        let b: Vec<String> = blocked.iter().filter(|(_, gl)| *gl == l).map(|(p, _)| quote(p)).collect();
+        let b: Vec<String> = blocked
+            .iter()
+            .filter(|(_, gl)| *gl == l)
+            .map(|(p, _)| quote(p))
+            .collect();
         if !b.is_empty() {
-            s.push_str(&format!("add element inet {TABLE} block{l} {{ {} }}\n", b.join(", ")));
+            s.push_str(&format!(
+                "add element inet {TABLE} block{l} {{ {} }}\n",
+                b.join(", ")
+            ));
         }
-        let m: Vec<String> =
-            marked.iter().filter(|(_, gl, _)| *gl == l).map(|(p, _, m)| format!("{} : {m:#x}", quote(p))).collect();
+        let m: Vec<String> = marked
+            .iter()
+            .filter(|(_, gl, _)| *gl == l)
+            .map(|(p, _, m)| format!("{} : {m:#x}", quote(p)))
+            .collect();
         if !m.is_empty() {
-            s.push_str(&format!("add element inet {TABLE} mark{l} {{ {} }}\n", m.join(", ")));
+            s.push_str(&format!(
+                "add element inet {TABLE} mark{l} {{ {} }}\n",
+                m.join(", ")
+            ));
         }
     }
     s
@@ -160,17 +212,22 @@ impl Count {
 
 /// Reads the counters from `nft -j list table inet unix_guardian`.
 pub fn parse_counts(json: &str) -> Result<Vec<Count>, String> {
-    let v: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("nft printed unreadable JSON: {e}"))?;
+    let v: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| format!("nft printed unreadable JSON: {e}"))?;
     let mut out = Vec::new();
     for item in v["nftables"].as_array().into_iter().flatten() {
         let Some(set) = item.get("set") else { continue };
-        let Some(name) = set["name"].as_str() else { continue };
+        let Some(name) = set["name"].as_str() else {
+            continue;
+        };
         let (dir, level) = match (name.strip_prefix("rx"), name.strip_prefix("tx")) {
             (Some(l), _) => (Dir::Rx, l),
             (_, Some(l)) => (Dir::Tx, l),
             _ => continue,
         };
-        let Ok(level) = level.parse::<u8>() else { continue };
+        let Ok(level) = level.parse::<u8>() else {
+            continue;
+        };
         for e in set["elem"].as_array().into_iter().flatten() {
             let e = &e["elem"];
             let path = match &e["val"] {
@@ -179,7 +236,12 @@ pub fn parse_counts(json: &str) -> Result<Vec<Count>, String> {
                 _ => continue,
             };
             let bytes = e["counter"]["bytes"].as_u64().unwrap_or(0);
-            out.push(Count { dir, level, path, bytes });
+            out.push(Count {
+                dir,
+                level,
+                path,
+                bytes,
+            });
         }
     }
     Ok(out)
@@ -216,12 +278,21 @@ impl Nft for NftCmd {
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| format!("cannot run nft: {e}"))?;
-        child.stdin.take().expect("piped").write_all(script.as_bytes()).map_err(|e| e.to_string())?;
+        child
+            .stdin
+            .take()
+            .expect("piped")
+            .write_all(script.as_bytes())
+            .map_err(|e| e.to_string())?;
         let out = child.wait_with_output().map_err(|e| e.to_string())?;
         if out.status.success() {
             Ok(())
         } else {
-            Err(String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or("nft failed").to_string())
+            Err(String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .next()
+                .unwrap_or("nft failed")
+                .to_string())
         }
     }
 
@@ -234,7 +305,11 @@ impl Nft for NftCmd {
         if out.status.success() {
             Ok(String::from_utf8_lossy(&out.stdout).into_owned())
         } else {
-            Err(String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or("nft failed").to_string())
+            Err(String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .next()
+                .unwrap_or("nft failed")
+                .to_string())
         }
     }
 }
@@ -255,19 +330,32 @@ mod tests {
         assert!(s[s.find("chain ingress").unwrap()..].contains("level 5 @rx5 accept"));
         // The only drop is for members of the (empty) block sets, before
         // marking and counting; nothing touches another table.
-        assert_eq!(s.matches(" drop").count(), (MAX_LEVEL - MIN_LEVEL + 1) as usize);
+        assert_eq!(
+            s.matches(" drop").count(),
+            (MAX_LEVEL - MIN_LEVEL + 1) as usize
+        );
         assert!(egress.find("@block8 drop").unwrap() < egress.find("map @mark8").unwrap());
         assert!(egress.find("ct mark set").unwrap() < l8);
         assert!(!s[s.find("chain ingress").unwrap()..].contains("drop"));
         // A VPN's loopback traffic is skipped before counting, both ways.
-        assert!(egress.find("oifname \"lo\" socket cgroupv2 level 8 @vpn8 accept").unwrap() < l8);
-        assert!(s[s.find("chain ingress").unwrap()..].contains("iifname \"lo\" socket cgroupv2 level 5 @vpn5 accept"));
+        assert!(
+            egress
+                .find("oifname \"lo\" socket cgroupv2 level 8 @vpn8 accept")
+                .unwrap()
+                < l8
+        );
+        assert!(s[s.find("chain ingress").unwrap()..]
+            .contains("iifname \"lo\" socket cgroupv2 level 5 @vpn5 accept"));
         assert_eq!(s.matches("table inet").count(), 3);
     }
 
     #[test]
     fn add_groups_elements_by_level() {
-        let s = add_script(&[("a/b".into(), 2), ("x/y/z/w/app.scope".into(), 5), ("c/d".into(), 2)]);
+        let s = add_script(&[
+            ("a/b".into(), 2),
+            ("x/y/z/w/app.scope".into(), 5),
+            ("c/d".into(), 2),
+        ]);
         assert!(s.contains("add element inet unix_guardian rx2 { \"a/b\", \"c/d\" }\n"));
         assert!(s.contains("add element inet unix_guardian tx5 { \"x/y/z/w/app.scope\" }\n"));
         assert_eq!(s.lines().count(), 4);
@@ -277,17 +365,28 @@ mod tests {
     #[test]
     fn refill_flushes_every_set_first() {
         let s = refill_script(&[("a/b".into(), 2)]);
-        assert_eq!(s.matches("flush set").count(), 2 * (MAX_LEVEL - MIN_LEVEL + 1) as usize);
+        assert_eq!(
+            s.matches("flush set").count(),
+            2 * (MAX_LEVEL - MIN_LEVEL + 1) as usize
+        );
         assert!(s.rfind("flush").unwrap() < s.find("add element").unwrap());
     }
 
     #[test]
     fn policy_replaces_members_by_level() {
-        let s = policy_script(&[("system.slice/x.service".into(), 2)], &[("a/b/c/d/steam.scope".into(), 5, 0x5547_0001)], &[("a/b/c/d/v2rayn.service".into(), 5)]);
+        let s = policy_script(
+            &[("system.slice/x.service".into(), 2)],
+            &[("a/b/c/d/steam.scope".into(), 5, 0x5547_0001)],
+            &[("a/b/c/d/v2rayn.service".into(), 5)],
+        );
         assert!(s.contains("add element inet unix_guardian vpn5 { \"a/b/c/d/v2rayn.service\" }"));
-        assert!(s.contains("flush set inet unix_guardian block5\nflush map inet unix_guardian mark5\n"));
+        assert!(
+            s.contains("flush set inet unix_guardian block5\nflush map inet unix_guardian mark5\n")
+        );
         assert!(s.contains("add element inet unix_guardian block2 { \"system.slice/x.service\" }"));
-        assert!(s.contains("add element inet unix_guardian mark5 { \"a/b/c/d/steam.scope\" : 0x55470001 }"));
+        assert!(s.contains(
+            "add element inet unix_guardian mark5 { \"a/b/c/d/steam.scope\" : 0x55470001 }"
+        ));
         assert!(!policy_script(&[], &[], &[]).contains("add element"));
     }
 

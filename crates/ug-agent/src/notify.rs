@@ -37,12 +37,29 @@ pub const LIMIT_WHILE_GAMING: &str = "limit-while-gaming";
 /// Shows a notification; `actions` are `(key, label)` pairs. Returns the id,
 /// or `None` when no notification server is running (a bare window manager),
 /// which is not worth more than a debug line.
-pub async fn show(conn: &zbus::Connection, summary: &str, body: &str, actions: &[(&str, &str)]) -> Option<u32> {
+pub async fn show(
+    conn: &zbus::Connection,
+    summary: &str,
+    body: &str,
+    actions: &[(&str, &str)],
+) -> Option<u32> {
     let proxy = NotificationsProxy::new(conn).await.ok()?;
     let flat: Vec<&str> = actions.iter().flat_map(|(k, l)| [*k, *l]).collect();
     let mut hints = HashMap::new();
     hints.insert("desktop-entry", Value::from("unix-guardian"));
-    match proxy.notify("Unix Guardian", 0, "input-gaming", summary, body, &flat, hints, 6000).await {
+    match proxy
+        .notify(
+            "Unix Guardian",
+            0,
+            "input-gaming",
+            summary,
+            body,
+            &flat,
+            hints,
+            6000,
+        )
+        .await
+    {
         Ok(id) => Some(id),
         Err(e) => {
             tracing::debug!(error = %e, "no notification server");

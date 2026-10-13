@@ -22,9 +22,14 @@ pub enum Tool {
     Snapper,
     Timeshift,
     /// The root dataset, e.g. `rpool/ROOT/debian`.
-    Zfs { dataset: String },
+    Zfs {
+        dataset: String,
+    },
     /// Root on Btrfs: its device and the subvolume mounted at `/`.
-    Btrfs { device: String, subvol: String },
+    Btrfs {
+        device: String,
+        subvol: String,
+    },
 }
 
 /// What protects a package change here.
@@ -42,7 +47,9 @@ pub struct Status {
 pub const BTRFS_DIR: &str = "/var/lib/unix-guardian/snapshots";
 
 fn has(root: &SysRoot, p: &str) -> bool {
-    ["usr/bin", "usr/sbin", "bin", "sbin"].iter().any(|d| root.join(d).join(p).exists())
+    ["usr/bin", "usr/sbin", "bin", "sbin"]
+        .iter()
+        .any(|d| root.join(d).join(p).exists())
 }
 
 /// The root mount from `/proc/mounts`: (device, type, options).
@@ -50,7 +57,8 @@ fn root_mount(root: &SysRoot) -> Option<(String, String, String)> {
     let t = std::fs::read_to_string(root.join("proc/mounts")).ok()?;
     t.lines().rev().find_map(|l| {
         let w: Vec<&str> = l.split_whitespace().collect();
-        (w.len() >= 4 && w[1] == "/").then(|| (w[0].to_string(), w[2].to_string(), w[3].to_string()))
+        (w.len() >= 4 && w[1] == "/")
+            .then(|| (w[0].to_string(), w[2].to_string(), w[3].to_string()))
     })
 }
 
@@ -69,11 +77,20 @@ pub fn detect(root: &SysRoot, family: &str) -> Status {
     } else if has(root, "timeshift") && root.join("etc/timeshift/timeshift.json").exists() {
         Some(Tool::Timeshift)
     } else if fs == "zfs" && has(root, "zfs") {
-        mount.as_ref().map(|m| Tool::Zfs { dataset: m.0.clone() })
+        mount.as_ref().map(|m| Tool::Zfs {
+            dataset: m.0.clone(),
+        })
     } else if fs == "btrfs" && has(root, "btrfs") {
         let opts = mount.as_ref().map(|m| m.2.clone()).unwrap_or_default();
-        let subvol = opts.split(',').find_map(|o| o.strip_prefix("subvol=")).unwrap_or("/").to_string();
-        mount.as_ref().map(|m| Tool::Btrfs { device: m.0.clone(), subvol })
+        let subvol = opts
+            .split(',')
+            .find_map(|o| o.strip_prefix("subvol="))
+            .unwrap_or("/")
+            .to_string();
+        mount.as_ref().map(|m| Tool::Btrfs {
+            device: m.0.clone(),
+            subvol,
+        })
     } else {
         None
     };
@@ -89,7 +106,11 @@ pub fn detect(root: &SysRoot, family: &str) -> Status {
         }
         None => "No snapshot tool (snapper, Timeshift, ZFS) is set up, so there is no way back from a package change.".to_string(),
     };
-    Status { tool, summary, get_one }
+    Status {
+        tool,
+        summary,
+        get_one,
+    }
 }
 
 /// The command that takes a snapshot named after operation `id`.
@@ -97,15 +118,46 @@ pub fn create_argv(tool: &Tool, id: &str, title: &str) -> Vec<String> {
     let label = format!("Unix Guardian: before {title} ({id})");
     let v: Vec<String> = match tool {
         Tool::Snapper => vec![
-            "snapper", "-c", "root", "create", "--type", "single", "--cleanup-algorithm", "number", "--print-number",
-            "--description", &label,
+            "snapper",
+            "-c",
+            "root",
+            "create",
+            "--type",
+            "single",
+            "--cleanup-algorithm",
+            "number",
+            "--print-number",
+            "--description",
+            &label,
         ]
         .into_iter()
         .map(String::from)
         .collect(),
-        Tool::Timeshift => ["timeshift", "--create", "--scripted", "--tags", "O", "--comments", &label].into_iter().map(String::from).collect(),
-        Tool::Zfs { dataset } => vec!["zfs".into(), "snapshot".into(), format!("{dataset}@unix-guardian-{id}")],
-        Tool::Btrfs { .. } => vec!["btrfs".into(), "subvolume".into(), "snapshot".into(), "-r".into(), "/".into(), format!("{BTRFS_DIR}/{id}")],
+        Tool::Timeshift => [
+            "timeshift",
+            "--create",
+            "--scripted",
+            "--tags",
+            "O",
+            "--comments",
+            &label,
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect(),
+        Tool::Zfs { dataset } => vec![
+            "zfs".into(),
+            "snapshot".into(),
+            format!("{dataset}@unix-guardian-{id}"),
+        ],
+        Tool::Btrfs { .. } => vec![
+            "btrfs".into(),
+            "subvolume".into(),
+            "snapshot".into(),
+            "-r".into(),
+            "/".into(),
+            format!("{BTRFS_DIR}/{id}"),
+        ],
     };
     v
 }
@@ -114,10 +166,19 @@ pub fn create_argv(tool: &Tool, id: &str, title: &str) -> Vec<String> {
 /// Timeshift "Tagged snapshot '2026-10-03_18-00-01': ondemand").
 pub fn created_name(tool: &Tool, id: &str, output: &str) -> String {
     match tool {
-        Tool::Snapper => output.split_whitespace().rev().find(|w| w.chars().all(|c| c.is_ascii_digit())).unwrap_or("").to_string(),
+        Tool::Snapper => output
+            .split_whitespace()
+            .rev()
+            .find(|w| w.chars().all(|c| c.is_ascii_digit()))
+            .unwrap_or("")
+            .to_string(),
         Tool::Timeshift => output
             .lines()
-            .find_map(|l| l.split("snapshot '").nth(1).and_then(|r| r.split('\'').next()))
+            .find_map(|l| {
+                l.split("snapshot '")
+                    .nth(1)
+                    .and_then(|r| r.split('\'').next())
+            })
             .unwrap_or("")
             .to_string(),
         Tool::Zfs { dataset } => format!("{dataset}@unix-guardian-{id}"),
@@ -134,7 +195,10 @@ pub fn restore_commands(tool: &Tool, name: &str) -> Vec<String> {
             "systemctl reboot".into(),
         ],
         Tool::Timeshift => vec![format!("sudo timeshift --restore --snapshot '{name}'")],
-        Tool::Zfs { .. } => vec![format!("sudo zfs rollback -r {name}"), "systemctl reboot".into()],
+        Tool::Zfs { .. } => vec![
+            format!("sudo zfs rollback -r {name}"),
+            "systemctl reboot".into(),
+        ],
         Tool::Btrfs { device, subvol } => {
             let sv = subvol.trim_start_matches('/');
             if sv.is_empty() {
@@ -183,7 +247,11 @@ pub fn installed_packages(root: &SysRoot) -> Vec<String> {
             }
         }
     }
-    for e in std::fs::read_dir(root.join("var/lib/pacman/local")).into_iter().flatten().flatten() {
+    for e in std::fs::read_dir(root.join("var/lib/pacman/local"))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
         let n = e.file_name().to_string_lossy().into_owned();
         // `name-version-release`: the last two dashes start the version.
         let parts: Vec<&str> = n.rsplitn(3, '-').collect();
@@ -223,7 +291,10 @@ pub fn backup_config(root: &SysRoot, dir: &std::path::Path) -> std::io::Result<u
             copy(&from, &dir.join(c), &mut n)?;
         }
     }
-    std::fs::write(dir.join("packages.txt"), installed_packages(root).join("\n") + "\n")?;
+    std::fs::write(
+        dir.join("packages.txt"),
+        installed_packages(root).join("\n") + "\n",
+    )?;
     Ok(n + 1)
 }
 
@@ -236,38 +307,84 @@ mod tests {
     fn the_best_tool_this_machine_has_is_found() {
         let fs = TestFs::new();
         let root = SysRoot::at(fs.root());
-        fs.write("proc/mounts", "/dev/nvme0n1p2 / btrfs rw,relatime,ssd,subvolid=256,subvol=/@ 0 0\n");
+        fs.write(
+            "proc/mounts",
+            "/dev/nvme0n1p2 / btrfs rw,relatime,ssd,subvolid=256,subvol=/@ 0 0\n",
+        );
         let s = detect(&root, "apt");
         assert_eq!(s.tool, None);
         assert!(s.summary.contains("on Btrfs, but no snapshot tool"));
         assert_eq!(s.get_one, ["sudo apt install timeshift"]);
         fs.write("usr/bin/btrfs", "");
-        assert_eq!(detect(&root, "apt").tool, Some(Tool::Btrfs { device: "/dev/nvme0n1p2".into(), subvol: "/@".into() }));
-        fs.write("usr/bin/timeshift", "").write("etc/timeshift/timeshift.json", "{}");
+        assert_eq!(
+            detect(&root, "apt").tool,
+            Some(Tool::Btrfs {
+                device: "/dev/nvme0n1p2".into(),
+                subvol: "/@".into()
+            })
+        );
+        fs.write("usr/bin/timeshift", "")
+            .write("etc/timeshift/timeshift.json", "{}");
         assert_eq!(detect(&root, "apt").tool, Some(Tool::Timeshift));
-        fs.write("usr/bin/snapper", "").write("etc/snapper/configs/root", "");
+        fs.write("usr/bin/snapper", "")
+            .write("etc/snapper/configs/root", "");
         assert_eq!(detect(&root, "apt").tool, Some(Tool::Snapper));
 
         let fs = TestFs::new();
-        fs.write("proc/mounts", "rpool/ROOT/debian / zfs rw,xattr 0 0\n").write("usr/sbin/zfs", "");
-        assert_eq!(detect(&SysRoot::at(fs.root()), "apt").tool, Some(Tool::Zfs { dataset: "rpool/ROOT/debian".into() }));
+        fs.write("proc/mounts", "rpool/ROOT/debian / zfs rw,xattr 0 0\n")
+            .write("usr/sbin/zfs", "");
+        assert_eq!(
+            detect(&SysRoot::at(fs.root()), "apt").tool,
+            Some(Tool::Zfs {
+                dataset: "rpool/ROOT/debian".into()
+            })
+        );
         let fs = TestFs::new();
         fs.write("proc/mounts", "/dev/sda2 / ext4 rw 0 0\n");
-        assert!(detect(&SysRoot::at(fs.root()), "pacman").summary.starts_with("No snapshot tool"));
+        assert!(detect(&SysRoot::at(fs.root()), "pacman")
+            .summary
+            .starts_with("No snapshot tool"));
     }
 
     #[test]
     fn snapshots_are_named_and_the_way_back_is_written_out() {
         let t = Tool::Snapper;
         assert_eq!(created_name(&t, "d1", "42\n"), "42");
-        assert_eq!(restore_commands(&t, "42")[0], "sudo snapper -c root rollback 42");
+        assert_eq!(
+            restore_commands(&t, "42")[0],
+            "sudo snapper -c root rollback 42"
+        );
         let t = Tool::Timeshift;
-        assert!(create_argv(&t, "d1", "Install the missing firmware").contains(&"Unix Guardian: before Install the missing firmware (d1)".to_string()));
-        assert_eq!(created_name(&t, "d1", "Creating new snapshot...\nTagged snapshot '2026-10-03_18-00-01': ondemand\n"), "2026-10-03_18-00-01");
-        let t = Tool::Btrfs { device: "/dev/nvme0n1p2".into(), subvol: "/@".into() };
-        assert_eq!(create_argv(&t, "d1", "x"), ["btrfs", "subvolume", "snapshot", "-r", "/", "/var/lib/unix-guardian/snapshots/d1"]);
+        assert!(create_argv(&t, "d1", "Install the missing firmware")
+            .contains(&"Unix Guardian: before Install the missing firmware (d1)".to_string()));
+        assert_eq!(
+            created_name(
+                &t,
+                "d1",
+                "Creating new snapshot...\nTagged snapshot '2026-10-03_18-00-01': ondemand\n"
+            ),
+            "2026-10-03_18-00-01"
+        );
+        let t = Tool::Btrfs {
+            device: "/dev/nvme0n1p2".into(),
+            subvol: "/@".into(),
+        };
+        assert_eq!(
+            create_argv(&t, "d1", "x"),
+            [
+                "btrfs",
+                "subvolume",
+                "snapshot",
+                "-r",
+                "/",
+                "/var/lib/unix-guardian/snapshots/d1"
+            ]
+        );
         let back = restore_commands(&t, &created_name(&t, "d1", ""));
-        assert_eq!(back[2], "sudo btrfs subvolume snapshot /mnt/@.broken/var/lib/unix-guardian/snapshots/d1 /mnt/@");
+        assert_eq!(
+            back[2],
+            "sudo btrfs subvolume snapshot /mnt/@.broken/var/lib/unix-guardian/snapshots/d1 /mnt/@"
+        );
     }
 
     #[test]
@@ -280,8 +397,17 @@ mod tests {
         let out = tempfile::tempdir().unwrap();
         let n = backup_config(&SysRoot::at(fs.root()), out.path()).unwrap();
         assert_eq!(n, 3);
-        assert!(out.path().join("etc/modprobe.d/nvidia.conf").exists() && out.path().join("etc/default/grub").exists());
-        assert!(!out.path().join("etc/passwd").exists(), "only driver configuration");
-        assert_eq!(std::fs::read_to_string(out.path().join("packages.txt")).unwrap(), "bluez\n");
+        assert!(
+            out.path().join("etc/modprobe.d/nvidia.conf").exists()
+                && out.path().join("etc/default/grub").exists()
+        );
+        assert!(
+            !out.path().join("etc/passwd").exists(),
+            "only driver configuration"
+        );
+        assert_eq!(
+            std::fs::read_to_string(out.path().join("packages.txt")).unwrap(),
+            "bluez\n"
+        );
     }
 }

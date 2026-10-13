@@ -126,9 +126,8 @@ fn read_os_release(root: &SysRoot) -> std::collections::HashMap<String, String> 
 /// Maps a distribution to its package manager, following `ID_LIKE` so
 /// derivatives work without being listed.
 fn classify_family(id: &str, id_like: &[String]) -> PackageFamily {
-    let matches = |names: &[&str]| {
-        names.contains(&id) || id_like.iter().any(|l| names.contains(&l.as_str()))
-    };
+    let matches =
+        |names: &[&str]| names.contains(&id) || id_like.iter().any(|l| names.contains(&l.as_str()));
     if matches(&["nixos", "guix"]) {
         PackageFamily::Declarative
     } else if matches(&["arch", "archlinux", "manjaro", "cachyos", "endeavouros"]) {
@@ -147,10 +146,25 @@ fn classify_family(id: &str, id_like: &[String]) -> PackageFamily {
 /// Assigns a support tier.
 fn classify_tier(id: &str, id_like: &[String], family: PackageFamily) -> Tier {
     const TIER_ONE: &[&str] = &[
-        "arch", "cachyos", "manjaro", "endeavouros", "debian", "parrot", "ubuntu", "pop", "linuxmint",
-        "fedora", "nobara",
+        "arch",
+        "cachyos",
+        "manjaro",
+        "endeavouros",
+        "debian",
+        "parrot",
+        "ubuntu",
+        "pop",
+        "linuxmint",
+        "fedora",
+        "nobara",
     ];
-    const TIER_TWO: &[&str] = &["opensuse-tumbleweed", "opensuse-leap", "bazzite", "silverblue", "kinoite"];
+    const TIER_TWO: &[&str] = &[
+        "opensuse-tumbleweed",
+        "opensuse-leap",
+        "bazzite",
+        "silverblue",
+        "kinoite",
+    ];
 
     if TIER_ONE.contains(&id) {
         return Tier::One;

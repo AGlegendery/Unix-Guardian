@@ -91,31 +91,123 @@ pub enum Event {
 /// which the kernel truncates to 15 bytes, so entries respect that limit.
 const NEVER_NATIVE: &[&str] = &[
     // launchers and their helpers
-    "steam", "steamwebhelper", "fossilize_repla", "reaper", "pressure-vessel", "srt-bwrap",
-    "lutris", "heroic", "bottles", "gamescope", "gamemoded", "wineserver",
+    "steam",
+    "steamwebhelper",
+    "fossilize_repla",
+    "reaper",
+    "pressure-vessel",
+    "srt-bwrap",
+    "lutris",
+    "heroic",
+    "bottles",
+    "gamescope",
+    "gamemoded",
+    "wineserver",
     // browsers and Electron
-    "firefox", "firefox-bin", "firefox-esr", "chrome", "chromium", "brave", "opera", "vivaldi-bin",
-    "electron", "code", "codium", "cursor", "discord", "Discord", "vesktop", "slack", "spotify",
-    "zoom", "teams", "obsidian", "signal-desktop", "telegram-deskto", "Telegram",
+    "firefox",
+    "firefox-bin",
+    "firefox-esr",
+    "chrome",
+    "chromium",
+    "brave",
+    "opera",
+    "vivaldi-bin",
+    "electron",
+    "code",
+    "codium",
+    "cursor",
+    "discord",
+    "Discord",
+    "vesktop",
+    "slack",
+    "spotify",
+    "zoom",
+    "teams",
+    "obsidian",
+    "signal-desktop",
+    "telegram-deskto",
+    "Telegram",
     // desktop and display
-    "Xwayland", "Xorg", "gnome-shell", "kwin_wayland", "kwin_x11", "plasmashell", "mutter",
-    "sway", "Hyprland", "niri", "cosmic-comp", "weston", "xdg-desktop-por", "pipewire", "wireplumber",
+    "Xwayland",
+    "Xorg",
+    "gnome-shell",
+    "kwin_wayland",
+    "kwin_x11",
+    "plasmashell",
+    "mutter",
+    "sway",
+    "Hyprland",
+    "niri",
+    "cosmic-comp",
+    "weston",
+    "xdg-desktop-por",
+    "pipewire",
+    "wireplumber",
     // terminals
-    "kitty", "alacritty", "wezterm-gui", "ghostty", "foot", "konsole", "gnome-terminal-",
+    "kitty",
+    "alacritty",
+    "wezterm-gui",
+    "ghostty",
+    "foot",
+    "konsole",
+    "gnome-terminal-",
     // creative and media tools that legitimately use the GPU hard
-    "blender", "obs", "kdenlive", "davinci", "resolve", "gimp", "krita", "inkscape", "darktable",
-    "mpv", "vlc", "celluloid", "totem", "godot", "unityhub", "Unity",
+    "blender",
+    "obs",
+    "kdenlive",
+    "davinci",
+    "resolve",
+    "gimp",
+    "krita",
+    "inkscape",
+    "darktable",
+    "mpv",
+    "vlc",
+    "celluloid",
+    "totem",
+    "godot",
+    "unityhub",
+    "Unity",
 ];
 
 /// Windows executables that are part of Wine or of a store client, never the
 /// game itself. Compared after [`normalise_exe`].
 const NEVER_WINDOWS: &[&str] = &[
-    "explorer", "services", "winedevice", "plugplay", "svchost", "rpcss", "conhost", "start",
-    "rundll32", "wineboot", "winemenubuilder", "tabtip", "cmd", "steam", "iexplore", "msiexec",
-    "crashpad_handler", "unitycrashhandler64", "unitycrashhandler32", "crashreportclient",
-    "epicgameslauncher", "epicwebhelper", "galaxyclient", "galaxyclient helper", "battle.net",
-    "agent", "riotclientservices", "riotclientux", "upc", "uplaywebcore", "eadesktop",
-    "eabackgroundservice", "origin", "qtwebengineprocess", "cefsharp.browsersubprocess",
+    "explorer",
+    "services",
+    "winedevice",
+    "plugplay",
+    "svchost",
+    "rpcss",
+    "conhost",
+    "start",
+    "rundll32",
+    "wineboot",
+    "winemenubuilder",
+    "tabtip",
+    "cmd",
+    "steam",
+    "iexplore",
+    "msiexec",
+    "crashpad_handler",
+    "unitycrashhandler64",
+    "unitycrashhandler32",
+    "crashreportclient",
+    "epicgameslauncher",
+    "epicwebhelper",
+    "galaxyclient",
+    "galaxyclient helper",
+    "battle.net",
+    "agent",
+    "riotclientservices",
+    "riotclientux",
+    "upc",
+    "uplaywebcore",
+    "eadesktop",
+    "eabackgroundservice",
+    "origin",
+    "qtwebengineprocess",
+    "cefsharp.browsersubprocess",
 ];
 
 /// A helper process of Chromium, Electron or CEF — the renderer, GPU and
@@ -155,7 +247,11 @@ struct Identity {
 enum Class {
     Ignored,
     Game(String),
-    Candidate { since: Instant, cpu_at_since: u64, basename: String },
+    Candidate {
+        since: Instant,
+        cpu_at_since: u64,
+        basename: String,
+    },
 }
 
 #[derive(Debug)]
@@ -241,7 +337,8 @@ impl Detector {
     /// sessions. Unlike [`Detector::ignore_exe`] this stops nothing: it is
     /// meant for start-up, before the first scan.
     pub fn ignore_exes<I: IntoIterator<Item = String>>(&mut self, names: I) {
-        self.ignored.extend(names.into_iter().map(|n| normalise_exe(&n)));
+        self.ignored
+            .extend(names.into_iter().map(|n| normalise_exe(&n)));
     }
 
     /// Replaces the tracked apps: `(executable, name shown)`. Processes already
@@ -249,7 +346,10 @@ impl Detector {
     /// already running starts counting at once, and one no longer tracked
     /// stops (after the usual debounce).
     pub fn set_tracked_apps<I: IntoIterator<Item = (String, String)>>(&mut self, apps: I) {
-        self.apps = apps.into_iter().map(|(exe, name)| (normalise_exe(&exe), name)).collect();
+        self.apps = apps
+            .into_iter()
+            .map(|(exe, name)| (normalise_exe(&exe), name))
+            .collect();
         // Look again at: whatever is (or was) a tracked app, and processes not
         // judged games. A game that is not now tracked keeps its session.
         let apps = &self.apps;
@@ -277,7 +377,10 @@ impl Detector {
         let mut events = Vec::new();
         if let Some(t) = self.games.remove(&key) {
             if t.announced {
-                events.push(Event::Stopped { played: now - t.started_at, game: t.snapshot() });
+                events.push(Event::Stopped {
+                    played: now - t.started_at,
+                    game: t.snapshot(),
+                });
             }
         }
         for s in self.seen.values_mut() {
@@ -332,10 +435,19 @@ impl Detector {
 
     /// Classifies a process seen for the first time.
     fn classify(&mut self, root: &SysRoot, pid: i32, now: Instant) {
-        let Some(p) = proc::read(root, pid) else { return };
+        let Some(p) = proc::read(root, pid) else {
+            return;
+        };
         let class = self.judge(root, &p, now);
         let exe = normalise_exe(&p.exe_basename());
-        self.seen.insert(pid, Seen { start_ticks: p.start_ticks, exe, class });
+        self.seen.insert(
+            pid,
+            Seen {
+                start_ticks: p.start_ticks,
+                exe,
+                class,
+            },
+        );
     }
 
     fn judge(&mut self, root: &SysRoot, p: &proc::Proc, now: Instant) -> Class {
@@ -363,7 +475,9 @@ impl Detector {
         }
 
         if let Some(evidence) = self.registered.get(&p.pid).copied() {
-            let mut ident = self.identify(root, p).unwrap_or_else(|| self.exe_identity(&basename, evidence));
+            let mut ident = self
+                .identify(root, p)
+                .unwrap_or_else(|| self.exe_identity(&basename, evidence));
             ident.evidence = evidence.min_strength(ident.evidence);
             return self.track(ident, p.pid, now);
         }
@@ -374,7 +488,8 @@ impl Detector {
         if is_chromium_child(p) {
             return Class::Ignored;
         }
-        if p.is_windows_exe() && (NEVER_WINDOWS.contains(&norm.as_str()) || is_installer(&basename)) {
+        if p.is_windows_exe() && (NEVER_WINDOWS.contains(&norm.as_str()) || is_installer(&basename))
+        {
             return Class::Ignored;
         }
 
@@ -385,9 +500,17 @@ impl Detector {
         // Heuristic candidates. Native programs must use Vulkan specifically:
         // OpenGL alone is used by too much ordinary software to mean anything.
         let g = proc::graphics(root, p.pid);
-        let plausible = if p.is_windows_exe() { g.any() } else { g.vulkan };
+        let plausible = if p.is_windows_exe() {
+            g.any()
+        } else {
+            g.vulkan
+        };
         if plausible {
-            Class::Candidate { since: now, cpu_at_since: p.cpu_ticks, basename }
+            Class::Candidate {
+                since: now,
+                cpu_at_since: p.cpu_ticks,
+                basename,
+            }
         } else {
             Class::Ignored
         }
@@ -405,9 +528,12 @@ impl Detector {
                     .or_else(|| known.map(|k| k.name.clone()))
                     .unwrap_or_else(|| format!("Steam game {appid}")),
                 evidence: Evidence::SteamAppId,
-                profile: known.map(|k| k.profile.clone()).unwrap_or_else(|| "balanced".into()),
+                profile: known
+                    .map(|k| k.profile.clone())
+                    .unwrap_or_else(|| "balanced".into()),
                 steam_appid: Some(appid),
-                blocked_note: known.and_then(|k| k.blocked_on_linux().then(|| k.linux_note.clone()).flatten()),
+                blocked_note: known
+                    .and_then(|k| k.blocked_on_linux().then(|| k.linux_note.clone()).flatten()),
             });
         }
 
@@ -418,25 +544,37 @@ impl Detector {
                 key: g.id.clone(),
                 name: g.name.clone(),
                 evidence: Evidence::Library,
-                profile: known.map(|k| k.profile.clone()).unwrap_or_else(|| "balanced".into()),
+                profile: known
+                    .map(|k| k.profile.clone())
+                    .unwrap_or_else(|| "balanced".into()),
                 steam_appid: g.steam_appid,
-                blocked_note: known.and_then(|k| k.blocked_on_linux().then(|| k.linux_note.clone()).flatten()),
+                blocked_note: known
+                    .and_then(|k| k.blocked_on_linux().then(|| k.linux_note.clone()).flatten()),
             });
         }
 
-        let known = self.db.by_exe(&norm).or_else(|| self.db.by_cmdline(&p.cmdline))?;
+        let known = self
+            .db
+            .by_exe(&norm)
+            .or_else(|| self.db.by_cmdline(&p.cmdline))?;
         Some(Identity {
             key: format!("db:{}", known.id),
             name: known.name.clone(),
             evidence: Evidence::Database,
             profile: known.profile.clone(),
             steam_appid: known.steam_appid,
-            blocked_note: known.blocked_on_linux().then(|| known.linux_note.clone()).flatten(),
+            blocked_note: known
+                .blocked_on_linux()
+                .then(|| known.linux_note.clone())
+                .flatten(),
         })
     }
 
     fn exe_identity(&self, basename: &str, evidence: Evidence) -> Identity {
-        let display = basename.strip_suffix(".exe").or_else(|| basename.strip_suffix(".EXE")).unwrap_or(basename);
+        let display = basename
+            .strip_suffix(".exe")
+            .or_else(|| basename.strip_suffix(".EXE"))
+            .unwrap_or(basename);
         Identity {
             key: format!("exe:{}", normalise_exe(basename)),
             name: display.to_string(),
@@ -465,8 +603,17 @@ impl Detector {
 
     /// Promotes a heuristic candidate that has stayed busy long enough.
     fn advance_candidate(&mut self, pid: i32, cpu: u64, now: Instant) {
-        let Some(seen) = self.seen.get_mut(&pid) else { return };
-        let Class::Candidate { since, cpu_at_since, basename } = &mut seen.class else { return };
+        let Some(seen) = self.seen.get_mut(&pid) else {
+            return;
+        };
+        let Class::Candidate {
+            since,
+            cpu_at_since,
+            basename,
+        } = &mut seen.class
+        else {
+            return;
+        };
         let elapsed = now.saturating_duration_since(*since);
         if elapsed < HEURISTIC_WINDOW {
             return;
@@ -519,7 +666,10 @@ impl Detector {
                     // Played time ends when the last process vanished, not when
                     // the debounce expired.
                     let ended = t.empty_since.unwrap_or(now);
-                    events.push(Event::Stopped { played: ended.saturating_duration_since(t.started_at), game: t.snapshot() });
+                    events.push(Event::Stopped {
+                        played: ended.saturating_duration_since(t.started_at),
+                        game: t.snapshot(),
+                    });
                 }
             }
         }

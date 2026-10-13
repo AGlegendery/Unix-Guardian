@@ -5,11 +5,14 @@ use std::path::{Path, PathBuf};
 use yaml_rust2::{Yaml, YamlLoader};
 
 fn bottle_dirs(home: &Path) -> Vec<PathBuf> {
-    [".local/share/bottles/bottles", ".var/app/com.usebottles.bottles/data/bottles/bottles"]
-        .iter()
-        .map(|r| home.join(r))
-        .filter(|p| p.is_dir())
-        .collect()
+    [
+        ".local/share/bottles/bottles",
+        ".var/app/com.usebottles.bottles/data/bottles/bottles",
+    ]
+    .iter()
+    .map(|r| home.join(r))
+    .filter(|p| p.is_dir())
+    .collect()
 }
 
 /// Every program the user added to any bottle.
@@ -20,7 +23,9 @@ fn bottle_dirs(home: &Path) -> Vec<PathBuf> {
 pub fn scan(home: &Path) -> Vec<InstalledGame> {
     let mut out = Vec::new();
     for dir in bottle_dirs(home) {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for bottle in entries.filter_map(|e| e.ok()).map(|e| e.path()) {
             for g in read_bottle(&bottle) {
                 // Bottles happily stores the same executable twice when a user
@@ -42,7 +47,10 @@ fn read_bottle(bottle: &Path) -> Vec<InstalledGame> {
     let Ok(src) = std::fs::read_to_string(bottle.join("bottle.yml")) else {
         return Vec::new();
     };
-    let Some(doc) = YamlLoader::load_from_str(&src).ok().and_then(|d| d.into_iter().next()) else {
+    let Some(doc) = YamlLoader::load_from_str(&src)
+        .ok()
+        .and_then(|d| d.into_iter().next())
+    else {
         tracing::warn!(bottle = %bottle.display(), "bottle.yml did not parse");
         return Vec::new();
     };
@@ -102,8 +110,15 @@ mod tests {
         let g = &games[0];
         assert_eq!(g.launcher, Launcher::Bottles);
         assert_eq!(g.name, "Fears to Fathom - Ironbark Lookout");
-        assert_eq!(g.id, "bottles:RedDead__149:7151074f-0340-480f-a6f9-641c779faeb0");
+        assert_eq!(
+            g.id,
+            "bottles:RedDead__149:7151074f-0340-480f-a6f9-641c779faeb0"
+        );
         assert_eq!(g.exe_names, vec!["fears to fathom - ironbark lookout"]);
-        assert!(g.install_dir.as_ref().unwrap().ends_with("Program Files (x86)/Fears to Fathom Ironbark Lookout"));
+        assert!(g
+            .install_dir
+            .as_ref()
+            .unwrap()
+            .ends_with("Program Files (x86)/Fears to Fathom Ironbark Lookout"));
     }
 }

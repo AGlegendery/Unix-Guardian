@@ -12,7 +12,14 @@ fn any(root: &Path, files: &[&str]) -> bool {
 
 /// The system service's unit, from installer.sh / dev-install.sh or a package.
 pub fn daemon_installed(root: &Path) -> bool {
-    any(root, &["etc/systemd/system/unix-guardiand.service", "usr/lib/systemd/system/unix-guardiand.service", "lib/systemd/system/unix-guardiand.service"])
+    any(
+        root,
+        &[
+            "etc/systemd/system/unix-guardiand.service",
+            "usr/lib/systemd/system/unix-guardiand.service",
+            "lib/systemd/system/unix-guardiand.service",
+        ],
+    )
 }
 
 /// The user agent's unit or its D-Bus activation file.
@@ -31,7 +38,8 @@ pub fn agent_installed(root: &Path) -> bool {
 /// The sentence for a service that does not answer. `root` is `/` outside tests.
 pub fn daemon_down(root: &Path) -> String {
     if daemon_installed(root) {
-        "The Unix Guardian service is not running. Start it: sudo systemctl start unix-guardiand".into()
+        "The Unix Guardian service is not running. Start it: sudo systemctl start unix-guardiand"
+            .into()
     } else {
         format!("The Unix Guardian service is not installed on this computer, only the app is. {INSTALL}")
     }
@@ -42,7 +50,9 @@ pub fn agent_down(root: &Path) -> String {
     if agent_installed(root) {
         "The Unix Guardian agent is not running in this session. Start it: systemctl --user start ug-agent".into()
     } else {
-        format!("The Unix Guardian agent is not installed on this computer, only the app is. {INSTALL}")
+        format!(
+            "The Unix Guardian agent is not installed on this computer, only the app is. {INSTALL}"
+        )
     }
 }
 
@@ -60,7 +70,10 @@ mod tests {
     #[test]
     fn installed_but_stopped_says_start_it() {
         let d = tempfile::tempdir().unwrap();
-        for f in ["etc/systemd/system/unix-guardiand.service", "usr/lib/systemd/user/ug-agent.service"] {
+        for f in [
+            "etc/systemd/system/unix-guardiand.service",
+            "usr/lib/systemd/user/ug-agent.service",
+        ] {
             std::fs::create_dir_all(d.path().join(f).parent().unwrap()).unwrap();
             std::fs::write(d.path().join(f), "").unwrap();
         }

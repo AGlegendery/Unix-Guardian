@@ -41,7 +41,9 @@ pub fn scan(home: &Path) -> Vec<InstalledGame> {
     let mut games: Vec<InstalledGame> = Vec::new();
     for lib in libraries {
         let steamapps = lib.join("steamapps");
-        let Ok(entries) = std::fs::read_dir(&steamapps) else { continue };
+        let Ok(entries) = std::fs::read_dir(&steamapps) else {
+            continue;
+        };
         for e in entries.filter_map(|e| e.ok()) {
             let name = e.file_name();
             let name = name.to_string_lossy();
@@ -129,7 +131,12 @@ pub fn playtime(home: &Path) -> Result<Vec<SteamPlaytime>, String> {
     }
     let newest = roots
         .iter()
-        .flat_map(|r| std::fs::read_dir(r.join("userdata")).into_iter().flatten().flatten())
+        .flat_map(|r| {
+            std::fs::read_dir(r.join("userdata"))
+                .into_iter()
+                .flatten()
+                .flatten()
+        })
         .map(|account| account.path().join("config/localconfig.vdf"))
         .filter_map(|f| Some((std::fs::metadata(&f).ok()?.modified().ok()?, f)))
         .max_by_key(|(modified, _)| *modified)
@@ -141,10 +148,15 @@ pub fn playtime(home: &Path) -> Result<Vec<SteamPlaytime>, String> {
 }
 
 fn apps_playtime(doc: &Vdf) -> Vec<SteamPlaytime> {
-    let Some(apps) = doc.path(&["UserLocalConfigStore", "Software", "Valve", "Steam", "apps"]) else {
+    let Some(apps) = doc.path(&["UserLocalConfigStore", "Software", "Valve", "Steam", "apps"])
+    else {
         return Vec::new();
     };
-    let num = |app: &Vdf, key: &str| app.get(key).and_then(Vdf::as_str).and_then(|v| v.trim().parse::<u64>().ok());
+    let num = |app: &Vdf, key: &str| {
+        app.get(key)
+            .and_then(Vdf::as_str)
+            .and_then(|v| v.trim().parse::<u64>().ok())
+    };
     let mut v: Vec<SteamPlaytime> = apps
         .entries()
         .iter()
@@ -154,7 +166,11 @@ fn apps_playtime(doc: &Vdf) -> Vec<SteamPlaytime> {
                 return None;
             }
             let minutes = num(app, "Playtime").filter(|&m| m > 0)?;
-            Some(SteamPlaytime { appid, minutes, last_played_unix: num(app, "LastPlayed").unwrap_or(0) })
+            Some(SteamPlaytime {
+                appid,
+                minutes,
+                last_played_unix: num(app, "LastPlayed").unwrap_or(0),
+            })
         })
         .collect();
     v.sort_by(|a, b| b.minutes.cmp(&a.minutes).then(a.appid.cmp(&b.appid)));
@@ -214,31 +230,57 @@ mod tests {
                 extra.display()
             ),
         );
-        fs.write("home/.local/share/Steam/steamapps/appmanifest_730.acf", &manifest(730, "Counter-Strike 2", 4));
-        fs.write("home/.local/share/Steam/steamapps/appmanifest_1628350.acf", &manifest(1628350, "Steam Linux Runtime 3.0 (sniper)", 4));
-        fs.write("home/.local/share/Steam/steamapps/appmanifest_1493710.acf", &manifest(1493710, "Proton Experimental", 4));
-        fs.write("mnt/games/SteamLibrary/steamapps/appmanifest_1091500.acf", &manifest(1091500, "Cyberpunk 2077", 4));
+        fs.write(
+            "home/.local/share/Steam/steamapps/appmanifest_730.acf",
+            &manifest(730, "Counter-Strike 2", 4),
+        );
+        fs.write(
+            "home/.local/share/Steam/steamapps/appmanifest_1628350.acf",
+            &manifest(1628350, "Steam Linux Runtime 3.0 (sniper)", 4),
+        );
+        fs.write(
+            "home/.local/share/Steam/steamapps/appmanifest_1493710.acf",
+            &manifest(1493710, "Proton Experimental", 4),
+        );
+        fs.write(
+            "mnt/games/SteamLibrary/steamapps/appmanifest_1091500.acf",
+            &manifest(1091500, "Cyberpunk 2077", 4),
+        );
 
         let games = scan(&home);
         let names: Vec<&str> = games.iter().map(|g| g.name.as_str()).collect();
         assert_eq!(names, vec!["Counter-Strike 2", "Cyberpunk 2077"]);
         assert_eq!(games[1].id, "steam:1091500");
-        assert!(games[1].install_dir.as_ref().unwrap().ends_with("steamapps/common/Cyberpunk 2077"));
+        assert!(games[1]
+            .install_dir
+            .as_ref()
+            .unwrap()
+            .ends_with("steamapps/common/Cyberpunk 2077"));
     }
 
     #[test]
     fn a_game_still_downloading_is_not_offered() {
         let fs = TestFs::new();
-        fs.write("home/.local/share/Steam/steamapps/appmanifest_570.acf", &manifest(570, "Dota 2", 1026));
+        fs.write(
+            "home/.local/share/Steam/steamapps/appmanifest_570.acf",
+            &manifest(570, "Dota 2", 1026),
+        );
         assert!(scan(&fs.root().join("home")).is_empty());
     }
 
     #[test]
     fn the_steam_symlink_does_not_duplicate_games() {
         let fs = TestFs::new();
-        fs.write("home/.local/share/Steam/steamapps/appmanifest_730.acf", &manifest(730, "Counter-Strike 2", 4));
+        fs.write(
+            "home/.local/share/Steam/steamapps/appmanifest_730.acf",
+            &manifest(730, "Counter-Strike 2", 4),
+        );
         std::fs::create_dir_all(fs.root().join("home/.steam")).unwrap();
-        std::os::unix::fs::symlink(fs.root().join("home/.local/share/Steam"), fs.root().join("home/.steam/steam")).unwrap();
+        std::os::unix::fs::symlink(
+            fs.root().join("home/.local/share/Steam"),
+            fs.root().join("home/.steam/steam"),
+        )
+        .unwrap();
         assert_eq!(scan(&fs.root().join("home")).len(), 1);
     }
 
@@ -302,14 +344,28 @@ mod tests {
     #[test]
     fn steam_playtime_is_read_for_played_games_only() {
         let fs = TestFs::new();
-        fs.write("home/.local/share/Steam/steamapps/libraryfolders.vdf", "\"libraryfolders\" {}");
-        fs.write("home/.local/share/Steam/userdata/672194005/config/localconfig.vdf", LOCALCONFIG);
+        fs.write(
+            "home/.local/share/Steam/steamapps/libraryfolders.vdf",
+            "\"libraryfolders\" {}",
+        );
+        fs.write(
+            "home/.local/share/Steam/userdata/672194005/config/localconfig.vdf",
+            LOCALCONFIG,
+        );
         let p = playtime(&fs.root().join("home")).unwrap();
         assert_eq!(
             p,
             vec![
-                SteamPlaytime { appid: 730, minutes: 5521, last_played_unix: 1_790_000_000 },
-                SteamPlaytime { appid: 413150, minutes: 610, last_played_unix: 1_780_000_000 },
+                SteamPlaytime {
+                    appid: 730,
+                    minutes: 5521,
+                    last_played_unix: 1_790_000_000
+                },
+                SteamPlaytime {
+                    appid: 413150,
+                    minutes: 610,
+                    last_played_unix: 1_780_000_000
+                },
             ],
             "no unplayed apps, no runtimes, no non-Steam shortcuts"
         );
@@ -318,9 +374,16 @@ mod tests {
     #[test]
     fn no_steam_and_no_account_are_said_plainly() {
         let fs = TestFs::new();
-        assert!(playtime(&fs.root().join("home")).unwrap_err().contains("not installed"));
-        fs.write("home/.local/share/Steam/steamapps/libraryfolders.vdf", "\"libraryfolders\" {}");
-        assert!(playtime(&fs.root().join("home")).unwrap_err().contains("signed in"));
+        assert!(playtime(&fs.root().join("home"))
+            .unwrap_err()
+            .contains("not installed"));
+        fs.write(
+            "home/.local/share/Steam/steamapps/libraryfolders.vdf",
+            "\"libraryfolders\" {}",
+        );
+        assert!(playtime(&fs.root().join("home"))
+            .unwrap_err()
+            .contains("signed in"));
     }
 
     #[test]

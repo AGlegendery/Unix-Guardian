@@ -62,15 +62,26 @@ pub fn self_check() -> bool {
 pub fn cpu(one: Duration, all: Duration) -> CpuScore {
     let (one_core, x) = spin(one, 0x9e37_79b9_7f4a_7c15);
     std::hint::black_box(x);
-    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
     let rates: Vec<f64> = std::thread::scope(|s| {
-        let hs: Vec<_> = (0..threads).map(|i| s.spawn(move || spin(all, i as u64 + 7))).collect();
-        hs.into_iter().filter_map(|h| h.join().ok()).map(|(r, x)| {
-            std::hint::black_box(x);
-            r
-        }).collect()
+        let hs: Vec<_> = (0..threads)
+            .map(|i| s.spawn(move || spin(all, i as u64 + 7)))
+            .collect();
+        hs.into_iter()
+            .filter_map(|h| h.join().ok())
+            .map(|(r, x)| {
+                std::hint::black_box(x);
+                r
+            })
+            .collect()
     });
-    CpuScore { one_core: one_core / 1e6, all_cores: rates.iter().sum::<f64>() / 1e6, threads }
+    CpuScore {
+        one_core: one_core / 1e6,
+        all_cores: rates.iter().sum::<f64>() / 1e6,
+        threads,
+    }
 }
 
 #[cfg(test)]

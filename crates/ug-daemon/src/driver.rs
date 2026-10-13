@@ -15,8 +15,15 @@ use ug_proto::{DriverOp, DriverPlan};
 /// Changes that can leave the computer without a desktop if they went
 /// wrong: graphics drivers and boot parameters.
 fn can_break_the_desktop(fix_id: &str) -> bool {
-    matches!(fix_id, "nouveau-blacklist" | "nvidia-drm-modeset" | "nvidia-suspend" | "install-nvidia-driver" | "remove-nomodeset" | "amd-ppfeaturemask")
-        || fix_id.starts_with("param-")
+    matches!(
+        fix_id,
+        "nouveau-blacklist"
+            | "nvidia-drm-modeset"
+            | "nvidia-suspend"
+            | "install-nvidia-driver"
+            | "remove-nomodeset"
+            | "amd-ppfeaturemask"
+    ) || fix_id.starts_with("param-")
 }
 
 /// The check after a restart: a change that can break the desktop, after
@@ -70,12 +77,17 @@ impl DriverIface {
         self.plan_now(fix_id)
     }
 
-    async fn apply(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, fix_id: &str) -> zbus::fdo::Result<String> {
+    async fn apply(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        fix_id: &str,
+    ) -> zbus::fdo::Result<String> {
         if let Some(r) = &self.refused {
             return Err(zbus::fdo::Error::NotSupported(r.clone()));
         }
         let facts = ug_driver::inventory::facts(&self.root, &Default::default());
-        let fix = ug_driver::fixes::auto(fix_id, &self.root, &facts).map_err(zbus::fdo::Error::NotSupported)?;
+        let fix = ug_driver::fixes::auto(fix_id, &self.root, &facts)
+            .map_err(zbus::fdo::Error::NotSupported)?;
         self.gate.authorize(&hdr, action::DRIVER).await?;
         let id = self.exec.start(&fix).map_err(zbus::fdo::Error::Failed)?;
         let (exec, op) = (Arc::clone(&self.exec), id.clone());
@@ -92,11 +104,17 @@ impl DriverIface {
     }
 
     async fn firmware_log(&self) -> String {
-        tokio::task::spawn_blocking(ug_driver::hardware::read_kernel_log).await.unwrap_or_default()
+        tokio::task::spawn_blocking(ug_driver::hardware::read_kernel_log)
+            .await
+            .unwrap_or_default()
     }
 
     /// An empty id undoes the newest change still in place.
-    async fn rollback(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, op_id: &str) -> zbus::fdo::Result<()> {
+    async fn rollback(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        op_id: &str,
+    ) -> zbus::fdo::Result<()> {
         if let Some(r) = &self.refused {
             return Err(zbus::fdo::Error::NotSupported(r.clone()));
         }

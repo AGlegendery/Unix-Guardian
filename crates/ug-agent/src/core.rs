@@ -22,8 +22,13 @@ fn boot_vga(root: &SysRoot) -> String {
         .into_iter()
         .flatten()
         .flatten()
-        .filter(|e| e.file_name().to_string_lossy().starts_with("card") && !e.file_name().to_string_lossy().contains('-'))
-        .find(|e| std::fs::read_to_string(e.path().join("device/boot_vga")).is_ok_and(|v| v.trim() == "1"))
+        .filter(|e| {
+            e.file_name().to_string_lossy().starts_with("card")
+                && !e.file_name().to_string_lossy().contains('-')
+        })
+        .find(|e| {
+            std::fs::read_to_string(e.path().join("device/boot_vga")).is_ok_and(|v| v.trim() == "1")
+        })
         .and_then(|e| std::fs::read_link(e.path().join("device")).ok())
         .and_then(|l| l.file_name().map(|n| n.to_string_lossy().into_owned()))
         .unwrap_or_default()
@@ -80,7 +85,13 @@ pub struct AgentCore {
 }
 
 impl AgentCore {
-    pub fn new(root: SysRoot, home: &Path, config_dir: &Path, playtime: Arc<Playtime>, uid: u32) -> Self {
+    pub fn new(
+        root: SysRoot,
+        home: &Path,
+        config_dir: &Path,
+        playtime: Arc<Playtime>,
+        uid: u32,
+    ) -> Self {
         let installed = ug_games::scan_installed(home);
         let (profiles, problems) = Profiles::load(config_dir);
         for p in problems {
@@ -141,7 +152,13 @@ impl AgentCore {
     pub fn toggle_gamemode(&mut self) -> bool {
         let on = self.gamemode_desired().is_none();
         // Off with no game running is simply back to following the games.
-        self.by_hand = if on { Some(true) } else if self.running.is_empty() { None } else { Some(false) };
+        self.by_hand = if on {
+            Some(true)
+        } else if self.running.is_empty() {
+            None
+        } else {
+            Some(false)
+        };
         tracing::info!(on, "game mode turned by hand");
         self.resume_if_off();
         on
@@ -156,11 +173,20 @@ impl AgentCore {
         if !profile.is_empty() {
             if self.profiles.get(profile).is_none() {
                 let known: Vec<&str> = self.profiles.all().iter().map(|p| p.id.as_str()).collect();
-                return Err(format!("no profile named {profile:?}; available: {}", known.join(", ")));
+                return Err(format!(
+                    "no profile named {profile:?}; available: {}",
+                    known.join(", ")
+                ));
             }
             self.by_hand_profile = profile.to_string();
         }
-        self.by_hand = if on { Some(true) } else if self.running.is_empty() { None } else { Some(false) };
+        self.by_hand = if on {
+            Some(true)
+        } else if self.running.is_empty() {
+            None
+        } else {
+            Some(false)
+        };
         tracing::info!(on, profile = %self.by_hand_profile, "game mode set by hand");
         self.resume_if_off();
         Ok(())
@@ -198,16 +224,26 @@ impl AgentCore {
                 Event::Started(g) if g.is_app() => {
                     tracing::info!(app = %g.name, "tracked app started");
                     let session = self.playtime.start(&g.key, &g.name, wall_ms);
-                    self.apps.insert(g.key.clone(), AppSession { name: g.name, session, started_ms: wall_ms });
+                    self.apps.insert(
+                        g.key.clone(),
+                        AppSession {
+                            name: g.name,
+                            session,
+                            started_ms: wall_ms,
+                        },
+                    );
                 }
                 Event::Stopped { game, played } if game.is_app() => {
                     if let Some(a) = self.apps.remove(&game.key) {
-                        self.playtime.touch(a.session, a.started_ms + played.as_millis() as u64);
+                        self.playtime
+                            .touch(a.session, a.started_ms + played.as_millis() as u64);
                         tracing::info!(app = %a.name, played_s = played.as_secs(), "tracked app stopped");
                     }
                 }
                 Event::Started(g) => out.push(self.on_started(g, wall_ms)),
-                Event::Stopped { game, played } => out.push(self.on_stopped(&game, played.as_secs(), wall_ms)),
+                Event::Stopped { game, played } => {
+                    out.push(self.on_stopped(&game, played.as_secs(), wall_ms))
+                }
             }
         }
         out
@@ -228,16 +264,26 @@ impl AgentCore {
         tracing::info!(game = %info.name, key = %info.key, evidence = %info.evidence, profile = %info.profile, "game started");
 
         let session = self.playtime.start(&info.key, &info.name, wall_ms);
-        let pin_to = profile.cpu_preferred_cores.then(|| self.preferred_cpus.clone()).flatten();
+        let pin_to = profile
+            .cpu_preferred_cores
+            .then(|| self.preferred_cpus.clone())
+            .flatten();
 
         if self.running.is_empty() && !profile.pause_apps.is_empty() {
             let protect: Vec<i32> = g.pids.clone();
-            self.paused.pause_matching(&self.root, self.uid, &profile.pause_apps, &protect);
+            self.paused
+                .pause_matching(&self.root, self.uid, &profile.pause_apps, &protect);
         }
 
         self.running.insert(
             g.key.clone(),
-            Running { info: info.clone(), suggested: g.profile.clone(), session, pin_to, pinned: BTreeSet::new() },
+            Running {
+                info: info.clone(),
+                suggested: g.profile.clone(),
+                session,
+                pin_to,
+                pinned: BTreeSet::new(),
+            },
         );
         Outcome::Started(info)
     }
@@ -246,7 +292,8 @@ impl AgentCore {
         let running = self.running.remove(&g.key);
         let info = match running {
             Some(r) => {
-                self.playtime.touch(r.session, r.info.started_unix_ms + played_s * 1000);
+                self.playtime
+                    .touch(r.session, r.info.started_unix_ms + played_s * 1000);
                 r.info
             }
             None => RunningGameInfo {
@@ -271,20 +318,32 @@ impl AgentCore {
     /// Keeps each running game's PID list current and pins processes that
     /// joined since the last tick.
     fn refresh_members(&mut self) {
-        let live: BTreeMap<String, Vec<i32>> =
-            self.detector.running().into_iter().map(|g| (g.key, g.pids)).collect();
+        let live: BTreeMap<String, Vec<i32>> = self
+            .detector
+            .running()
+            .into_iter()
+            .map(|g| (g.key, g.pids))
+            .collect();
         for (key, r) in self.running.iter_mut() {
             if let Some(pids) = live.get(key) {
                 r.info.pids = pids.clone();
             }
-            if let Some(g) = ug_hw::gpu_use::gpu_of_game(&self.root, &r.info.pids, &boot_vga(&self.root)) {
+            if let Some(g) =
+                ug_hw::gpu_use::gpu_of_game(&self.root, &r.info.pids, &boot_vga(&self.root))
+            {
                 if g != r.info.gpu {
                     tracing::info!(game = %r.info.name, gpu = %g, "renders on");
                     r.info.gpu = g;
                 }
             }
             if let Some(cpus) = &r.pin_to {
-                let new: Vec<i32> = r.info.pids.iter().copied().filter(|p| !r.pinned.contains(p)).collect();
+                let new: Vec<i32> = r
+                    .info
+                    .pids
+                    .iter()
+                    .copied()
+                    .filter(|p| !r.pinned.contains(p))
+                    .collect();
                 if !new.is_empty() {
                     let threads = affinity::pin(&self.root, &new, cpus);
                     tracing::debug!(game = %r.info.name, ?new, threads, "pinned to preferred cores");
@@ -353,7 +412,13 @@ impl AgentCore {
                 keep_screen_on: p.keep_screen_on,
                 do_not_disturb: p.do_not_disturb,
                 pause_apps: p.pause_apps.clone(),
-                games: self.profiles.per_game().iter().filter(|(_, id)| **id == p.id).map(|(k, _)| k.clone()).collect(),
+                games: self
+                    .profiles
+                    .per_game()
+                    .iter()
+                    .filter(|(_, id)| **id == p.id)
+                    .map(|(k, _)| k.clone())
+                    .collect(),
             })
             .collect()
     }
@@ -373,7 +438,10 @@ impl AgentCore {
         if let Some(id) = profile {
             if fresh.get(id).is_none() {
                 let known: Vec<&str> = fresh.all().iter().map(|p| p.id.as_str()).collect();
-                return Err(format!("no profile named {id:?}; available: {}", known.join(", ")));
+                return Err(format!(
+                    "no profile named {id:?}; available: {}",
+                    known.join(", ")
+                ));
             }
         }
         ug_core::profile::set_game_profile(&self.config_dir, key, profile)?;
@@ -383,18 +451,29 @@ impl AgentCore {
             let p = self.profiles.for_game(key, &r.suggested);
             tracing::info!(game = %r.info.name, from = %r.info.profile, to = %p.id, "profile changed while running");
             r.info.profile = p.id.clone();
-            r.pin_to = p.cpu_preferred_cores.then(|| self.preferred_cpus.clone()).flatten();
+            r.pin_to = p
+                .cpu_preferred_cores
+                .then(|| self.preferred_cpus.clone())
+                .flatten();
         }
         Ok(())
     }
 
     /// Changes one setting of an existing profile. Game mode follows on the
     /// next reconcile for any game running with it.
-    pub fn set_profile_option(&mut self, id: &str, option: &str, value: bool) -> Result<(), String> {
+    pub fn set_profile_option(
+        &mut self,
+        id: &str,
+        option: &str,
+        value: bool,
+    ) -> Result<(), String> {
         let (fresh, _) = Profiles::load(&self.config_dir);
         if fresh.get(id).is_none() {
             let known: Vec<&str> = fresh.all().iter().map(|p| p.id.as_str()).collect();
-            return Err(format!("no profile named {id:?}; available: {}", known.join(", ")));
+            return Err(format!(
+                "no profile named {id:?}; available: {}",
+                known.join(", ")
+            ));
         }
         ug_core::profile::set_profile_option(&self.config_dir, id, option, value)?;
         self.profiles = Profiles::load(&self.config_dir).0;
@@ -488,7 +567,12 @@ impl AgentCore {
     /// "Not a game" for a game recognised only by its behaviour: remembered
     /// as not a game, tracked as an app, its sessions so far moved along.
     /// Returns the sessions moved and outcomes for the game this stops.
-    pub fn move_to_apps(&mut self, key: &str, now: Instant, wall_ms: u64) -> Result<(u32, Vec<Outcome>), String> {
+    pub fn move_to_apps(
+        &mut self,
+        key: &str,
+        now: Instant,
+        wall_ms: u64,
+    ) -> Result<(u32, Vec<Outcome>), String> {
         let Some(exe) = key.strip_prefix("exe:").filter(|e| !e.is_empty()) else {
             return Err(format!(
                 "{key} was recognised by its launcher or the game database, not by guesswork; only guessed games can be moved"
@@ -511,16 +595,29 @@ impl AgentCore {
     /// Steam launch options for the account used last, with a name for each
     /// game. Returns what the work needs, so files are read without the
     /// agent's lock: (launch, uid, name of `appid`).
-    pub fn steam_launch(&self, appid: u32) -> Result<(ug_games::launch::Launch, u32, String), String> {
+    pub fn steam_launch(
+        &self,
+        appid: u32,
+    ) -> Result<(ug_games::launch::Launch, u32, String), String> {
         let steam = ug_games::launch::Steam::find(&self.home)?;
         let name = self
             .installed
             .iter()
             .find(|g| g.steam_appid == Some(appid))
             .map(|g| g.name.clone())
-            .or_else(|| GameDb::bundled().by_steam_appid(appid).map(|k| k.name.clone()))
+            .or_else(|| {
+                GameDb::bundled()
+                    .by_steam_appid(appid)
+                    .map(|k| k.name.clone())
+            })
             .unwrap_or_else(|| format!("Steam app {appid}"));
-        let launch = ug_games::launch::Launch::new(steam, self.root.clone(), &self.home, &self.config_dir, &ug_core::paths::user_data());
+        let launch = ug_games::launch::Launch::new(
+            steam,
+            self.root.clone(),
+            &self.home,
+            &self.config_dir,
+            &ug_core::paths::user_data(),
+        );
         Ok((launch, self.uid, name))
     }
 
@@ -529,14 +626,26 @@ impl AgentCore {
     pub fn running_programs(&self) -> impl FnOnce() -> Vec<TrackedApp> + Send + 'static {
         let skip: Vec<String> = self.choices.apps.iter().map(|a| a.exe.clone()).collect();
         let (root, uid, test_run) = (self.root.clone(), self.uid, self.test_run.clone());
-        move || crate::programs::running(&root, uid, test_run.as_deref(), &crate::programs::application_dirs(), &skip)
+        move || {
+            crate::programs::running(
+                &root,
+                uid,
+                test_run.as_deref(),
+                &crate::programs::application_dirs(),
+                &skip,
+            )
+        }
     }
 
     /// Imports Steam's own playtime (see [`Playtime::import`]). Games get the
     /// library's name, the database's, or "Steam app <id>". Returns the work
     /// to do, so the file is read without holding the agent's lock.
     pub fn import_steam(&self) -> impl FnOnce() -> Result<(u32, u64), String> + Send + 'static {
-        let (home, installed, playtime) = (self.home.clone(), self.installed.clone(), Arc::clone(&self.playtime));
+        let (home, installed, playtime) = (
+            self.home.clone(),
+            self.installed.clone(),
+            Arc::clone(&self.playtime),
+        );
         move || {
             let steam = ug_games::steam::playtime(&home)?;
             let db = GameDb::bundled();
@@ -549,11 +658,23 @@ impl AgentCore {
                         .map(|g| g.name.clone())
                         .or_else(|| db.by_steam_appid(s.appid).map(|k| k.name.clone()))
                         .unwrap_or_else(|| format!("Steam app {}", s.appid));
-                    (format!("steam:{}", s.appid), name, s.minutes * 60, s.last_played_unix * 1000)
+                    (
+                        format!("steam:{}", s.appid),
+                        name,
+                        s.minutes * 60,
+                        s.last_played_unix * 1000,
+                    )
                 })
                 .collect();
-            let r = playtime.import("steam", &games).map_err(|e| format!("could not save the import: {e}"))?;
-            tracing::info!(found = games.len(), games = r.0, seconds = r.1, "Steam playtime imported");
+            let r = playtime
+                .import("steam", &games)
+                .map_err(|e| format!("could not save the import: {e}"))?;
+            tracing::info!(
+                found = games.len(),
+                games = r.0,
+                seconds = r.1,
+                "Steam playtime imported"
+            );
             Ok(r)
         }
     }
@@ -578,7 +699,9 @@ impl AgentCore {
             }
         }
         for r in self.running.values() {
-            let Some(p) = self.profiles.get(&r.info.profile) else { continue };
+            let Some(p) = self.profiles.get(&r.info.profile) else {
+                continue;
+            };
             let w = want.get_or_insert_with(Default::default);
             w.cpu_performance |= p.cpu_performance;
             w.cpu_no_idle_states |= p.cpu_no_idle_states;
@@ -608,7 +731,8 @@ impl AgentCore {
         if self.by_hand == Some(false) {
             return (false, String::new());
         }
-        if self.by_hand == Some(true) && self.profiles.get(&self.by_hand_profile).is_some_and(flag) {
+        if self.by_hand == Some(true) && self.profiles.get(&self.by_hand_profile).is_some_and(flag)
+        {
             return (true, "game mode (turned on by hand)".into());
         }
         self.running
@@ -629,7 +753,11 @@ impl AgentCore {
     pub fn installed(&self) -> Vec<InstalledGameInfo> {
         self.installed
             .iter()
-            .map(|g| InstalledGameInfo { id: g.id.clone(), name: g.name.clone(), launcher: serde_plain(g.launcher) })
+            .map(|g| InstalledGameInfo {
+                id: g.id.clone(),
+                name: g.name.clone(),
+                launcher: serde_plain(g.launcher),
+            })
             .collect()
     }
 
@@ -640,7 +768,10 @@ impl AgentCore {
 
 /// An enum's serde name (`steam_app_id`, `bottles`), for wire strings.
 fn serde_plain<T: serde::Serialize>(v: T) -> String {
-    serde_json::to_value(v).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
+    serde_json::to_value(v)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -650,7 +781,13 @@ mod tests {
     use ug_testfs::{FakeProc, TestFs};
 
     fn core(fs: &TestFs, config: &Path) -> AgentCore {
-        AgentCore::new(SysRoot::at(fs.root()), &fs.root().join("home"), config, Arc::new(Playtime::in_memory()), 1000)
+        AgentCore::new(
+            SysRoot::at(fs.root()),
+            &fs.root().join("home"),
+            config,
+            Arc::new(Playtime::in_memory()),
+            1000,
+        )
     }
 
     #[test]
@@ -660,9 +797,17 @@ mod tests {
         let mut c = core(&fs, cfg.path());
         let t0 = Instant::now();
 
-        fs.process(&FakeProc { pid: 10, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+        fs.process(&FakeProc {
+            pid: 10,
+            comm: "cs2",
+            cmdline: &["cs2"],
+            environ: &[("SteamAppId", "730")],
+            ..Default::default()
+        });
         let out = c.tick(t0, 1_000_000);
-        assert!(matches!(&out[..], [Outcome::Started(g)] if g.name == "Counter-Strike 2" && g.profile == "competitive"));
+        assert!(
+            matches!(&out[..], [Outcome::Started(g)] if g.name == "Counter-Strike 2" && g.profile == "competitive")
+        );
         assert_eq!(c.running().len(), 1);
 
         fs.kill(10);
@@ -680,21 +825,40 @@ mod tests {
         let fs = TestFs::new();
         let cfg = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(cfg.path().join("profiles")).unwrap();
-        std::fs::write(cfg.path().join("profiles/competitive.toml"), "pause_apps = [\"ugchatoff\"]\n").unwrap();
+        std::fs::write(
+            cfg.path().join("profiles/competitive.toml"),
+            "pause_apps = [\"ugchatoff\"]\n",
+        )
+        .unwrap();
         // A real process to stop and continue, described in the fake /proc.
-        let mut chat = std::process::Command::new("sleep").arg("30").spawn().unwrap();
+        let mut chat = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
         let pid = chat.id() as i32;
         let state = || {
             let s = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
             s[s.rfind(')').unwrap() + 2..].chars().next().unwrap()
         };
-        let wait = |want: char| (0..100).any(|_| {
-            std::thread::sleep(Duration::from_millis(10));
-            state() == want
+        let wait = |want: char| {
+            (0..100).any(|_| {
+                std::thread::sleep(Duration::from_millis(10));
+                state() == want
+            })
+        };
+        fs.process(&FakeProc {
+            pid,
+            comm: "ugchatoff",
+            ..Default::default()
         });
-        fs.process(&FakeProc { pid, comm: "ugchatoff", ..Default::default() });
         let mut c = core(&fs, cfg.path());
-        fs.process(&FakeProc { pid: 10, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+        fs.process(&FakeProc {
+            pid: 10,
+            comm: "cs2",
+            cmdline: &["cs2"],
+            environ: &[("SteamAppId", "730")],
+            ..Default::default()
+        });
         c.tick(Instant::now(), 0);
         let paused = wait('T');
         c.set_gamemode(false, "").unwrap();
@@ -710,9 +874,19 @@ mod tests {
     fn the_users_profile_choice_applies() {
         let fs = TestFs::new();
         let cfg = tempfile::tempdir().unwrap();
-        std::fs::write(cfg.path().join("games.toml"), "[games]\n\"steam:730\" = \"quiet\"\n").unwrap();
+        std::fs::write(
+            cfg.path().join("games.toml"),
+            "[games]\n\"steam:730\" = \"quiet\"\n",
+        )
+        .unwrap();
         let mut c = core(&fs, cfg.path());
-        fs.process(&FakeProc { pid: 10, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+        fs.process(&FakeProc {
+            pid: 10,
+            comm: "cs2",
+            cmdline: &["cs2"],
+            environ: &[("SteamAppId", "730")],
+            ..Default::default()
+        });
         let out = c.tick(Instant::now(), 0);
         assert!(matches!(&out[..], [Outcome::Started(g)] if g.profile == "quiet"));
     }
@@ -721,19 +895,38 @@ mod tests {
     fn game_mode_wants_the_union_of_every_running_games_profile() {
         let fs = TestFs::new();
         let cfg = tempfile::tempdir().unwrap();
-        std::fs::write(cfg.path().join("games.toml"), "[games]\n\"steam:413150\" = \"quiet\"\n").unwrap();
+        std::fs::write(
+            cfg.path().join("games.toml"),
+            "[games]\n\"steam:413150\" = \"quiet\"\n",
+        )
+        .unwrap();
         let mut c = core(&fs, cfg.path());
         assert_eq!(c.gamemode_desired(), None, "no game, no game mode");
 
-        fs.process(&FakeProc { pid: 10, comm: "sv", cmdline: &["sv"], environ: &[("SteamAppId", "413150")], ..Default::default() });
+        fs.process(&FakeProc {
+            pid: 10,
+            comm: "sv",
+            cmdline: &["sv"],
+            environ: &[("SteamAppId", "413150")],
+            ..Default::default()
+        });
         c.tick(Instant::now(), 0);
         let quiet_only = c.gamemode_desired().unwrap();
         assert!(!quiet_only.cpu_no_idle_states && !quiet_only.cpu_performance);
 
-        fs.process(&FakeProc { pid: 11, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+        fs.process(&FakeProc {
+            pid: 11,
+            comm: "cs2",
+            cmdline: &["cs2"],
+            environ: &[("SteamAppId", "730")],
+            ..Default::default()
+        });
         c.tick(Instant::now(), 0);
         let both = c.gamemode_desired().unwrap();
-        assert!(both.cpu_no_idle_states && both.cpu_performance, "competitive CS2 raises the bar for both");
+        assert!(
+            both.cpu_no_idle_states && both.cpu_performance,
+            "competitive CS2 raises the bar for both"
+        );
         assert_eq!(both.pids, vec![10, 11]);
     }
 
@@ -742,19 +935,36 @@ mod tests {
         let fs = TestFs::new();
         let cfg = tempfile::tempdir().unwrap();
         let mut c = core(&fs, cfg.path());
-        fs.process(&FakeProc { pid: 10, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+        fs.process(&FakeProc {
+            pid: 10,
+            comm: "cs2",
+            cmdline: &["cs2"],
+            environ: &[("SteamAppId", "730")],
+            ..Default::default()
+        });
         c.tick(Instant::now(), 0);
-        assert!(c.gamemode_desired().unwrap().cpu_no_idle_states, "competitive by default");
+        assert!(
+            c.gamemode_desired().unwrap().cpu_no_idle_states,
+            "competitive by default"
+        );
 
         c.set_game_profile("steam:730", Some("quiet")).unwrap();
         assert_eq!(c.running()[0].profile, "quiet");
         let want = c.gamemode_desired().unwrap();
         assert!(!want.cpu_no_idle_states && !want.cpu_performance);
-        let quiet = c.profiles_info().into_iter().find(|p| p.id == "quiet").unwrap();
+        let quiet = c
+            .profiles_info()
+            .into_iter()
+            .find(|p| p.id == "quiet")
+            .unwrap();
         assert_eq!(quiet.games, vec!["steam:730"]);
 
         c.set_game_profile("steam:730", None).unwrap();
-        assert_eq!(c.running()[0].profile, "competitive", "back to the database's suggestion");
+        assert_eq!(
+            c.running()[0].profile,
+            "competitive",
+            "back to the database's suggestion"
+        );
     }
 
     #[test]
@@ -763,7 +973,10 @@ mod tests {
         let cfg = tempfile::tempdir().unwrap();
         let mut c = core(&fs, cfg.path());
         let err = c.set_game_profile("steam:730", Some("turbo")).unwrap_err();
-        assert!(err.contains("competitive"), "the error lists what exists: {err}");
+        assert!(
+            err.contains("competitive"),
+            "the error lists what exists: {err}"
+        );
         assert!(!cfg.path().join("games.toml").exists());
     }
 
@@ -773,9 +986,17 @@ mod tests {
         let cfg = tempfile::tempdir().unwrap();
         let mut c = core(&fs, cfg.path());
         std::fs::create_dir_all(cfg.path().join("profiles")).unwrap();
-        std::fs::write(cfg.path().join("profiles/mine.toml"), "cpu_preferred_cores = true\n").unwrap();
+        std::fs::write(
+            cfg.path().join("profiles/mine.toml"),
+            "cpu_preferred_cores = true\n",
+        )
+        .unwrap();
         c.set_game_profile("steam:730", Some("mine")).unwrap();
-        let mine = c.profiles_info().into_iter().find(|p| p.id == "mine").unwrap();
+        let mine = c
+            .profiles_info()
+            .into_iter()
+            .find(|p| p.id == "mine")
+            .unwrap();
         assert!(!mine.builtin && mine.cpu_preferred_cores);
     }
 
@@ -784,17 +1005,40 @@ mod tests {
         let fs = TestFs::new();
         let cfg = tempfile::tempdir().unwrap();
         let mut c = core(&fs, cfg.path());
-        fs.process(&FakeProc { pid: 10, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+        fs.process(&FakeProc {
+            pid: 10,
+            comm: "cs2",
+            cmdline: &["cs2"],
+            environ: &[("SteamAppId", "730")],
+            ..Default::default()
+        });
         c.tick(Instant::now(), 0);
         assert!(c.gamemode_desired().unwrap().cpu_no_idle_states);
-        c.set_profile_option("competitive", "cpu_no_idle_states", false).unwrap();
+        c.set_profile_option("competitive", "cpu_no_idle_states", false)
+            .unwrap();
         assert!(!c.gamemode_desired().unwrap().cpu_no_idle_states);
-        assert!(!c.profiles_info().into_iter().find(|p| p.id == "competitive").unwrap().cpu_no_idle_states);
-        assert!(c.set_profile_option("turbo", "cpu_priority", true).unwrap_err().contains("available"));
+        assert!(
+            !c.profiles_info()
+                .into_iter()
+                .find(|p| p.id == "competitive")
+                .unwrap()
+                .cpu_no_idle_states
+        );
+        assert!(c
+            .set_profile_option("turbo", "cpu_priority", true)
+            .unwrap_err()
+            .contains("available"));
     }
 
     fn tool(cpu: u64) -> FakeProc<'static> {
-        FakeProc { pid: 20, comm: "Tool.exe", cmdline: &[r"C:\t\Tool.exe"], maps: &["/x/d3d11.dll"], cpu_ticks: cpu, ..Default::default() }
+        FakeProc {
+            pid: 20,
+            comm: "Tool.exe",
+            cmdline: &[r"C:\t\Tool.exe"],
+            maps: &["/x/d3d11.dll"],
+            cpu_ticks: cpu,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -807,7 +1051,11 @@ mod tests {
             fs.process(&tool(0));
             c.tick(t0, 0);
             fs.process(&tool(100_000));
-            assert_eq!(c.tick(t0 + Duration::from_secs(6), 6_000).len(), 1, "taken for a game");
+            assert_eq!(
+                c.tick(t0 + Duration::from_secs(6), 6_000).len(),
+                1,
+                "taken for a game"
+            );
             c.ignore("Tool.exe", t0 + Duration::from_secs(8), 8_000);
         }
         // The next login: a new agent, the same program still busy.
@@ -815,7 +1063,10 @@ mod tests {
         fs.process(&tool(200_000));
         c.tick(t0 + Duration::from_secs(10), 10_000);
         fs.process(&tool(400_000));
-        assert!(c.tick(t0 + Duration::from_secs(16), 16_000).is_empty(), "still not a game");
+        assert!(
+            c.tick(t0 + Duration::from_secs(16), 16_000).is_empty(),
+            "still not a game"
+        );
     }
 
     #[test]
@@ -825,16 +1076,29 @@ mod tests {
         let mut c = core(&fs, cfg.path());
         c.track_app("dolphin", "Dolphin").unwrap();
         let t0 = Instant::now();
-        fs.process(&FakeProc { pid: 30, comm: "dolphin", exe: Some("/usr/bin/dolphin"), cmdline: &["/usr/bin/dolphin"], ..Default::default() });
+        fs.process(&FakeProc {
+            pid: 30,
+            comm: "dolphin",
+            exe: Some("/usr/bin/dolphin"),
+            cmdline: &["/usr/bin/dolphin"],
+            ..Default::default()
+        });
         assert!(c.tick(t0, 1_000_000).is_empty(), "no game started");
         assert_eq!(c.gamemode_desired(), None);
         c.heartbeat(1_060_000);
-        assert_eq!(c.playtime().summary(0)[0].seconds, 60, "counted while running");
+        assert_eq!(
+            c.playtime().summary(0)[0].seconds,
+            60,
+            "counted while running"
+        );
         fs.kill(30);
         c.tick(t0 + Duration::from_secs(120), 1_120_000);
         c.tick(t0 + Duration::from_secs(124), 1_124_000);
         let s = c.playtime().summary(0);
-        assert_eq!((s[0].key.as_str(), s[0].name.as_str(), s[0].seconds), ("app:dolphin", "Dolphin", 120));
+        assert_eq!(
+            (s[0].key.as_str(), s[0].name.as_str(), s[0].seconds),
+            ("app:dolphin", "Dolphin", 120)
+        );
         assert_eq!(c.tracked_apps().len(), 1);
         // Remembered with the other choices.
         assert_eq!(core(&fs, cfg.path()).tracked_apps()[0].exe, "dolphin");
@@ -853,23 +1117,37 @@ mod tests {
         c.heartbeat(66_000);
         assert_eq!(c.playtime().summary(0)[0].key, "exe:tool");
 
-        let (moved, out) = c.move_to_apps("exe:tool", t0 + Duration::from_secs(70), 70_000).unwrap();
+        let (moved, out) = c
+            .move_to_apps("exe:tool", t0 + Duration::from_secs(70), 70_000)
+            .unwrap();
         assert_eq!(moved, 1);
-        assert!(matches!(&out[..], [Outcome::Stopped(..)]), "game mode is let go at once");
+        assert!(
+            matches!(&out[..], [Outcome::Stopped(..)]),
+            "game mode is let go at once"
+        );
         assert!(c.running().is_empty());
         // From the next tick the same process counts as the app.
         c.tick(t0 + Duration::from_secs(72), 72_000);
         c.heartbeat(132_000);
         let s = c.playtime().summary(0);
         assert_eq!(s.len(), 1);
-        assert_eq!((s[0].key.as_str(), s[0].name.as_str(), s[0].sessions), ("app:tool", "Tool", 2));
-        assert!(c.move_to_apps("steam:730", t0, 0).unwrap_err().contains("only guessed games"));
+        assert_eq!(
+            (s[0].key.as_str(), s[0].name.as_str(), s[0].sessions),
+            ("app:tool", "Tool", 2)
+        );
+        assert!(c
+            .move_to_apps("steam:730", t0, 0)
+            .unwrap_err()
+            .contains("only guessed games"));
     }
 
     #[test]
     fn steam_playtime_is_imported_with_names() {
         let fs = TestFs::new();
-        fs.write("home/.local/share/Steam/steamapps/libraryfolders.vdf", "\"libraryfolders\" {}");
+        fs.write(
+            "home/.local/share/Steam/steamapps/libraryfolders.vdf",
+            "\"libraryfolders\" {}",
+        );
         fs.write(
             "home/.local/share/Steam/userdata/1/config/localconfig.vdf",
             r#""UserLocalConfigStore" { "Software" { "Valve" { "Steam" { "apps" {
@@ -881,7 +1159,10 @@ mod tests {
         let c = core(&fs, cfg.path());
         assert_eq!(c.import_steam()().unwrap(), (2, 150 * 60));
         let s = c.playtime().summary(0);
-        assert_eq!((s[0].name.as_str(), s[0].seconds, s[0].last_played_unix_ms), ("Counter-Strike 2", 7200, 1_790_000_000_000));
+        assert_eq!(
+            (s[0].name.as_str(), s[0].seconds, s[0].last_played_unix_ms),
+            ("Counter-Strike 2", 7200, 1_790_000_000_000)
+        );
         assert_eq!(s[1].name, "Steam app 999999");
     }
 
@@ -898,7 +1179,13 @@ mod tests {
         assert_eq!(c.gamemode_desired(), None);
 
         // Off by hand while a game runs, until it stops.
-        fs.process(&FakeProc { pid: 10, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+        fs.process(&FakeProc {
+            pid: 10,
+            comm: "cs2",
+            cmdline: &["cs2"],
+            environ: &[("SteamAppId", "730")],
+            ..Default::default()
+        });
         let t0 = Instant::now();
         c.tick(t0, 0);
         assert!(c.gamemode_desired().is_some());
@@ -916,12 +1203,28 @@ mod tests {
         let cfg = tempfile::tempdir().unwrap();
         let mut c = core(&fs, cfg.path());
         c.set_gamemode(true, "competitive").unwrap();
-        assert!(c.gamemode_desired().unwrap().cpu_no_idle_states, "competitive's settings, no game needed");
-        assert_eq!((c.gamemode_by_hand(), c.by_hand_profile()), ("on", "competitive"));
+        assert!(
+            c.gamemode_desired().unwrap().cpu_no_idle_states,
+            "competitive's settings, no game needed"
+        );
+        assert_eq!(
+            (c.gamemode_by_hand(), c.by_hand_profile()),
+            ("on", "competitive")
+        );
         c.set_gamemode(true, "quiet").unwrap();
-        assert!(!c.gamemode_desired().unwrap().cpu_performance, "switched to quiet at once");
-        assert!(c.set_gamemode(true, "nope").unwrap_err().contains("available"));
-        assert_eq!(c.by_hand_profile(), "quiet", "a refused name changes nothing");
+        assert!(
+            !c.gamemode_desired().unwrap().cpu_performance,
+            "switched to quiet at once"
+        );
+        assert!(c
+            .set_gamemode(true, "nope")
+            .unwrap_err()
+            .contains("available"));
+        assert_eq!(
+            c.by_hand_profile(),
+            "quiet",
+            "a refused name changes nothing"
+        );
         c.set_gamemode(false, "").unwrap();
         assert_eq!(c.gamemode_desired(), None);
         // The shortcut turns on the profile chosen last.
@@ -935,7 +1238,14 @@ mod tests {
         let cfg = tempfile::tempdir().unwrap();
         let mut c = core(&fs, cfg.path());
         let t0 = Instant::now();
-        let p = |cpu| FakeProc { pid: 20, comm: "Tool.exe", cmdline: &[r"C:\t\Tool.exe"], maps: &["/x/d3d11.dll"], cpu_ticks: cpu, ..Default::default() };
+        let p = |cpu| FakeProc {
+            pid: 20,
+            comm: "Tool.exe",
+            cmdline: &[r"C:\t\Tool.exe"],
+            maps: &["/x/d3d11.dll"],
+            cpu_ticks: cpu,
+            ..Default::default()
+        };
         fs.process(&p(0));
         c.tick(t0, 0);
         fs.process(&p(100_000));

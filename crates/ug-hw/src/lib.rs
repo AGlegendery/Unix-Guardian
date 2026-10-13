@@ -169,7 +169,11 @@ mod replay {
         assert!(topology::preferred_domain(&t).is_none());
         let (cpus, why) = topology::preferred_cpus(&t).expect("Alder Lake-HX is hybrid");
         assert_eq!(why, topology::PreferredReason::PerformanceCores);
-        assert_eq!(cpus, (0..8).collect::<Vec<_>>(), "4 P-cores with SMT = CPUs 0-7");
+        assert_eq!(
+            cpus,
+            (0..8).collect::<Vec<_>>(),
+            "4 P-cores with SMT = CPUs 0-7"
+        );
     }
 
     #[test]
@@ -180,7 +184,10 @@ mod replay {
         assert_eq!(cpu.name, "coretemp");
         let t = cpu.package_temp().expect("package temperature captured");
         assert!((20.0..110.0).contains(&t), "implausible: {t}");
-        assert!(chips.iter().any(|c| c.kind == hwmon::ChipKind::Power), "battery/AC classified");
+        assert!(
+            chips.iter().any(|c| c.kind == hwmon::ChipKind::Power),
+            "battery/AC classified"
+        );
     }
 
     #[test]

@@ -45,8 +45,14 @@ pub struct Journal {
 impl Journal {
     /// The journal at `file`, with whatever an earlier run left in it.
     pub fn open(file: &Path) -> Journal {
-        let items = std::fs::read(file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        Journal { file: file.to_path_buf(), items }
+        let items = std::fs::read(file)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+        Journal {
+            file: file.to_path_buf(),
+            items,
+        }
     }
 
     pub fn items(&self) -> &[Undo] {
@@ -96,7 +102,9 @@ impl RunLock {
             .map_err(|e| format!("{}: {e}", p.display()))?;
         // SAFETY: flock on a descriptor this function owns.
         if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err("A test is already running (in the window, ug tui or another terminal).".into());
+            return Err(
+                "A test is already running (in the window, ug tui or another terminal).".into(),
+            );
         }
         Ok(RunLock(f))
     }
@@ -111,7 +119,9 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let f = d.path().join("j.json");
         let mut j = Journal::open(&f);
-        let u = Undo::DeleteProfile { id: "testlab-probe".into() };
+        let u = Undo::DeleteProfile {
+            id: "testlab-probe".into(),
+        };
         j.push(u.clone()).unwrap();
         // What a crashed run leaves: the next run finds it.
         assert_eq!(Journal::open(&f).items(), [u.clone()]);

@@ -20,7 +20,15 @@ const HANDLE: &str = "5547";
 
 /// Root qdiscs the kernel or distribution puts there by default; replacing
 /// one takes nothing away from anybody.
-const DEFAULT_QDISCS: &[&str] = &["mq", "fq_codel", "pfifo_fast", "noqueue", "fq", "pfifo", "sfq"];
+const DEFAULT_QDISCS: &[&str] = &[
+    "mq",
+    "fq_codel",
+    "pfifo_fast",
+    "noqueue",
+    "fq",
+    "pfifo",
+    "sfq",
+];
 
 /// Runs `tc` or `ip`. A trait so the plan is tested without a kernel.
 pub trait Cmd: Send {
@@ -36,11 +44,19 @@ impl Cmd for RealCmd {
             .map(|d| std::path::Path::new(d).join(prog))
             .find(|p| p.exists())
             .ok_or_else(|| format!("{prog} is not installed (iproute2)"))?;
-        let out = std::process::Command::new(bin).args(args).output().map_err(|e| e.to_string())?;
+        let out = std::process::Command::new(bin)
+            .args(args)
+            .output()
+            .map_err(|e| e.to_string())?;
         if out.status.success() {
             Ok(String::from_utf8_lossy(&out.stdout).into_owned())
         } else {
-            Err(String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or("failed").trim().to_string())
+            Err(String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .next()
+                .unwrap_or("failed")
+                .trim()
+                .to_string())
         }
     }
 }
@@ -66,18 +82,76 @@ pub struct Shaper<C: Cmd> {
 /// The HTB tree on `dev`: an uncapped default class and one class per cap.
 fn tree(dev: &str, caps: &[(u16, u32)]) -> Vec<Vec<String>> {
     let mut out = vec![
-        a(&["qdisc", "replace", "dev", dev, "root", "handle", &format!("{HANDLE}:"), "htb", "default", "1"]),
-        a(&["class", "add", "dev", dev, "parent", &format!("{HANDLE}:"), "classid", &format!("{HANDLE}:1"), "htb", "rate", "10gbit"]),
-        a(&["qdisc", "add", "dev", dev, "parent", &format!("{HANDLE}:1"), "fq_codel"]),
+        a(&[
+            "qdisc",
+            "replace",
+            "dev",
+            dev,
+            "root",
+            "handle",
+            &format!("{HANDLE}:"),
+            "htb",
+            "default",
+            "1",
+        ]),
+        a(&[
+            "class",
+            "add",
+            "dev",
+            dev,
+            "parent",
+            &format!("{HANDLE}:"),
+            "classid",
+            &format!("{HANDLE}:1"),
+            "htb",
+            "rate",
+            "10gbit",
+        ]),
+        a(&[
+            "qdisc",
+            "add",
+            "dev",
+            dev,
+            "parent",
+            &format!("{HANDLE}:1"),
+            "fq_codel",
+        ]),
     ];
     for &(class, kbps) in caps {
         let id = format!("{HANDLE}:{:x}", 0x10 + class);
         let rate = format!("{kbps}kbit");
-        out.push(a(&["class", "add", "dev", dev, "parent", &format!("{HANDLE}:"), "classid", &id, "htb", "rate", &rate, "ceil", &rate]));
+        out.push(a(&[
+            "class",
+            "add",
+            "dev",
+            dev,
+            "parent",
+            &format!("{HANDLE}:"),
+            "classid",
+            &id,
+            "htb",
+            "rate",
+            &rate,
+            "ceil",
+            &rate,
+        ]));
         out.push(a(&["qdisc", "add", "dev", dev, "parent", &id, "fq_codel"]));
         out.push(a(&[
-            "filter", "add", "dev", dev, "parent", &format!("{HANDLE}:"), "protocol", "all", "prio", "1", "handle",
-            &format!("{:#x}/0xffffffff", mark(class)), "fw", "flowid", &id,
+            "filter",
+            "add",
+            "dev",
+            dev,
+            "parent",
+            &format!("{HANDLE}:"),
+            "protocol",
+            "all",
+            "prio",
+            "1",
+            "handle",
+            &format!("{:#x}/0xffffffff", mark(class)),
+            "fw",
+            "flowid",
+            &id,
         ]));
     }
     out
@@ -85,7 +159,10 @@ fn tree(dev: &str, caps: &[(u16, u32)]) -> Vec<Vec<String>> {
 
 impl<C: Cmd> Shaper<C> {
     pub fn new(cmd: C) -> Self {
-        Shaper { cmd, now: Installed::default() }
+        Shaper {
+            cmd,
+            now: Installed::default(),
+        }
     }
 
     fn tc(&mut self, args: Vec<String>) -> Result<String, String> {
@@ -100,7 +177,8 @@ impl<C: Cmd> Shaper<C> {
     }
 
     fn has_ingress(&mut self, dev: &str) -> bool {
-        self.tc(a(&["qdisc", "show", "dev", dev, "ingress"])).is_ok_and(|o| o.contains("ingress"))
+        self.tc(a(&["qdisc", "show", "dev", dev, "ingress"]))
+            .is_ok_and(|o| o.contains("ingress"))
     }
 
     /// Makes the kernel match `limits` on `iface`. Idempotent: an unchanged
@@ -119,13 +197,20 @@ impl<C: Cmd> Shaper<C> {
         let mut problems = Vec::new();
         if want.up {
             match self.root(iface) {
-                Some((kind, handle)) if !DEFAULT_QDISCS.contains(&kind.as_str()) && handle != format!("{HANDLE}:") => {
+                Some((kind, handle))
+                    if !DEFAULT_QDISCS.contains(&kind.as_str())
+                        && handle != format!("{HANDLE}:") =>
+                {
                     problems.push(format!(
                         "Upload caps are off: {iface} is already shaped by another tool ({kind}), which Unix Guardian leaves alone."
                     ));
                 }
                 _ => {
-                    let caps: Vec<(u16, u32)> = limits.iter().filter(|l| l.up_kbps > 0).map(|l| (l.class, l.up_kbps)).collect();
+                    let caps: Vec<(u16, u32)> = limits
+                        .iter()
+                        .filter(|l| l.up_kbps > 0)
+                        .map(|l| (l.class, l.up_kbps))
+                        .collect();
                     match self.batch(tree(iface, &caps)) {
                         Ok(()) => self.now.up = true,
                         Err(e) => {
@@ -142,20 +227,30 @@ impl<C: Cmd> Shaper<C> {
                     "Download caps are off: incoming traffic on {iface} is already handled by another tool, which Unix Guardian leaves alone."
                 ));
             } else {
-                let caps: Vec<(u16, u32)> =
-                    limits.iter().filter(|l| l.down_kbps > 0).map(|l| (l.class, l.down_kbps)).collect();
+                let caps: Vec<(u16, u32)> = limits
+                    .iter()
+                    .filter(|l| l.down_kbps > 0)
+                    .map(|l| (l.class, l.down_kbps))
+                    .collect();
                 let mut steps = vec![
                     a(&["qdisc", "add", "dev", iface, "handle", "ffff:", "ingress"]),
                     a(&[
-                        "filter", "add", "dev", iface, "parent", "ffff:", "protocol", "all", "prio", "1", "matchall", "action",
-                        "connmark", "action", "mirred", "egress", "redirect", "dev", IFB,
+                        "filter", "add", "dev", iface, "parent", "ffff:", "protocol", "all",
+                        "prio", "1", "matchall", "action", "connmark", "action", "mirred",
+                        "egress", "redirect", "dev", IFB,
                     ]),
                 ];
                 steps.splice(0..0, tree(IFB, &caps));
                 let made = self
                     .cmd
                     .run("ip", &a(&["link", "add", IFB, "type", "ifb"]))
-                    .or_else(|e| if e.contains("exists") { Ok(String::new()) } else { Err(e) })
+                    .or_else(|e| {
+                        if e.contains("exists") {
+                            Ok(String::new())
+                        } else {
+                            Err(e)
+                        }
+                    })
                     .and_then(|_| self.cmd.run("ip", &a(&["link", "set", IFB, "up"])));
                 match made.and_then(|_| self.batch(steps)) {
                     Ok(()) => self.now.down = true,
@@ -182,7 +277,12 @@ impl<C: Cmd> Shaper<C> {
     /// Removes everything we installed, and only that.
     pub fn clear(&mut self) {
         let iface = self.now.iface.clone();
-        if self.now.up && !iface.is_empty() && self.root(&iface).is_some_and(|(_, h)| h == format!("{HANDLE}:")) {
+        if self.now.up
+            && !iface.is_empty()
+            && self
+                .root(&iface)
+                .is_some_and(|(_, h)| h == format!("{HANDLE}:"))
+        {
             let _ = self.tc(a(&["qdisc", "del", "dev", &iface, "root"]));
         }
         if self.now.down {
@@ -193,9 +293,13 @@ impl<C: Cmd> Shaper<C> {
 
     fn clear_down(&mut self, iface: &str) {
         if !iface.is_empty() {
-            let ours = self.tc(a(&["filter", "show", "dev", iface, "parent", "ffff:"])).is_ok_and(|o| o.contains(IFB));
+            let ours = self
+                .tc(a(&["filter", "show", "dev", iface, "parent", "ffff:"]))
+                .is_ok_and(|o| o.contains(IFB));
             if ours {
-                let _ = self.tc(a(&["qdisc", "del", "dev", iface, "handle", "ffff:", "ingress"]));
+                let _ = self.tc(a(&[
+                    "qdisc", "del", "dev", iface, "handle", "ffff:", "ingress",
+                ]));
             }
         }
         let _ = self.cmd.run("ip", &a(&["link", "del", IFB]));
@@ -204,7 +308,12 @@ impl<C: Cmd> Shaper<C> {
     /// After a crash: our IFB device and our root handle on `iface` are
     /// ours to remove, whatever the daemon remembers.
     pub fn clean_leftovers(&mut self, iface: &str) {
-        self.now = Installed { iface: iface.to_string(), up: true, down: true, limits: Vec::new() };
+        self.now = Installed {
+            iface: iface.to_string(),
+            up: true,
+            down: true,
+            limits: Vec::new(),
+        };
         self.clear();
     }
 }
@@ -231,10 +340,16 @@ mod tests {
                 return Ok(root.clone());
             }
             if line.contains("qdisc show") && line.ends_with("ingress") {
-                return Ok(if *self.ingress.lock().unwrap() { "qdisc ingress ffff: parent ffff:fff1".into() } else { String::new() });
+                return Ok(if *self.ingress.lock().unwrap() {
+                    "qdisc ingress ffff: parent ffff:fff1".into()
+                } else {
+                    String::new()
+                });
             }
             if line.contains("filter show") {
-                return Ok(format!("filter protocol all pref 1 matchall action mirred egress redirect dev {IFB}"));
+                return Ok(format!(
+                    "filter protocol all pref 1 matchall action mirred egress redirect dev {IFB}"
+                ));
             }
             if line.starts_with("tc qdisc replace dev wlan0 root handle 5547:") {
                 *root = "qdisc htb 5547: root refcnt 2".into();
@@ -250,7 +365,12 @@ mod tests {
     }
 
     fn limit(class: u16, up: u32, down: u32) -> Limit {
-        Limit { app: format!("app{class}"), class, up_kbps: up, down_kbps: down }
+        Limit {
+            app: format!("app{class}"),
+            class,
+            up_kbps: up,
+            down_kbps: down,
+        }
     }
 
     fn fake() -> Fake {
@@ -265,7 +385,9 @@ mod tests {
         let mut s = Shaper::new(f.clone());
         assert!(s.apply("wlan0", &[limit(1, 4000, 0)]).is_empty());
         let log = f.log.lock().unwrap().join("\n");
-        assert!(log.contains("tc class add dev wlan0 parent 5547: classid 5547:11 htb rate 4000kbit ceil 4000kbit"));
+        assert!(log.contains(
+            "tc class add dev wlan0 parent 5547: classid 5547:11 htb rate 4000kbit ceil 4000kbit"
+        ));
         assert!(log.contains("handle 0x55470001/0xffffffff fw flowid 5547:11"));
         assert!(!log.contains("ifb"), "no download cap, no IFB device");
         assert!(s.now.up && !s.now.down);
@@ -288,9 +410,14 @@ mod tests {
         assert!(s.apply("wlan0", &[limit(2, 0, 8000)]).is_empty());
         let log = f.log.lock().unwrap().join("\n");
         assert!(log.contains("ip link add ug-ifb0 type ifb"));
-        assert!(log.contains("tc class add dev ug-ifb0 parent 5547: classid 5547:12 htb rate 8000kbit"));
+        assert!(
+            log.contains("tc class add dev ug-ifb0 parent 5547: classid 5547:12 htb rate 8000kbit")
+        );
         assert!(log.contains("matchall action connmark action mirred egress redirect dev ug-ifb0"));
-        assert!(!log.contains("dev wlan0 root"), "no upload cap, the root qdisc is untouched");
+        assert!(
+            !log.contains("dev wlan0 root"),
+            "no upload cap, the root qdisc is untouched"
+        );
     }
 
     #[test]

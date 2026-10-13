@@ -115,7 +115,8 @@ impl GpuBackend for AmdGpu {
         // it rather than instead of it.
         if let Some(h) = &self.hwmon {
             for (idx, label) in labelled_temps(h) {
-                let Some(c) = read_i64(h.join(format!("temp{idx}_input"))).map(|v| v as f64 / 1000.0)
+                let Some(c) =
+                    read_i64(h.join(format!("temp{idx}_input"))).map(|v| v as f64 / 1000.0)
                 else {
                     continue;
                 };
@@ -143,7 +144,10 @@ impl GpuBackend for AmdGpu {
 
         // `power1_average` is the integrated board draw; `power1_input` is an
         // instantaneous reading some cards offer instead.
-        if let Some(uw) = self.hw("power1_average").or_else(|| self.hw("power1_input")) {
+        if let Some(uw) = self
+            .hw("power1_average")
+            .or_else(|| self.hw("power1_input"))
+        {
             s.power_w = uw as f64 / 1_000_000.0;
         }
         if let Some(uw) = self.hw("power1_cap") {
@@ -212,12 +216,24 @@ impl GpuBackend for AmdGpu {
         crate::check_tune(t, &st)?;
         if let Some(h) = &self.hwmon {
             if st.power_limit {
-                let w = if t.power_limit_w == 0.0 { st.power_default_w } else { t.power_limit_w };
-                std::fs::write(h.join("power1_cap"), format!("{}", (w * 1_000_000.0).round() as i64))
-                    .map_err(|e| format!("power cap: {e}"))?;
+                let w = if t.power_limit_w == 0.0 {
+                    st.power_default_w
+                } else {
+                    t.power_limit_w
+                };
+                std::fs::write(
+                    h.join("power1_cap"),
+                    format!("{}", (w * 1_000_000.0).round() as i64),
+                )
+                .map_err(|e| format!("power cap: {e}"))?;
             }
         }
-        if self.overdrive && (t.core_offset_mhz != 0 || t.mem_offset_mhz != 0 || st.core_offset_mhz != 0 || st.mem_offset_mhz != 0) {
+        if self.overdrive
+            && (t.core_offset_mhz != 0
+                || t.mem_offset_mhz != 0
+                || st.core_offset_mhz != 0
+                || st.mem_offset_mhz != 0)
+        {
             let stock = self.stock()?;
             *self.stock_sclk.lock().unwrap_or_else(|e| e.into_inner()) = stock.sclk_max;
             *self.stock_mclk.lock().unwrap_or_else(|e| e.into_inner()) = stock.mclk_max;
@@ -244,7 +260,12 @@ pub struct OdTable {
 pub fn parse_od(text: &str) -> OdTable {
     let mut t = OdTable::default();
     let mut section = "";
-    let mhz = |w: &str| w.trim().trim_end_matches(|c: char| c.is_ascii_alphabetic()).parse::<u32>().ok();
+    let mhz = |w: &str| {
+        w.trim()
+            .trim_end_matches(|c: char| c.is_ascii_alphabetic())
+            .parse::<u32>()
+            .ok()
+    };
     for line in text.lines() {
         let l = line.trim();
         if l.ends_with(':') && !l.contains(' ') {
@@ -255,7 +276,11 @@ pub fn parse_od(text: &str) -> OdTable {
             "OD_SCLK" | "OD_MCLK" => {
                 if let Some((_, v)) = l.split_once(':') {
                     if let Some(m) = v.split_whitespace().next().and_then(mhz) {
-                        let slot = if section == "OD_SCLK" { &mut t.sclk_max } else { &mut t.mclk_max };
+                        let slot = if section == "OD_SCLK" {
+                            &mut t.sclk_max
+                        } else {
+                            &mut t.mclk_max
+                        };
                         *slot = Some(slot.map_or(m, |x| x.max(m)));
                     }
                 }
@@ -299,7 +324,8 @@ impl AmdGpu {
 
     fn write_od(&self, cmds: &[String]) -> Result<(), String> {
         for cmd in cmds {
-            std::fs::write(self.od_path(), format!("{cmd}\n")).map_err(|e| format!("overdrive command {cmd:?}: {e}"))?;
+            std::fs::write(self.od_path(), format!("{cmd}\n"))
+                .map_err(|e| format!("overdrive command {cmd:?}: {e}"))?;
         }
         Ok(())
     }
@@ -307,14 +333,21 @@ impl AmdGpu {
     /// The stock table: the card's own values, after a reset to them.
     fn stock(&self) -> Result<OdTable, String> {
         self.write_od(&["r".into(), "c".into()])?;
-        Ok(parse_od(&std::fs::read_to_string(self.od_path()).map_err(|e| e.to_string())?))
+        Ok(parse_od(
+            &std::fs::read_to_string(self.od_path()).map_err(|e| e.to_string())?,
+        ))
     }
 
     fn read_state(&self) -> GpuTuneState {
-        let mut st = GpuTuneState { pci: self.pci.clone(), ..Default::default() };
+        let mut st = GpuTuneState {
+            pci: self.pci.clone(),
+            ..Default::default()
+        };
         if let Some(h) = &self.hwmon {
             let w = |n: &str| read_i64(h.join(n)).map(|v| v as f64 / 1_000_000.0);
-            if let (Some(min), Some(max), Some(cur)) = (w("power1_cap_min"), w("power1_cap_max"), w("power1_cap")) {
+            if let (Some(min), Some(max), Some(cur)) =
+                (w("power1_cap_min"), w("power1_cap_max"), w("power1_cap"))
+            {
                 st.power_limit = true;
                 st.power_min_w = min.max(1.0);
                 st.power_max_w = max;
@@ -323,7 +356,8 @@ impl AmdGpu {
             }
         }
         if !st.power_limit {
-            st.notes.push("This card does not expose a power cap.".into());
+            st.notes
+                .push("This card does not expose a power cap.".into());
         }
         if !self.overdrive {
             st.notes.push(
@@ -337,14 +371,22 @@ impl AmdGpu {
         // "now" is the current top state against the range.
         if let (Some(cur), Some((lo, hi))) = (od.sclk_max, od.sclk_range) {
             st.core_offset = true;
-            let stock = self.stock_sclk.lock().unwrap_or_else(|e| e.into_inner()).unwrap_or(cur);
+            let stock = self
+                .stock_sclk
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .unwrap_or(cur);
             st.core_offset_mhz = cur as i32 - stock as i32;
             st.core_min_mhz = lo as i32 - stock as i32;
             st.core_max_mhz = hi as i32 - stock as i32;
         }
         if let (Some(cur), Some((lo, hi))) = (od.mclk_max, od.mclk_range) {
             st.mem_offset = true;
-            let stock = self.stock_mclk.lock().unwrap_or_else(|e| e.into_inner()).unwrap_or(cur);
+            let stock = self
+                .stock_mclk
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .unwrap_or(cur);
             st.mem_offset_mhz = cur as i32 - stock as i32;
             st.mem_min_mhz = lo as i32 - stock as i32;
             st.mem_max_mhz = hi as i32 - stock as i32;
@@ -359,7 +401,10 @@ fn find_hwmon(device: &std::path::Path) -> Option<PathBuf> {
         .ok()?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("hwmon")))
+        .find(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with("hwmon"))
+        })
 }
 
 /// Lists `(index, label)` for every labelled temperature sensor in a hwmon dir.
@@ -371,7 +416,11 @@ fn labelled_temps(h: &std::path::Path) -> Vec<(u32, String)> {
         .filter_map(|e| e.ok())
         .filter_map(|e| {
             let name = e.file_name().into_string().ok()?;
-            let idx: u32 = name.strip_prefix("temp")?.strip_suffix("_label")?.parse().ok()?;
+            let idx: u32 = name
+                .strip_prefix("temp")?
+                .strip_suffix("_label")?
+                .parse()
+                .ok()?;
             let label = std::fs::read_to_string(e.path()).ok()?.trim().to_string();
             Some((idx, label))
         })
@@ -414,9 +463,15 @@ mod tests {
         fs.write(format!("{d}/gpu_busy_percent"), "73");
         fs.write(format!("{d}/mem_info_vram_total"), "12884901888");
         fs.write(format!("{d}/mem_info_vram_used"), "4294967296");
-        fs.write(format!("{d}/pp_dpm_sclk"), "0: 500Mhz\n1: 1200Mhz\n2: 2424Mhz *");
+        fs.write(
+            format!("{d}/pp_dpm_sclk"),
+            "0: 500Mhz\n1: 1200Mhz\n2: 2424Mhz *",
+        );
         fs.write(format!("{d}/pp_dpm_mclk"), "0: 96Mhz\n1: 1000Mhz *");
-        fs.write(format!("{d}/pp_od_clk_voltage"), "OD_SCLK:\n0: 500Mhz\n1: 2424Mhz");
+        fs.write(
+            format!("{d}/pp_od_clk_voltage"),
+            "OD_SCLK:\n0: 500Mhz\n1: 2424Mhz",
+        );
 
         let h = format!("{d}/hwmon/hwmon5");
         fs.write(format!("{h}/name"), "amdgpu");
@@ -463,7 +518,10 @@ mod tests {
     fn the_active_dpm_state_is_the_starred_one_not_the_highest() {
         let (fs, mut info) = rdna2_card();
         let d = "sys/class/drm/card0/device";
-        fs.write(format!("{d}/pp_dpm_sclk"), "0: 500Mhz\n1: 1200Mhz *\n2: 2424Mhz");
+        fs.write(
+            format!("{d}/pp_dpm_sclk"),
+            "0: 500Mhz\n1: 1200Mhz *\n2: 2424Mhz",
+        );
 
         let gpu = AmdGpu::open(&SysRoot::at(fs.root()), &mut info).unwrap();
         assert_eq!(gpu.telemetry().core_clock_mhz, 1200);
@@ -493,7 +551,11 @@ mod tests {
     #[test]
     fn without_ppfeaturemask_tuning_is_disabled_with_an_actionable_reason() {
         let (fs, mut info) = rdna2_card();
-        std::fs::remove_file(fs.root().join("sys/class/drm/card0/device/pp_od_clk_voltage")).unwrap();
+        std::fs::remove_file(
+            fs.root()
+                .join("sys/class/drm/card0/device/pp_od_clk_voltage"),
+        )
+        .unwrap();
 
         let gpu = AmdGpu::open(&SysRoot::at(fs.root()), &mut info).unwrap();
         let caps = gpu.capabilities();
@@ -546,17 +608,30 @@ mod tests {
         let rdna2 = "OD_SCLK:\n0: 500Mhz\n1: 2424Mhz\nOD_MCLK:\n1: 1000MHz\nOD_VDDC_CURVE:\n0: 500MHz 750mV\nOD_RANGE:\nSCLK:     500Mhz        2800Mhz\nMCLK:     674Mhz        1075Mhz\n";
         let t = parse_od(rdna2);
         assert_eq!((t.sclk_max, t.mclk_max), (Some(2424), Some(1000)));
-        assert_eq!((t.sclk_range, t.mclk_range), (Some((500, 2800)), Some((674, 1075))));
+        assert_eq!(
+            (t.sclk_range, t.mclk_range),
+            (Some((500, 2800)), Some((674, 1075)))
+        );
         let rdna3 = "OD_SCLK:\n0: 500Mhz\n1: 2500Mhz\nOD_MCLK:\n0: 97Mhz\n1: 1250MHz\nOD_VDDGFX_OFFSET:\n0mV\nOD_RANGE:\nSCLK:     500Mhz       3000Mhz\nMCLK:      97Mhz       1500Mhz\n";
         let t = parse_od(rdna3);
-        assert_eq!((t.sclk_max, t.mclk_max, t.sclk_range), (Some(2500), Some(1250), Some((500, 3000))));
+        assert_eq!(
+            (t.sclk_max, t.mclk_max, t.sclk_range),
+            (Some(2500), Some(1250), Some((500, 3000)))
+        );
     }
 
     #[test]
     fn overdrive_commands_reset_first_and_commit_last() {
         let stock = parse_od("OD_SCLK:\n1: 2424Mhz\nOD_MCLK:\n1: 1000MHz\n");
-        let t = GpuTune { power_limit_w: 0.0, core_offset_mhz: -100, mem_offset_mhz: 50 };
-        assert_eq!(od_commands(&stock, &t), vec!["r", "s 1 2324", "m 1 1050", "c"]);
+        let t = GpuTune {
+            power_limit_w: 0.0,
+            core_offset_mhz: -100,
+            mem_offset_mhz: 50,
+        };
+        assert_eq!(
+            od_commands(&stock, &t),
+            vec!["r", "s 1 2324", "m 1 1050", "c"]
+        );
         assert_eq!(od_commands(&stock, &GpuTune::default()), vec!["r", "c"]);
     }
 
@@ -571,8 +646,21 @@ mod tests {
         let st = g.tune_state();
         assert!(st.power_limit && st.core_offset && st.mem_offset);
         assert_eq!((st.power_limit_w, st.power_max_w), (203.0, 233.0));
-        assert_eq!((st.core_min_mhz, st.core_max_mhz), (500 - 2424, 2800 - 2424));
-        assert!(crate::check_tune(&GpuTune { core_offset_mhz: 500, ..Default::default() }, &st).is_err(), "beyond the 2800 MHz range");
+        assert_eq!(
+            (st.core_min_mhz, st.core_max_mhz),
+            (500 - 2424, 2800 - 2424)
+        );
+        assert!(
+            crate::check_tune(
+                &GpuTune {
+                    core_offset_mhz: 500,
+                    ..Default::default()
+                },
+                &st
+            )
+            .is_err(),
+            "beyond the 2800 MHz range"
+        );
     }
 
     #[test]

@@ -122,12 +122,18 @@ mod tests {
             lookup_in(DB, 0x1002, 0x73df).as_deref(),
             Some("AMD Radeon RX 6700/6700 XT/6750 XT / 6800M/6850M XT")
         );
-        assert_eq!(lookup_in(DB, 0x8086, 0x468b).as_deref(), Some("Intel UHD Graphics 770"));
+        assert_eq!(
+            lookup_in(DB, 0x8086, 0x468b).as_deref(),
+            Some("Intel UHD Graphics 770")
+        );
     }
 
     #[test]
     fn a_name_without_brackets_is_used_whole() {
-        assert_eq!(lookup_in(DB, 0x8086, 0x9999).as_deref(), Some("Intel Plain Name Without Brackets"));
+        assert_eq!(
+            lookup_in(DB, 0x8086, 0x9999).as_deref(),
+            Some("Intel Plain Name Without Brackets")
+        );
     }
 
     #[test]

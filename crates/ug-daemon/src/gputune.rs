@@ -52,16 +52,22 @@ impl Control for Real {
         self.sampler.gpu_backend(pci, |b| b.tune_state())
     }
     fn apply(&self, pci: &str, t: &GpuTune) -> Result<(), String> {
-        self.sampler.gpu_backend(pci, |b| b.apply_tune(t)).unwrap_or_else(|| Err(format!("no GPU at {pci}")))
+        self.sampler
+            .gpu_backend(pci, |b| b.apply_tune(t))
+            .unwrap_or_else(|| Err(format!("no GPU at {pci}")))
     }
     fn reset(&self, pci: &str) -> Result<(), String> {
-        self.sampler.gpu_backend(pci, |b| b.reset_tune()).unwrap_or_else(|| Err(format!("no GPU at {pci}")))
+        self.sampler
+            .gpu_backend(pci, |b| b.reset_tune())
+            .unwrap_or_else(|| Err(format!("no GPU at {pci}")))
     }
     fn awake(&self, pci: &str) -> bool {
         !ug_gpu::pci::runtime_suspended(&self.root, pci)
     }
     fn temp(&self, pci: &str) -> f64 {
-        self.sampler.gpu_backend(pci, |b| b.telemetry().temp_c).unwrap_or(f64::NAN)
+        self.sampler
+            .gpu_backend(pci, |b| b.telemetry().temp_c)
+            .unwrap_or(f64::NAN)
     }
 }
 
@@ -91,25 +97,38 @@ impl Simulated {
                         mem_offset: true,
                         mem_min_mhz: -500,
                         mem_max_mhz: 1000,
-                        notes: vec!["Development service: a simulated GPU, nothing is changed.".into()],
+                        notes: vec![
+                            "Development service: a simulated GPU, nothing is changed.".into()
+                        ],
                         ..Default::default()
                     },
                 )
             })
             .collect();
-        Simulated { cards: Mutex::new(cards), temp: Mutex::new(55.0) }
+        Simulated {
+            cards: Mutex::new(cards),
+            temp: Mutex::new(55.0),
+        }
     }
 }
 
 impl Control for Simulated {
     fn state(&self, pci: &str) -> Option<GpuTuneState> {
-        self.cards.lock().unwrap_or_else(|e| e.into_inner()).get(pci).cloned()
+        self.cards
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(pci)
+            .cloned()
     }
     fn apply(&self, pci: &str, t: &GpuTune) -> Result<(), String> {
         let mut cards = self.cards.lock().unwrap_or_else(|e| e.into_inner());
         let s = cards.get_mut(pci).ok_or("no such GPU")?;
         ug_gpu::check_tune(t, s)?;
-        s.power_limit_w = if t.power_limit_w == 0.0 { s.power_default_w } else { t.power_limit_w };
+        s.power_limit_w = if t.power_limit_w == 0.0 {
+            s.power_default_w
+        } else {
+            t.power_limit_w
+        };
         s.core_offset_mhz = t.core_offset_mhz;
         s.mem_offset_mhz = t.mem_offset_mhz;
         Ok(())
@@ -142,7 +161,11 @@ fn to_tuple(t: &GpuTune) -> (f64, i32, i32) {
 }
 
 fn from_tuple(t: (f64, i32, i32)) -> GpuTune {
-    GpuTune { power_limit_w: t.0, core_offset_mhz: t.1, mem_offset_mhz: t.2 }
+    GpuTune {
+        power_limit_w: t.0,
+        core_offset_mhz: t.1,
+        mem_offset_mhz: t.2,
+    }
 }
 
 struct Trial {
@@ -171,9 +194,15 @@ impl Tuner {
     pub fn new(control: Box<dyn Control>, state_dir: &Path) -> Tuner {
         let kept_path = state_dir.join("gpu-tune.json");
         let pending_path = state_dir.join("gpu-pending.json");
-        let kept: Kept = std::fs::read_to_string(&kept_path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        let kept: Kept = std::fs::read_to_string(&kept_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
         let mut crashed = BTreeMap::new();
-        if let Some(p) = std::fs::read_to_string(&pending_path).ok().and_then(|s| serde_json::from_str::<Pending>(&s).ok()) {
+        if let Some(p) = std::fs::read_to_string(&pending_path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Pending>(&s).ok())
+        {
             tracing::warn!(pci = %p.pci, "a GPU setting was being tried when the machine or the service stopped; it is not applied again");
             crashed.insert(p.pci, from_tuple(p.tune));
         }
@@ -182,7 +211,11 @@ impl Tuner {
             control,
             kept_path,
             pending_path,
-            applied: kept.gpus.into_iter().map(|(k, v)| (k, from_tuple(v))).collect(),
+            applied: kept
+                .gpus
+                .into_iter()
+                .map(|(k, v)| (k, from_tuple(v)))
+                .collect(),
             crashed,
             reverted: BTreeMap::new(),
             trial: None,
@@ -191,8 +224,19 @@ impl Tuner {
     }
 
     fn save(&self) {
-        let kept = Kept { gpus: self.applied.iter().map(|(k, v)| (k.clone(), to_tuple(v))).collect() };
-        if let Err(e) = ug_core::paths::write_atomic(&self.kept_path, serde_json::to_string_pretty(&kept).expect("serialize").as_bytes()) {
+        let kept = Kept {
+            gpus: self
+                .applied
+                .iter()
+                .map(|(k, v)| (k.clone(), to_tuple(v)))
+                .collect(),
+        };
+        if let Err(e) = ug_core::paths::write_atomic(
+            &self.kept_path,
+            serde_json::to_string_pretty(&kept)
+                .expect("serialize")
+                .as_bytes(),
+        ) {
             tracing::error!(error = %e, "could not save GPU settings");
         }
     }
@@ -202,7 +246,10 @@ impl Tuner {
         s.applied = self.applied.get(pci).copied().unwrap_or_default();
         if let Some(t) = self.trial.as_ref().filter(|t| t.pci == pci) {
             s.applied = t.tune;
-            s.notes.insert(0, "Trying: keep it within 30 seconds, or it is undone by itself.".into());
+            s.notes.insert(
+                0,
+                "Trying: keep it within 30 seconds, or it is undone by itself.".into(),
+            );
         }
         s.crashed = self.crashed.get(pci).copied().unwrap_or_default();
         if let Some(why) = self.reverted.get(pci) {
@@ -213,20 +260,34 @@ impl Tuner {
 
     /// Applies `t` on trial: undone after [`TRIAL`] unless confirmed.
     pub fn try_tune(&mut self, pci: &str, t: GpuTune, now: Instant) -> Result<(), String> {
-        let st = self.control.state(pci).ok_or_else(|| format!("no GPU at {pci}"))?;
+        let st = self
+            .control
+            .state(pci)
+            .ok_or_else(|| format!("no GPU at {pci}"))?;
         ug_gpu::check_tune(&t, &st)?;
         // A trial still running is replaced; its "previous" is what stays.
         let previous = match self.trial.take() {
             Some(old) if old.pci == pci => old.previous,
             Some(old) => {
-                self.undo_trial(old, "Undone: another GPU setting was tried before this one was kept.");
+                self.undo_trial(
+                    old,
+                    "Undone: another GPU setting was tried before this one was kept.",
+                );
                 self.applied.get(pci).copied().unwrap_or_default()
             }
             None => self.applied.get(pci).copied().unwrap_or_default(),
         };
-        let pending = Pending { pci: pci.to_string(), tune: to_tuple(&t) };
-        ug_core::paths::write_atomic(&self.pending_path, serde_json::to_string(&pending).expect("serialize").as_bytes())
-            .map_err(|e| format!("could not record the trial, so nothing was changed: {e}"))?;
+        let pending = Pending {
+            pci: pci.to_string(),
+            tune: to_tuple(&t),
+        };
+        ug_core::paths::write_atomic(
+            &self.pending_path,
+            serde_json::to_string(&pending)
+                .expect("serialize")
+                .as_bytes(),
+        )
+        .map_err(|e| format!("could not record the trial, so nothing was changed: {e}"))?;
         if let Err(e) = self.control.apply(pci, &t) {
             let _ = std::fs::remove_file(&self.pending_path);
             let _ = self.control.apply(pci, &previous);
@@ -234,14 +295,22 @@ impl Tuner {
         }
         self.reverted.remove(pci);
         self.crashed.remove(pci);
-        self.trial = Some(Trial { pci: pci.to_string(), tune: t, until: now + TRIAL, previous });
+        self.trial = Some(Trial {
+            pci: pci.to_string(),
+            tune: t,
+            until: now + TRIAL,
+            previous,
+        });
         tracing::info!(pci, ?t, "GPU setting on trial");
         Ok(())
     }
 
     /// Keeps the setting on trial.
     pub fn confirm(&mut self, pci: &str) -> Result<(), String> {
-        let t = self.trial.take_if(|t| t.pci == pci).ok_or("nothing is being tried on this GPU")?;
+        let t = self
+            .trial
+            .take_if(|t| t.pci == pci)
+            .ok_or("nothing is being tried on this GPU")?;
         if t.tune.is_default() {
             self.applied.remove(pci);
         } else {
@@ -266,7 +335,10 @@ impl Tuner {
 
     /// Undoes the setting on trial now, back to what was kept before.
     pub fn cancel(&mut self, pci: &str) -> Result<(), String> {
-        let t = self.trial.take_if(|t| t.pci == pci).ok_or("nothing is being tried on this GPU")?;
+        let t = self
+            .trial
+            .take_if(|t| t.pci == pci)
+            .ok_or("nothing is being tried on this GPU")?;
         self.undo_trial(t, "Undone.");
         Ok(())
     }
@@ -304,7 +376,12 @@ impl Tuner {
                 self.trial = Some(t);
             }
         }
-        let tuned: Vec<String> = self.applied.keys().cloned().chain(self.trial.iter().map(|t| t.pci.clone())).collect();
+        let tuned: Vec<String> = self
+            .applied
+            .keys()
+            .cloned()
+            .chain(self.trial.iter().map(|t| t.pci.clone()))
+            .collect();
         for pci in tuned {
             let awake = self.control.awake(&pci);
             let was = self.awake.insert(pci.clone(), awake).unwrap_or(false);
@@ -312,10 +389,17 @@ impl Tuner {
                 continue;
             }
             if !was {
-                if let Some(t) = self.applied.get(&pci).copied().filter(|_| self.trial.as_ref().is_none_or(|x| x.pci != pci)) {
+                if let Some(t) = self
+                    .applied
+                    .get(&pci)
+                    .copied()
+                    .filter(|_| self.trial.as_ref().is_none_or(|x| x.pci != pci))
+                {
                     match self.control.apply(&pci, &t) {
                         Ok(()) => tracing::info!(pci, "GPU woke; kept setting applied again"),
-                        Err(e) => tracing::warn!(pci, error = %e, "could not apply the kept GPU setting"),
+                        Err(e) => {
+                            tracing::warn!(pci, error = %e, "could not apply the kept GPU setting")
+                        }
                     }
                 }
             }
@@ -327,7 +411,12 @@ impl Tuner {
                 self.applied.remove(&pci);
                 self.save();
                 let _ = self.control.reset(&pci);
-                self.reverted.insert(pci.clone(), format!("Undone: the card reached {c:.0} °C, so its own defaults were restored."));
+                self.reverted.insert(
+                    pci.clone(),
+                    format!(
+                        "Undone: the card reached {c:.0} °C, so its own defaults were restored."
+                    ),
+                );
             }
         }
     }
@@ -343,13 +432,20 @@ pub fn stress_binary() -> Option<std::path::PathBuf> {
     if beside.exists() {
         return Some(beside);
     }
-    ["/usr/local/bin/ug-stress", "/usr/bin/ug-stress"].iter().map(std::path::PathBuf::from).find(|p| p.exists())
+    ["/usr/local/bin/ug-stress", "/usr/bin/ug-stress"]
+        .iter()
+        .map(std::path::PathBuf::from)
+        .find(|p| p.exists())
 }
 
 /// Runs the stability test on `pci` for `seconds` while its trial is kept
 /// alive; an unstable result undoes the trial at once. Returns (stable,
 /// what happened).
-pub async fn test_trial(tuner: SharedTuner, pci: String, seconds: u32) -> Result<(bool, String), String> {
+pub async fn test_trial(
+    tuner: SharedTuner,
+    pci: String,
+    seconds: u32,
+) -> Result<(bool, String), String> {
     let bin = stress_binary().ok_or("the stability test (ug-stress) is not installed")?;
     let secs = seconds.clamp(10, 1800);
     {
@@ -365,14 +461,27 @@ pub async fn test_trial(tuner: SharedTuner, pci: String, seconds: u32) -> Result
         .await
         .map_err(|e| format!("could not start the stability test: {e}"))?;
     let text = String::from_utf8_lossy(&out.stdout);
-    let last: serde_json::Value = text.lines().rev().find_map(|l| serde_json::from_str(l).ok()).unwrap_or_default();
+    let last: serde_json::Value = text
+        .lines()
+        .rev()
+        .find_map(|l| serde_json::from_str(l).ok())
+        .unwrap_or_default();
     let stable = out.status.code() == Some(0) && last["stable"] == true;
     let what = if stable {
-        format!("Stable: {} rounds, {} results checked, none wrong.", last["rounds"], last["checked"])
+        format!(
+            "Stable: {} rounds, {} results checked, none wrong.",
+            last["rounds"], last["checked"]
+        )
     } else if out.status.code() == Some(2) {
-        format!("Not stable: {}. The setting was undone.", last["reason"].as_str().unwrap_or("the test failed"))
+        format!(
+            "Not stable: {}. The setting was undone.",
+            last["reason"].as_str().unwrap_or("the test failed")
+        )
     } else {
-        format!("The test could not run: {}", last["message"].as_str().unwrap_or("unknown error"))
+        format!(
+            "The test could not run: {}",
+            last["message"].as_str().unwrap_or("unknown error")
+        )
     };
     let mut t = tuner.lock().unwrap_or_else(|e| e.into_inner());
     if stable {
@@ -395,7 +504,12 @@ pub async fn run(tuner: SharedTuner) {
         })
         .await
         .unwrap_or(false);
-        tokio::time::sleep(if busy { Duration::from_secs(1) } else { Duration::from_secs(10) }).await;
+        tokio::time::sleep(if busy {
+            Duration::from_secs(1)
+        } else {
+            Duration::from_secs(10)
+        })
+        .await;
     }
 }
 
@@ -429,7 +543,11 @@ mod tests {
     }
 
     fn tune(pl: f64, core: i32) -> GpuTune {
-        GpuTune { power_limit_w: pl, core_offset_mhz: core, mem_offset_mhz: 0 }
+        GpuTune {
+            power_limit_w: pl,
+            core_offset_mhz: core,
+            mem_offset_mhz: 0,
+        }
     }
 
     #[test]
@@ -443,7 +561,11 @@ mod tests {
         assert_eq!(sim.state(GPU).unwrap().core_offset_mhz, 100, "still trying");
         t.tick(now + TRIAL + Duration::from_secs(1));
         let s = sim.state(GPU).unwrap();
-        assert_eq!((s.power_limit_w, s.core_offset_mhz), (60.0, 0), "back to the card's defaults");
+        assert_eq!(
+            (s.power_limit_w, s.core_offset_mhz),
+            (60.0, 0),
+            "back to the card's defaults"
+        );
         assert!(t.state(GPU).unwrap().notes[0].contains("not kept"));
         assert!(!d.path().join("gpu-pending.json").exists());
     }
@@ -458,10 +580,18 @@ mod tests {
         t.tick(now + TRIAL * 2);
         drop(t);
         let (mut again, sim) = tuner(d.path());
-        assert_eq!(sim.state(GPU).unwrap().power_limit_w, 60.0, "a fresh card has its defaults");
+        assert_eq!(
+            sim.state(GPU).unwrap().power_limit_w,
+            60.0,
+            "a fresh card has its defaults"
+        );
         again.tick(Instant::now());
         let s = sim.state(GPU).unwrap();
-        assert_eq!((s.power_limit_w, s.core_offset_mhz), (50.0, 150), "applied when seen awake");
+        assert_eq!(
+            (s.power_limit_w, s.core_offset_mhz),
+            (50.0, 150),
+            "applied when seen awake"
+        );
         assert_eq!(again.state(GPU).unwrap().applied, tune(50.0, 150));
     }
 
@@ -474,8 +604,16 @@ mod tests {
         let (mut again, sim) = tuner(d.path());
         again.tick(Instant::now());
         let s = sim.state(GPU).unwrap();
-        assert_eq!((s.power_limit_w, s.core_offset_mhz), (60.0, 0), "not applied again");
-        assert_eq!(again.state(GPU).unwrap().crashed, tune(95.0, 300), "and the user is told what it was");
+        assert_eq!(
+            (s.power_limit_w, s.core_offset_mhz),
+            (60.0, 0),
+            "not applied again"
+        );
+        assert_eq!(
+            again.state(GPU).unwrap().crashed,
+            tune(95.0, 300),
+            "and the user is told what it was"
+        );
     }
 
     #[test]
@@ -489,7 +627,11 @@ mod tests {
         let s = sim.state(GPU).unwrap();
         assert_eq!((s.power_limit_w, s.core_offset_mhz), (60.0, 0));
         assert!(t.state(GPU).unwrap().notes[0].contains("91"));
-        assert_eq!(t.state(GPU).unwrap().applied, GpuTune::default(), "and it stays off");
+        assert_eq!(
+            t.state(GPU).unwrap().applied,
+            GpuTune::default(),
+            "and it stays off"
+        );
     }
 
     #[test]

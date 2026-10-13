@@ -63,29 +63,56 @@ pub struct State {
 }
 
 pub fn state(ug_config: &Path, gpus: &[Gpu]) -> State {
-    let boot = gpus.iter().find(|g| g.boot_vga).or(gpus.first()).map(|g| g.pci.clone()).unwrap_or_default();
-    State { chosen: chosen(ug_config).unwrap_or(boot) }
+    let boot = gpus
+        .iter()
+        .find(|g| g.boot_vga)
+        .or(gpus.first())
+        .map(|g| g.pci.clone())
+        .unwrap_or_default();
+    State {
+        chosen: chosen(ug_config).unwrap_or(boot),
+    }
 }
 
 /// `~/.config`, the directory `environment.d` and `applications` overrides
 /// are found under.
 pub fn config_home() -> PathBuf {
-    crate::paths::user_config().parent().map(Path::to_path_buf).unwrap_or_default()
+    crate::paths::user_config()
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default()
 }
 
 /// The old version's session-wide file.
 pub fn legacy_file(config_home: &Path) -> PathBuf {
-    config_home.join("environment.d").join(crate::session_env::LEGACY_FILES[0])
+    config_home
+        .join("environment.d")
+        .join(crate::session_env::LEGACY_FILES[0])
 }
 
 /// Moves the old version's `environment.d` file aside (see
 /// [`crate::session_env::retire`]) and keeps the choice it held as the
 /// per-program default.
-pub fn retire_legacy(config_home: &Path, ug_config: &Path, stamp: &str) -> std::io::Result<Option<Retired>> {
-    let Some(r) = crate::session_env::retire(config_home, ug_config, crate::session_env::LEGACY_FILES[0], stamp)? else {
+pub fn retire_legacy(
+    config_home: &Path,
+    ug_config: &Path,
+    stamp: &str,
+) -> std::io::Result<Option<Retired>> {
+    let Some(r) = crate::session_env::retire(
+        config_home,
+        ug_config,
+        crate::session_env::LEGACY_FILES[0],
+        stamp,
+    )?
+    else {
         return Ok(None);
     };
-    let pci = r.vars.iter().find(|(k, _)| k == MARK).map(|(_, v)| v.as_str()).unwrap_or("");
+    let pci = r
+        .vars
+        .iter()
+        .find(|(k, _)| k == MARK)
+        .map(|(_, v)| v.as_str())
+        .unwrap_or("");
     if !pci.is_empty() && chosen(ug_config).is_none() {
         crate::paths::write_atomic(&file(ug_config), format!("{pci}\n").as_bytes())?;
     }
@@ -108,14 +135,20 @@ pub fn desktop_override(original: &str) -> Option<String> {
         let t = line.trim();
         if t.starts_with('[') {
             if in_main {
-                out.push_str(&format!("PrefersNonDefaultGPU=true\nX-KDE-RunOnDiscreteGpu=true\n{DESKTOP_MARK}\n"));
+                out.push_str(&format!(
+                    "PrefersNonDefaultGPU=true\nX-KDE-RunOnDiscreteGpu=true\n{DESKTOP_MARK}\n"
+                ));
             }
             in_main = t == "[Desktop Entry]";
             seen_main |= in_main;
         } else if in_main
-            && ["PrefersNonDefaultGPU", "X-KDE-RunOnDiscreteGpu", "X-UnixGuardian-Gpu"]
-                .iter()
-                .any(|k| t.split_once('=').is_some_and(|(key, _)| key.trim() == *k))
+            && [
+                "PrefersNonDefaultGPU",
+                "X-KDE-RunOnDiscreteGpu",
+                "X-UnixGuardian-Gpu",
+            ]
+            .iter()
+            .any(|k| t.split_once('=').is_some_and(|(key, _)| key.trim() == *k))
         {
             continue;
         }
@@ -123,7 +156,9 @@ pub fn desktop_override(original: &str) -> Option<String> {
         out.push('\n');
     }
     if in_main {
-        out.push_str(&format!("PrefersNonDefaultGPU=true\nX-KDE-RunOnDiscreteGpu=true\n{DESKTOP_MARK}\n"));
+        out.push_str(&format!(
+            "PrefersNonDefaultGPU=true\nX-KDE-RunOnDiscreteGpu=true\n{DESKTOP_MARK}\n"
+        ));
     }
     seen_main.then_some(out)
 }
@@ -138,7 +173,13 @@ mod tests {
     use super::*;
 
     fn gpu(pci: &str, vendor: u16, device: u16, boot_vga: bool, driver: &str) -> Gpu {
-        Gpu { pci: pci.into(), vendor, device, boot_vga, driver: driver.into() }
+        Gpu {
+            pci: pci.into(),
+            vendor,
+            device,
+            boot_vga,
+            driver: driver.into(),
+        }
     }
 
     fn nvidia() -> Gpu {
@@ -176,9 +217,15 @@ mod tests {
         let written = files(home.path());
         assert_eq!(written, [".config/unix-guardian/default-gpu"]);
         for f in &written {
-            assert!(!SESSION_WIDE.iter().any(|s| f.starts_with(s)), "{f} is read by the whole session");
+            assert!(
+                !SESSION_WIDE.iter().any(|s| f.starts_with(s)),
+                "{f} is read by the whole session"
+            );
             let text = std::fs::read_to_string(home.path().join(f)).unwrap();
-            assert!(!text.contains("__NV_") && !text.contains("__GLX_") && !text.contains("__VK_"), "{f}: {text}");
+            assert!(
+                !text.contains("__NV_") && !text.contains("__GLX_") && !text.contains("__VK_"),
+                "{f}: {text}"
+            );
         }
         assert_eq!(chosen(&ug).as_deref(), Some("0000:01:00.0"));
         assert_eq!(state(&ug, &[intel(), nvidia()]).chosen, "0000:01:00.0");
@@ -191,12 +238,16 @@ mod tests {
         set(dir.path(), &intel()).unwrap();
         assert!(!file(dir.path()).exists());
         assert_eq!(chosen(dir.path()), None);
-        assert_eq!(state(dir.path(), &[intel(), nvidia()]).chosen, "0000:00:02.0");
+        assert_eq!(
+            state(dir.path(), &[intel(), nvidia()]).chosen,
+            "0000:00:02.0"
+        );
         // And again, with nothing to remove.
         set(dir.path(), &intel()).unwrap();
     }
 
-    const OLD: &str = "# Written by Unix Guardian: programs render on this GPU (PRIME render offload).\n\
+    const OLD: &str =
+        "# Written by Unix Guardian: programs render on this GPU (PRIME render offload).\n\
         # Choose the integrated GPU in Unix Guardian (or delete this file) to undo.\n\
         __NV_PRIME_RENDER_OFFLOAD=1\n__GLX_VENDOR_LIBRARY_NAME=nvidia\n\
         __VK_LAYER_NV_optimus=NVIDIA_only\nUG_DEFAULT_GPU=0000:01:00.0\n";
@@ -210,16 +261,43 @@ mod tests {
         std::fs::write(legacy_file(&config), OLD).unwrap();
         // The repair session's own folder must not be touched.
         std::fs::create_dir_all(config.join("environment.d.disabled")).unwrap();
-        std::fs::write(config.join("environment.d.disabled/90-unix-guardian-gpu.conf"), OLD).unwrap();
+        std::fs::write(
+            config.join("environment.d.disabled/90-unix-guardian-gpu.conf"),
+            OLD,
+        )
+        .unwrap();
 
-        let r = retire_legacy(&config, &ug, "20261004T120000").unwrap().unwrap();
+        let r = retire_legacy(&config, &ug, "20261004T120000")
+            .unwrap()
+            .unwrap();
         assert!(!legacy_file(&config).exists());
-        assert_eq!(r.moved_to, ug.join("retired/90-unix-guardian-gpu.conf.20261004T120000"));
-        assert_eq!(std::fs::read_to_string(&r.moved_to).unwrap(), OLD, "moved, not rewritten");
+        assert_eq!(
+            r.moved_to,
+            ug.join("retired/90-unix-guardian-gpu.conf.20261004T120000")
+        );
+        assert_eq!(
+            std::fs::read_to_string(&r.moved_to).unwrap(),
+            OLD,
+            "moved, not rewritten"
+        );
         let names: Vec<&str> = r.vars.iter().map(|(k, _)| k.as_str()).collect();
-        assert_eq!(names, ["__NV_PRIME_RENDER_OFFLOAD", "__GLX_VENDOR_LIBRARY_NAME", "__VK_LAYER_NV_optimus", MARK]);
+        assert_eq!(
+            names,
+            [
+                "__NV_PRIME_RENDER_OFFLOAD",
+                "__GLX_VENDOR_LIBRARY_NAME",
+                "__VK_LAYER_NV_optimus",
+                MARK
+            ]
+        );
         assert_eq!(chosen(&ug).as_deref(), Some("0000:01:00.0"));
-        assert_eq!(std::fs::read_to_string(config.join("environment.d.disabled/90-unix-guardian-gpu.conf")).unwrap(), OLD);
+        assert_eq!(
+            std::fs::read_to_string(
+                config.join("environment.d.disabled/90-unix-guardian-gpu.conf")
+            )
+            .unwrap(),
+            OLD
+        );
         assert!(files(&config.join("environment.d")).is_empty());
         // Nothing left to do the second time.
         assert_eq!(retire_legacy(&config, &ug, "x").unwrap(), None);
@@ -231,11 +309,17 @@ mod tests {
         let config = home.path().join(".config");
         std::fs::create_dir_all(config.join("environment.d")).unwrap();
         std::fs::write(legacy_file(&config), "FOO=1\n").unwrap();
-        assert_eq!(retire_legacy(&config, &config.join("unix-guardian"), "x").unwrap(), None);
+        assert_eq!(
+            retire_legacy(&config, &config.join("unix-guardian"), "x").unwrap(),
+            None
+        );
         assert!(legacy_file(&config).exists());
         // And no file at all.
         let empty = tempfile::tempdir().unwrap();
-        assert_eq!(retire_legacy(empty.path(), &empty.path().join("ug"), "x").unwrap(), None);
+        assert_eq!(
+            retire_legacy(empty.path(), &empty.path().join("ug"), "x").unwrap(),
+            None
+        );
     }
 
     #[test]

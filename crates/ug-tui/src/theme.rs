@@ -21,7 +21,8 @@ pub struct Theme {
 
 impl Theme {
     pub fn detect() -> Theme {
-        let truecolor = std::env::var("COLORTERM").is_ok_and(|v| v.contains("truecolor") || v.contains("24bit"));
+        let truecolor = std::env::var("COLORTERM")
+            .is_ok_and(|v| v.contains("truecolor") || v.contains("24bit"));
         if truecolor {
             Theme {
                 accent: Color::Rgb(139, 92, 246),
@@ -67,10 +68,15 @@ impl Theme {
         Style::default().fg(self.text).add_modifier(Modifier::BOLD)
     }
     pub fn accent(&self) -> Style {
-        Style::default().fg(self.accent).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(self.accent)
+            .add_modifier(Modifier::BOLD)
     }
     pub fn selected(&self) -> Style {
-        Style::default().bg(self.selected_bg).fg(self.text).add_modifier(Modifier::BOLD)
+        Style::default()
+            .bg(self.selected_bg)
+            .fg(self.text)
+            .add_modifier(Modifier::BOLD)
     }
     pub fn warn_style(&self) -> Style {
         Style::default().fg(self.warn)

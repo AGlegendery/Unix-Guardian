@@ -31,14 +31,18 @@ impl Condition {
     /// over between processes does not count as the end.
     fn window_ms(&self) -> u64 {
         match self {
-            Condition::NetIdle { minutes, .. } | Condition::CpuIdle { minutes, .. } => *minutes as u64 * 60_000,
+            Condition::NetIdle { minutes, .. } | Condition::CpuIdle { minutes, .. } => {
+                *minutes as u64 * 60_000
+            }
             Condition::ProcessGone { .. } | Condition::GameOver => 20_000,
         }
     }
 
     pub fn validate(&self) -> Result<(), String> {
         match self {
-            Condition::NetIdle { minutes, .. } | Condition::CpuIdle { minutes, .. } if !(1..=24 * 60).contains(minutes) => {
+            Condition::NetIdle { minutes, .. } | Condition::CpuIdle { minutes, .. }
+                if !(1..=24 * 60).contains(minutes) =>
+            {
                 Err("the waiting time must be between 1 minute and 24 hours".into())
             }
             Condition::CpuIdle { below_pct, .. } if !(1.0..=100.0).contains(below_pct) => {
@@ -107,8 +111,15 @@ pub struct Watches {
 
 impl Watches {
     pub fn load(path: &Path) -> Watches {
-        let f: File = std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-        Watches { path: path.to_path_buf(), next_id: f.next_id.max(1), watches: f.watches }
+        let f: File = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        Watches {
+            path: path.to_path_buf(),
+            next_id: f.next_id.max(1),
+            watches: f.watches,
+        }
     }
 
     pub fn list(&self) -> &[Watch] {
@@ -122,16 +133,30 @@ impl Watches {
     /// Adds a watch. `now` is the current state, so a condition that cannot
     /// start meaningfully (no game to wait for, the program is not running)
     /// is refused instead of firing at once.
-    pub fn add(&mut self, action: Action, condition: Condition, note: &str, now: &Observation) -> Result<Watch, String> {
+    pub fn add(
+        &mut self,
+        action: Action,
+        condition: Condition,
+        note: &str,
+        now: &Observation,
+    ) -> Result<Watch, String> {
         condition.validate()?;
         match &condition {
-            Condition::GameOver if !now.game_active => return Err("no game is running right now".into()),
+            Condition::GameOver if !now.game_active => {
+                return Err("no game is running right now".into())
+            }
             Condition::ProcessGone { name } if !now.processes.iter().any(|p| p == name) => {
                 return Err(format!("no process called {name:?} is running right now"));
             }
             _ => {}
         }
-        let w = Watch { id: self.next_id, action, condition, note: note.chars().take(200).collect(), holding_since: None };
+        let w = Watch {
+            id: self.next_id,
+            action,
+            condition,
+            note: note.chars().take(200).collect(),
+            holding_since: None,
+        };
         self.next_id += 1;
         self.watches.push(w.clone());
         if let Err(e) = self.save() {
@@ -172,8 +197,11 @@ impl Watches {
     }
 
     fn save(&self) -> Result<(), String> {
-        let text = serde_json::to_string_pretty(&File { next_id: self.next_id, watches: self.watches.clone() })
-            .map_err(|e| e.to_string())?;
+        let text = serde_json::to_string_pretty(&File {
+            next_id: self.next_id,
+            watches: self.watches.clone(),
+        })
+        .map_err(|e| e.to_string())?;
         if let Some(d) = self.path.parent() {
             std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
         }
@@ -197,7 +225,11 @@ mod tests {
     }
 
     fn obs(rx: u64, cpu: f64) -> Observation {
-        Observation { rx_bps: rx, cpu_pct: Some(cpu), ..Default::default() }
+        Observation {
+            rx_bps: rx,
+            cpu_pct: Some(cpu),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -206,20 +238,45 @@ mod tests {
         let p = d.path().join("conditions.json");
         std::fs::create_dir(&p).unwrap(); // a directory: every save fails
         let mut w = Watches::load(&p);
-        let c = Condition::CpuIdle { below_pct: 50.0, minutes: 1 };
-        assert!(w.add(crate::schedule::Action::PowerOff, c, "", &obs(0, 10.0)).is_err());
-        assert!(w.observe(&obs(0, 1.0), 0).is_empty() && w.observe(&obs(0, 1.0), 10 * MIN).is_empty());
+        let c = Condition::CpuIdle {
+            below_pct: 50.0,
+            minutes: 1,
+        };
+        assert!(w
+            .add(crate::schedule::Action::PowerOff, c, "", &obs(0, 10.0))
+            .is_err());
+        assert!(
+            w.observe(&obs(0, 1.0), 0).is_empty() && w.observe(&obs(0, 1.0), 10 * MIN).is_empty()
+        );
     }
 
     #[test]
     fn a_download_counts_as_finished_only_after_the_whole_quiet_window() {
         let (_d, mut w) = watches();
-        w.add(Action::PowerOff, Condition::NetIdle { below_bps: 50_000, minutes: 5 }, "", &obs(4_000_000, 10.0)).unwrap();
-        assert!(w.observe(&obs(4_000_000, 10.0), 0).is_empty(), "still downloading");
+        w.add(
+            Action::PowerOff,
+            Condition::NetIdle {
+                below_bps: 50_000,
+                minutes: 5,
+            },
+            "",
+            &obs(4_000_000, 10.0),
+        )
+        .unwrap();
+        assert!(
+            w.observe(&obs(4_000_000, 10.0), 0).is_empty(),
+            "still downloading"
+        );
         assert!(w.observe(&obs(1_000, 10.0), MIN).is_empty(), "quiet starts");
-        assert!(w.observe(&obs(3_000_000, 10.0), 3 * MIN).is_empty(), "a burst resets the window");
+        assert!(
+            w.observe(&obs(3_000_000, 10.0), 3 * MIN).is_empty(),
+            "a burst resets the window"
+        );
         assert!(w.observe(&obs(1_000, 10.0), 4 * MIN).is_empty());
-        assert!(w.observe(&obs(1_000, 10.0), 8 * MIN).is_empty(), "four quiet minutes are not five");
+        assert!(
+            w.observe(&obs(1_000, 10.0), 8 * MIN).is_empty(),
+            "four quiet minutes are not five"
+        );
         let fired = w.observe(&obs(1_000, 10.0), 9 * MIN);
         assert_eq!(fired.len(), 1);
         assert!(w.is_empty());
@@ -228,7 +285,16 @@ mod tests {
     #[test]
     fn a_missing_cpu_reading_never_counts_as_idle() {
         let (_d, mut w) = watches();
-        w.add(Action::Suspend, Condition::CpuIdle { below_pct: 10.0, minutes: 1 }, "", &obs(0, 50.0)).unwrap();
+        w.add(
+            Action::Suspend,
+            Condition::CpuIdle {
+                below_pct: 10.0,
+                minutes: 1,
+            },
+            "",
+            &obs(0, 50.0),
+        )
+        .unwrap();
         let blind = Observation::default();
         assert!(w.observe(&blind, 0).is_empty());
         assert!(w.observe(&blind, 10 * MIN).is_empty());
@@ -237,12 +303,26 @@ mod tests {
     #[test]
     fn a_program_ending_fires_after_a_short_confirmation() {
         let (_d, mut w) = watches();
-        let running = Observation { processes: vec!["blender".into()], ..Default::default() };
-        w.add(Action::PowerOff, Condition::ProcessGone { name: "blender".into() }, "", &running).unwrap();
+        let running = Observation {
+            processes: vec!["blender".into()],
+            ..Default::default()
+        };
+        w.add(
+            Action::PowerOff,
+            Condition::ProcessGone {
+                name: "blender".into(),
+            },
+            "",
+            &running,
+        )
+        .unwrap();
         assert!(w.observe(&running, 0).is_empty());
         let gone = Observation::default();
         assert!(w.observe(&gone, 10_000).is_empty());
-        assert!(w.observe(&running, 20_000).is_empty(), "came back (a relaunch): start again");
+        assert!(
+            w.observe(&running, 20_000).is_empty(),
+            "came back (a relaunch): start again"
+        );
         assert!(w.observe(&gone, 30_000).is_empty());
         assert_eq!(w.observe(&gone, 50_000).len(), 1);
     }
@@ -250,10 +330,47 @@ mod tests {
     #[test]
     fn waiting_for_something_that_is_not_there_is_refused() {
         let (_d, mut w) = watches();
-        assert!(w.add(Action::PowerOff, Condition::GameOver, "", &Observation::default()).unwrap_err().contains("no game"));
-        assert!(w.add(Action::PowerOff, Condition::ProcessGone { name: "blender".into() }, "", &Observation::default()).is_err());
-        assert!(w.add(Action::PowerOff, Condition::CpuIdle { below_pct: 500.0, minutes: 5 }, "", &obs(0, 0.0)).is_err());
-        assert!(w.add(Action::PowerOff, Condition::NetIdle { below_bps: 1, minutes: 0 }, "", &obs(0, 0.0)).is_err());
+        assert!(w
+            .add(
+                Action::PowerOff,
+                Condition::GameOver,
+                "",
+                &Observation::default()
+            )
+            .unwrap_err()
+            .contains("no game"));
+        assert!(w
+            .add(
+                Action::PowerOff,
+                Condition::ProcessGone {
+                    name: "blender".into()
+                },
+                "",
+                &Observation::default()
+            )
+            .is_err());
+        assert!(w
+            .add(
+                Action::PowerOff,
+                Condition::CpuIdle {
+                    below_pct: 500.0,
+                    minutes: 5
+                },
+                "",
+                &obs(0, 0.0)
+            )
+            .is_err());
+        assert!(w
+            .add(
+                Action::PowerOff,
+                Condition::NetIdle {
+                    below_bps: 1,
+                    minutes: 0
+                },
+                "",
+                &obs(0, 0.0)
+            )
+            .is_err());
         assert!(w.is_empty());
     }
 
@@ -262,14 +379,27 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("conditions.json");
         let mut w = Watches::load(&p);
-        let game = Observation { game_active: true, ..Default::default() };
-        let a = w.add(Action::PowerOff, Condition::GameOver, "after the match", &game).unwrap();
+        let game = Observation {
+            game_active: true,
+            ..Default::default()
+        };
+        let a = w
+            .add(
+                Action::PowerOff,
+                Condition::GameOver,
+                "after the match",
+                &game,
+            )
+            .unwrap();
         w.observe(&Observation::default(), 0); // game ended, confirmation running
         drop(w);
         let mut w = Watches::load(&p);
         assert_eq!(w.list()[0].id, a.id);
         assert_eq!(w.list()[0].note, "after the match");
-        assert!(w.observe(&Observation::default(), 30_000).is_empty(), "window restarted after the restart");
+        assert!(
+            w.observe(&Observation::default(), 30_000).is_empty(),
+            "window restarted after the restart"
+        );
         assert_eq!(w.observe(&Observation::default(), 50_000).len(), 1);
     }
 }

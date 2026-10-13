@@ -24,7 +24,10 @@ const WATCHED: Duration = Duration::from_secs(60);
 pub enum Backend {
     Nft(Box<Accountant<NftCmd>>, Box<Shaper<RealCmd>>),
     /// A development daemon on the host: real app names, invented numbers.
-    Simulated { root: SysRoot, start: Instant },
+    Simulated {
+        root: SysRoot,
+        start: Instant,
+    },
     Unavailable,
 }
 
@@ -63,18 +66,29 @@ pub fn in_private_userns() -> bool {
 /// Firewalls that manage their own rules alongside ours.
 fn other_firewalls(root: &SysRoot) -> Vec<String> {
     let mut out = Vec::new();
-    if root.join("run/firewalld/firewalld.pid").exists() || root.join("var/run/firewalld/firewalld.pid").exists() {
+    if root.join("run/firewalld/firewalld.pid").exists()
+        || root.join("var/run/firewalld/firewalld.pid").exists()
+    {
         out.push("firewalld".into());
     }
     let ufw = std::fs::read_to_string(root.join("etc/ufw/ufw.conf")).unwrap_or_default();
-    if ufw.lines().any(|l| l.trim().eq_ignore_ascii_case("ENABLED=yes")) {
+    if ufw
+        .lines()
+        .any(|l| l.trim().eq_ignore_ascii_case("ENABLED=yes"))
+    {
         out.push("ufw".into());
     }
     out
 }
 
 impl Net {
-    pub fn new(root: SysRoot, simulate: bool, state_dir: &Path, gaming: Arc<AtomicBool>, game_pids: Arc<Mutex<Vec<i32>>>) -> Net {
+    pub fn new(
+        root: SysRoot,
+        simulate: bool,
+        state_dir: &Path,
+        gaming: Arc<AtomicBool>,
+        game_pids: Arc<Mutex<Vec<i32>>>,
+    ) -> Net {
         let (rules, problem) = Rules::load(&state_dir.join("net.json"));
         let background_file = state_dir.join("net-background.json");
         let background = Background::load(&background_file);
@@ -83,13 +97,26 @@ impl Net {
         }
         let firewalls = other_firewalls(&root);
         if !firewalls.is_empty() {
-            tracing::info!(?firewalls, "another firewall is active; Unix Guardian keeps to its own nftables table");
+            tracing::info!(
+                ?firewalls,
+                "another firewall is active; Unix Guardian keeps to its own nftables table"
+            );
         }
         let (backend, status) = if simulate {
-            tracing::warn!("development run: per-app traffic is simulated, nftables is not touched");
+            tracing::warn!(
+                "development run: per-app traffic is simulated, nftables is not touched"
+            );
             (
-                Backend::Simulated { root: root.clone(), start: Instant::now() },
-                NetControlStatus { available: true, simulated: true, firewalls, ..Default::default() },
+                Backend::Simulated {
+                    root: root.clone(),
+                    start: Instant::now(),
+                },
+                NetControlStatus {
+                    available: true,
+                    simulated: true,
+                    firewalls,
+                    ..Default::default()
+                },
             )
         } else {
             match NftCmd::find() {
@@ -108,10 +135,16 @@ impl Net {
                             Backend::Nft(Box::new(a), {
                                 // A crash may have left our shaping behind.
                                 let mut s = Shaper::new(RealCmd);
-                                s.clean_leftovers(&ug_hw::net::default_iface(&root).unwrap_or_default());
+                                s.clean_leftovers(
+                                    &ug_hw::net::default_iface(&root).unwrap_or_default(),
+                                );
                                 Box::new(s)
                             }),
-                            NetControlStatus { available: true, firewalls, ..Default::default() },
+                            NetControlStatus {
+                                available: true,
+                                firewalls,
+                                ..Default::default()
+                            },
                         ),
                         Err(e) => {
                             tracing::warn!(error = %e, "per-app traffic unavailable");
@@ -155,11 +188,29 @@ impl Net {
     fn tick(&mut self, now: Instant) {
         let due = match self.last_read {
             None => true,
-            Some(t) => now.duration_since(t) >= if self.watched(now) { Duration::from_secs(2) } else { Duration::from_secs(60) },
+            Some(t) => {
+                now.duration_since(t)
+                    >= if self.watched(now) {
+                        Duration::from_secs(2)
+                    } else {
+                        Duration::from_secs(60)
+                    }
+            }
         };
         let gaming = self.gaming.load(Ordering::Relaxed);
-        let game_pids = if gaming { self.game_pids.lock().unwrap_or_else(|e| e.into_inner()).clone() } else { Vec::new() };
-        self.policy = Policy::from_rules(&self.rules.list, gaming).with_background(&self.background, gaming, &game_pids);
+        let game_pids = if gaming {
+            self.game_pids
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
+        } else {
+            Vec::new()
+        };
+        self.policy = Policy::from_rules(&self.rules.list, gaming).with_background(
+            &self.background,
+            gaming,
+            &game_pids,
+        );
         let watched = self.watched(now);
         match &mut self.backend {
             Backend::Nft(a, shaper) => {
@@ -168,17 +219,26 @@ impl Net {
                 // when one is up (often by policy routing, which the main
                 // table does not show).
                 // Asking the kernel costs a fork, so only while it matters.
-                let iface = if !self.policy.limits.is_empty() || watched || self.status.iface.is_empty() {
-                    ug_hw::procnet::route_dev("1.1.1.1".parse().expect("address"))
-                        .or_else(|| ug_hw::net::default_iface(&self.root))
-                        .unwrap_or_default()
-                } else {
-                    self.status.iface.clone()
-                };
+                let iface =
+                    if !self.policy.limits.is_empty() || watched || self.status.iface.is_empty() {
+                        ug_hw::procnet::route_dev("1.1.1.1".parse().expect("address"))
+                            .or_else(|| ug_hw::net::default_iface(&self.root))
+                            .unwrap_or_default()
+                    } else {
+                        self.status.iface.clone()
+                    };
                 let mut problems = shaper.apply(&iface, &self.policy.limits);
                 self.status.vpn_tun = ug_hw::procnet::is_tun(&self.root, &iface);
-                self.status.vpn = self.apps.iter().find(|x| x.category == "vpn").map(|x| x.name.clone()).unwrap_or_default();
-                if !self.status.vpn.is_empty() && !self.status.vpn_tun && !self.policy.limits.is_empty() {
+                self.status.vpn = self
+                    .apps
+                    .iter()
+                    .find(|x| x.category == "vpn")
+                    .map(|x| x.name.clone())
+                    .unwrap_or_default();
+                if !self.status.vpn.is_empty()
+                    && !self.status.vpn_tun
+                    && !self.policy.limits.is_empty()
+                {
                     problems.push(format!(
                         "{} is running as a proxy (not in TUN mode): apps that use it reach the internet through it, \
                          so their speed caps cannot apply. Blocking still works. Switch it to TUN mode for caps.",
@@ -187,7 +247,11 @@ impl Net {
                 }
                 self.status.shaping_problems = problems;
                 self.status.iface = iface;
-                let r = if due { a.refresh(now) } else { a.sync_groups().map(|_| ()) };
+                let r = if due {
+                    a.refresh(now)
+                } else {
+                    a.sync_groups().map(|_| ())
+                };
                 match r {
                     Ok(()) => {
                         if due {
@@ -202,8 +266,16 @@ impl Net {
                     let states = self.policy.states();
                     self.apps = simulated(root, now.duration_since(*start).as_secs());
                     for a in &mut self.apps {
-                        a.state = states.get(&a.name.to_lowercase()).map(|s| s.to_string()).unwrap_or_default();
-                        if a.state.is_empty() && self.policy.background_class(&a.name, &a.exe, &a.pids).is_some() {
+                        a.state = states
+                            .get(&a.name.to_lowercase())
+                            .map(|s| s.to_string())
+                            .unwrap_or_default();
+                        if a.state.is_empty()
+                            && self
+                                .policy
+                                .background_class(&a.name, &a.exe, &a.pids)
+                                .is_some()
+                        {
                             a.state = "background".into();
                         }
                     }
@@ -214,7 +286,10 @@ impl Net {
         if due {
             self.last_read = Some(now);
             let pids = if self.gaming.load(Ordering::Relaxed) {
-                self.game_pids.lock().unwrap_or_else(|e| e.into_inner()).clone()
+                self.game_pids
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone()
             } else {
                 Vec::new()
             };
@@ -242,12 +317,20 @@ fn simulated(root: &SysRoot, secs: u64) -> Vec<AppTraffic> {
         .into_iter()
         .enumerate()
         .map(|(i, g)| {
-            let exe = g.pids.first().map(|&p| ug_net::cgroups::comm(root, p)).unwrap_or_default();
+            let exe = g
+                .pids
+                .first()
+                .map(|&p| ug_net::cgroups::comm(root, p))
+                .unwrap_or_default();
             let l = ug_net::cgroups::label(&g.path, &exe);
             let category = ug_net::cgroups::category(&l.name, &exe).into();
             let busy = l.kind == "app" && i % 3 == 0;
             let wave = ((secs + i as u64 * 7) % 20) as u64;
-            let (rx_bps, tx_bps) = if busy { (40_000 * wave, 3_000 * wave) } else { (0, 0) };
+            let (rx_bps, tx_bps) = if busy {
+                (40_000 * wave, 3_000 * wave)
+            } else {
+                (0, 0)
+            };
             AppTraffic {
                 id: g.path,
                 name: l.name,
@@ -265,7 +348,11 @@ fn simulated(root: &SysRoot, secs: u64) -> Vec<AppTraffic> {
             }
         })
         .collect();
-    out.sort_by(|a, b| (b.rx_bps + b.tx_bps).cmp(&(a.rx_bps + a.tx_bps)).then(a.name.cmp(&b.name)));
+    out.sort_by(|a, b| {
+        (b.rx_bps + b.tx_bps)
+            .cmp(&(a.rx_bps + a.tx_bps))
+            .then(a.name.cmp(&b.name))
+    });
     out
 }
 
@@ -320,7 +407,13 @@ impl NetIface {
     ) -> zbus::fdo::Result<()> {
         let when = When::parse(when).map_err(zbus::fdo::Error::InvalidArgs)?;
         self.gate.authorize(&hdr, action::NET).await?;
-        let rule = Rule { app: app.to_string(), block, up_kbps: if block { 0 } else { up_kbps }, down_kbps: if block { 0 } else { down_kbps }, when };
+        let rule = Rule {
+            app: app.to_string(),
+            block,
+            up_kbps: if block { 0 } else { up_kbps },
+            down_kbps: if block { 0 } else { down_kbps },
+            when,
+        };
         let net = Arc::clone(&self.net);
         tokio::task::spawn_blocking(move || {
             let mut n = lock(&net);
@@ -335,7 +428,11 @@ impl NetIface {
     }
 
     /// Removes an app's rule; returns false if it had none.
-    async fn remove_rule(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, app: &str) -> zbus::fdo::Result<bool> {
+    async fn remove_rule(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        app: &str,
+    ) -> zbus::fdo::Result<bool> {
         self.gate.authorize(&hdr, action::NET).await?;
         let net = Arc::clone(&self.net);
         let app = app.to_string();
@@ -371,7 +468,12 @@ impl NetIface {
     ) -> zbus::fdo::Result<()> {
         let when = When::parse(when).map_err(zbus::fdo::Error::InvalidArgs)?;
         self.gate.authorize(&hdr, action::NET).await?;
-        let b = Background { on, up_kbps, down_kbps, when };
+        let b = Background {
+            on,
+            up_kbps,
+            down_kbps,
+            when,
+        };
         let net = Arc::clone(&self.net);
         tokio::task::spawn_blocking(move || {
             let mut n = lock(&net);

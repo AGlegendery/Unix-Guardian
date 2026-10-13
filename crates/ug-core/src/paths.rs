@@ -52,10 +52,7 @@ fn home() -> PathBuf {
 pub fn write_atomic(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
     let parent = path.parent().unwrap_or(std::path::Path::new("."));
     std::fs::create_dir_all(parent)?;
-    let tmp = path.with_extension(format!(
-        "tmp.{}",
-        std::process::id()
-    ));
+    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
     std::fs::write(&tmp, contents)?;
     std::fs::rename(&tmp, path)
 }
@@ -70,7 +67,10 @@ mod tests {
         let target = dir.join("state.json");
         write_atomic(&target, b"{\"applied\":true}").unwrap();
 
-        assert_eq!(std::fs::read_to_string(&target).unwrap(), "{\"applied\":true}");
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "{\"applied\":true}"
+        );
         let strays: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
             .filter_map(|e| e.ok())

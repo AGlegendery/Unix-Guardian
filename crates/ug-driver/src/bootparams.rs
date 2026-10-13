@@ -17,15 +17,22 @@ use ug_hw::SysRoot;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Loader {
     /// The generator to run after editing `/etc/default/grub`.
-    Grub { regen: Vec<String> },
+    Grub {
+        regen: Vec<String>,
+    },
     /// Entry files (absolute paths), and whether `/etc/kernel/cmdline` is used.
-    SystemdBoot { entries: Vec<String>, kernel_cmdline: bool },
+    SystemdBoot {
+        entries: Vec<String>,
+        kernel_cmdline: bool,
+    },
     Refind,
     Kernelstub,
 }
 
 fn has(root: &SysRoot, p: &str) -> bool {
-    ["usr/bin", "usr/sbin", "bin", "sbin"].iter().any(|d| root.join(d).join(p).exists())
+    ["usr/bin", "usr/sbin", "bin", "sbin"]
+        .iter()
+        .any(|d| root.join(d).join(p).exists())
 }
 
 pub fn detect(root: &SysRoot) -> Option<Loader> {
@@ -42,22 +49,31 @@ pub fn detect(root: &SysRoot) -> Option<Loader> {
         } else {
             return None;
         };
-        return Some(Loader::Grub { regen: regen.into_iter().map(String::from).collect() });
+        return Some(Loader::Grub {
+            regen: regen.into_iter().map(String::from).collect(),
+        });
     }
-    let mut entries: Vec<String> = ["boot/loader/entries", "efi/loader/entries", "boot/efi/loader/entries"]
-        .iter()
-        .flat_map(|d| {
-            std::fs::read_dir(root.join(d))
-                .into_iter()
-                .flatten()
-                .flatten()
-                .filter(|e| e.path().extension().is_some_and(|x| x == "conf"))
-                .map(move |e| format!("/{d}/{}", e.file_name().to_string_lossy()))
-        })
-        .collect();
+    let mut entries: Vec<String> = [
+        "boot/loader/entries",
+        "efi/loader/entries",
+        "boot/efi/loader/entries",
+    ]
+    .iter()
+    .flat_map(|d| {
+        std::fs::read_dir(root.join(d))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().extension().is_some_and(|x| x == "conf"))
+            .map(move |e| format!("/{d}/{}", e.file_name().to_string_lossy()))
+    })
+    .collect();
     entries.sort();
     if !entries.is_empty() {
-        return Some(Loader::SystemdBoot { entries, kernel_cmdline: root.join("etc/kernel/cmdline").exists() });
+        return Some(Loader::SystemdBoot {
+            entries,
+            kernel_cmdline: root.join("etc/kernel/cmdline").exists(),
+        });
     }
     if root.join("boot/refind_linux.conf").exists() {
         return Some(Loader::Refind);
@@ -80,14 +96,22 @@ pub fn edit_line(line: &str, add: &[&str], remove: &[&str]) -> String {
         if !words.iter().any(|w| key(w) == key(r)) {
             continue;
         }
-        out = words.into_iter().filter(|w| key(w) != key(r)).collect::<Vec<_>>().join(" ");
+        out = words
+            .into_iter()
+            .filter(|w| key(w) != key(r))
+            .collect::<Vec<_>>()
+            .join(" ");
     }
     for a in add {
         if out.split(' ').any(|w| w == *a) {
             continue;
         }
         if out.split(' ').any(|w| key(w) == key(a)) {
-            out = out.split(' ').map(|w| if key(w) == key(a) { *a } else { w }).collect::<Vec<_>>().join(" ");
+            out = out
+                .split(' ')
+                .map(|w| if key(w) == key(a) { *a } else { w })
+                .collect::<Vec<_>>()
+                .join(" ");
         } else if out.is_empty() {
             out = a.to_string();
         } else {
@@ -105,17 +129,25 @@ pub fn edit_grub(text: &str, add: &[&str], remove: &[&str]) -> String {
     let mut lines: Vec<String> = text
         .split('\n')
         .map(|l| {
-            let Some(v) = l.strip_prefix(var) else { return l.to_string() };
+            let Some(v) = l.strip_prefix(var) else {
+                return l.to_string();
+            };
             found = true;
             let (q, inner) = match v.chars().next() {
-                Some(c @ ('"' | '\'')) => (c.to_string(), v.trim_start_matches(c).trim_end_matches(c)),
+                Some(c @ ('"' | '\'')) => {
+                    (c.to_string(), v.trim_start_matches(c).trim_end_matches(c))
+                }
                 _ => (String::new(), v),
             };
             format!("{var}{q}{}{q}", edit_line(inner, add, remove))
         })
         .collect();
     if !found && !add.is_empty() {
-        let at = if text.ends_with('\n') { lines.len() - 1 } else { lines.len() };
+        let at = if text.ends_with('\n') {
+            lines.len() - 1
+        } else {
+            lines.len()
+        };
         lines.insert(at, format!("{var}\"{}\"", edit_line("", add, &[])));
     }
     lines.join("\n")
@@ -143,7 +175,12 @@ pub fn edit_refind(text: &str, add: &[&str], remove: &[&str]) -> String {
             // ["", title, spaces, rest-with-options"]
             if parts.len() == 4 && parts[0].trim().is_empty() {
                 if let Some(opts) = parts[3].strip_suffix('"') {
-                    return format!("\"{}\"{}\"{}\"", parts[1], parts[2], edit_line(opts, add, remove));
+                    return format!(
+                        "\"{}\"{}\"{}\"",
+                        parts[1],
+                        parts[2],
+                        edit_line(opts, add, remove)
+                    );
                 }
             }
             l.to_string()
@@ -155,7 +192,10 @@ pub fn edit_refind(text: &str, add: &[&str], remove: &[&str]) -> String {
 /// `/etc/kernel/cmdline`: one line of parameters.
 pub fn edit_kernel_cmdline(text: &str, add: &[&str], remove: &[&str]) -> String {
     let nl = if text.ends_with('\n') { "\n" } else { "" };
-    format!("{}{nl}", edit_line(text.trim_end_matches('\n'), add, remove))
+    format!(
+        "{}{nl}",
+        edit_line(text.trim_end_matches('\n'), add, remove)
+    )
 }
 
 #[cfg(test)]
@@ -168,9 +208,19 @@ mod tests {
     #[test]
     fn a_parameter_added_and_removed_gives_the_file_back_byte_for_byte() {
         let added = edit_grub(GRUB, &["mem_sleep_default=deep"], &[]);
-        assert!(added.contains("GRUB_CMDLINE_LINUX_DEFAULT=\"quiet splash nomodeset mem_sleep_default=deep\""));
-        assert_eq!(edit_grub(&added, &["mem_sleep_default=deep"], &[]), added, "idempotent");
-        assert_eq!(edit_grub(&added, &[], &["mem_sleep_default"]), GRUB, "diff-empty round trip");
+        assert!(added.contains(
+            "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet splash nomodeset mem_sleep_default=deep\""
+        ));
+        assert_eq!(
+            edit_grub(&added, &["mem_sleep_default=deep"], &[]),
+            added,
+            "idempotent"
+        );
+        assert_eq!(
+            edit_grub(&added, &[], &["mem_sleep_default"]),
+            GRUB,
+            "diff-empty round trip"
+        );
         let no = edit_grub(GRUB, &[], &["nomodeset"]);
         assert!(no.contains("=\"quiet splash\""));
         assert_eq!(edit_grub(GRUB, &[], &["absent"]), GRUB);
@@ -178,7 +228,10 @@ mod tests {
         let v = edit_grub(&added, &["mem_sleep_default=s2idle"], &[]);
         assert!(v.contains("nomodeset mem_sleep_default=s2idle\""));
         let none = "GRUB_DEFAULT=0\n";
-        assert_eq!(edit_grub(none, &["a=1"], &[]), "GRUB_DEFAULT=0\nGRUB_CMDLINE_LINUX_DEFAULT=\"a=1\"\n");
+        assert_eq!(
+            edit_grub(none, &["a=1"], &[]),
+            "GRUB_DEFAULT=0\nGRUB_CMDLINE_LINUX_DEFAULT=\"a=1\"\n"
+        );
     }
 
     #[test]
@@ -186,12 +239,20 @@ mod tests {
         let entry = "title   Arch Linux\nlinux   /vmlinuz-linux\noptions root=UUID=x rw quiet\n";
         let e = edit_entry(entry, &["psmouse.synaptics_intertouch=1"], &[]);
         assert!(e.contains("options root=UUID=x rw quiet psmouse.synaptics_intertouch=1\n"));
-        assert_eq!(edit_entry(&e, &[], &["psmouse.synaptics_intertouch"]), entry);
+        assert_eq!(
+            edit_entry(&e, &[], &["psmouse.synaptics_intertouch"]),
+            entry
+        );
         let refind = "\"Boot with standard options\"  \"ro root=UUID=x quiet\"\n\"Boot to single-user mode\"    \"ro root=UUID=x single\"\n";
         let r = edit_refind(refind, &["mem_sleep_default=deep"], &[]);
-        assert!(r.contains("\"Boot with standard options\"  \"ro root=UUID=x quiet mem_sleep_default=deep\""));
+        assert!(r.contains(
+            "\"Boot with standard options\"  \"ro root=UUID=x quiet mem_sleep_default=deep\""
+        ));
         assert_eq!(edit_refind(&r, &[], &["mem_sleep_default"]), refind);
-        assert_eq!(edit_kernel_cmdline("root=x quiet\n", &["a=1"], &[]), "root=x quiet a=1\n");
+        assert_eq!(
+            edit_kernel_cmdline("root=x quiet\n", &["a=1"], &[]),
+            "root=x quiet a=1\n"
+        );
     }
 
     #[test]
@@ -199,10 +260,23 @@ mod tests {
         let fs = TestFs::new();
         let root = SysRoot::at(fs.root());
         assert_eq!(detect(&root), None);
-        fs.write("boot/loader/entries/arch.conf", "options rw\n").write("etc/kernel/cmdline", "rw\n");
-        assert_eq!(detect(&root), Some(Loader::SystemdBoot { entries: vec!["/boot/loader/entries/arch.conf".into()], kernel_cmdline: true }));
-        fs.write("etc/default/grub", GRUB).write("usr/sbin/update-grub", "");
-        assert_eq!(detect(&root), Some(Loader::Grub { regen: vec!["update-grub".into()] }));
+        fs.write("boot/loader/entries/arch.conf", "options rw\n")
+            .write("etc/kernel/cmdline", "rw\n");
+        assert_eq!(
+            detect(&root),
+            Some(Loader::SystemdBoot {
+                entries: vec!["/boot/loader/entries/arch.conf".into()],
+                kernel_cmdline: true
+            })
+        );
+        fs.write("etc/default/grub", GRUB)
+            .write("usr/sbin/update-grub", "");
+        assert_eq!(
+            detect(&root),
+            Some(Loader::Grub {
+                regen: vec!["update-grub".into()]
+            })
+        );
         fs.write("usr/bin/kernelstub", "");
         assert_eq!(detect(&root), Some(Loader::Kernelstub));
     }

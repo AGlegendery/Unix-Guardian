@@ -17,8 +17,8 @@ static HANDLE: OnceLock<ReloadHandle> = OnceLock::new();
 /// `default_filter` applies unless `UG_LOG` is set. Calling this twice is a
 /// no-op beyond the first, so tests that initialise logging do not fight.
 pub fn init(default_filter: &str) {
-    let filter = EnvFilter::try_from_env("UG_LOG")
-        .unwrap_or_else(|_| EnvFilter::new(default_filter));
+    let filter =
+        EnvFilter::try_from_env("UG_LOG").unwrap_or_else(|_| EnvFilter::new(default_filter));
     let (layer, handle) = reload::Layer::new(filter);
 
     // systemd stamps its own timestamp on anything it captures from stderr, so

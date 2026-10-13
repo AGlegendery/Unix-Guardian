@@ -11,6 +11,7 @@ mod apps;
 mod background;
 mod choices;
 mod core;
+mod deskkeys;
 mod fps;
 mod gamemode;
 mod health;
@@ -23,11 +24,10 @@ mod overlay;
 mod ping;
 mod playtime;
 mod ppd;
-mod settings;
-mod deskkeys;
-mod shortcuts;
 mod programs;
 mod recorder;
+mod settings;
+mod shortcuts;
 mod tray;
 mod update;
 
@@ -41,7 +41,10 @@ use ug_hw::SysRoot;
 use ug_proto::{AGENT_BUS_NAME, AGENT_OBJECT_PATH};
 
 use crate::core::{AgentCore, Outcome};
-use iface::{lock, now_ms, GamesIface, MonitorIface, OverlayIface, PingIface, PlaytimeIface, ProfilesIface, SettingsIface, Shared, ShortcutsIface};
+use iface::{
+    lock, now_ms, GamesIface, MonitorIface, OverlayIface, PingIface, PlaytimeIface, ProfilesIface,
+    SettingsIface, Shared, ShortcutsIface,
+};
 
 const GAMEMODE_NAME: &str = "com.feralinteractive.GameMode";
 const GAMEMODE_PATH: &str = "/com/feralinteractive/GameMode";
@@ -94,12 +97,23 @@ struct DaemonLink {
 
 impl DaemonLink {
     fn new(session: bool) -> Self {
-        DaemonLink { session, conn: None, applied: None, backoff: 0, ticks: 0, last_error: None }
+        DaemonLink {
+            session,
+            conn: None,
+            applied: None,
+            backoff: 0,
+            ticks: 0,
+            last_error: None,
+        }
     }
 
     async fn proxy(&mut self) -> Option<ug_proto::daemon::GameModeProxy<'static>> {
         if self.conn.is_none() {
-            let c = if self.session { zbus::Connection::session().await } else { zbus::Connection::system().await };
+            let c = if self.session {
+                zbus::Connection::session().await
+            } else {
+                zbus::Connection::system().await
+            };
             self.conn = c.ok();
         }
         let conn = self.conn.clone()?;
@@ -132,7 +146,10 @@ impl DaemonLink {
         // The service applies the system-wide settings only when game mode
         // starts; a different profile while on (by hand, or another game's)
         // puts everything back first and applies the new settings.
-        let flags = |r: &ug_proto::GameModeRequest| ug_proto::GameModeRequest { pids: Vec::new(), ..r.clone() };
+        let flags = |r: &ug_proto::GameModeRequest| ug_proto::GameModeRequest {
+            pids: Vec::new(),
+            ..r.clone()
+        };
         if let (Some(w), Some(a)) = (&want, &self.applied) {
             if flags(w) != flags(a) {
                 tracing::info!("game mode settings changed; re-applying");
@@ -172,15 +189,27 @@ impl DaemonLink {
     /// that is working: one that is awake and reports a temperature.
     async fn record_history(&mut self, history: &Arc<history::History>) {
         if self.conn.is_none() {
-            let c = if self.session { zbus::Connection::session().await } else { zbus::Connection::system().await };
+            let c = if self.session {
+                zbus::Connection::session().await
+            } else {
+                zbus::Connection::system().await
+            };
             self.conn = c.ok();
         }
-        let Some(conn) = self.conn.clone() else { return };
-        let Ok(d) = ug_proto::daemon::DaemonProxy::new(&conn).await else { return };
+        let Some(conn) = self.conn.clone() else {
+            return;
+        };
+        let Ok(d) = ug_proto::daemon::DaemonProxy::new(&conn).await else {
+            return;
+        };
         let Ok(s) = d.snapshot().await else { return };
         // An older service has no Extra: the reading is stored without it.
         let extra = d.extra().await.ok();
-        let gpu = s.gpus.iter().find(|g| !g.asleep && !g.temp_c.is_nan()).map(|g| g.pci.clone());
+        let gpu = s
+            .gpus
+            .iter()
+            .find(|g| !g.asleep && !g.temp_c.is_nan())
+            .map(|g| g.pci.clone());
         // Per-app traffic, when the service counts it (internet control on).
         let apps = match ug_proto::daemon::NetProxy::new(&conn).await {
             Ok(n) => n.apps().await.unwrap_or_default(),
@@ -206,15 +235,32 @@ impl DaemonLink {
         pending: &Arc<Mutex<HashMap<u32, String>>>,
     ) {
         let Some(c) = self.conn.clone() else { return };
-        let Ok(net) = ug_proto::daemon::NetProxy::new(&c).await else { return };
-        let (Ok(apps), Ok(rules)) = (net.apps().await, net.rules().await) else { return };
-        let ruled: std::collections::HashSet<String> = rules.iter().map(|r| r.app.to_lowercase()).collect();
-        let Some(a) = background::pick(&apps, &ruled, offered) else { return };
+        let Ok(net) = ug_proto::daemon::NetProxy::new(&c).await else {
+            return;
+        };
+        let (Ok(apps), Ok(rules)) = (net.apps().await, net.rules().await) else {
+            return;
+        };
+        let ruled: std::collections::HashSet<String> =
+            rules.iter().map(|r| r.app.to_lowercase()).collect();
+        let Some(a) = background::pick(&apps, &ruled, offered) else {
+            return;
+        };
         offered.insert(a.name.to_lowercase());
         tracing::info!(app = %a.name, rx = a.rx_bps, tx = a.tx_bps, "background network use during the game");
         let actions = [(notify::LIMIT_WHILE_GAMING, "Limit while I play")];
-        if let Some(id) = notify::show(conn, "Background download", &background::sentence(a), &actions).await {
-            pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id, a.name.clone());
+        if let Some(id) = notify::show(
+            conn,
+            "Background download",
+            &background::sentence(a),
+            &actions,
+        )
+        .await
+        {
+            pending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(id, a.name.clone());
         }
     }
 
@@ -235,21 +281,31 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     ug_core::logging::init(&args.log);
 
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).context("HOME is not set")?;
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .context("HOME is not set")?;
     // SAFETY: getuid cannot fail and has no preconditions.
     let uid = unsafe { libc::getuid() };
     let playtime = Arc::new(
-        playtime::Playtime::open(&ug_core::paths::user_data().join("agent.db")).context("opening the playtime database")?,
+        playtime::Playtime::open(&ug_core::paths::user_data().join("agent.db"))
+            .context("opening the playtime database")?,
     );
 
     let history = Arc::new(
-        history::History::open(&ug_core::paths::user_data().join("agent.db")).context("opening the monitoring history")?,
+        history::History::open(&ug_core::paths::user_data().join("agent.db"))
+            .context("opening the monitoring history")?,
     );
     let test_run = std::env::var("UG_TEST_RUN").ok().filter(|t| !t.is_empty());
     let retired = retire_session_files(test_run.is_some());
     let core: Shared = Arc::new(Mutex::new(
         tokio::task::spawn_blocking(move || {
-            let mut core = AgentCore::new(SysRoot::real(), &home, &ug_core::paths::user_config(), playtime, uid);
+            let mut core = AgentCore::new(
+                SysRoot::real(),
+                &home,
+                &ug_core::paths::user_config(),
+                playtime,
+                uid,
+            );
             core.set_test_run(test_run);
             // In the data folder, not the runtime one: test runs give the
             // agent a scratch data folder, so they never touch this file.
@@ -260,35 +316,98 @@ async fn main() -> Result<()> {
     ));
 
     let pinger = ping::Pinger::new(SysRoot::real());
-    let config_home = ug_core::paths::user_config().parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    let config_home = ug_core::paths::user_config()
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
     let overlay = Arc::new(overlay::Overlay::new(
         fps::Fps::for_user(&config_home, &ug_core::paths::user_data()),
         &ug_core::paths::user_config(),
     ));
     let (announce_tx, mut announce_rx) = tokio::sync::mpsc::unbounded_channel::<Outcome>();
-    let settings = Arc::new(settings::Settings::load(&ug_core::paths::user_config(), args.scan_interval.map(|s| s.max(1))));
+    let settings = Arc::new(settings::Settings::load(
+        &ug_core::paths::user_config(),
+        args.scan_interval.map(|s| s.max(1)),
+    ));
     let (pressed_tx, mut pressed_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let shortcuts = shortcuts::Shortcuts::new(&ug_core::paths::user_config(), pressed_tx);
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
-    let recorder = Arc::new(recorder::Recorder::new(&ug_core::paths::user_config(), &home));
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_default();
+    let recorder = Arc::new(recorder::Recorder::new(
+        &ug_core::paths::user_config(),
+        &home,
+    ));
     // A recorder an older agent lost track of (see recorder.rs) is stopped
     // (not by a test run's agent).
     if std::env::var("UG_TEST_RUN").map_or(true, |t| t.is_empty()) {
         let r = Arc::clone(&recorder);
         tokio::task::spawn_blocking(move || r.stop_leftovers(&[]));
     }
-    let updater = Arc::new(update::Updater::new(&ug_core::paths::user_config(), std::path::Path::new("/")));
+    let updater = Arc::new(update::Updater::new(
+        &ug_core::paths::user_config(),
+        std::path::Path::new("/"),
+    ));
 
     let conn = zbus::connection::Builder::session()?
-        .serve_at(AGENT_OBJECT_PATH, GamesIface { core: Arc::clone(&core), announce: announce_tx.clone() })?
-        .serve_at(AGENT_OBJECT_PATH, PlaytimeIface { core: Arc::clone(&core), announce: announce_tx.clone() })?
-        .serve_at(AGENT_OBJECT_PATH, ProfilesIface { core: Arc::clone(&core) })?
-        .serve_at(AGENT_OBJECT_PATH, MonitorIface { history: Arc::clone(&history), overlay: Arc::clone(&overlay) })?
-        .serve_at(AGENT_OBJECT_PATH, OverlayIface { overlay: Arc::clone(&overlay) })?
-        .serve_at(AGENT_OBJECT_PATH, iface::RecorderIface { recorder: Arc::clone(&recorder) })?
-        .serve_at(AGENT_OBJECT_PATH, PingIface { pinger: pinger.clone() })?
-        .serve_at(AGENT_OBJECT_PATH, SettingsIface { settings: Arc::clone(&settings) })?
-        .serve_at(AGENT_OBJECT_PATH, iface::UpdateIface { updater: Arc::clone(&updater), daemon_session: args.daemon_session })?
+        .serve_at(
+            AGENT_OBJECT_PATH,
+            GamesIface {
+                core: Arc::clone(&core),
+                announce: announce_tx.clone(),
+            },
+        )?
+        .serve_at(
+            AGENT_OBJECT_PATH,
+            PlaytimeIface {
+                core: Arc::clone(&core),
+                announce: announce_tx.clone(),
+            },
+        )?
+        .serve_at(
+            AGENT_OBJECT_PATH,
+            ProfilesIface {
+                core: Arc::clone(&core),
+            },
+        )?
+        .serve_at(
+            AGENT_OBJECT_PATH,
+            MonitorIface {
+                history: Arc::clone(&history),
+                overlay: Arc::clone(&overlay),
+            },
+        )?
+        .serve_at(
+            AGENT_OBJECT_PATH,
+            OverlayIface {
+                overlay: Arc::clone(&overlay),
+            },
+        )?
+        .serve_at(
+            AGENT_OBJECT_PATH,
+            iface::RecorderIface {
+                recorder: Arc::clone(&recorder),
+            },
+        )?
+        .serve_at(
+            AGENT_OBJECT_PATH,
+            PingIface {
+                pinger: pinger.clone(),
+            },
+        )?
+        .serve_at(
+            AGENT_OBJECT_PATH,
+            SettingsIface {
+                settings: Arc::clone(&settings),
+            },
+        )?
+        .serve_at(
+            AGENT_OBJECT_PATH,
+            iface::UpdateIface {
+                updater: Arc::clone(&updater),
+                daemon_session: args.daemon_session,
+            },
+        )?
         .serve_at(
             AGENT_OBJECT_PATH,
             ShortcutsIface {
@@ -328,7 +447,10 @@ async fn main() -> Result<()> {
             }
         }
     };
-    conn.object_server().at(AGENT_OBJECT_PATH, tray::TrayControl { tray }).await.context("serving the tray control")?;
+    conn.object_server()
+        .at(AGENT_OBJECT_PATH, tray::TrayControl { tray })
+        .await
+        .context("serving the tray control")?;
     // Only after the name is ours: a second agent must not bind them too.
     shortcuts.start();
     tracing::info!("agent ready");
@@ -353,10 +475,15 @@ async fn main() -> Result<()> {
     let mut dnd = holds::Hold::new(holds::Kind::DoNotDisturb);
     // power-profiles-daemon lives on the system bus even when the Unix
     // Guardian daemon is a development one on the session bus.
-    let system_bus = if args.daemon_session { None } else { zbus::Connection::system().await.ok() };
+    let system_bus = if args.daemon_session {
+        None
+    } else {
+        zbus::Connection::system().await.ok()
+    };
 
     let scan_ticker = |s: &settings::Settings| {
-        let mut t = tokio::time::interval(Duration::from_secs(s.get().scan_interval_s.max(1).into()));
+        let mut t =
+            tokio::time::interval(Duration::from_secs(s.get().scan_interval_s.max(1).into()));
         t.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         t
     };
@@ -365,7 +492,11 @@ async fn main() -> Result<()> {
     // Notifications: off with --quiet, else as the Settings page says.
     // Do not disturb holds Unix Guardian's own notifications too.
     let quiet_now = std::sync::atomic::AtomicBool::new(false);
-    let notify_on = || !args.quiet && settings.get().notifications && !quiet_now.load(std::sync::atomic::Ordering::Relaxed);
+    let notify_on = || {
+        !args.quiet
+            && settings.get().notifications
+            && !quiet_now.load(std::sync::atomic::Ordering::Relaxed)
+    };
     let mut had_game = false;
     let mut heartbeat = tokio::time::interval(Duration::from_secs(60));
     let mut rescan = tokio::time::interval(Duration::from_secs(600));
@@ -377,19 +508,40 @@ async fn main() -> Result<()> {
         let (session, daemon_session) = (conn.clone(), args.daemon_session);
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(20)).await;
-            let bus = if daemon_session { zbus::Connection::session().await } else { zbus::Connection::system().await };
+            let bus = if daemon_session {
+                zbus::Connection::session().await
+            } else {
+                zbus::Connection::system().await
+            };
             let Ok(bus) = bus else { return };
-            let Ok(d) = ug_proto::daemon::DriverProxy::new(&bus).await else { return };
-            for op in d.ops().await.unwrap_or_default().iter().filter(|o| o.verify == "check") {
+            let Ok(d) = ug_proto::daemon::DriverProxy::new(&bus).await else {
+                return;
+            };
+            for op in d
+                .ops()
+                .await
+                .unwrap_or_default()
+                .iter()
+                .filter(|o| o.verify == "check")
+            {
                 let body = format!("{}: does everything work? Keep it or undo it in Unix Guardian, Driver troubleshooter (or: ug driver keep).", op.title);
-                notify::show(&session, "Check the driver change after the restart", &body, &[]).await;
+                notify::show(
+                    &session,
+                    "Check the driver change after the restart",
+                    &body,
+                    &[],
+                )
+                .await;
             }
         });
     }
     // Old session-wide files were moved aside: say so, since the card
     // switch's is what broke the desktop (see `ug_core::session_env`).
     if !retired.is_empty() && !args.quiet {
-        let moved: Vec<String> = retired.iter().map(|r| r.moved_to.display().to_string()).collect();
+        let moved: Vec<String> = retired
+            .iter()
+            .map(|r| r.moved_to.display().to_string())
+            .collect();
         let body = format!(
             "Unix Guardian no longer sets the graphics card or MangoHud for the whole session; that could break the desktop. \
              The old settings were moved to {}. Programs started with ug run still use the card you chose.",
@@ -399,8 +551,12 @@ async fn main() -> Result<()> {
     }
     // New versions: looked for a minute after login (the network is up by
     // then), then hourly whether a day has passed; never in a test run.
-    let mut update_tick = tokio::time::interval_at(tokio::time::Instant::now() + Duration::from_secs(60), Duration::from_secs(3600));
-    let check_updates = std::env::var_os("UG_TEST_RUN").is_none() || std::env::var_os("UG_UPDATE_FEED").is_some();
+    let mut update_tick = tokio::time::interval_at(
+        tokio::time::Instant::now() + Duration::from_secs(60),
+        Duration::from_secs(3600),
+    );
+    let check_updates =
+        std::env::var_os("UG_TEST_RUN").is_none() || std::env::var_os("UG_UPDATE_FEED").is_some();
     let mut daemon = DaemonLink::new(args.daemon_session);
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     loop {
@@ -498,7 +654,10 @@ async fn follow_game(core: &Shared, pinger: &ping::Pinger) {
     };
     let pids = g.pids.clone();
     let peer =
-        tokio::task::spawn_blocking(move || ug_hw::procnet::game_peer(&SysRoot::real(), &pids)).await.ok().flatten();
+        tokio::task::spawn_blocking(move || ug_hw::procnet::game_peer(&SysRoot::real(), &pids))
+            .await
+            .ok()
+            .flatten();
     pinger.set_game(Some((g.name, peer)));
     pinger.touch();
 }
@@ -528,13 +687,24 @@ fn record_fps_sessions(history: &history::History, overlay: &overlay::Overlay) {
 async fn claim_gamemode(conn: &zbus::Connection, core: &Shared) {
     if let Err(e) = conn
         .object_server()
-        .at(GAMEMODE_PATH, gamemode::GameModeCompat { core: Arc::clone(core) })
+        .at(
+            GAMEMODE_PATH,
+            gamemode::GameModeCompat {
+                core: Arc::clone(core),
+            },
+        )
         .await
     {
         tracing::warn!(error = %e, "could not serve the GameMode interface");
         return;
     }
-    match conn.request_name_with_flags(GAMEMODE_NAME, zbus::fdo::RequestNameFlags::DoNotQueue.into()).await {
+    match conn
+        .request_name_with_flags(
+            GAMEMODE_NAME,
+            zbus::fdo::RequestNameFlags::DoNotQueue.into(),
+        )
+        .await
+    {
         Ok(zbus::fdo::RequestNameReply::PrimaryOwner) => {
             tracing::info!("answering GameMode requests from launchers");
         }
@@ -546,8 +716,17 @@ async fn claim_gamemode(conn: &zbus::Connection, core: &Shared) {
 }
 
 /// Emits the D-Bus signal for a start or stop and shows a notification.
-async fn announce(conn: &zbus::Connection, o: Outcome, notify: bool, pending: &Arc<Mutex<HashMap<u32, String>>>) {
-    let emitter = match conn.object_server().interface::<_, GamesIface>(AGENT_OBJECT_PATH).await {
+async fn announce(
+    conn: &zbus::Connection,
+    o: Outcome,
+    notify: bool,
+    pending: &Arc<Mutex<HashMap<u32, String>>>,
+) {
+    let emitter = match conn
+        .object_server()
+        .interface::<_, GamesIface>(AGENT_OBJECT_PATH)
+        .await
+    {
         Ok(i) => i,
         Err(e) => {
             tracing::warn!(error = %e, "games interface missing");
@@ -563,12 +742,20 @@ async fn announce(conn: &zbus::Connection, o: Outcome, notify: bool, pending: &A
                     format!("Heads up: {}", g.blocked_note)
                 };
                 // Only a guess can be wrong in a way the user fixes by hand.
-                let actions: &[(&str, &str)] =
-                    if g.evidence == "heuristic" { &[(notify::NOT_A_GAME, "Not a game")] } else { &[] };
-                if let Some(id) = notify::show(conn, &format!("{} detected", g.name), &body, actions).await {
+                let actions: &[(&str, &str)] = if g.evidence == "heuristic" {
+                    &[(notify::NOT_A_GAME, "Not a game")]
+                } else {
+                    &[]
+                };
+                if let Some(id) =
+                    notify::show(conn, &format!("{} detected", g.name), &body, actions).await
+                {
                     if g.evidence == "heuristic" {
                         if let Some(exe) = g.key.strip_prefix("exe:") {
-                            pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id, exe.to_string());
+                            pending
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .insert(id, exe.to_string());
                         }
                     }
                 }
@@ -590,17 +777,37 @@ async fn watch_dismissals(
     daemon_session: bool,
     announce: tokio::sync::mpsc::UnboundedSender<Outcome>,
 ) {
-    let Ok(proxy) = notify::NotificationsProxy::new(&conn).await else { return };
-    let Ok(mut clicks) = proxy.receive_action_invoked().await else { return };
+    let Ok(proxy) = notify::NotificationsProxy::new(&conn).await else {
+        return;
+    };
+    let Ok(mut clicks) = proxy.receive_action_invoked().await else {
+        return;
+    };
     while let Some(sig) = clicks.next().await {
         let Ok(args) = sig.args() else { continue };
         if args.action_key == notify::LIMIT_WHILE_GAMING {
-            let app = limits.lock().unwrap_or_else(|e| e.into_inner()).remove(&args.id);
+            let app = limits
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&args.id);
             if let Some(app) = app {
-                let daemon = if daemon_session { zbus::Connection::session().await } else { zbus::Connection::system().await };
+                let daemon = if daemon_session {
+                    zbus::Connection::session().await
+                } else {
+                    zbus::Connection::system().await
+                };
                 let result = match daemon {
                     Ok(d) => match ug_proto::daemon::NetProxy::new(&d).await {
-                        Ok(n) => n.set_rule(&app, false, background::OFFER_UP_KBPS, background::OFFER_DOWN_KBPS, "gaming").await,
+                        Ok(n) => {
+                            n.set_rule(
+                                &app,
+                                false,
+                                background::OFFER_UP_KBPS,
+                                background::OFFER_DOWN_KBPS,
+                                "gaming",
+                            )
+                            .await
+                        }
                         Err(e) => Err(e),
                     },
                     Err(e) => Err(e),
@@ -616,7 +823,10 @@ async fn watch_dismissals(
         if args.action_key != notify::NOT_A_GAME {
             continue;
         }
-        let exe = pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&args.id);
+        let exe = pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&args.id);
         if let Some(exe) = exe {
             tracing::info!(exe, "user says this is not a game");
             for o in lock(&core).ignore(&exe, Instant::now(), now_ms()) {
@@ -635,10 +845,19 @@ async fn watch_dismissals(
 fn retire_session_files(test_run: bool) -> Vec<ug_core::session_env::Retired> {
     let config_home = ug_core::gpu_default::config_home();
     let ug = ug_core::paths::user_config();
-    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0).to_string();
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+        .to_string();
     let results = [
         ug_core::gpu_default::retire_legacy(&config_home, &ug, &stamp),
-        ug_core::session_env::retire(&config_home, &ug, ug_core::session_env::LEGACY_FILES[1], &stamp),
+        ug_core::session_env::retire(
+            &config_home,
+            &ug,
+            ug_core::session_env::LEGACY_FILES[1],
+            &stamp,
+        ),
     ];
     let mut out = Vec::new();
     for r in results {
@@ -651,9 +870,15 @@ fn retire_session_files(test_run: bool) -> Vec<ug_core::session_env::Retired> {
             Err(e) => tracing::warn!(error = %e, "could not move an old session-wide file aside"),
         }
     }
-    let vars: Vec<&str> = out.iter().flat_map(|r| r.vars.iter().map(|(k, _)| k.as_str())).collect();
+    let vars: Vec<&str> = out
+        .iter()
+        .flat_map(|r| r.vars.iter().map(|(k, _)| k.as_str()))
+        .collect();
     if !test_run && !vars.is_empty() {
-        let out = std::process::Command::new("systemctl").args(["--user", "unset-environment"]).args(&vars).output();
+        let out = std::process::Command::new("systemctl")
+            .args(["--user", "unset-environment"])
+            .args(&vars)
+            .output();
         if let Err(e) = out {
             tracing::warn!(error = %e, "could not drop the old variables from the user manager");
         }
@@ -675,8 +900,13 @@ async fn claim_name(conn: &zbus::Connection) -> Result<bool> {
             Err(e) => return Err(e).context("claiming org.unixguardian.Agent1"),
         }
         if stopped.is_none() {
-            let Some(pid) = outdated_owner(conn).await else { return Ok(false) };
-            tracing::warn!(pid, "an agent from before the update is running; stopping it");
+            let Some(pid) = outdated_owner(conn).await else {
+                return Ok(false);
+            };
+            tracing::warn!(
+                pid,
+                "an agent from before the update is running; stopping it"
+            );
             // SAFETY: kill(2) on a process of this user, checked above.
             unsafe { libc::kill(pid as i32, libc::SIGTERM) };
             stopped = Some(pid);

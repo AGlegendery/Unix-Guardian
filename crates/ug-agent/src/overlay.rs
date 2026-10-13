@@ -16,7 +16,13 @@ use ug_proto::{OverlaySettings, OverlayState};
 
 pub const SHOWS: [&str; 3] = ["gaming", "always", "off"];
 pub const LAYOUTS: [&str; 2] = ["card", "compact"];
-pub const POSITIONS: [&str; 5] = ["top-left", "top-right", "bottom-left", "bottom-right", "top-center"];
+pub const POSITIONS: [&str; 5] = [
+    "top-left",
+    "top-right",
+    "bottom-left",
+    "bottom-right",
+    "top-center",
+];
 pub const SIZES: [&str; 3] = ["small", "medium", "large"];
 
 /// Unix Guardian's purple and the chart colours, as MangoHud's hex.
@@ -40,7 +46,10 @@ fn one_of(what: &str, v: &str, choices: &[&str]) -> Result<(), String> {
     if choices.contains(&v) {
         Ok(())
     } else {
-        Err(format!("unknown {what} {v:?}; choose one of {}", choices.join(", ")))
+        Err(format!(
+            "unknown {what} {v:?}; choose one of {}",
+            choices.join(", ")
+        ))
     }
 }
 
@@ -54,8 +63,14 @@ pub fn validate(s: &OverlaySettings) -> Result<(), String> {
     }
     // MangoHud key names: letters, digits, `_` and `+`, e.g. Alt_L+o, Shift_R+F12.
     let k = s.toggle_key.trim();
-    if k.is_empty() || !k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '+') {
-        return Err(format!("{k:?} is not a key MangoHud understands (e.g. Alt_L+o or Shift_R+F12)"));
+    if k.is_empty()
+        || !k
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '+')
+    {
+        return Err(format!(
+            "{k:?} is not a key MangoHud understands (e.g. Alt_L+o or Shift_R+F12)"
+        ));
     }
     Ok(())
 }
@@ -71,8 +86,14 @@ pub fn block(s: &OverlaySettings, logging: &str, visible: bool) -> String {
     };
     l.push(format!("position={}", s.position));
     l.push(format!("font_size={font}"));
-    l.push(format!("background_alpha={:.2}", s.opacity_pct as f64 / 100.0));
-    l.push(format!("round_corners={}", if s.layout == "card" { 10 } else { 6 }));
+    l.push(format!(
+        "background_alpha={:.2}",
+        s.opacity_pct as f64 / 100.0
+    ));
+    l.push(format!(
+        "round_corners={}",
+        if s.layout == "card" { 10 } else { 6 }
+    ));
     l.push(format!("toggle_hud={}", s.toggle_key.trim()));
     l.push("background_color=16141F".into());
     l.push("text_color=ECEAF6".into());
@@ -82,11 +103,36 @@ pub fn block(s: &OverlaySettings, logging: &str, visible: bool) -> String {
     l.push(format!("frametime_color={ACCENT}"));
     if s.layout == "compact" {
         // One line: FPS, frame time and both temperatures.
-        l.extend(["horizontal", "hud_compact", "fps", "frametime=0", "cpu_temp", "gpu_temp", "cpu_stats=0", "gpu_stats=0"].map(String::from));
+        l.extend(
+            [
+                "horizontal",
+                "hud_compact",
+                "fps",
+                "frametime=0",
+                "cpu_temp",
+                "gpu_temp",
+                "cpu_stats=0",
+                "gpu_stats=0",
+            ]
+            .map(String::from),
+        );
     } else {
         l.extend(
-            ["table_columns=3", "fps", "frametime", "frame_timing", "cpu_stats", "cpu_temp", "cpu_power", "gpu_stats", "gpu_temp", "gpu_power", "vram", "ram"]
-                .map(String::from),
+            [
+                "table_columns=3",
+                "fps",
+                "frametime",
+                "frame_timing",
+                "cpu_stats",
+                "cpu_temp",
+                "cpu_power",
+                "gpu_stats",
+                "gpu_temp",
+                "gpu_power",
+                "vram",
+                "ram",
+            ]
+            .map(String::from),
         );
     }
     if !visible {
@@ -116,7 +162,10 @@ impl Overlay {
     }
 
     pub fn settings(&self) -> OverlaySettings {
-        self.settings.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn visible(s: &OverlaySettings, gaming: bool) -> bool {
@@ -147,7 +196,11 @@ impl Overlay {
             return Ok(());
         }
         let s = self.settings();
-        self.fps.write_block(Some(&block(&s, &self.fps.logging_lines(), self.visible_now())))
+        self.fps.write_block(Some(&block(
+            &s,
+            &self.fps.logging_lines(),
+            self.visible_now(),
+        )))
     }
 
     /// Shows the overlay if hidden, hides it if shown, until the next game
@@ -169,7 +222,8 @@ impl Overlay {
             std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
         }
         let json = serde_json::to_string_pretty(&s).expect("settings serialize");
-        std::fs::write(&self.settings_path, json).map_err(|e| format!("{}: {e}", self.settings_path.display()))?;
+        std::fs::write(&self.settings_path, json)
+            .map_err(|e| format!("{}: {e}", self.settings_path.display()))?;
         *self.settings.lock().unwrap_or_else(|e| e.into_inner()) = s;
         self.write()
     }
@@ -181,7 +235,11 @@ impl Overlay {
     pub fn set_up(&self, on: bool) -> Result<(), String> {
         if on {
             let s = self.settings();
-            self.fps.write_block(Some(&block(&s, &self.fps.logging_lines(), self.visible_now())))
+            self.fps.write_block(Some(&block(
+                &s,
+                &self.fps.logging_lines(),
+                self.visible_now(),
+            )))
         } else {
             self.fps.write_block(None)
         }
@@ -198,7 +256,12 @@ impl Overlay {
             *g = gaming;
         }
         // A game starting or stopping ends a choice made by hand.
-        let was_forced = self.forced.lock().unwrap_or_else(|e| e.into_inner()).take().is_some();
+        let was_forced = self
+            .forced
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+            .is_some();
         if self.settings().show == "gaming" || was_forced {
             if let Err(e) = self.write() {
                 tracing::warn!(error = %e, "could not update the overlay");
@@ -219,7 +282,12 @@ mod tests {
             root: d.path().join("root"),
         };
         std::fs::create_dir_all(d.path().join("root/usr/share/vulkan/implicit_layer.d")).unwrap();
-        std::fs::write(d.path().join("root/usr/share/vulkan/implicit_layer.d/MangoHud.json"), "{}").unwrap();
+        std::fs::write(
+            d.path()
+                .join("root/usr/share/vulkan/implicit_layer.d/MangoHud.json"),
+            "{}",
+        )
+        .unwrap();
         let o = Overlay::new(fps, &d.path().join("config/unix-guardian"));
         (d, o)
     }
@@ -230,12 +298,33 @@ mod tests {
 
     #[test]
     fn the_card_layout_logs_every_frame_and_uses_our_colours() {
-        let b = block(&OverlaySettings::default(), "output_folder=/x\nautostart_log=1\nlog_interval=0\n", true);
-        for want in ["position=top-left", "font_size=24", "background_alpha=0.50", "toggle_hud=Alt_L+o", "frame_timing", "gpu_temp", "engine_color=8B5CF6", "log_interval=0"] {
+        let b = block(
+            &OverlaySettings::default(),
+            "output_folder=/x\nautostart_log=1\nlog_interval=0\n",
+            true,
+        );
+        for want in [
+            "position=top-left",
+            "font_size=24",
+            "background_alpha=0.50",
+            "toggle_hud=Alt_L+o",
+            "frame_timing",
+            "gpu_temp",
+            "engine_color=8B5CF6",
+            "log_interval=0",
+        ] {
             assert!(b.lines().any(|l| l == want), "missing {want}");
         }
         assert!(!b.contains("no_display"));
-        let c = block(&OverlaySettings { layout: "compact".into(), size: "large".into(), ..Default::default() }, "", false);
+        let c = block(
+            &OverlaySettings {
+                layout: "compact".into(),
+                size: "large".into(),
+                ..Default::default()
+            },
+            "",
+            false,
+        );
         assert!(c.contains("horizontal") && c.contains("font_size=30") && c.contains("no_display"));
         assert!(!c.contains("frame_timing"));
     }
@@ -265,24 +354,52 @@ mod tests {
         o.toggle().unwrap();
         o.follow(false);
         o.follow(true);
-        assert!(!conf(&o).contains("no_display"), "the next game shows it as the settings say");
+        assert!(
+            !conf(&o).contains("no_display"),
+            "the next game shows it as the settings say"
+        );
     }
 
     #[test]
     fn settings_are_saved_validated_and_applied() {
         let (d, o) = fixture();
         o.set_up(true).unwrap();
-        let s = OverlaySettings { position: "bottom-right".into(), opacity_pct: 80, show: "always".into(), ..Default::default() };
+        let s = OverlaySettings {
+            position: "bottom-right".into(),
+            opacity_pct: 80,
+            show: "always".into(),
+            ..Default::default()
+        };
         o.set(s.clone()).unwrap();
-        assert!(conf(&o).contains("position=bottom-right") && conf(&o).contains("background_alpha=0.80"));
-        assert!(!conf(&o).contains("no_display"), "always: shown even without a game");
+        assert!(
+            conf(&o).contains("position=bottom-right")
+                && conf(&o).contains("background_alpha=0.80")
+        );
+        assert!(
+            !conf(&o).contains("no_display"),
+            "always: shown even without a game"
+        );
         let again = Overlay::new(
-            Fps { folder: o.fps.folder.clone(), config: o.fps.config.clone(), root: o.fps.root.clone() },
+            Fps {
+                folder: o.fps.folder.clone(),
+                config: o.fps.config.clone(),
+                root: o.fps.root.clone(),
+            },
             &d.path().join("config/unix-guardian"),
         );
         assert_eq!(again.settings(), s);
-        assert!(o.set(OverlaySettings { position: "middle".into(), ..Default::default() }).is_err());
-        assert!(o.set(OverlaySettings { toggle_key: "Alt; rm -rf".into(), ..Default::default() }).is_err());
+        assert!(o
+            .set(OverlaySettings {
+                position: "middle".into(),
+                ..Default::default()
+            })
+            .is_err());
+        assert!(o
+            .set(OverlaySettings {
+                toggle_key: "Alt; rm -rf".into(),
+                ..Default::default()
+            })
+            .is_err());
         assert_eq!(o.settings(), s, "a refused change changes nothing");
     }
 
@@ -295,16 +412,27 @@ mod tests {
         std::fs::write(&o.fps.config, "fps_limit=144\n").unwrap();
         o.set_up(true).unwrap();
         // An overlay.json from the old version still says every_game.
-        o.set(OverlaySettings { show: "always".into(), ..Default::default() }).unwrap();
+        o.set(OverlaySettings {
+            show: "always".into(),
+            ..Default::default()
+        })
+        .unwrap();
         let old = r#"{"show":"gaming","layout":"card","position":"top-left","size":"medium","opacity_pct":50,"toggle_key":"Alt_L+o","every_game":true}"#;
-        assert!(serde_json::from_str::<OverlaySettings>(old).is_ok(), "an old overlay.json still loads");
+        assert!(
+            serde_json::from_str::<OverlaySettings>(old).is_ok(),
+            "an old overlay.json still loads"
+        );
         // The fixture's `config` is `~/.config`, its root the home.
         for s in ug_core::session_env::SESSION_WIDE {
             let p = d.path().join(s.replacen(".config", "config", 1));
             assert!(!p.exists(), "{s} was written");
         }
         o.set_up(false).unwrap();
-        assert_eq!(conf(&o), "fps_limit=144\n", "the user's own line is all that is left");
+        assert_eq!(
+            conf(&o),
+            "fps_limit=144\n",
+            "the user's own line is all that is left"
+        );
     }
 
     #[test]

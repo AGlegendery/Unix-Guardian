@@ -21,7 +21,9 @@ fn main() {
     let r = match args.as_slice() {
         [k, dir] if k == "keygen" => keygen(std::path::Path::new(dir), bare, password()),
         [key, files @ ..] if !files.is_empty() => sign(key, files, bare, password()),
-        _ => Err("usage: sign keygen DIR [--no-password] | sign KEY FILE... [--no-password]".into()),
+        _ => {
+            Err("usage: sign keygen DIR [--no-password] | sign KEY FILE... [--no-password]".into())
+        }
     };
     if let Err(e) = r {
         eprintln!("sign: {e}");
@@ -33,7 +35,10 @@ fn keygen(dir: &std::path::Path, bare: bool, password: Option<String>) -> Result
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let sk_path = dir.join("unix-guardian.key");
     if sk_path.exists() {
-        return Err(format!("{} exists already; not overwriting a key", sk_path.display()));
+        return Err(format!(
+            "{} exists already; not overwriting a key",
+            sk_path.display()
+        ));
     }
     let kp = if bare {
         minisign::KeyPair::generate_unencrypted_keypair()
@@ -41,7 +46,11 @@ fn keygen(dir: &std::path::Path, bare: bool, password: Option<String>) -> Result
         minisign::KeyPair::generate_encrypted_keypair(password)
     }
     .map_err(|e| e.to_string())?;
-    let sk = kp.sk.to_box(Some("Unix Guardian release key")).map_err(|e| e.to_string())?.into_string();
+    let sk = kp
+        .sk
+        .to_box(Some("Unix Guardian release key"))
+        .map_err(|e| e.to_string())?
+        .into_string();
     let mut f = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -57,7 +66,10 @@ fn keygen(dir: &std::path::Path, bare: bool, password: Option<String>) -> Result
 
 fn sign(key: &str, files: &[String], bare: bool, password: Option<String>) -> Result<(), String> {
     let sk = if bare {
-        let b = minisign::SecretKeyBox::from_string(&std::fs::read_to_string(key).map_err(|e| format!("{key}: {e}"))?).map_err(|e| e.to_string())?;
+        let b = minisign::SecretKeyBox::from_string(
+            &std::fs::read_to_string(key).map_err(|e| format!("{key}: {e}"))?,
+        )
+        .map_err(|e| e.to_string())?;
         b.into_unencrypted_secret_key()
     } else {
         minisign::SecretKey::from_file(key, password)
@@ -65,8 +77,12 @@ fn sign(key: &str, files: &[String], bare: bool, password: Option<String>) -> Re
     .map_err(|e| e.to_string())?;
     for f in files {
         let data = std::fs::File::open(f).map_err(|e| format!("{f}: {e}"))?;
-        let name = std::path::Path::new(f).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        let sig = minisign::sign(None, &sk, data, Some(&format!("file:{name}")), None).map_err(|e| e.to_string())?;
+        let name = std::path::Path::new(f)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let sig = minisign::sign(None, &sk, data, Some(&format!("file:{name}")), None)
+            .map_err(|e| e.to_string())?;
         std::fs::write(format!("{f}.minisig"), sig.to_string()).map_err(|e| e.to_string())?;
         println!("signed {f}");
     }

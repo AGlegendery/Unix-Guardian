@@ -57,8 +57,14 @@ impl Cooling {
     pub fn new(root: SysRoot, simulated: bool, state_dir: &Path) -> Cooling {
         let saved_path = state_dir.join("fan-curves.json");
         let restore_path = state_dir.join("fans-restore.json");
-        let saved: Saved = std::fs::read_to_string(&saved_path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-        let restore: Restore = std::fs::read_to_string(&restore_path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        let saved: Saved = std::fs::read_to_string(&saved_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        let restore: Restore = std::fs::read_to_string(&restore_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
         let mut c = Cooling {
             root,
             simulated,
@@ -72,20 +78,35 @@ impl Cooling {
         };
         // A crash left fans in manual mode: give them back first.
         if !c.restore.fans.is_empty() {
-            tracing::warn!(fans = c.restore.fans.len(), "fans were left under Unix Guardian's control; handing them back");
+            tracing::warn!(
+                fans = c.restore.fans.len(),
+                "fans were left under Unix Guardian's control; handing them back"
+            );
             c.restore_all();
         }
         c
     }
 
     fn save(&self) {
-        let s = Saved { curves: self.curves.clone() };
-        let _ = ug_core::paths::write_atomic(&self.saved_path, serde_json::to_string_pretty(&s).expect("serialize").as_bytes());
+        let s = Saved {
+            curves: self.curves.clone(),
+        };
+        let _ = ug_core::paths::write_atomic(
+            &self.saved_path,
+            serde_json::to_string_pretty(&s)
+                .expect("serialize")
+                .as_bytes(),
+        );
     }
 
     fn save_restore(&self) -> Result<(), String> {
-        ug_core::paths::write_atomic(&self.restore_path, serde_json::to_string(&self.restore).expect("serialize").as_bytes())
-            .map_err(|e| e.to_string())
+        ug_core::paths::write_atomic(
+            &self.restore_path,
+            serde_json::to_string(&self.restore)
+                .expect("serialize")
+                .as_bytes(),
+        )
+        .map_err(|e| e.to_string())
     }
 
     /// Every fan back to what it was before Unix Guardian took it.
@@ -108,7 +129,11 @@ impl Cooling {
     }
 
     pub fn state(&self) -> CoolingState {
-        let mut st = CoolingState { fan_mode: -1, simulated: self.simulated, ..Default::default() };
+        let mut st = CoolingState {
+            fan_mode: -1,
+            simulated: self.simulated,
+            ..Default::default()
+        };
         for f in fans::discover(&self.root) {
             let curve = self.curves.get(&f.id).cloned().unwrap_or_default();
             st.fans.push(FanInfo {
@@ -119,14 +144,21 @@ impl Cooling {
                 rpm: f.rpm.unwrap_or(0),
                 pct: f.pwm.map(|p| p as f64 * 100.0 / 255.0).unwrap_or(f64::NAN),
                 temp_c: fans::source_temp(&self.root, &f).unwrap_or(f64::NAN),
-                mode: if curve.is_empty() { "auto".into() } else { "curve".into() },
+                mode: if curve.is_empty() {
+                    "auto".into()
+                } else {
+                    "curve".into()
+                },
                 curve,
                 id: f.id,
             });
         }
         if let Ok(v) = std::fs::read_to_string(self.root.join(IDEAPAD_FAN_MODE)) {
             st.fan_mode = v.trim().parse().unwrap_or(-1);
-            st.fan_modes = IDEAPAD_MODES.iter().map(|(v, n)| (*v, n.to_string())).collect();
+            st.fan_modes = IDEAPAD_MODES
+                .iter()
+                .map(|(v, n)| (*v, n.to_string()))
+                .collect();
         }
         if st.fans.is_empty() {
             st.notes.push(if st.fan_mode >= 0 {
@@ -137,20 +169,27 @@ impl Cooling {
             });
         }
         if self.simulated {
-            st.notes.push("Development service: shown, never changed.".into());
+            st.notes
+                .push("Development service: shown, never changed.".into());
         }
         st
     }
 
     pub fn set_curve(&mut self, id: &str, points: Vec<(f64, f64)>) -> Result<(), String> {
         fans::validate(&points)?;
-        let fan = fans::discover(&self.root).into_iter().find(|f| f.id == id).ok_or_else(|| format!("no fan {id}"))?;
+        let fan = fans::discover(&self.root)
+            .into_iter()
+            .find(|f| f.id == id)
+            .ok_or_else(|| format!("no fan {id}"))?;
         if self.simulated {
             return Err("development service: nothing is changed".into());
         }
         if !self.restore.fans.contains_key(id) {
             // Recorded before the switch, so a crash right after still restores it.
-            self.restore.fans.insert(id.to_string(), (fan.dir.clone(), fan.n, fan.enable.unwrap_or(2)));
+            self.restore.fans.insert(
+                id.to_string(),
+                (fan.dir.clone(), fan.n, fan.enable.unwrap_or(2)),
+            );
             self.save_restore()?;
             write(&fan.dir.join(format!("pwm{}_enable", fan.n)), "1")?;
         }
@@ -188,11 +227,17 @@ impl Cooling {
         }
         let all = fans::discover(&self.root);
         for (id, curve) in self.curves.clone() {
-            let Some(f) = all.iter().find(|f| f.id == id) else { continue };
+            let Some(f) = all.iter().find(|f| f.id == id) else {
+                continue;
+            };
             if !self.restore.fans.contains_key(&id) {
                 // Applied again after a restart: take it over the same way.
-                self.restore.fans.insert(id.clone(), (f.dir.clone(), f.n, f.enable.unwrap_or(2)));
-                if self.save_restore().is_err() || write(&f.dir.join(format!("pwm{}_enable", f.n)), "1").is_err() {
+                self.restore
+                    .fans
+                    .insert(id.clone(), (f.dir.clone(), f.n, f.enable.unwrap_or(2)));
+                if self.save_restore().is_err()
+                    || write(&f.dir.join(format!("pwm{}_enable", f.n)), "1").is_err()
+                {
                     continue;
                 }
             }
@@ -204,7 +249,10 @@ impl Cooling {
                     let target = fans::curve_pct(&curve, e);
                     let pct = fans::next_pct(*self.pct.get(&id).unwrap_or(&0.0), target, 5.0);
                     self.pct.insert(id.clone(), pct);
-                    let _ = write(&f.dir.join(format!("pwm{}", f.n)), &((pct * 255.0 / 100.0).round() as u32).to_string());
+                    let _ = write(
+                        &f.dir.join(format!("pwm{}", f.n)),
+                        &((pct * 255.0 / 100.0).round() as u32).to_string(),
+                    );
                 }
                 None => {
                     let m = self.misses.entry(id.clone()).or_insert(0);
@@ -252,12 +300,19 @@ fn lock(c: &SharedCooling) -> std::sync::MutexGuard<'_, Cooling> {
 impl CoolingIface {
     async fn state(&self) -> CoolingState {
         let c = Arc::clone(&self.cooling);
-        tokio::task::spawn_blocking(move || lock(&c).state()).await.unwrap_or_default()
+        tokio::task::spawn_blocking(move || lock(&c).state())
+            .await
+            .unwrap_or_default()
     }
 
     /// Drives a fan by a curve of (°C, %) points; refused if it would run
     /// below 30 % at 80 °C or more.
-    async fn set_curve(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, id: &str, points: Vec<(f64, f64)>) -> zbus::fdo::Result<()> {
+    async fn set_curve(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        id: &str,
+        points: Vec<(f64, f64)>,
+    ) -> zbus::fdo::Result<()> {
         self.gate.authorize(&hdr, action::COOLING).await?;
         let c = Arc::clone(&self.cooling);
         let id = id.to_string();
@@ -278,7 +333,11 @@ impl CoolingIface {
     }
 
     /// The laptop firmware's fan mode (see `State().fan_modes`).
-    async fn set_fan_mode(&self, #[zbus(header)] hdr: zbus::message::Header<'_>, mode: i32) -> zbus::fdo::Result<()> {
+    async fn set_fan_mode(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        mode: i32,
+    ) -> zbus::fdo::Result<()> {
         self.gate.authorize(&hdr, action::COOLING).await?;
         let c = Arc::clone(&self.cooling);
         tokio::task::spawn_blocking(move || lock(&c).set_fan_mode(mode))
@@ -296,12 +355,18 @@ mod tests {
     const G: &str = "sys/class/hwmon/hwmon3";
 
     fn card(fs: &TestFs, temp_milli: u32) {
-        fs.write(format!("{G}/name"), "amdgpu").write(format!("{G}/pwm1"), "100").write(format!("{G}/pwm1_enable"), "2");
-        fs.write(format!("{G}/temp2_label"), "junction").write(format!("{G}/temp2_input"), &temp_milli.to_string());
+        fs.write(format!("{G}/name"), "amdgpu")
+            .write(format!("{G}/pwm1"), "100")
+            .write(format!("{G}/pwm1_enable"), "2");
+        fs.write(format!("{G}/temp2_label"), "junction")
+            .write(format!("{G}/temp2_input"), &temp_milli.to_string());
     }
 
     fn get(fs: &TestFs, f: &str) -> String {
-        std::fs::read_to_string(fs.root().join(format!("{G}/{f}"))).unwrap().trim().to_string()
+        std::fs::read_to_string(fs.root().join(format!("{G}/{f}")))
+            .unwrap()
+            .trim()
+            .to_string()
     }
 
     #[test]
@@ -310,12 +375,18 @@ mod tests {
         card(&fs, 70_000);
         let d = tempfile::tempdir().unwrap();
         let mut c = Cooling::new(SysRoot::at(fs.root()), false, d.path());
-        c.set_curve("amdgpu/pwm1", vec![(40.0, 20.0), (80.0, 100.0)]).unwrap();
+        c.set_curve("amdgpu/pwm1", vec![(40.0, 20.0), (80.0, 100.0)])
+            .unwrap();
         assert_eq!(get(&fs, "pwm1_enable"), "1");
         assert_eq!(get(&fs, "pwm1"), "204", "70 °C → 80 % → 204/255");
         c.set_auto("amdgpu/pwm1").unwrap();
         assert_eq!(get(&fs, "pwm1_enable"), "2", "back to what it was");
-        assert!(!d.path().join("fans-restore.json").exists() || std::fs::read_to_string(d.path().join("fans-restore.json")).unwrap().contains("{}"));
+        assert!(
+            !d.path().join("fans-restore.json").exists()
+                || std::fs::read_to_string(d.path().join("fans-restore.json"))
+                    .unwrap()
+                    .contains("{}")
+        );
     }
 
     #[test]
@@ -324,7 +395,8 @@ mod tests {
         card(&fs, 60_000);
         let d = tempfile::tempdir().unwrap();
         let mut c = Cooling::new(SysRoot::at(fs.root()), false, d.path());
-        c.set_curve("amdgpu/pwm1", vec![(40.0, 30.0), (80.0, 100.0)]).unwrap();
+        c.set_curve("amdgpu/pwm1", vec![(40.0, 30.0), (80.0, 100.0)])
+            .unwrap();
         std::mem::forget(c); // killed
         assert_eq!(get(&fs, "pwm1_enable"), "1");
         let _again = Cooling::new(SysRoot::at(fs.root()), false, d.path());
@@ -337,7 +409,8 @@ mod tests {
         card(&fs, 60_000);
         let d = tempfile::tempdir().unwrap();
         let mut c = Cooling::new(SysRoot::at(fs.root()), false, d.path());
-        c.set_curve("amdgpu/pwm1", vec![(40.0, 30.0), (80.0, 100.0)]).unwrap();
+        c.set_curve("amdgpu/pwm1", vec![(40.0, 30.0), (80.0, 100.0)])
+            .unwrap();
         std::fs::remove_file(fs.root().join(format!("{G}/temp2_input"))).unwrap();
         std::fs::remove_file(fs.root().join(format!("{G}/temp2_label"))).unwrap();
         for _ in 0..5 {
@@ -353,7 +426,9 @@ mod tests {
         card(&fs, 60_000);
         let d = tempfile::tempdir().unwrap();
         let mut c = Cooling::new(SysRoot::at(fs.root()), true, d.path());
-        assert!(c.set_curve("amdgpu/pwm1", vec![(40.0, 30.0), (80.0, 100.0)]).is_err());
+        assert!(c
+            .set_curve("amdgpu/pwm1", vec![(40.0, 30.0), (80.0, 100.0)])
+            .is_err());
         assert_eq!(get(&fs, "pwm1_enable"), "2");
     }
 
@@ -368,7 +443,10 @@ mod tests {
         assert_eq!(st.fan_modes.len(), 3);
         assert!(st.notes[0].contains("firmware"));
         c.set_fan_mode(4).unwrap();
-        assert_eq!(std::fs::read_to_string(fs.root().join(IDEAPAD_FAN_MODE)).unwrap(), "4");
+        assert_eq!(
+            std::fs::read_to_string(fs.root().join(IDEAPAD_FAN_MODE)).unwrap(),
+            "4"
+        );
         assert!(c.set_fan_mode(2).is_err(), "dust cleaning is not offered");
     }
 }

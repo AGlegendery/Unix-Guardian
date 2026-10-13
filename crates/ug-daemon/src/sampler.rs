@@ -108,7 +108,11 @@ impl Sampler {
     /// This is the one call that may wake a sleeping GPU: answering it needs
     /// the vendor library, and it only runs when the user asks.
     /// Runs `f` with the backend of the GPU at `pci`.
-    pub fn gpu_backend<T>(&self, pci: &str, f: impl FnOnce(&dyn ug_gpu::GpuBackend) -> T) -> Option<T> {
+    pub fn gpu_backend<T>(
+        &self,
+        pci: &str,
+        f: impl FnOnce(&dyn ug_gpu::GpuBackend) -> T,
+    ) -> Option<T> {
         let r = self.gpus.backend(pci).map(f);
         self.gpu_activity.notify_one();
         r
@@ -234,8 +238,14 @@ mod tests {
         // Every machine this is expected to run on has a package sensor. If
         // this fails on a CI container, the hwmon mapping needs a new name.
         if let Some(t) = snap.cpu.temp() {
-            assert!((0.0..150.0).contains(&t), "implausible CPU temperature: {t}");
+            assert!(
+                (0.0..150.0).contains(&t),
+                "implausible CPU temperature: {t}"
+            );
         }
-        assert!(!s.inventory().cpu.model.is_empty(), "CPU model must be readable");
+        assert!(
+            !s.inventory().cpu.model.is_empty(),
+            "CPU model must be readable"
+        );
     }
 }

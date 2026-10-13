@@ -47,14 +47,24 @@ impl Steam {
         }
         let localconfig = roots
             .iter()
-            .flat_map(|r| std::fs::read_dir(r.join("userdata")).into_iter().flatten().flatten())
+            .flat_map(|r| {
+                std::fs::read_dir(r.join("userdata"))
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+            })
             .map(|account| account.path().join("config/localconfig.vdf"))
             .filter_map(|f| Some((std::fs::metadata(&f).ok()?.modified().ok()?, f)))
             .max_by_key(|(modified, _)| *modified)
             .map(|(_, f)| f)
             .ok_or("Steam has not been signed in on this computer yet.")?;
-        let flatpak = localconfig.components().any(|c| c.as_os_str() == "com.valvesoftware.Steam");
-        Ok(Steam { localconfig, flatpak })
+        let flatpak = localconfig
+            .components()
+            .any(|c| c.as_os_str() == "com.valvesoftware.Steam");
+        Ok(Steam {
+            localconfig,
+            flatpak,
+        })
     }
 }
 
@@ -118,7 +128,13 @@ pub struct Launch {
 }
 
 impl Launch {
-    pub fn new(steam: Steam, root: SysRoot, home: &Path, config_dir: &Path, data_dir: &Path) -> Launch {
+    pub fn new(
+        steam: Steam,
+        root: SysRoot,
+        home: &Path,
+        config_dir: &Path,
+        data_dir: &Path,
+    ) -> Launch {
         Launch {
             steam,
             root,
@@ -129,7 +145,10 @@ impl Launch {
     }
 
     fn records(&self) -> BTreeMap<u32, Record> {
-        std::fs::read_to_string(&self.records).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+        std::fs::read_to_string(&self.records)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default()
     }
 
     fn save_records(&self, r: &BTreeMap<u32, Record>) -> Result<(), String> {
@@ -139,21 +158,48 @@ impl Launch {
 
     /// The launch options Steam has now for `appid` ("" for none).
     pub fn current(&self, appid: u32) -> Result<String, String> {
-        let text = std::fs::read_to_string(&self.steam.localconfig).map_err(|e| format!("{}: {e}", self.steam.localconfig.display()))?;
-        let doc = Vdf::parse(&text).ok_or_else(|| format!("{} did not parse", self.steam.localconfig.display()))?;
+        let text = std::fs::read_to_string(&self.steam.localconfig)
+            .map_err(|e| format!("{}: {e}", self.steam.localconfig.display()))?;
+        let doc = Vdf::parse(&text)
+            .ok_or_else(|| format!("{} did not parse", self.steam.localconfig.display()))?;
         let id = appid.to_string();
         let mut path: Vec<&str> = APPS.to_vec();
         path.extend([id.as_str(), KEY]);
-        Ok(doc.path(&path).and_then(Vdf::as_str).unwrap_or_default().to_string())
+        Ok(doc
+            .path(&path)
+            .and_then(Vdf::as_str)
+            .unwrap_or_default()
+            .to_string())
     }
 
     pub fn state(&self, appid: u32) -> Result<State, String> {
         let current = self.current(appid)?;
-        let record = self.records().remove(&appid).filter(|r| r.file == self.steam.localconfig);
+        let record = self
+            .records()
+            .remove(&appid)
+            .filter(|r| r.file == self.steam.localconfig);
         Ok(match record {
-            Some(r) if r.ours == current => State { appid, own: r.own, additions: r.additions, current, changed_outside: false },
-            Some(_) => State { appid, own: current.clone(), additions: Additions::default(), current, changed_outside: true },
-            None => State { appid, own: current.clone(), additions: Additions::default(), current, changed_outside: false },
+            Some(r) if r.ours == current => State {
+                appid,
+                own: r.own,
+                additions: r.additions,
+                current,
+                changed_outside: false,
+            },
+            Some(_) => State {
+                appid,
+                own: current.clone(),
+                additions: Additions::default(),
+                current,
+                changed_outside: true,
+            },
+            None => State {
+                appid,
+                own: current.clone(),
+                additions: Additions::default(),
+                current,
+                changed_outside: false,
+            },
         })
     }
 
@@ -173,18 +219,31 @@ impl Launch {
         }
         let state = self.state(appid)?;
         let options = self.preview(appid, add)?;
-        let src = std::fs::read_to_string(&self.steam.localconfig).map_err(|e| format!("{}: {e}", self.steam.localconfig.display()))?;
+        let src = std::fs::read_to_string(&self.steam.localconfig)
+            .map_err(|e| format!("{}: {e}", self.steam.localconfig.display()))?;
         let id = appid.to_string();
         let mut path: Vec<&str> = APPS.to_vec();
         path.push(id.as_str());
         // No options at all: no key, as Steam has it for a game never given any.
-        let new = if options.is_empty() { vdf::remove_key(&src, &path, KEY)? } else { vdf::set_string(&src, &path, KEY, &options)? };
+        let new = if options.is_empty() {
+            vdf::remove_key(&src, &path, KEY)?
+        } else {
+            vdf::set_string(&src, &path, KEY, &options)?
+        };
 
         let backup = self.backup(&src)?;
-        write_replacing(&self.steam.localconfig, new.as_bytes(), Some(&self.steam.localconfig))?;
+        write_replacing(
+            &self.steam.localconfig,
+            new.as_bytes(),
+            Some(&self.steam.localconfig),
+        )?;
         if self.current(appid).ok().as_deref() != Some(options.as_str()) {
             // Never leave Steam's file half right: put the backup back.
-            let _ = write_replacing(&self.steam.localconfig, src.as_bytes(), Some(&self.steam.localconfig));
+            let _ = write_replacing(
+                &self.steam.localconfig,
+                src.as_bytes(),
+                Some(&self.steam.localconfig),
+            );
             return Err("the launch options did not read back as written; Steam's file was restored from the backup".into());
         }
 
@@ -194,7 +253,12 @@ impl Launch {
         } else {
             records.insert(
                 appid,
-                Record { own: state.own, ours: options.clone(), additions: add.clone(), file: self.steam.localconfig.clone() },
+                Record {
+                    own: state.own,
+                    ours: options.clone(),
+                    additions: add.clone(),
+                    file: self.steam.localconfig.clone(),
+                },
             );
         }
         self.save_records(&records)?;
@@ -223,11 +287,17 @@ impl Launch {
     }
 
     /// Unix Guardian's variables and wrapper for `add`, for this Steam.
-    fn additions_text(&self, add: &Additions) -> Result<(Vec<(String, String)>, Option<&'static str>), String> {
+    fn additions_text(
+        &self,
+        add: &Additions,
+    ) -> Result<(Vec<(String, String)>, Option<&'static str>), String> {
         let mut env = Vec::new();
         if !add.gpu.is_empty() {
             let gpus = gpu_use::gpus(&self.root);
-            let gpu = gpus.iter().find(|g| g.pci == add.gpu).ok_or_else(|| format!("no GPU at {}", add.gpu))?;
+            let gpu = gpus
+                .iter()
+                .find(|g| g.pci == add.gpu)
+                .ok_or_else(|| format!("no GPU at {}", add.gpu))?;
             env.extend(launch_env(&self.root, gpu, self.steam.flatpak));
         }
         let mut wrapper = None;
@@ -252,16 +322,25 @@ impl Launch {
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
         let path = self.backups.join(format!("localconfig-{account}-{ms}.vdf"));
-        std::fs::create_dir_all(&self.backups).map_err(|e| format!("{}: {e}", self.backups.display()))?;
+        std::fs::create_dir_all(&self.backups)
+            .map_err(|e| format!("{}: {e}", self.backups.display()))?;
         std::fs::write(&path, src).map_err(|e| format!("{}: {e}", path.display()))?;
         let mut ours: Vec<PathBuf> = std::fs::read_dir(&self.backups)
             .into_iter()
             .flatten()
             .flatten()
             .map(|e| e.path())
-            .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(&format!("localconfig-{account}-"))))
+            .filter(|p| {
+                p.file_name().is_some_and(|n| {
+                    n.to_string_lossy()
+                        .starts_with(&format!("localconfig-{account}-"))
+                })
+            })
             .collect();
         ours.sort();
         for old in ours.iter().rev().skip(BACKUPS_KEPT) {
@@ -275,7 +354,10 @@ impl Launch {
 /// Vulkan driver list (`VK_DRIVER_FILES`) names files the sandbox does not
 /// have, so it is left out there.
 pub fn launch_env(root: &SysRoot, gpu: &Gpu, flatpak: bool) -> Vec<(String, String)> {
-    gpu_use::offload_env(root, gpu).into_iter().filter(|(k, _)| !(flatpak && k == "VK_DRIVER_FILES")).collect()
+    gpu_use::offload_env(root, gpu)
+        .into_iter()
+        .filter(|(k, _)| !(flatpak && k == "VK_DRIVER_FILES"))
+        .collect()
 }
 
 /// Whether the overlay can be loaded into a game of this Steam, and if not,
@@ -283,8 +365,12 @@ pub fn launch_env(root: &SysRoot, gpu: &Gpu, flatpak: bool) -> Vec<(String, Stri
 pub fn overlay_available(root: &SysRoot, home: &Path, flatpak: bool) -> Result<(), String> {
     const LAYER: &str = "org.freedesktop.Platform.VulkanLayer.MangoHud";
     if flatpak {
-        let system = root.join(format!("var/lib/flatpak/runtime/{LAYER}")).exists();
-        let user = home.join(format!(".local/share/flatpak/runtime/{LAYER}")).exists();
+        let system = root
+            .join(format!("var/lib/flatpak/runtime/{LAYER}"))
+            .exists();
+        let user = home
+            .join(format!(".local/share/flatpak/runtime/{LAYER}"))
+            .exists();
         return (system || user)
             .then_some(())
             .ok_or_else(|| format!("Steam is the Flatpak one: MangoHud needs its Flatpak layer (flatpak install flathub {LAYER})."));
@@ -299,11 +385,16 @@ pub fn overlay_available(root: &SysRoot, home: &Path, flatpak: bool) -> Result<(
 /// Steam is running for this user: its main process or its web helper.
 pub fn steam_running(root: &SysRoot, uid: u32) -> bool {
     crate::proc::pids(root).into_iter().any(|pid| {
-        let comm = std::fs::read_to_string(root.join(format!("proc/{pid}/comm"))).unwrap_or_default();
+        let comm =
+            std::fs::read_to_string(root.join(format!("proc/{pid}/comm"))).unwrap_or_default();
         matches!(comm.trim(), "steam" | "steamwebhelper")
             && std::fs::read_to_string(root.join(format!("proc/{pid}/status")))
                 .ok()
-                .and_then(|s| s.lines().find_map(|l| l.strip_prefix("Uid:")).and_then(|l| l.split_whitespace().next()?.parse::<u32>().ok()))
+                .and_then(|s| {
+                    s.lines()
+                        .find_map(|l| l.strip_prefix("Uid:"))
+                        .and_then(|l| l.split_whitespace().next()?.parse::<u32>().ok())
+                })
                 == Some(uid)
     })
 }
@@ -312,14 +403,26 @@ pub fn steam_running(root: &SysRoot, uid: u32) -> bool {
 /// With nothing to add, the own options come back unchanged.
 pub fn compose(own: &str, env: &[(String, String)], wrapper: Option<&str>) -> String {
     let words = words(own);
-    let has = |name: &str| words.iter().any(|(w, _)| w.split_once('=').is_some_and(|(k, _)| k == name));
-    let env: Vec<String> = env.iter().filter(|(k, _)| !has(k)).map(|(k, v)| format!("{k}={v}")).collect();
+    let has = |name: &str| {
+        words
+            .iter()
+            .any(|(w, _)| w.split_once('=').is_some_and(|(k, _)| k == name))
+    };
+    let env: Vec<String> = env
+        .iter()
+        .filter(|(k, _)| !has(k))
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect();
     let wrapper = wrapper.filter(|w| !words.iter().any(|(x, _)| x == w));
     if env.is_empty() && wrapper.is_none() {
         return own.to_string();
     }
     // The user's own leading variables stay in front of any wrapper.
-    let split = words.iter().find(|(w, _)| !is_assignment(w)).map(|(_, at)| *at).unwrap_or(own.len());
+    let split = words
+        .iter()
+        .find(|(w, _)| !is_assignment(w))
+        .map(|(_, at)| *at)
+        .unwrap_or(own.len());
     let (user_env, rest) = (own[..split].trim(), own[split..].trim());
     let mut parts: Vec<&str> = env.iter().map(String::as_str).collect();
     if !user_env.is_empty() {
@@ -342,7 +445,9 @@ pub fn compose(own: &str, env: &[(String, String)], wrapper: Option<&str>) -> St
 
 fn is_assignment(word: &str) -> bool {
     word.split_once('=').is_some_and(|(k, _)| {
-        !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !k.starts_with(|c: char| c.is_ascii_digit())
+        !k.is_empty()
+            && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && !k.starts_with(|c: char| c.is_ascii_digit())
     })
 }
 
@@ -389,7 +494,10 @@ fn write_replacing(path: &Path, bytes: &[u8], mode_of: Option<&Path>) -> Result<
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let tmp = path.with_extension(format!("ug-tmp.{}", std::process::id()));
     std::fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
-    if let Some(perm) = mode_of.and_then(|m| std::fs::metadata(m).ok()).map(|m| m.permissions()) {
+    if let Some(perm) = mode_of
+        .and_then(|m| std::fs::metadata(m).ok())
+        .map(|m| m.permissions())
+    {
         let _ = std::fs::set_permissions(&tmp, perm);
     }
     std::fs::rename(&tmp, path).map_err(|e| {
@@ -407,24 +515,52 @@ mod tests {
     const LOCALCONFIG: &str = "\"UserLocalConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"apps\"\n\t\t\t\t{\n\t\t\t\t\t\"730\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"LaunchOptions\"\t\t\"-novid\"\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n";
 
     fn env(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn additions_go_around_the_games_own_options() {
         let nv = env(&[("__NV_PRIME_RENDER_OFFLOAD", "1")]);
-        assert_eq!(compose("", &nv, Some("mangohud")), "__NV_PRIME_RENDER_OFFLOAD=1 mangohud %command%");
-        assert_eq!(compose("-novid -high", &nv, None), "__NV_PRIME_RENDER_OFFLOAD=1 %command% -novid -high", "plain arguments stay after the game");
-        assert_eq!(compose("gamemoderun %command% -x", &[], Some("mangohud")), "mangohud gamemoderun %command% -x");
+        assert_eq!(
+            compose("", &nv, Some("mangohud")),
+            "__NV_PRIME_RENDER_OFFLOAD=1 mangohud %command%"
+        );
+        assert_eq!(
+            compose("-novid -high", &nv, None),
+            "__NV_PRIME_RENDER_OFFLOAD=1 %command% -novid -high",
+            "plain arguments stay after the game"
+        );
+        assert_eq!(
+            compose("gamemoderun %command% -x", &[], Some("mangohud")),
+            "mangohud gamemoderun %command% -x"
+        );
         assert_eq!(
             compose("PROTON_LOG=1 DXVK_HUD=fps %command%", &nv, Some("mangohud")),
             "__NV_PRIME_RENDER_OFFLOAD=1 PROTON_LOG=1 DXVK_HUD=fps mangohud %command%",
             "a wrapper never comes before the user's variables (it would run them as a program)"
         );
-        assert_eq!(compose(r#"FOO="a b" %command%"#, &[], Some("mangohud")), r#"FOO="a b" mangohud %command%"#);
-        assert_eq!(compose("mangohud %command%", &[], Some("mangohud")), "mangohud %command%", "never twice");
-        assert_eq!(compose("__NV_PRIME_RENDER_OFFLOAD=0 %command%", &nv, None), "__NV_PRIME_RENDER_OFFLOAD=0 %command%", "the user's own setting wins");
-        assert_eq!(compose("  -novid ", &[], None), "  -novid ", "nothing to add: exactly the own options");
+        assert_eq!(
+            compose(r#"FOO="a b" %command%"#, &[], Some("mangohud")),
+            r#"FOO="a b" mangohud %command%"#
+        );
+        assert_eq!(
+            compose("mangohud %command%", &[], Some("mangohud")),
+            "mangohud %command%",
+            "never twice"
+        );
+        assert_eq!(
+            compose("__NV_PRIME_RENDER_OFFLOAD=0 %command%", &nv, None),
+            "__NV_PRIME_RENDER_OFFLOAD=0 %command%",
+            "the user's own setting wins"
+        );
+        assert_eq!(
+            compose("  -novid ", &[], None),
+            "  -novid ",
+            "nothing to add: exactly the own options"
+        );
     }
 
     struct Setup {
@@ -436,29 +572,63 @@ mod tests {
     /// Flathub's place.
     fn setup(flatpak: bool) -> Setup {
         let fs = TestFs::new();
-        let root = if flatpak { "home/.var/app/com.valvesoftware.Steam/.local/share/Steam" } else { "home/.local/share/Steam" };
-        fs.write(&format!("{root}/steamapps/libraryfolders.vdf"), "\"libraryfolders\" {}");
-        fs.write(&format!("{root}/userdata/42/config/localconfig.vdf"), LOCALCONFIG);
-        for (node, pci, vendor, device, boot) in [("card0", "0000:00:02.0", "0x8086", "0x4692", "1"), ("card1", "0000:01:00.0", "0x10de", "0x25a2", "0")] {
-            fs.dir(format!("sys/devices/pci0000:00/{pci}")).dir(format!("sys/class/drm/{node}"));
+        let root = if flatpak {
+            "home/.var/app/com.valvesoftware.Steam/.local/share/Steam"
+        } else {
+            "home/.local/share/Steam"
+        };
+        fs.write(
+            &format!("{root}/steamapps/libraryfolders.vdf"),
+            "\"libraryfolders\" {}",
+        );
+        fs.write(
+            &format!("{root}/userdata/42/config/localconfig.vdf"),
+            LOCALCONFIG,
+        );
+        for (node, pci, vendor, device, boot) in [
+            ("card0", "0000:00:02.0", "0x8086", "0x4692", "1"),
+            ("card1", "0000:01:00.0", "0x10de", "0x25a2", "0"),
+        ] {
+            fs.dir(format!("sys/devices/pci0000:00/{pci}"))
+                .dir(format!("sys/class/drm/{node}"));
             fs.write(&format!("sys/devices/pci0000:00/{pci}/vendor"), vendor);
             fs.write(&format!("sys/devices/pci0000:00/{pci}/device"), device);
             fs.write(&format!("sys/devices/pci0000:00/{pci}/boot_vga"), boot);
-            symlink(format!("../../../devices/pci0000:00/{pci}"), fs.root().join(format!("sys/class/drm/{node}/device"))).unwrap();
+            symlink(
+                format!("../../../devices/pci0000:00/{pci}"),
+                fs.root().join(format!("sys/class/drm/{node}/device")),
+            )
+            .unwrap();
         }
         fs.dir("sys/bus/pci/drivers/nvidia");
-        symlink(fs.root().join("sys/bus/pci/drivers/nvidia"), fs.root().join("sys/devices/pci0000:00/0000:01:00.0/driver")).unwrap();
+        symlink(
+            fs.root().join("sys/bus/pci/drivers/nvidia"),
+            fs.root().join("sys/devices/pci0000:00/0000:01:00.0/driver"),
+        )
+        .unwrap();
         fs.write("usr/bin/mangohud", "");
-        fs.write("var/lib/flatpak/runtime/org.freedesktop.Platform.VulkanLayer.MangoHud/x", "");
+        fs.write(
+            "var/lib/flatpak/runtime/org.freedesktop.Platform.VulkanLayer.MangoHud/x",
+            "",
+        );
         let home = fs.root().join("home");
         let steam = Steam::find(&home).unwrap();
         assert_eq!(steam.flatpak, flatpak);
-        let launch = Launch::new(steam, SysRoot::at(fs.root()), &home, &fs.root().join("cfg"), &fs.root().join("data"));
+        let launch = Launch::new(
+            steam,
+            SysRoot::at(fs.root()),
+            &home,
+            &fs.root().join("cfg"),
+            &fs.root().join("data"),
+        );
         Setup { fs, launch }
     }
 
     fn nvidia() -> Additions {
-        Additions { gpu: "0000:01:00.0".into(), overlay: true }
+        Additions {
+            gpu: "0000:01:00.0".into(),
+            overlay: true,
+        }
     }
 
     #[test]
@@ -468,21 +638,42 @@ mod tests {
         let before = std::fs::read_to_string(&l.steam.localconfig).unwrap();
         let want = "__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only mangohud %command% -novid";
         assert_eq!(l.preview(730, &nvidia()).unwrap(), want);
-        assert_eq!(std::fs::read_to_string(&l.steam.localconfig).unwrap(), before, "a preview writes nothing");
+        assert_eq!(
+            std::fs::read_to_string(&l.steam.localconfig).unwrap(),
+            before,
+            "a preview writes nothing"
+        );
 
         let a = l.apply(730, &nvidia(), 1000).unwrap();
         assert_eq!(a.options, want);
-        assert_eq!(std::fs::read_to_string(&a.backup).unwrap(), before, "the backup is the file as it was");
+        assert_eq!(
+            std::fs::read_to_string(&a.backup).unwrap(),
+            before,
+            "the backup is the file as it was"
+        );
         assert_eq!(l.current(730).unwrap(), want);
         let st = l.state(730).unwrap();
-        assert_eq!((st.own.as_str(), st.additions.clone(), st.changed_outside), ("-novid", nvidia(), false));
+        assert_eq!(
+            (st.own.as_str(), st.additions.clone(), st.changed_outside),
+            ("-novid", nvidia(), false)
+        );
 
         // Changing the choice builds on the game's own options, not on ours.
-        let overlay_only = Additions { gpu: String::new(), overlay: true };
-        assert_eq!(l.apply(730, &overlay_only, 1000).unwrap().options, "mangohud %command% -novid");
+        let overlay_only = Additions {
+            gpu: String::new(),
+            overlay: true,
+        };
+        assert_eq!(
+            l.apply(730, &overlay_only, 1000).unwrap().options,
+            "mangohud %command% -novid"
+        );
 
         l.undo(730, 1000).unwrap();
-        assert_eq!(std::fs::read_to_string(&l.steam.localconfig).unwrap(), before, "exactly as it was");
+        assert_eq!(
+            std::fs::read_to_string(&l.steam.localconfig).unwrap(),
+            before,
+            "exactly as it was"
+        );
         assert_eq!(l.state(730).unwrap().additions, Additions::default());
     }
 
@@ -490,25 +681,62 @@ mod tests {
     fn a_game_without_options_gets_them_added_and_undo_leaves_no_trace() {
         let s = setup(false);
         let before = std::fs::read_to_string(&s.launch.steam.localconfig).unwrap();
-        let a = s.launch.apply(413150, &Additions { gpu: String::new(), overlay: true }, 1000).unwrap();
+        let a = s
+            .launch
+            .apply(
+                413150,
+                &Additions {
+                    gpu: String::new(),
+                    overlay: true,
+                },
+                1000,
+            )
+            .unwrap();
         assert_eq!(a.options, "mangohud %command%");
         assert_eq!(s.launch.current(413150).unwrap(), "mangohud %command%");
         assert_eq!(s.launch.current(730).unwrap(), "-novid");
         s.launch.undo(413150, 1000).unwrap();
         let after = std::fs::read_to_string(&s.launch.steam.localconfig).unwrap();
-        assert!(after.contains("\"413150\""), "the game's block Steam would keep anyway stays");
+        assert!(
+            after.contains("\"413150\""),
+            "the game's block Steam would keep anyway stays"
+        );
         assert!(!after.contains("mangohud"));
-        assert_eq!(after.lines().filter(|l| l.contains("LaunchOptions")).count(), before.lines().filter(|l| l.contains("LaunchOptions")).count());
+        assert_eq!(
+            after
+                .lines()
+                .filter(|l| l.contains("LaunchOptions"))
+                .count(),
+            before
+                .lines()
+                .filter(|l| l.contains("LaunchOptions"))
+                .count()
+        );
     }
 
     #[test]
     fn nothing_is_written_while_steam_runs() {
         let s = setup(false);
-        s.fs.process(&FakeProc { pid: 50, comm: "steam", cmdline: &["steam"], ..Default::default() });
+        s.fs.process(&FakeProc {
+            pid: 50,
+            comm: "steam",
+            cmdline: &["steam"],
+            ..Default::default()
+        });
         let before = std::fs::read_to_string(&s.launch.steam.localconfig).unwrap();
-        assert!(s.launch.apply(730, &nvidia(), 1000).unwrap_err().contains("Close Steam"));
-        assert_eq!(std::fs::read_to_string(&s.launch.steam.localconfig).unwrap(), before);
-        assert!(!steam_running(&SysRoot::at(s.fs.root()), 1001), "another user's Steam does not count");
+        assert!(s
+            .launch
+            .apply(730, &nvidia(), 1000)
+            .unwrap_err()
+            .contains("Close Steam"));
+        assert_eq!(
+            std::fs::read_to_string(&s.launch.steam.localconfig).unwrap(),
+            before
+        );
+        assert!(
+            !steam_running(&SysRoot::at(s.fs.root()), 1001),
+            "another user's Steam does not count"
+        );
     }
 
     #[test]
@@ -524,17 +752,38 @@ mod tests {
         let st = s.launch.state(730).unwrap();
         assert!(st.changed_outside);
         assert_eq!(st.own, "-console");
-        assert!(s.launch.undo(730, 1000).unwrap_err().contains("changed in Steam"));
-        assert_eq!(s.launch.preview(730, &Additions { gpu: String::new(), overlay: true }).unwrap(), "mangohud %command% -console");
+        assert!(s
+            .launch
+            .undo(730, 1000)
+            .unwrap_err()
+            .contains("changed in Steam"));
+        assert_eq!(
+            s.launch
+                .preview(
+                    730,
+                    &Additions {
+                        gpu: String::new(),
+                        overlay: true
+                    }
+                )
+                .unwrap(),
+            "mangohud %command% -console"
+        );
     }
 
     #[test]
     fn flatpak_steam_uses_the_layer_and_no_host_driver_paths() {
         let s = setup(true);
         s.fs.write("usr/share/vulkan/icd.d/intel_icd.x86_64.json", "{}");
-        let intel = Additions { gpu: "0000:00:02.0".into(), overlay: true };
+        let intel = Additions {
+            gpu: "0000:00:02.0".into(),
+            overlay: true,
+        };
         let opts = s.launch.preview(730, &intel).unwrap();
-        assert!(opts.contains("MANGOHUD=1") && !opts.contains("mangohud "), "{opts}");
+        assert!(
+            opts.contains("MANGOHUD=1") && !opts.contains("mangohud "),
+            "{opts}"
+        );
         assert!(!opts.contains("VK_DRIVER_FILES"), "{opts}");
         assert!(opts.contains("MESA_VK_DEVICE_SELECT=8086:4692!"), "{opts}");
     }
@@ -543,20 +792,34 @@ mod tests {
     fn a_missing_overlay_says_what_to_install() {
         let s = setup(false);
         std::fs::remove_file(s.fs.root().join("usr/bin/mangohud")).unwrap();
-        assert!(s.launch.preview(730, &nvidia()).unwrap_err().contains("not installed"));
+        assert!(s
+            .launch
+            .preview(730, &nvidia())
+            .unwrap_err()
+            .contains("not installed"));
         std::fs::remove_dir_all(s.fs.root().join("var/lib/flatpak")).unwrap();
-        assert!(overlay_available(&SysRoot::at(s.fs.root()), &s.fs.root().join("home"), true).unwrap_err().contains("flatpak install"));
+        assert!(
+            overlay_available(&SysRoot::at(s.fs.root()), &s.fs.root().join("home"), true)
+                .unwrap_err()
+                .contains("flatpak install")
+        );
     }
 
     #[test]
     fn backups_are_kept_to_the_newest_ten() {
         let s = setup(false);
         for i in 0..13 {
-            let add = if i % 2 == 0 { nvidia() } else { Additions::default() };
+            let add = if i % 2 == 0 {
+                nvidia()
+            } else {
+                Additions::default()
+            };
             s.launch.apply(730, &add, 1000).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        let n = std::fs::read_dir(s.fs.root().join("data/backups")).unwrap().count();
+        let n = std::fs::read_dir(s.fs.root().join("data/backups"))
+            .unwrap()
+            .count();
         assert_eq!(n, BACKUPS_KEPT);
     }
 }

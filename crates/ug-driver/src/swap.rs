@@ -54,14 +54,22 @@ const GIB: u64 = 1 << 30;
 
 /// Decides the file, or says why it has to be done by hand. `free` is the
 /// free space where the file would go (bytes); `mem_kb` the memory.
-pub fn plan(root: &SysRoot, mem_kb: u64, free: impl Fn(&str) -> Option<u64>) -> Result<Plan, String> {
+pub fn plan(
+    root: &SysRoot,
+    mem_kb: u64,
+    free: impl Fn(&str) -> Option<u64>,
+) -> Result<Plan, String> {
     let m = mounts(root);
     let fs_of = |mp: &str| m.iter().rev().find(|x| x.0 == mp).map(|x| x.1.clone());
     let root_fs = fs_of("/").unwrap_or_default();
     let (dir, fs, new_subvolume) = match fs_of("/swap") {
         Some(fs) if fs == "btrfs" => ("/swap".to_string(), fs, None),
         Some(fs) if fs == "ext4" || fs == "xfs" => ("/swap".to_string(), fs, None),
-        Some(other) => return Err(format!("/swap is a {other} filesystem, which Unix Guardian does not make swap files on.")),
+        Some(other) => {
+            return Err(format!(
+                "/swap is a {other} filesystem, which Unix Guardian does not make swap files on."
+            ))
+        }
         None if root_fs == "btrfs" => {
             if root.join("swap").exists() {
                 return Err("/swap exists but is not a Btrfs subvolume of its own; a swap file there would stop the root from being snapshotted.".into());
@@ -69,9 +77,22 @@ pub fn plan(root: &SysRoot, mem_kb: u64, free: impl Fn(&str) -> Option<u64>) -> 
             ("/".to_string(), root_fs, Some("/swap".to_string()))
         }
         None if root_fs == "ext4" || root_fs == "xfs" => ("/".to_string(), root_fs, None),
-        None => return Err(format!("The root filesystem is {}, where Unix Guardian does not make swap files.", if root_fs.is_empty() { "unknown" } else { &root_fs })),
+        None => {
+            return Err(format!(
+                "The root filesystem is {}, where Unix Guardian does not make swap files.",
+                if root_fs.is_empty() {
+                    "unknown"
+                } else {
+                    &root_fs
+                }
+            ))
+        }
     };
-    let file = if dir == "/" && new_subvolume.is_none() { format!("/{FILE}") } else { format!("/swap/{FILE}") };
+    let file = if dir == "/" && new_subvolume.is_none() {
+        format!("/{FILE}")
+    } else {
+        format!("/swap/{FILE}")
+    };
     if root.join(file.trim_start_matches('/')).exists() {
         return Err(format!("{file} already exists."));
     }
@@ -92,7 +113,12 @@ pub fn plan(root: &SysRoot, mem_kb: u64, free: impl Fn(&str) -> Option<u64>) -> 
             avail / GIB
         ));
     };
-    Ok(Plan { file, size_gib, fs, new_subvolume })
+    Ok(Plan {
+        file,
+        size_gib,
+        fs,
+        new_subvolume,
+    })
 }
 
 /// The programs that make the file, in order.
@@ -103,9 +129,21 @@ pub fn make_argv(p: &Plan) -> Vec<Vec<String>> {
         out.push(v(&["btrfs", "subvolume", "create", sv]));
     }
     if p.fs == "btrfs" {
-        out.push(v(&["btrfs", "filesystem", "mkswapfile", "--size", &format!("{}g", p.size_gib), &p.file]));
+        out.push(v(&[
+            "btrfs",
+            "filesystem",
+            "mkswapfile",
+            "--size",
+            &format!("{}g", p.size_gib),
+            &p.file,
+        ]));
     } else {
-        out.push(v(&["fallocate", "-l", &format!("{}G", p.size_gib), &p.file]));
+        out.push(v(&[
+            "fallocate",
+            "-l",
+            &format!("{}G", p.size_gib),
+            &p.file,
+        ]));
         out.push(v(&["chmod", "600", &p.file]));
         out.push(v(&["mkswap", &p.file]));
     }
@@ -116,9 +154,15 @@ pub fn make_argv(p: &Plan) -> Vec<Vec<String>> {
 /// it alone; `filefrag -v` lists extents, the first one's physical start.
 pub fn offset_argv(p: &Plan) -> Vec<String> {
     if p.fs == "btrfs" {
-        ["btrfs", "inspect-internal", "map-swapfile", "-r", &p.file].iter().map(|s| s.to_string()).collect()
+        ["btrfs", "inspect-internal", "map-swapfile", "-r", &p.file]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     } else {
-        ["filefrag", "-v", &p.file].iter().map(|s| s.to_string()).collect()
+        ["filefrag", "-v", &p.file]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     }
 }
 
@@ -167,7 +211,10 @@ pub fn guide(p: Option<&Plan>, why: &str) -> Vec<String> {
     v.push(format!("sudo swapon {}", p.file));
     v.push(format!("echo '{}' | sudo tee -a /etc/fstab", fstab_line(p)));
     v.push(format!("sudo {}   # the offset", offset_argv(p).join(" ")));
-    v.push(format!("ug driver param add resume=UUID=$(findmnt -no UUID -T {})", p.file));
+    v.push(format!(
+        "ug driver param add resume=UUID=$(findmnt -no UUID -T {})",
+        p.file
+    ));
     v.push("ug driver param add resume_offset=<the offset>".into());
     v
 }
@@ -186,19 +233,49 @@ mod tests {
         // The laptop: root /@ and a /swap subvolume of its own, 40 GB free.
         fs.write("proc/mounts", "/dev/nvme0n1p2 / btrfs rw,subvol=/@ 0 0\n/dev/nvme0n1p2 /swap btrfs rw,subvol=/@swap 0 0\n");
         let p = plan(&root, MEM, |_| Some(40 * GIB)).unwrap();
-        assert_eq!(p, Plan { file: "/swap/hibernate.swap".into(), size_gib: 28, fs: "btrfs".into(), new_subvolume: None });
-        assert_eq!(make_argv(&p), [["btrfs", "filesystem", "mkswapfile", "--size", "28g", "/swap/hibernate.swap"]]);
-        assert_eq!(plan(&root, MEM, |_| Some(25 * GIB)).unwrap().size_gib, 17, "60% when the whole memory does not fit");
-        assert!(plan(&root, MEM, |_| Some(15 * GIB)).unwrap_err().contains("not enough free space"));
+        assert_eq!(
+            p,
+            Plan {
+                file: "/swap/hibernate.swap".into(),
+                size_gib: 28,
+                fs: "btrfs".into(),
+                new_subvolume: None
+            }
+        );
+        assert_eq!(
+            make_argv(&p),
+            [[
+                "btrfs",
+                "filesystem",
+                "mkswapfile",
+                "--size",
+                "28g",
+                "/swap/hibernate.swap"
+            ]]
+        );
+        assert_eq!(
+            plan(&root, MEM, |_| Some(25 * GIB)).unwrap().size_gib,
+            17,
+            "60% when the whole memory does not fit"
+        );
+        assert!(plan(&root, MEM, |_| Some(15 * GIB))
+            .unwrap_err()
+            .contains("not enough free space"));
 
         let fs = TestFs::new();
         let root = SysRoot::at(fs.root());
         fs.write("proc/mounts", "/dev/sda2 / btrfs rw,subvol=/@ 0 0\n");
         let p = plan(&root, MEM, |_| Some(100 * GIB)).unwrap();
-        assert_eq!(p.new_subvolume.as_deref(), Some("/swap"), "a subvolume of its own, so the root can still be snapshotted");
+        assert_eq!(
+            p.new_subvolume.as_deref(),
+            Some("/swap"),
+            "a subvolume of its own, so the root can still be snapshotted"
+        );
         assert_eq!(make_argv(&p)[0], ["btrfs", "subvolume", "create", "/swap"]);
         fs.dir("swap");
-        assert!(plan(&root, MEM, |_| Some(100 * GIB)).unwrap_err().contains("not a Btrfs subvolume"));
+        assert!(plan(&root, MEM, |_| Some(100 * GIB))
+            .unwrap_err()
+            .contains("not a Btrfs subvolume"));
 
         let fs = TestFs::new();
         let root = SysRoot::at(fs.root());

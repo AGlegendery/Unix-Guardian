@@ -4,8 +4,8 @@ use crate::core::AgentCore;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use ug_proto::{
-    DayTraffic, HistoryPoint, InstalledGameInfo, PingComparison, PingReport, PlaytimeEntry, PlaytimeSession, ProfileInfo,
-    RunningGameInfo,
+    DayTraffic, HistoryPoint, InstalledGameInfo, PingComparison, PingReport, PlaytimeEntry,
+    PlaytimeSession, ProfileInfo, RunningGameInfo,
 };
 use zbus::object_server::SignalEmitter;
 
@@ -42,12 +42,16 @@ impl GamesIface {
 
     async fn rescan(&self) -> u32 {
         let core = Arc::clone(&self.core);
-        tokio::task::spawn_blocking(move || lock(&core).rescan() as u32).await.unwrap_or(0)
+        tokio::task::spawn_blocking(move || lock(&core).rescan() as u32)
+            .await
+            .unwrap_or(0)
     }
 
     async fn ignore_executable(&self, name: &str) -> zbus::fdo::Result<()> {
         if name.trim().is_empty() {
-            return Err(zbus::fdo::Error::InvalidArgs("an executable name is required".into()));
+            return Err(zbus::fdo::Error::InvalidArgs(
+                "an executable name is required".into(),
+            ));
         }
         let outcomes = lock(&self.core).ignore(name, Instant::now(), now_ms());
         for o in outcomes {
@@ -57,7 +61,9 @@ impl GamesIface {
     }
 
     async fn launch_options(&self, appid: u32) -> zbus::fdo::Result<ug_proto::LaunchInfo> {
-        let (launch, uid, name) = lock(&self.core).steam_launch(appid).map_err(zbus::fdo::Error::Failed)?;
+        let (launch, uid, name) = lock(&self.core)
+            .steam_launch(appid)
+            .map_err(zbus::fdo::Error::Failed)?;
         tokio::task::spawn_blocking(move || -> Result<ug_proto::LaunchInfo, String> {
             let st = launch.state(appid)?;
             let flatpak = launch.steam.flatpak;
@@ -80,15 +86,37 @@ impl GamesIface {
         .map_err(zbus::fdo::Error::Failed)
     }
 
-    async fn preview_launch_options(&self, appid: u32, gpu: &str, overlay: bool) -> zbus::fdo::Result<String> {
-        let (launch, _, _) = lock(&self.core).steam_launch(appid).map_err(zbus::fdo::Error::Failed)?;
-        let add = ug_games::launch::Additions { gpu: gpu.to_string(), overlay };
-        launch.preview(appid, &add).map_err(zbus::fdo::Error::Failed)
+    async fn preview_launch_options(
+        &self,
+        appid: u32,
+        gpu: &str,
+        overlay: bool,
+    ) -> zbus::fdo::Result<String> {
+        let (launch, _, _) = lock(&self.core)
+            .steam_launch(appid)
+            .map_err(zbus::fdo::Error::Failed)?;
+        let add = ug_games::launch::Additions {
+            gpu: gpu.to_string(),
+            overlay,
+        };
+        launch
+            .preview(appid, &add)
+            .map_err(zbus::fdo::Error::Failed)
     }
 
-    async fn set_launch_options(&self, appid: u32, gpu: &str, overlay: bool) -> zbus::fdo::Result<(String, String)> {
-        let (launch, uid, _) = lock(&self.core).steam_launch(appid).map_err(zbus::fdo::Error::Failed)?;
-        let add = ug_games::launch::Additions { gpu: gpu.to_string(), overlay };
+    async fn set_launch_options(
+        &self,
+        appid: u32,
+        gpu: &str,
+        overlay: bool,
+    ) -> zbus::fdo::Result<(String, String)> {
+        let (launch, uid, _) = lock(&self.core)
+            .steam_launch(appid)
+            .map_err(zbus::fdo::Error::Failed)?;
+        let add = ug_games::launch::Additions {
+            gpu: gpu.to_string(),
+            overlay,
+        };
         let a = tokio::task::spawn_blocking(move || launch.apply(appid, &add, uid))
             .await
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
@@ -97,7 +125,9 @@ impl GamesIface {
     }
 
     async fn undo_launch_options(&self, appid: u32) -> zbus::fdo::Result<(String, String)> {
-        let (launch, uid, _) = lock(&self.core).steam_launch(appid).map_err(zbus::fdo::Error::Failed)?;
+        let (launch, uid, _) = lock(&self.core)
+            .steam_launch(appid)
+            .map_err(zbus::fdo::Error::Failed)?;
         let a = tokio::task::spawn_blocking(move || launch.undo(appid, uid))
             .await
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
@@ -106,10 +136,17 @@ impl GamesIface {
     }
 
     #[zbus(signal)]
-    pub async fn game_started(emitter: &SignalEmitter<'_>, game: RunningGameInfo) -> zbus::Result<()>;
+    pub async fn game_started(
+        emitter: &SignalEmitter<'_>,
+        game: RunningGameInfo,
+    ) -> zbus::Result<()>;
 
     #[zbus(signal)]
-    pub async fn game_stopped(emitter: &SignalEmitter<'_>, game: RunningGameInfo, played_s: u64) -> zbus::Result<()>;
+    pub async fn game_stopped(
+        emitter: &SignalEmitter<'_>,
+        game: RunningGameInfo,
+        played_s: u64,
+    ) -> zbus::Result<()>;
 }
 
 /// `org.unixguardian.Agent1.Playtime`
@@ -144,7 +181,9 @@ impl PlaytimeIface {
     }
 
     async fn track_app(&self, exe: &str, name: &str) -> zbus::fdo::Result<()> {
-        lock(&self.core).track_app(exe, name).map_err(zbus::fdo::Error::InvalidArgs)
+        lock(&self.core)
+            .track_app(exe, name)
+            .map_err(zbus::fdo::Error::InvalidArgs)
     }
 
     async fn untrack_app(&self, exe: &str) -> bool {
@@ -158,8 +197,9 @@ impl PlaytimeIface {
     }
 
     async fn move_to_apps(&self, key: &str) -> zbus::fdo::Result<u32> {
-        let (moved, outcomes) =
-            lock(&self.core).move_to_apps(key, Instant::now(), now_ms()).map_err(zbus::fdo::Error::InvalidArgs)?;
+        let (moved, outcomes) = lock(&self.core)
+            .move_to_apps(key, Instant::now(), now_ms())
+            .map_err(zbus::fdo::Error::InvalidArgs)?;
         for o in outcomes {
             let _ = self.announce.send(o);
         }
@@ -196,34 +236,49 @@ impl ProfilesIface {
 
     async fn set_game_profile(&self, key: &str, profile: &str) -> zbus::fdo::Result<()> {
         let profile = Some(profile.trim()).filter(|p| !p.is_empty());
-        lock(&self.core).set_game_profile(key, profile).map_err(zbus::fdo::Error::InvalidArgs)
+        lock(&self.core)
+            .set_game_profile(key, profile)
+            .map_err(zbus::fdo::Error::InvalidArgs)
     }
 
     async fn set_option(&self, profile: &str, option: &str, value: bool) -> zbus::fdo::Result<()> {
-        lock(&self.core).set_profile_option(profile, option, value).map_err(zbus::fdo::Error::InvalidArgs)
+        lock(&self.core)
+            .set_profile_option(profile, option, value)
+            .map_err(zbus::fdo::Error::InvalidArgs)
     }
 
     /// Whether game mode was set by hand ("on", "off" or "") and the
     /// profile it uses when on by hand.
     async fn game_mode(&self) -> (String, String) {
         let c = lock(&self.core);
-        (c.gamemode_by_hand().to_string(), c.by_hand_profile().to_string())
+        (
+            c.gamemode_by_hand().to_string(),
+            c.by_hand_profile().to_string(),
+        )
     }
 
     async fn set_game_mode(&self, on: bool, profile: &str) -> zbus::fdo::Result<()> {
-        lock(&self.core).set_gamemode(on, profile).map_err(zbus::fdo::Error::InvalidArgs)
+        lock(&self.core)
+            .set_gamemode(on, profile)
+            .map_err(zbus::fdo::Error::InvalidArgs)
     }
 
     async fn set_pause_apps(&self, profile: &str, apps: Vec<String>) -> zbus::fdo::Result<()> {
-        lock(&self.core).set_pause_apps(profile, &apps).map_err(zbus::fdo::Error::InvalidArgs)
+        lock(&self.core)
+            .set_pause_apps(profile, &apps)
+            .map_err(zbus::fdo::Error::InvalidArgs)
     }
 
     async fn create(&self, profile: &str, from: &str) -> zbus::fdo::Result<()> {
-        lock(&self.core).create_profile(profile.trim(), from.trim()).map_err(zbus::fdo::Error::InvalidArgs)
+        lock(&self.core)
+            .create_profile(profile.trim(), from.trim())
+            .map_err(zbus::fdo::Error::InvalidArgs)
     }
 
     async fn delete(&self, profile: &str) -> zbus::fdo::Result<()> {
-        lock(&self.core).delete_profile(profile.trim()).map_err(zbus::fdo::Error::InvalidArgs)
+        lock(&self.core)
+            .delete_profile(profile.trim())
+            .map_err(zbus::fdo::Error::InvalidArgs)
     }
 }
 
@@ -235,51 +290,84 @@ pub struct MonitorIface {
 
 #[zbus::interface(name = "org.unixguardian.Agent1.Monitor")]
 impl MonitorIface {
-    async fn history(&self, since_unix_ms: u64, until_unix_ms: u64, points: u32) -> Vec<HistoryPoint> {
+    async fn history(
+        &self,
+        since_unix_ms: u64,
+        until_unix_ms: u64,
+        points: u32,
+    ) -> Vec<HistoryPoint> {
         let h = Arc::clone(&self.history);
-        tokio::task::spawn_blocking(move || h.range(since_unix_ms, until_unix_ms, points)).await.unwrap_or_default()
+        tokio::task::spawn_blocking(move || h.range(since_unix_ms, until_unix_ms, points))
+            .await
+            .unwrap_or_default()
     }
 
     async fn traffic(&self, since_unix_ms: u64) -> Vec<DayTraffic> {
         let h = Arc::clone(&self.history);
-        tokio::task::spawn_blocking(move || h.traffic(since_unix_ms, local_date)).await.unwrap_or_default()
+        tokio::task::spawn_blocking(move || h.traffic(since_unix_ms, local_date))
+            .await
+            .unwrap_or_default()
     }
 
-    async fn traffic_buckets(&self, since_unix_ms: u64, until_unix_ms: u64, bucket_ms: u64) -> Vec<ug_proto::TrafficBucket> {
+    async fn traffic_buckets(
+        &self,
+        since_unix_ms: u64,
+        until_unix_ms: u64,
+        bucket_ms: u64,
+    ) -> Vec<ug_proto::TrafficBucket> {
         let h = Arc::clone(&self.history);
-        tokio::task::spawn_blocking(move || h.traffic_buckets(since_unix_ms, until_unix_ms, bucket_ms)).await.unwrap_or_default()
+        tokio::task::spawn_blocking(move || {
+            h.traffic_buckets(since_unix_ms, until_unix_ms, bucket_ms)
+        })
+        .await
+        .unwrap_or_default()
     }
 
     async fn app_traffic(&self, since_unix_ms: u64, until_unix_ms: u64) -> Vec<ug_proto::AppUsage> {
         let h = Arc::clone(&self.history);
-        tokio::task::spawn_blocking(move || h.app_traffic(since_unix_ms, until_unix_ms)).await.unwrap_or_default()
+        tokio::task::spawn_blocking(move || h.app_traffic(since_unix_ms, until_unix_ms))
+            .await
+            .unwrap_or_default()
     }
 
     async fn reset_traffic(&self) -> bool {
         let h = Arc::clone(&self.history);
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-        tokio::task::spawn_blocking(move || h.reset_traffic(now)).await.unwrap_or(false)
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        tokio::task::spawn_blocking(move || h.reset_traffic(now))
+            .await
+            .unwrap_or(false)
     }
 
     async fn traffic_reset_at(&self) -> u64 {
         let h = Arc::clone(&self.history);
-        tokio::task::spawn_blocking(move || h.reset_at()).await.unwrap_or(0)
+        tokio::task::spawn_blocking(move || h.reset_at())
+            .await
+            .unwrap_or(0)
     }
 
     /// The running game's FPS from MangoHud's log.
     async fn fps(&self) -> ug_proto::FpsReading {
         let o = Arc::clone(&self.overlay);
-        tokio::task::spawn_blocking(move || o.fps.read(std::time::SystemTime::now())).await.unwrap_or_default()
+        tokio::task::spawn_blocking(move || o.fps.read(std::time::SystemTime::now()))
+            .await
+            .unwrap_or_default()
     }
 
     async fn fps_sessions(&self, since_unix_ms: u64) -> Vec<ug_proto::FpsSession> {
         let h = Arc::clone(&self.history);
-        tokio::task::spawn_blocking(move || h.fps_sessions(since_unix_ms)).await.unwrap_or_default()
+        tokio::task::spawn_blocking(move || h.fps_sessions(since_unix_ms))
+            .await
+            .unwrap_or_default()
     }
 
     async fn forget_fps_sessions(&self) -> u32 {
         let h = Arc::clone(&self.history);
-        tokio::task::spawn_blocking(move || h.forget_fps()).await.unwrap_or(0)
+        tokio::task::spawn_blocking(move || h.forget_fps())
+            .await
+            .unwrap_or(0)
     }
 
     /// Adds (true) or removes (false) Unix Guardian's block in MangoHud.conf.
@@ -301,7 +389,9 @@ pub struct OverlayIface {
 impl OverlayIface {
     async fn state(&self) -> ug_proto::OverlayState {
         let o = Arc::clone(&self.overlay);
-        tokio::task::spawn_blocking(move || o.state()).await.unwrap_or_default()
+        tokio::task::spawn_blocking(move || o.state())
+            .await
+            .unwrap_or_default()
     }
 
     async fn set(&self, settings: ug_proto::OverlaySettings) -> zbus::fdo::Result<()> {
@@ -333,7 +423,10 @@ impl RecorderIface {
         f: impl FnOnce(&crate::recorder::Recorder) -> Result<T, String> + Send + 'static,
     ) -> zbus::fdo::Result<T> {
         let r = Arc::clone(&self.recorder);
-        tokio::task::spawn_blocking(move || f(&r)).await.map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?.map_err(zbus::fdo::Error::Failed)
+        tokio::task::spawn_blocking(move || f(&r))
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+            .map_err(zbus::fdo::Error::Failed)
     }
 }
 
@@ -344,7 +437,9 @@ impl RecorderIface {
     }
 
     async fn set(&self, settings: ug_proto::RecorderSettings) -> zbus::fdo::Result<()> {
-        self.recorder.set(settings).map_err(zbus::fdo::Error::InvalidArgs)
+        self.recorder
+            .set(settings)
+            .map_err(zbus::fdo::Error::InvalidArgs)
     }
 
     async fn start(&self) -> zbus::fdo::Result<String> {
@@ -364,7 +459,9 @@ impl RecorderIface {
     }
 
     async fn set_up(&self, on: bool) -> zbus::fdo::Result<()> {
-        self.recorder.begin_set_up(on).map_err(zbus::fdo::Error::Failed)
+        self.recorder
+            .begin_set_up(on)
+            .map_err(zbus::fdo::Error::Failed)
     }
 }
 
@@ -395,7 +492,12 @@ pub fn local_date(ms: u64) -> String {
         libc::localtime_r(&t, &mut tm);
         tm
     };
-    format!("{:04}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
+    format!(
+        "{:04}-{:02}-{:02}",
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday
+    )
 }
 
 /// `org.unixguardian.Agent1.Settings`
@@ -416,7 +518,9 @@ impl SettingsIface {
     }
 
     async fn set(&self, settings: ug_proto::AgentSettings) -> zbus::fdo::Result<()> {
-        self.settings.set(settings).map_err(zbus::fdo::Error::InvalidArgs)
+        self.settings
+            .set(settings)
+            .map_err(zbus::fdo::Error::InvalidArgs)
     }
 }
 
@@ -428,9 +532,17 @@ pub struct UpdateIface {
 
 impl UpdateIface {
     async fn daemon(&self) -> zbus::fdo::Result<ug_proto::daemon::UpdateProxy<'static>> {
-        let conn = if self.daemon_session { zbus::Connection::session().await } else { zbus::Connection::system().await }
-            .map_err(|e| zbus::fdo::Error::Failed(format!("The Unix Guardian service is not reachable ({e}).")))?;
-        ug_proto::daemon::UpdateProxy::new(&conn).await.map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
+        let conn = if self.daemon_session {
+            zbus::Connection::session().await
+        } else {
+            zbus::Connection::system().await
+        }
+        .map_err(|e| {
+            zbus::fdo::Error::Failed(format!("The Unix Guardian service is not reachable ({e})."))
+        })?;
+        ug_proto::daemon::UpdateProxy::new(&conn)
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
     }
 }
 
@@ -441,7 +553,9 @@ impl UpdateIface {
     }
 
     async fn install(&self) -> zbus::fdo::Result<()> {
-        self.updater.begin_install(self.daemon_session).map_err(zbus::fdo::Error::Failed)
+        self.updater
+            .begin_install(self.daemon_session)
+            .map_err(zbus::fdo::Error::Failed)
     }
 
     async fn rollback(&self) -> zbus::fdo::Result<String> {
@@ -453,7 +567,9 @@ impl UpdateIface {
 
     async fn check(&self) -> zbus::fdo::Result<ug_proto::UpdateState> {
         let u = Arc::clone(&self.updater);
-        tokio::task::spawn_blocking(move || u.check(now_ms())).await.map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        tokio::task::spawn_blocking(move || u.check(now_ms()))
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
         // Whether there is a version to go back to, from the service.
         if let Ok(d) = self.daemon().await {
             if let Ok(p) = d.previous().await {
@@ -481,15 +597,23 @@ impl ShortcutsIface {
     }
 
     async fn set_enabled(&self, on: bool) -> zbus::fdo::Result<()> {
-        self.shortcuts.set_enabled(on).await.map_err(zbus::fdo::Error::Failed)
+        self.shortcuts
+            .set_enabled(on)
+            .await
+            .map_err(zbus::fdo::Error::Failed)
     }
 
     async fn run(&self, id: &str) -> zbus::fdo::Result<String> {
-        crate::shortcuts::perform(id, &self.core, &self.overlay, &self.recorder).await.map_err(zbus::fdo::Error::Failed)
+        crate::shortcuts::perform(id, &self.core, &self.overlay, &self.recorder)
+            .await
+            .map_err(zbus::fdo::Error::Failed)
     }
 
     async fn set_keys(&self, id: &str, keys: &str) -> zbus::fdo::Result<String> {
-        self.shortcuts.set_keys(id, keys).await.map_err(zbus::fdo::Error::InvalidArgs)
+        self.shortcuts
+            .set_keys(id, keys)
+            .await
+            .map_err(zbus::fdo::Error::InvalidArgs)
     }
 
     async fn desktop_keys(&self) -> ug_proto::DesktopKeys {
@@ -497,6 +621,9 @@ impl ShortcutsIface {
     }
 
     async fn set_up_desktop_keys(&self, on: bool) -> zbus::fdo::Result<String> {
-        self.shortcuts.set_up_desktop_keys(on).await.map_err(zbus::fdo::Error::Failed)
+        self.shortcuts
+            .set_up_desktop_keys(on)
+            .await
+            .map_err(zbus::fdo::Error::Failed)
     }
 }

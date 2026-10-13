@@ -52,7 +52,17 @@ pub struct Accountant<N: Nft> {
 
 impl<N: Nft> Accountant<N> {
     pub fn new(nft: N, root: SysRoot) -> Self {
-        Accountant { nft, root, installed: false, rejected: HashSet::new(), apps: HashMap::new(), gone: false, live: HashSet::new(), policy: Policy::default(), policy_dirty: false }
+        Accountant {
+            nft,
+            root,
+            installed: false,
+            rejected: HashSet::new(),
+            apps: HashMap::new(),
+            gone: false,
+            live: HashSet::new(),
+            policy: Policy::default(),
+            policy_dirty: false,
+        }
     }
 
     /// Creates (or recreates) the table. Counting starts from zero.
@@ -66,7 +76,11 @@ impl<N: Nft> Accountant<N> {
             }
         }
         // A recreated table is empty: count the known groups again.
-        let known: Vec<(String, u8)> = self.apps.iter().map(|(p, e)| (p.clone(), e.level)).collect();
+        let known: Vec<(String, u8)> = self
+            .apps
+            .iter()
+            .map(|(p, e)| (p.clone(), e.level))
+            .collect();
         let ok = self.add(&known);
         self.apps.retain(|p, _| ok.contains(p));
         self.policy_dirty = true;
@@ -115,7 +129,11 @@ impl<N: Nft> Accountant<N> {
                     }
                 }
             } else if added.contains(&g.path) {
-                let exe = g.pids.first().map(|&p| cgroups::comm(&self.root, p)).unwrap_or_default();
+                let exe = g
+                    .pids
+                    .first()
+                    .map(|&p| cgroups::comm(&self.root, p))
+                    .unwrap_or_default();
                 let label = cgroups::label(&g.path, &exe);
                 if self.policy.blocks(&label.name)
                     || self.policy.class_of(&label.name).is_some()
@@ -126,7 +144,16 @@ impl<N: Nft> Accountant<N> {
                 }
                 self.apps.insert(
                     g.path.clone(),
-                    Entry { level: g.level, pids: g.pids.clone(), label, exe, bank: [0; 2], cur: [0; 2], last: None, bps: [0; 2] },
+                    Entry {
+                        level: g.level,
+                        pids: g.pids.clone(),
+                        label,
+                        exe,
+                        bank: [0; 2],
+                        cur: [0; 2],
+                        last: None,
+                        bps: [0; 2],
+                    },
                 );
             }
         }
@@ -220,7 +247,8 @@ impl<N: Nft> Accountant<N> {
                 marked.push((p.clone(), e.level, mark(c)));
             }
         }
-        self.nft.apply(&nft::policy_script(&blocked, &marked, &vpn))?;
+        self.nft
+            .apply(&nft::policy_script(&blocked, &marked, &vpn))?;
         self.policy_dirty = false;
         Ok(())
     }
@@ -254,7 +282,11 @@ impl<N: Nft> Accountant<N> {
 
     /// Drops elements of cgroups that are gone, banking what live ones had.
     fn refill(&mut self) {
-        let live: Vec<(String, u8)> = self.apps.iter().map(|(p, e)| (p.clone(), e.level)).collect();
+        let live: Vec<(String, u8)> = self
+            .apps
+            .iter()
+            .map(|(p, e)| (p.clone(), e.level))
+            .collect();
         match self.nft.apply(&nft::refill_script(&live)) {
             Ok(()) => {
                 for e in self.apps.values_mut() {
@@ -290,7 +322,11 @@ impl<N: Nft> Accountant<N> {
                     "blocked".into()
                 } else if self.policy.class_of(&e.label.name).is_some() {
                     "limited".into()
-                } else if self.policy.background_class(&e.label.name, &e.exe, &e.pids).is_some() {
+                } else if self
+                    .policy
+                    .background_class(&e.label.name, &e.exe, &e.pids)
+                    .is_some()
+                {
                     "background".into()
                 } else {
                     String::new()
@@ -332,7 +368,12 @@ mod tests {
             c[1] += tx;
         }
         fn vanish(&self, path: &str, level: u8) {
-            let c = self.elems.lock().unwrap().remove(&(path.to_string(), level)).unwrap();
+            let c = self
+                .elems
+                .lock()
+                .unwrap()
+                .remove(&(path.to_string(), level))
+                .unwrap();
             self.stale.lock().unwrap().push((level, c[1]));
         }
     }
@@ -359,7 +400,8 @@ mod tests {
                 let level: u8 = set[2..].parse().unwrap();
                 let body = &line[line.find('{').unwrap() + 1..line.rfind('}').unwrap()];
                 for p in body.split(", ") {
-                    e.entry((p.trim().trim_matches('"').to_string(), level)).or_insert([0; 2]);
+                    e.entry((p.trim().trim_matches('"').to_string(), level))
+                        .or_insert([0; 2]);
                 }
             }
             Ok(())
@@ -379,8 +421,10 @@ mod tests {
                     serde_json::json!({"elem": {"val": (9000 + i).to_string(), "counter": {"packets": 1, "bytes": b}}}),
                 );
             }
-            let items: Vec<serde_json::Value> =
-                sets.into_iter().map(|(n, e)| serde_json::json!({"set": {"name": n, "elem": e}})).collect();
+            let items: Vec<serde_json::Value> = sets
+                .into_iter()
+                .map(|(n, e)| serde_json::json!({"set": {"name": n, "elem": e}}))
+                .collect();
             Ok(serde_json::json!({ "nftables": items }).to_string())
         }
     }
@@ -415,7 +459,10 @@ mod tests {
         assert_eq!(apps[0].rx_bytes, 4_000_000);
         assert_eq!(apps[0].rx_bps, 2_000_000);
         assert_eq!(apps[0].tx_bps, 100_000);
-        assert_eq!((apps[1].name.as_str(), apps[1].kind.as_str()), ("packagekit", "service"));
+        assert_eq!(
+            (apps[1].name.as_str(), apps[1].kind.as_str()),
+            ("packagekit", "service")
+        );
         assert_eq!(apps[0].exe, "firefox");
     }
 
@@ -441,7 +488,13 @@ mod tests {
         assert_eq!(apps.len(), 2);
         assert!(apps.iter().any(|x| x.name == "steam"));
         // The stale element forced a refill; Firefox's bytes were banked.
-        assert!(nft.scripts.lock().unwrap().last().unwrap().contains("flush set inet unix_guardian rx"));
+        assert!(nft
+            .scripts
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .contains("flush set inet unix_guardian rx"));
         nft.traffic(FF, 5, 10, 1);
         a.refresh(t0 + Duration::from_secs(6)).unwrap();
         let ff = a.apps().into_iter().find(|x| x.name == "firefox").unwrap();
@@ -476,15 +529,36 @@ mod tests {
         let mut a = Accountant::new(nft.clone(), SysRoot::at(fs.root()));
         a.refresh(Instant::now()).unwrap();
         let rules = vec![
-            Rule { app: "packagekit".into(), block: true, up_kbps: 0, down_kbps: 0, when: When::Always },
-            Rule { app: "steam".into(), block: false, up_kbps: 500, down_kbps: 0, when: When::Always },
+            Rule {
+                app: "packagekit".into(),
+                block: true,
+                up_kbps: 0,
+                down_kbps: 0,
+                when: When::Always,
+            },
+            Rule {
+                app: "steam".into(),
+                block: false,
+                up_kbps: 500,
+                down_kbps: 0,
+                when: When::Always,
+            },
         ];
         a.set_policy(Policy::from_rules(&rules, false));
         a.sync_groups().unwrap();
         let last = nft.scripts.lock().unwrap().last().unwrap().clone();
-        assert!(last.contains(&format!("add element inet unix_guardian block2 {{ \"{PK}\" }}")), "{last}");
+        assert!(
+            last.contains(&format!(
+                "add element inet unix_guardian block2 {{ \"{PK}\" }}"
+            )),
+            "{last}"
+        );
         assert!(!last.contains("mark5 {"), "steam is not running yet");
-        let pk = a.apps().into_iter().find(|x| x.name == "packagekit").unwrap();
+        let pk = a
+            .apps()
+            .into_iter()
+            .find(|x| x.name == "packagekit")
+            .unwrap();
         assert_eq!(pk.state, "blocked");
 
         // Steam starts: its new group is marked without another rule change.
@@ -492,8 +566,20 @@ mod tests {
         fs.write(format!("sys/fs/cgroup/{steam}/cgroup.procs"), "30");
         a.sync_groups().unwrap();
         let last = nft.scripts.lock().unwrap().last().unwrap().clone();
-        assert!(last.contains(&format!("add element inet unix_guardian mark5 {{ \"{steam}\" : 0x55470001 }}")), "{last}");
-        assert_eq!(a.apps().into_iter().find(|x| x.name == "steam").unwrap().state, "limited");
+        assert!(
+            last.contains(&format!(
+                "add element inet unix_guardian mark5 {{ \"{steam}\" : 0x55470001 }}"
+            )),
+            "{last}"
+        );
+        assert_eq!(
+            a.apps()
+                .into_iter()
+                .find(|x| x.name == "steam")
+                .unwrap()
+                .state,
+            "limited"
+        );
 
         // Nothing changes: no new nft call.
         let n = nft.scripts.lock().unwrap().len();
@@ -530,14 +616,31 @@ mod tests {
         let nft = FakeNft::default();
         let mut a = Accountant::new(nft.clone(), SysRoot::at(fs.root()));
         a.refresh(Instant::now()).unwrap();
-        let bg = Background { on: true, up_kbps: 1000, down_kbps: 8000, when: When::Always };
+        let bg = Background {
+            on: true,
+            up_kbps: 1000,
+            down_kbps: 8000,
+            when: When::Always,
+        };
         a.set_policy(Policy::from_rules(&[], true).with_background(&bg, true, &[51]));
         a.sync_groups().unwrap();
         let last = nft.scripts.lock().unwrap().last().unwrap().clone();
-        assert!(last.contains(&format!("\"{FF}\" : 0x55470001")), "firefox is slowed:\n{last}");
-        assert!(last.contains(&format!("\"{PK}\" : 0x55470001")), "updates are slowed:\n{last}");
-        assert!(!last.contains(&format!("\"{vpn}\" :")), "the VPN is left alone:\n{last}");
-        assert!(!last.contains(&format!("\"{game}\" :")), "the game is left alone:\n{last}");
+        assert!(
+            last.contains(&format!("\"{FF}\" : 0x55470001")),
+            "firefox is slowed:\n{last}"
+        );
+        assert!(
+            last.contains(&format!("\"{PK}\" : 0x55470001")),
+            "updates are slowed:\n{last}"
+        );
+        assert!(
+            !last.contains(&format!("\"{vpn}\" :")),
+            "the VPN is left alone:\n{last}"
+        );
+        assert!(
+            !last.contains(&format!("\"{game}\" :")),
+            "the game is left alone:\n{last}"
+        );
         let state = |n: &str| a.apps().into_iter().find(|x| x.name == n).unwrap().state;
         assert_eq!(state("firefox"), "background");
         assert_eq!(state("v2rayn"), "");

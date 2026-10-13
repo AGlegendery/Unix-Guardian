@@ -11,7 +11,10 @@
 use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Mutex;
-use ug_proto::{AppTraffic, AppUsage, DayTraffic, ExtraSample, FpsSession, HistoryPoint, Snapshot, TrafficBucket};
+use ug_proto::{
+    AppTraffic, AppUsage, DayTraffic, ExtraSample, FpsSession, HistoryPoint, Snapshot,
+    TrafficBucket,
+};
 
 const KEEP_MS: u64 = 90 * 24 * 3_600_000;
 
@@ -86,7 +89,18 @@ impl History {
         )?;
         // Columns added after the first release; an existing table gets them
         // empty (older readings simply have no value there).
-        for col in ["cpu_mhz", "gpu_mhz", "swap_kb", "disk_r", "disk_w", "disk_busy", "load1", "procs", "bat_pct", "bat_w"] {
+        for col in [
+            "cpu_mhz",
+            "gpu_mhz",
+            "swap_kb",
+            "disk_r",
+            "disk_w",
+            "disk_busy",
+            "load1",
+            "procs",
+            "bat_pct",
+            "bat_w",
+        ] {
             let has = conn
                 .prepare("SELECT 1 FROM pragma_table_info('samples') WHERE name = ?1")?
                 .exists(params![col])?;
@@ -94,7 +108,10 @@ impl History {
                 conn.execute_batch(&format!("ALTER TABLE samples ADD COLUMN {col} REAL"))?;
             }
         }
-        Ok(History { conn: Mutex::new(conn), apps_seen: Mutex::new((Default::default(), false)) })
+        Ok(History {
+            conn: Mutex::new(conn),
+            apps_seen: Mutex::new((Default::default(), false)),
+        })
     }
 
     fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
@@ -150,7 +167,9 @@ impl History {
     }
 
     pub fn forget_fps(&self) -> u32 {
-        self.conn().execute("DELETE FROM fps_sessions", []).unwrap_or(0) as u32
+        self.conn()
+            .execute("DELETE FROM fps_sessions", [])
+            .unwrap_or(0) as u32
     }
 
     /// Stores a reading. `gpu_pci` picks the GPU charted (the one that works:
@@ -197,8 +216,12 @@ impl History {
     /// Deletes readings older than 90 days.
     pub fn prune(&self, now_ms: u64) {
         let cut = now_ms.saturating_sub(KEEP_MS) as i64;
-        let _ = self.conn().execute("DELETE FROM samples WHERE ts_ms < ?1", params![cut]);
-        let _ = self.conn().execute("DELETE FROM app_traffic WHERE slot_ms < ?1", params![cut]);
+        let _ = self
+            .conn()
+            .execute("DELETE FROM samples WHERE ts_ms < ?1", params![cut]);
+        let _ = self
+            .conn()
+            .execute("DELETE FROM app_traffic WHERE slot_ms < ?1", params![cut]);
     }
 
     /// Readings between `since` and `until`, averaged into at most `points`
@@ -239,30 +262,37 @@ impl History {
             }
         };
         let f = |v: Option<f64>| v.unwrap_or(f64::NAN);
-        stmt.query_map(params![since_ms as i64, until_ms.min(i64::MAX as u64) as i64, bucket], |r| {
-            Ok(HistoryPoint {
-                ts_unix_ms: r.get::<_, i64>(0)? as u64,
-                cpu_temp_c: f(r.get(1)?),
-                cpu_load_pct: f(r.get(2)?),
-                cpu_w: f(r.get(3)?),
-                gpu_temp_c: f(r.get(4)?),
-                gpu_load_pct: f(r.get(5)?),
-                gpu_w: f(r.get(6)?),
-                mem_used_kb: r.get::<_, Option<f64>>(7)?.unwrap_or(0.0) as u64,
-                cpu_mhz: f(r.get(8)?),
-                gpu_mhz: f(r.get(9)?),
-                swap_used_kb: f(r.get(10)?),
-                disk_read_bps: f(r.get(11)?),
-                disk_write_bps: f(r.get(12)?),
-                disk_busy_pct: f(r.get(13)?),
-                net_rx_bps: f(r.get(14)?),
-                net_tx_bps: f(r.get(15)?),
-                load_avg_1: f(r.get(16)?),
-                processes: f(r.get(17)?),
-                battery_pct: f(r.get(18)?),
-                battery_w: f(r.get(19)?),
-            })
-        })
+        stmt.query_map(
+            params![
+                since_ms as i64,
+                until_ms.min(i64::MAX as u64) as i64,
+                bucket
+            ],
+            |r| {
+                Ok(HistoryPoint {
+                    ts_unix_ms: r.get::<_, i64>(0)? as u64,
+                    cpu_temp_c: f(r.get(1)?),
+                    cpu_load_pct: f(r.get(2)?),
+                    cpu_w: f(r.get(3)?),
+                    gpu_temp_c: f(r.get(4)?),
+                    gpu_load_pct: f(r.get(5)?),
+                    gpu_w: f(r.get(6)?),
+                    mem_used_kb: r.get::<_, Option<f64>>(7)?.unwrap_or(0.0) as u64,
+                    cpu_mhz: f(r.get(8)?),
+                    gpu_mhz: f(r.get(9)?),
+                    swap_used_kb: f(r.get(10)?),
+                    disk_read_bps: f(r.get(11)?),
+                    disk_write_bps: f(r.get(12)?),
+                    disk_busy_pct: f(r.get(13)?),
+                    net_rx_bps: f(r.get(14)?),
+                    net_tx_bps: f(r.get(15)?),
+                    load_avg_1: f(r.get(16)?),
+                    processes: f(r.get(17)?),
+                    battery_pct: f(r.get(18)?),
+                    battery_w: f(r.get(19)?),
+                })
+            },
+        )
         .map(|rows| rows.flatten().collect())
         .unwrap_or_default()
     }
@@ -283,18 +313,27 @@ impl History {
             return Vec::new();
         };
         let rows: Vec<(u64, String, u64, u64)> = stmt
-            .query_map(params![since_ms as i64, until_ms.min(i64::MAX as u64) as i64, reset as i64], |r| {
-                Ok((
-                    r.get::<_, i64>(0)? as u64,
-                    r.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                    r.get::<_, Option<i64>>(2)?.unwrap_or(0) as u64,
-                    r.get::<_, Option<i64>>(3)?.unwrap_or(0) as u64,
-                ))
-            })
+            .query_map(
+                params![
+                    since_ms as i64,
+                    until_ms.min(i64::MAX as u64) as i64,
+                    reset as i64
+                ],
+                |r| {
+                    Ok((
+                        r.get::<_, i64>(0)? as u64,
+                        r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                        r.get::<_, Option<i64>>(2)?.unwrap_or(0) as u64,
+                        r.get::<_, Option<i64>>(3)?.unwrap_or(0) as u64,
+                    ))
+                },
+            )
             .map(|rows| rows.flatten().collect())
             .unwrap_or_default();
         rows.windows(2)
-            .filter(|w| w[1].0 >= since_ms && w[0].1 == w[1].1 && w[1].2 >= w[0].2 && w[1].3 >= w[0].3)
+            .filter(|w| {
+                w[1].0 >= since_ms && w[0].1 == w[1].1 && w[1].2 >= w[0].2 && w[1].3 >= w[0].3
+            })
             .map(|w| (w[1].0, w[1].2 - w[0].2, w[1].3 - w[0].3))
             .collect()
     }
@@ -306,7 +345,11 @@ impl History {
         for (ts, rx, tx) in self.deltas(since_ms, u64::MAX) {
             let day = day_of(ts);
             if out.last().map(|d| &d.date) != Some(&day) {
-                out.push(DayTraffic { date: day, rx_bytes: 0, tx_bytes: 0 });
+                out.push(DayTraffic {
+                    date: day,
+                    rx_bytes: 0,
+                    tx_bytes: 0,
+                });
             }
             let d = out.last_mut().expect("just pushed");
             d.rx_bytes += rx;
@@ -318,11 +361,23 @@ impl History {
     /// Bytes received and sent in equal buckets of `bucket_ms` from `since`
     /// (so a caller's local midnight gives local hours). Every bucket up to
     /// `until` is returned, empty ones as zero; at most 2000.
-    pub fn traffic_buckets(&self, since_ms: u64, until_ms: u64, bucket_ms: u64) -> Vec<TrafficBucket> {
+    pub fn traffic_buckets(
+        &self,
+        since_ms: u64,
+        until_ms: u64,
+        bucket_ms: u64,
+    ) -> Vec<TrafficBucket> {
         let bucket = bucket_ms.max(60_000);
-        let n = (until_ms.saturating_sub(since_ms)).div_ceil(bucket).clamp(1, 2000);
-        let mut out: Vec<TrafficBucket> =
-            (0..n).map(|i| TrafficBucket { start_unix_ms: since_ms + i * bucket, rx_bytes: 0, tx_bytes: 0 }).collect();
+        let n = (until_ms.saturating_sub(since_ms))
+            .div_ceil(bucket)
+            .clamp(1, 2000);
+        let mut out: Vec<TrafficBucket> = (0..n)
+            .map(|i| TrafficBucket {
+                start_unix_ms: since_ms + i * bucket,
+                rx_bytes: 0,
+                tx_bytes: 0,
+            })
+            .collect();
         for (ts, rx, tx) in self.deltas(since_ms, until_ms) {
             // A delta at `since` itself was mostly used before it.
             if ts == since_ms {
@@ -341,7 +396,11 @@ impl History {
     /// are kept for the speed charts but not counted as traffic.
     pub fn reset_at(&self) -> u64 {
         self.conn()
-            .query_row("SELECT value FROM meta WHERE key = 'traffic_reset_ms'", [], |r| r.get::<_, i64>(0))
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'traffic_reset_ms'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
             .map(|v| v.max(0) as u64)
             .unwrap_or(0)
     }
@@ -351,7 +410,10 @@ impl History {
     pub fn reset_traffic(&self, now_ms: u64) -> bool {
         let c = self.conn();
         let ok = c
-            .execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('traffic_reset_ms', ?1)", params![now_ms as i64])
+            .execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('traffic_reset_ms', ?1)",
+                params![now_ms as i64],
+            )
             .and_then(|_| c.execute("DELETE FROM app_traffic", []))
             .inspect_err(|e| tracing::warn!(error = %e, "could not reset the traffic counts"))
             .is_ok();
@@ -364,7 +426,8 @@ impl History {
     /// zero. On the agent's first reading only the baselines are taken, so
     /// traffic from before is not counted twice.
     pub fn record_apps(&self, ts_ms: u64, apps: &[AppTraffic]) {
-        let mut by_name: std::collections::BTreeMap<String, (String, u64, u64)> = Default::default();
+        let mut by_name: std::collections::BTreeMap<String, (String, u64, u64)> =
+            Default::default();
         {
             let mut seen = self.apps_seen.lock().unwrap_or_else(|e| e.into_inner());
             let (last, primed) = &mut *seen;
@@ -377,10 +440,15 @@ impl History {
                     None => 0,
                 };
                 let prev = last.get(&a.id).copied();
-                let (rx, tx) = (d(a.rx_bytes, prev.map(|p| p.0)), d(a.tx_bytes, prev.map(|p| p.1)));
+                let (rx, tx) = (
+                    d(a.rx_bytes, prev.map(|p| p.0)),
+                    d(a.tx_bytes, prev.map(|p| p.1)),
+                );
                 now.insert(a.id.clone(), (a.rx_bytes, a.tx_bytes));
                 if rx + tx > 0 {
-                    let e = by_name.entry(a.name.clone()).or_insert_with(|| (a.category.clone(), 0, 0));
+                    let e = by_name
+                        .entry(a.name.clone())
+                        .or_insert_with(|| (a.category.clone(), 0, 0));
                     e.1 += rx;
                     e.2 += tx;
                 }
@@ -414,14 +482,17 @@ impl History {
         ) else {
             return Vec::new();
         };
-        q.query_map(params![since_ms as i64, until_ms.min(i64::MAX as u64) as i64], |r| {
-            Ok(AppUsage {
-                name: r.get(0)?,
-                category: r.get(1)?,
-                rx_bytes: r.get::<_, i64>(2)?.max(0) as u64,
-                tx_bytes: r.get::<_, i64>(3)?.max(0) as u64,
-            })
-        })
+        q.query_map(
+            params![since_ms as i64, until_ms.min(i64::MAX as u64) as i64],
+            |r| {
+                Ok(AppUsage {
+                    name: r.get(0)?,
+                    category: r.get(1)?,
+                    rx_bytes: r.get::<_, i64>(2)?.max(0) as u64,
+                    tx_bytes: r.get::<_, i64>(3)?.max(0) as u64,
+                })
+            },
+        )
         .map(|rows| rows.flatten().collect())
         .unwrap_or_default()
     }
@@ -463,8 +534,20 @@ mod tests {
                 fan_rpm: 0,
                 asleep: false,
             }],
-            mem: MemSample { total_kb: 1000, available_kb: 400, swap_total_kb: 0, swap_used_kb: 0, zram_used_kb: 0 },
-            net: NetSample { iface: iface.into(), rx_bps: 0, tx_bps: 0, rx_total_bytes: rx, tx_total_bytes: tx },
+            mem: MemSample {
+                total_kb: 1000,
+                available_kb: 400,
+                swap_total_kb: 0,
+                swap_used_kb: 0,
+                zram_used_kb: 0,
+            },
+            net: NetSample {
+                iface: iface.into(),
+                rx_bps: 0,
+                tx_bps: 0,
+                rx_total_bytes: rx,
+                tx_total_bytes: tx,
+            },
         }
     }
 
@@ -478,25 +561,56 @@ mod tests {
         let pts = h.range(0, 12 * MIN, 6); // 2-minute buckets
         assert_eq!(pts[0].cpu_temp_c, 45.0);
         assert_eq!(pts[1].cpu_temp_c, 65.0);
-        assert!(pts.last().unwrap().cpu_temp_c.is_nan(), "a missing reading is not zero");
-        assert!(pts[0].gpu_temp_c.is_nan(), "no GPU charted when none was passed");
+        assert!(
+            pts.last().unwrap().cpu_temp_c.is_nan(),
+            "a missing reading is not zero"
+        );
+        assert!(
+            pts[0].gpu_temp_c.is_nan(),
+            "no GPU charted when none was passed"
+        );
         assert_eq!(pts[0].mem_used_kb, 600);
     }
 
     #[test]
     fn every_live_reading_is_kept_and_speeds_come_from_the_counters() {
         let h = History::in_memory();
-        let x = ExtraSample { disk_read_bps: 2_000_000, disk_busy_pct: 10.0, load_avg_1: 1.5, processes: 300, battery_pct: f64::NAN, battery_w: f64::NAN, ..Default::default() };
+        let x = ExtraSample {
+            disk_read_bps: 2_000_000,
+            disk_busy_pct: 10.0,
+            load_avg_1: 1.5,
+            processes: 300,
+            battery_pct: f64::NAN,
+            battery_w: f64::NAN,
+            ..Default::default()
+        };
         h.record(&snap(0, 40.0, 0, 0, "wlan0"), None, Some(&x));
-        h.record(&snap(MIN, 40.0, 6_000_000, 600_000, "wlan0"), None, Some(&x));
-        h.record(&snap(2 * MIN, 40.0, 18_000_000, 600_000, "wlan0"), None, None);
+        h.record(
+            &snap(MIN, 40.0, 6_000_000, 600_000, "wlan0"),
+            None,
+            Some(&x),
+        );
+        h.record(
+            &snap(2 * MIN, 40.0, 18_000_000, 600_000, "wlan0"),
+            None,
+            None,
+        );
         let pts = h.range(0, 3 * MIN, 3);
-        assert!(pts[0].net_rx_bps.is_nan(), "no speed without a reading before");
+        assert!(
+            pts[0].net_rx_bps.is_nan(),
+            "no speed without a reading before"
+        );
         assert_eq!(pts[1].net_rx_bps, 100_000.0, "6 MB in a minute");
         assert_eq!(pts[1].net_tx_bps, 10_000.0);
         assert_eq!(pts[2].net_rx_bps, 200_000.0);
-        assert_eq!((pts[0].disk_read_bps, pts[0].load_avg_1, pts[0].processes), (2_000_000.0, 1.5, 300.0));
-        assert!(pts[2].disk_read_bps.is_nan(), "no extra reading: missing, not zero");
+        assert_eq!(
+            (pts[0].disk_read_bps, pts[0].load_avg_1, pts[0].processes),
+            (2_000_000.0, 1.5, 300.0)
+        );
+        assert!(
+            pts[2].disk_read_bps.is_nan(),
+            "no extra reading: missing, not zero"
+        );
         assert!(pts[0].battery_pct.is_nan(), "no battery");
         // The first bucket's speed uses the reading just before the range.
         assert_eq!(h.range(MIN, 3 * MIN, 2)[0].net_rx_bps, 100_000.0);
@@ -529,7 +643,13 @@ mod tests {
     #[test]
     fn daily_traffic_is_exact_and_survives_a_counter_reset() {
         let h = History::in_memory();
-        let day = |ts: u64| if ts < 3 * MIN { "d1".to_string() } else { "d2".to_string() };
+        let day = |ts: u64| {
+            if ts < 3 * MIN {
+                "d1".to_string()
+            } else {
+                "d2".to_string()
+            }
+        };
         h.record(&snap(0, 40.0, 1_000, 100, "wlan0"), None, None);
         h.record(&snap(MIN, 40.0, 5_000, 300, "wlan0"), None, None);
         h.record(&snap(2 * MIN, 40.0, 6_000, 400, "wlan0"), None, None);
@@ -561,7 +681,10 @@ mod tests {
         // The whole range adds up to the daily total.
         let all = h.traffic_buckets(0, 4 * MIN, 4 * MIN);
         let day = h.traffic(0, |_| "d".into());
-        assert_eq!((all[0].rx_bytes, all[0].tx_bytes), (day[0].rx_bytes, day[0].tx_bytes));
+        assert_eq!(
+            (all[0].rx_bytes, all[0].tx_bytes),
+            (day[0].rx_bytes, day[0].tx_bytes)
+        );
     }
 
     #[test]
@@ -577,12 +700,22 @@ mod tests {
     fn fps_sessions_are_stored_listed_newest_first_and_forgotten() {
         let h = History::in_memory();
         let s = |t: u64, g: &str| FpsSession {
-            game: g.into(), started_unix_ms: t, duration_s: 600, frames: 80_000, avg_fps: 133.0,
-            low_1pct_fps: 88.0, low_01pct_fps: 61.0, p99_frametime_ms: 11.4, stutters: 3,
+            game: g.into(),
+            started_unix_ms: t,
+            duration_s: 600,
+            frames: 80_000,
+            avg_fps: 133.0,
+            low_1pct_fps: 88.0,
+            low_01pct_fps: 61.0,
+            p99_frametime_ms: 11.4,
+            stutters: 3,
         };
         assert!(h.record_fps(&s(1_000, "cs2")));
         assert!(h.record_fps(&s(5_000, "eldenring")));
-        assert!(h.record_fps(&s(5_000, "eldenring")), "the same session twice is one row");
+        assert!(
+            h.record_fps(&s(5_000, "eldenring")),
+            "the same session twice is one row"
+        );
         let all = h.fps_sessions(0);
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].game, "eldenring");
@@ -593,7 +726,15 @@ mod tests {
     }
 
     fn app(id: &str, name: &str, rx: u64, tx: u64) -> AppTraffic {
-        AppTraffic { id: id.into(), name: name.into(), kind: "app".into(), category: "launcher".into(), rx_bytes: rx, tx_bytes: tx, ..Default::default() }
+        AppTraffic {
+            id: id.into(),
+            name: name.into(),
+            kind: "app".into(),
+            category: "launcher".into(),
+            rx_bytes: rx,
+            tx_bytes: tx,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -601,15 +742,37 @@ mod tests {
         let h = History::in_memory();
         // First reading: baselines only (the agent just started).
         h.record_apps(0, &[app("a/steam", "steam", 5_000, 50)]);
-        h.record_apps(MIN, &[app("a/steam", "steam", 8_000, 80), app("b/firefox", "firefox", 1_000, 10)]);
+        h.record_apps(
+            MIN,
+            &[
+                app("a/steam", "steam", 8_000, 80),
+                app("b/firefox", "firefox", 1_000, 10),
+            ],
+        );
         // Two cgroups with one name add up; a counter that went back counts from zero.
-        h.record_apps(2 * MIN, &[app("a/steam", "steam", 500, 5), app("c/steam", "steam", 100, 1), app("b/firefox", "firefox", 1_500, 15)]);
+        h.record_apps(
+            2 * MIN,
+            &[
+                app("a/steam", "steam", 500, 5),
+                app("c/steam", "steam", 100, 1),
+                app("b/firefox", "firefox", 1_500, 15),
+            ],
+        );
         let apps = h.app_traffic(0, 3 * MIN);
         assert_eq!(apps.len(), 2);
-        assert_eq!((apps[0].name.as_str(), apps[0].rx_bytes, apps[0].tx_bytes), ("steam", 3_000 + 600, 30 + 6));
-        assert_eq!((apps[1].name.as_str(), apps[1].rx_bytes), ("firefox", 1_500));
+        assert_eq!(
+            (apps[0].name.as_str(), apps[0].rx_bytes, apps[0].tx_bytes),
+            ("steam", 3_000 + 600, 30 + 6)
+        );
+        assert_eq!(
+            (apps[1].name.as_str(), apps[1].rx_bytes),
+            ("firefox", 1_500)
+        );
         assert_eq!(apps[0].category, "launcher");
-        assert!(h.app_traffic(SLOT_MS, 2 * SLOT_MS).is_empty(), "outside the range");
+        assert!(
+            h.app_traffic(SLOT_MS, 2 * SLOT_MS).is_empty(),
+            "outside the range"
+        );
     }
 
     #[test]
@@ -621,12 +784,24 @@ mod tests {
         h.record_apps(MIN, &[app("a", "steam", 700, 0)]);
         assert!(h.reset_traffic(MIN + 1));
         assert_eq!(h.reset_at(), MIN + 1);
-        assert!(h.traffic(0, |_| "d".into()).is_empty(), "nothing counted before the reset");
+        assert!(
+            h.traffic(0, |_| "d".into()).is_empty(),
+            "nothing counted before the reset"
+        );
         assert!(h.app_traffic(0, u64::MAX / 2).is_empty());
         h.record(&snap(2 * MIN, 40.0, 10_000, 1_000, "wlan0"), None, None);
         h.record(&snap(3 * MIN, 40.0, 12_000, 1_100, "wlan0"), None, None);
         let d = h.traffic(0, |_| "d".into());
-        assert_eq!((d[0].rx_bytes, d[0].tx_bytes), (2_000, 100), "counted from the first reading after the reset");
-        assert!(h.range(0, 4 * MIN, 4).iter().any(|p| !p.net_rx_bps.is_nan()), "speed history is kept");
+        assert_eq!(
+            (d[0].rx_bytes, d[0].tx_bytes),
+            (2_000, 100),
+            "counted from the first reading after the reset"
+        );
+        assert!(
+            h.range(0, 4 * MIN, 4)
+                .iter()
+                .any(|p| !p.net_rx_bps.is_nan()),
+            "speed history is kept"
+        );
     }
 }

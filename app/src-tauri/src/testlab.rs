@@ -26,9 +26,13 @@ pub async fn testlab_recover() -> Vec<String> {
 /// Writes the report into Downloads; returns the file's path.
 #[tauri::command]
 pub fn testlab_save(text: String) -> Result<String, String> {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
     let stamp = ug_core::playtime::local_time(now).replace([' ', ':'], "-");
-    let path = ug_core::playtime::downloads_dir().join(format!("unix-guardian-test-report-{stamp}.txt"));
+    let path =
+        ug_core::playtime::downloads_dir().join(format!("unix-guardian-test-report-{stamp}.txt"));
     std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(path.display().to_string())
 }

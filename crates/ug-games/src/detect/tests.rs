@@ -15,13 +15,22 @@ fn secs(t0: Instant, s: u64) -> Instant {
 }
 
 fn started(events: &[Event]) -> Vec<&RunningGame> {
-    events.iter().filter_map(|e| match e { Event::Started(g) => Some(g), _ => None }).collect()
+    events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Started(g) => Some(g),
+            _ => None,
+        })
+        .collect()
 }
 
 fn stopped(events: &[Event]) -> Vec<(&RunningGame, Duration)> {
     events
         .iter()
-        .filter_map(|e| match e { Event::Stopped { game, played } => Some((game, *played)), _ => None })
+        .filter_map(|e| match e {
+            Event::Stopped { game, played } => Some((game, *played)),
+            _ => None,
+        })
         .collect()
 }
 
@@ -33,29 +42,63 @@ fn a_steam_game_starts_groups_its_processes_and_stops_after_the_debounce() {
     let mut d = detector(vec![]);
 
     // Steam's reaper and the Proton game both carry SteamAppId.
-    fs.process(&FakeProc { pid: 500, comm: "reaper", cmdline: &["reaper", "SteamLaunch", "AppId=1091500"], environ: &[("SteamAppId", "1091500")], ..Default::default() });
-    fs.process(&FakeProc { pid: 510, ppid: 500, comm: "Cyberpunk2077.e", cmdline: &[r"Z:\games\Cyberpunk2077.exe"], environ: &[("SteamAppId", "1091500")], ..Default::default() });
+    fs.process(&FakeProc {
+        pid: 500,
+        comm: "reaper",
+        cmdline: &["reaper", "SteamLaunch", "AppId=1091500"],
+        environ: &[("SteamAppId", "1091500")],
+        ..Default::default()
+    });
+    fs.process(&FakeProc {
+        pid: 510,
+        ppid: 500,
+        comm: "Cyberpunk2077.e",
+        cmdline: &[r"Z:\games\Cyberpunk2077.exe"],
+        environ: &[("SteamAppId", "1091500")],
+        ..Default::default()
+    });
 
     let ev = d.scan(&root, t0);
     let s = started(&ev);
     assert_eq!(s.len(), 1);
     assert_eq!(s[0].key, "steam:1091500");
-    assert_eq!(s[0].name, "Cyberpunk 2077", "named from the database when Steam's library is absent");
+    assert_eq!(
+        s[0].name, "Cyberpunk 2077",
+        "named from the database when Steam's library is absent"
+    );
     assert_eq!(s[0].evidence, Evidence::SteamAppId);
-    assert_eq!(s[0].pids, vec![510], "reaper is Steam's wrapper, not part of the game");
+    assert_eq!(
+        s[0].pids,
+        vec![510],
+        "reaper is Steam's wrapper, not part of the game"
+    );
 
     // A child process spawned later joins the same game.
-    fs.process(&FakeProc { pid: 520, ppid: 510, comm: "CrashReporter", cmdline: &["CrashReporter"], environ: &[("SteamAppId", "1091500")], ..Default::default() });
+    fs.process(&FakeProc {
+        pid: 520,
+        ppid: 510,
+        comm: "CrashReporter",
+        cmdline: &["CrashReporter"],
+        environ: &[("SteamAppId", "1091500")],
+        ..Default::default()
+    });
     assert!(d.scan(&root, secs(t0, 2)).is_empty());
     assert_eq!(d.running()[0].pids, vec![510, 520]);
 
     // Game exits. Not stopped until the debounce has passed.
     fs.kill(510).kill(520).kill(500);
-    assert!(d.scan(&root, secs(t0, 60)).is_empty(), "debounce: launchers hand off between processes");
+    assert!(
+        d.scan(&root, secs(t0, 60)).is_empty(),
+        "debounce: launchers hand off between processes"
+    );
     let ev = d.scan(&root, secs(t0, 64));
     let st = stopped(&ev);
     assert_eq!(st.len(), 1);
-    assert_eq!(st[0].1, Duration::from_secs(60), "played until the last process vanished, not until the debounce ended");
+    assert_eq!(
+        st[0].1,
+        Duration::from_secs(60),
+        "played until the last process vanished, not until the debounce ended"
+    );
     assert!(d.running().is_empty());
 }
 
@@ -66,12 +109,27 @@ fn a_launcher_handing_off_to_the_game_is_one_session() {
     let t0 = Instant::now();
     let mut d = detector(vec![]);
 
-    fs.process(&FakeProc { pid: 600, comm: "launcher.exe", cmdline: &[r"C:\g\launcher.exe"], environ: &[("SteamAppId", "730")], ..Default::default() });
+    fs.process(&FakeProc {
+        pid: 600,
+        comm: "launcher.exe",
+        cmdline: &[r"C:\g\launcher.exe"],
+        environ: &[("SteamAppId", "730")],
+        ..Default::default()
+    });
     assert_eq!(started(&d.scan(&root, t0)).len(), 1);
     fs.kill(600);
     assert!(d.scan(&root, secs(t0, 1)).is_empty());
-    fs.process(&FakeProc { pid: 601, comm: "cs2", cmdline: &["/g/cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
-    assert!(d.scan(&root, secs(t0, 2)).is_empty(), "no second Started within the debounce");
+    fs.process(&FakeProc {
+        pid: 601,
+        comm: "cs2",
+        cmdline: &["/g/cs2"],
+        environ: &[("SteamAppId", "730")],
+        ..Default::default()
+    });
+    assert!(
+        d.scan(&root, secs(t0, 2)).is_empty(),
+        "no second Started within the debounce"
+    );
     assert_eq!(d.running().len(), 1);
 }
 
@@ -105,8 +163,24 @@ fn the_database_recognises_games_outside_steam() {
     let fs = TestFs::new();
     let root = SysRoot::at(fs.root());
     let mut d = detector(vec![]);
-    fs.process(&FakeProc { pid: 10, comm: "eldenring.exe", cmdline: &[r"C:\ER\Game\eldenring.exe"], ..Default::default() });
-    fs.process(&FakeProc { pid: 11, comm: "java", cmdline: &["/usr/bin/java", "-Xmx4G", "net.minecraft.client.main.Main", "--username", "x"], ..Default::default() });
+    fs.process(&FakeProc {
+        pid: 10,
+        comm: "eldenring.exe",
+        cmdline: &[r"C:\ER\Game\eldenring.exe"],
+        ..Default::default()
+    });
+    fs.process(&FakeProc {
+        pid: 11,
+        comm: "java",
+        cmdline: &[
+            "/usr/bin/java",
+            "-Xmx4G",
+            "net.minecraft.client.main.Main",
+            "--username",
+            "x",
+        ],
+        ..Default::default()
+    });
     let ev = d.scan(&root, Instant::now());
     let mut keys: Vec<&str> = started(&ev).iter().map(|g| g.key.as_str()).collect();
     keys.sort();
@@ -117,9 +191,18 @@ fn the_database_recognises_games_outside_steam() {
 fn a_blocked_game_carries_the_reason_to_show_the_user() {
     let fs = TestFs::new();
     let mut d = detector(vec![]);
-    fs.process(&FakeProc { pid: 12, comm: "VALORANT-Win64-", cmdline: &[r"C:\Riot\VALORANT-Win64-Shipping.exe"], ..Default::default() });
+    fs.process(&FakeProc {
+        pid: 12,
+        comm: "VALORANT-Win64-",
+        cmdline: &[r"C:\Riot\VALORANT-Win64-Shipping.exe"],
+        ..Default::default()
+    });
     let ev = d.scan(&SysRoot::at(fs.root()), Instant::now());
-    assert!(started(&ev)[0].blocked_note.as_deref().unwrap().contains("Vanguard"));
+    assert!(started(&ev)[0]
+        .blocked_note
+        .as_deref()
+        .unwrap()
+        .contains("Vanguard"));
 }
 
 #[test]
@@ -157,7 +240,14 @@ fn an_idle_graphical_program_never_becomes_a_game() {
     let root = SysRoot::at(fs.root());
     let t0 = Instant::now();
     let mut d = detector(vec![]);
-    let tool = |cpu: u64| FakeProc { pid: 801, comm: "Viewer.exe", cmdline: &[r"C:\V\Viewer.exe"], maps: &["/x/d3d9.dll"], cpu_ticks: cpu, ..Default::default() };
+    let tool = |cpu: u64| FakeProc {
+        pid: 801,
+        comm: "Viewer.exe",
+        cmdline: &[r"C:\V\Viewer.exe"],
+        maps: &["/x/d3d9.dll"],
+        cpu_ticks: cpu,
+        ..Default::default()
+    };
     fs.process(&tool(0));
     d.scan(&root, t0);
     for (s, cpu) in [(5, 20), (10, 40), (15, 60)] {
@@ -172,8 +262,22 @@ fn browsers_and_tools_are_never_games_however_hard_they_work() {
     let root = SysRoot::at(fs.root());
     let t0 = Instant::now();
     let mut d = detector(vec![]);
-    let ff = |cpu| FakeProc { pid: 900, comm: "firefox", cmdline: &["/usr/lib/firefox/firefox"], maps: &["/usr/lib/libvulkan.so.1"], cpu_ticks: cpu, ..Default::default() };
-    let blender = |cpu| FakeProc { pid: 901, comm: "blender", cmdline: &["blender"], maps: &["/usr/lib/libvulkan.so.1"], cpu_ticks: cpu, ..Default::default() };
+    let ff = |cpu| FakeProc {
+        pid: 900,
+        comm: "firefox",
+        cmdline: &["/usr/lib/firefox/firefox"],
+        maps: &["/usr/lib/libvulkan.so.1"],
+        cpu_ticks: cpu,
+        ..Default::default()
+    };
+    let blender = |cpu| FakeProc {
+        pid: 901,
+        comm: "blender",
+        cmdline: &["blender"],
+        maps: &["/usr/lib/libvulkan.so.1"],
+        cpu_ticks: cpu,
+        ..Default::default()
+    };
     fs.process(&ff(0)).process(&blender(0));
     d.scan(&root, t0);
     fs.process(&ff(1000)).process(&blender(1000));
@@ -186,12 +290,36 @@ fn wine_system_processes_and_installers_are_not_games() {
     let root = SysRoot::at(fs.root());
     let t0 = Instant::now();
     let mut d = detector(vec![]);
-    for (pid, exe) in [(20, r"C:\windows\explorer.exe"), (21, r"C:\windows\system32\services.exe"), (22, r"C:\dl\GameSetup.exe"), (23, r"C:\Epic\EpicGamesLauncher.exe")] {
-        fs.process(&FakeProc { pid, comm: "x", cmdline: &[exe], maps: &["/x/d3d11.dll"], cpu_ticks: 0, ..Default::default() });
+    for (pid, exe) in [
+        (20, r"C:\windows\explorer.exe"),
+        (21, r"C:\windows\system32\services.exe"),
+        (22, r"C:\dl\GameSetup.exe"),
+        (23, r"C:\Epic\EpicGamesLauncher.exe"),
+    ] {
+        fs.process(&FakeProc {
+            pid,
+            comm: "x",
+            cmdline: &[exe],
+            maps: &["/x/d3d11.dll"],
+            cpu_ticks: 0,
+            ..Default::default()
+        });
     }
     d.scan(&root, t0);
     for pid in 20..24 {
-        fs.process(&FakeProc { pid, comm: "x", cmdline: &[match pid { 20 => r"C:\windows\explorer.exe", 21 => r"C:\windows\system32\services.exe", 22 => r"C:\dl\GameSetup.exe", _ => r"C:\Epic\EpicGamesLauncher.exe" }], maps: &["/x/d3d11.dll"], cpu_ticks: 1000, ..Default::default() });
+        fs.process(&FakeProc {
+            pid,
+            comm: "x",
+            cmdline: &[match pid {
+                20 => r"C:\windows\explorer.exe",
+                21 => r"C:\windows\system32\services.exe",
+                22 => r"C:\dl\GameSetup.exe",
+                _ => r"C:\Epic\EpicGamesLauncher.exe",
+            }],
+            maps: &["/x/d3d11.dll"],
+            cpu_ticks: 1000,
+            ..Default::default()
+        });
     }
     assert!(d.scan(&root, secs(t0, 6)).is_empty());
 }
@@ -200,7 +328,14 @@ fn wine_system_processes_and_installers_are_not_games() {
 fn another_users_games_are_not_ours() {
     let fs = TestFs::new();
     let mut d = detector(vec![]);
-    fs.process(&FakeProc { pid: 30, uid: 1001, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+    fs.process(&FakeProc {
+        pid: 30,
+        uid: 1001,
+        comm: "cs2",
+        cmdline: &["cs2"],
+        environ: &[("SteamAppId", "730")],
+        ..Default::default()
+    });
     assert!(d.scan(&SysRoot::at(fs.root()), Instant::now()).is_empty());
 }
 
@@ -208,10 +343,31 @@ fn another_users_games_are_not_ours() {
 fn steam_shader_precompilation_is_not_a_game() {
     let fs = TestFs::new();
     let mut d = detector(vec![]);
-    fs.process(&FakeProc { pid: 31, comm: "fossilize_repla", cmdline: &["fossilize_replay"], environ: &[("SteamAppId", "730")], ..Default::default() });
-    fs.process(&FakeProc { pid: 32, comm: "steamwebhelper", cmdline: &["steamwebhelper"], environ: &[("SteamAppId", "730")], ..Default::default() });
-    fs.process(&FakeProc { pid: 33, comm: "x", cmdline: &["x"], environ: &[("SteamAppId", "1628350")], ..Default::default() });
-    assert!(d.scan(&SysRoot::at(fs.root()), Instant::now()).is_empty(), "shader cache, Steam UI and runtime tools");
+    fs.process(&FakeProc {
+        pid: 31,
+        comm: "fossilize_repla",
+        cmdline: &["fossilize_replay"],
+        environ: &[("SteamAppId", "730")],
+        ..Default::default()
+    });
+    fs.process(&FakeProc {
+        pid: 32,
+        comm: "steamwebhelper",
+        cmdline: &["steamwebhelper"],
+        environ: &[("SteamAppId", "730")],
+        ..Default::default()
+    });
+    fs.process(&FakeProc {
+        pid: 33,
+        comm: "x",
+        cmdline: &["x"],
+        environ: &[("SteamAppId", "1628350")],
+        ..Default::default()
+    });
+    assert!(
+        d.scan(&SysRoot::at(fs.root()), Instant::now()).is_empty(),
+        "shader cache, Steam UI and runtime tools"
+    );
 }
 
 #[test]
@@ -220,13 +376,30 @@ fn a_reused_pid_is_a_new_process() {
     let root = SysRoot::at(fs.root());
     let t0 = Instant::now();
     let mut d = detector(vec![]);
-    fs.process(&FakeProc { pid: 40, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], start_ticks: 100, ..Default::default() });
+    fs.process(&FakeProc {
+        pid: 40,
+        comm: "cs2",
+        cmdline: &["cs2"],
+        environ: &[("SteamAppId", "730")],
+        start_ticks: 100,
+        ..Default::default()
+    });
     d.scan(&root, t0);
     // Between scans the game exited and an unrelated process got PID 40.
-    fs.process(&FakeProc { pid: 40, comm: "bash", cmdline: &["bash"], start_ticks: 999, ..Default::default() });
+    fs.process(&FakeProc {
+        pid: 40,
+        comm: "bash",
+        cmdline: &["bash"],
+        start_ticks: 999,
+        ..Default::default()
+    });
     d.scan(&root, secs(t0, 1));
     let ev = d.scan(&root, secs(t0, 5));
-    assert_eq!(stopped(&ev).len(), 1, "bash on the old PID must not keep CS2 'running'");
+    assert_eq!(
+        stopped(&ev).len(),
+        1,
+        "bash on the old PID must not keep CS2 'running'"
+    );
 }
 
 #[test]
@@ -234,7 +407,12 @@ fn gamemode_registration_makes_an_unknown_process_a_game() {
     let fs = TestFs::new();
     let root = SysRoot::at(fs.root());
     let mut d = detector(vec![]);
-    fs.process(&FakeProc { pid: 50, comm: "mygame", cmdline: &["/opt/mygame/mygame"], ..Default::default() });
+    fs.process(&FakeProc {
+        pid: 50,
+        comm: "mygame",
+        cmdline: &["/opt/mygame/mygame"],
+        ..Default::default()
+    });
     assert!(d.scan(&root, Instant::now()).is_empty());
     d.register(50);
     let ev = d.scan(&root, Instant::now());
@@ -247,7 +425,13 @@ fn gamemode_registration_makes_an_unknown_process_a_game() {
 fn gamemode_registration_of_a_steam_game_keeps_the_steam_identity() {
     let fs = TestFs::new();
     let mut d = detector(vec![]);
-    fs.process(&FakeProc { pid: 51, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+    fs.process(&FakeProc {
+        pid: 51,
+        comm: "cs2",
+        cmdline: &["cs2"],
+        environ: &[("SteamAppId", "730")],
+        ..Default::default()
+    });
     d.register(51);
     let ev = d.scan(&SysRoot::at(fs.root()), Instant::now());
     assert_eq!(started(&ev)[0].key, "steam:730");
@@ -259,30 +443,67 @@ fn dismissing_a_wrong_guess_stops_it_now_and_forever() {
     let root = SysRoot::at(fs.root());
     let t0 = Instant::now();
     let mut d = detector(vec![]);
-    let p = |pid, cpu| FakeProc { pid, comm: "Render.exe", cmdline: &[r"C:\r\Render.exe"], maps: &["/x/d3d12.dll"], cpu_ticks: cpu, ..Default::default() };
+    let p = |pid, cpu| FakeProc {
+        pid,
+        comm: "Render.exe",
+        cmdline: &[r"C:\r\Render.exe"],
+        maps: &["/x/d3d12.dll"],
+        cpu_ticks: cpu,
+        ..Default::default()
+    };
     fs.process(&p(60, 0));
     d.scan(&root, t0);
     fs.process(&p(60, 500));
     assert_eq!(started(&d.scan(&root, secs(t0, 5))).len(), 1);
 
     let ev = d.ignore_exe("Render.exe", secs(t0, 7));
-    assert_eq!(stopped(&ev).len(), 1, "tuning must be reverted immediately, not when it exits");
+    assert_eq!(
+        stopped(&ev).len(),
+        1,
+        "tuning must be reverted immediately, not when it exits"
+    );
     assert!(d.running().is_empty());
 
     fs.kill(60).process(&p(61, 0));
     d.scan(&root, secs(t0, 8));
     fs.process(&p(61, 900));
-    assert!(d.scan(&root, secs(t0, 14)).is_empty(), "stays dismissed for new instances");
+    assert!(
+        d.scan(&root, secs(t0, 14)).is_empty(),
+        "stays dismissed for new instances"
+    );
 }
 
 #[test]
 fn electron_and_cef_helpers_are_never_games_whatever_they_are_called() {
     // Names taken from a real desktop: none of them is in any ignore list.
     const HELPERS: [(i32, &str, &[&str]); 4] = [
-        (70, "gapgpt", &["/opt/GapGPT/gapgpt", "--type=gpu-process", "--ozone-platform=wayland"]),
-        (71, "desktop", &["/tmp/.mount_desktoCOFAbJ/desktop", "--type=gpu-process"]),
-        (72, "claude-desktop", &["/usr/lib/claude-desktop/claude-desktop", "--type=gpu-process"]),
-        (73, "EpicWebHelper.", &[r"C:\Epic\EpicWebHelper.exe", "--type=renderer"]),
+        (
+            70,
+            "gapgpt",
+            &[
+                "/opt/GapGPT/gapgpt",
+                "--type=gpu-process",
+                "--ozone-platform=wayland",
+            ],
+        ),
+        (
+            71,
+            "desktop",
+            &["/tmp/.mount_desktoCOFAbJ/desktop", "--type=gpu-process"],
+        ),
+        (
+            72,
+            "claude-desktop",
+            &[
+                "/usr/lib/claude-desktop/claude-desktop",
+                "--type=gpu-process",
+            ],
+        ),
+        (
+            73,
+            "EpicWebHelper.",
+            &[r"C:\Epic\EpicWebHelper.exe", "--type=renderer"],
+        ),
     ];
     let fs = TestFs::new();
     let root = SysRoot::at(fs.root());
@@ -310,7 +531,8 @@ fn chromium_helpers_with_a_rewritten_process_title_are_not_games() {
     // spaces rather than NUL-separated arguments. Shape copied from the Claude
     // desktop app's GPU process on the dev machine, which the heuristic took
     // for a game while it was busy rendering.
-    const TITLE: &str = "/usr/lib/claude-desktop/claude-desktop --type=gpu-process --ozone-platform=wayland \
+    const TITLE: &str =
+        "/usr/lib/claude-desktop/claude-desktop --type=gpu-process --ozone-platform=wayland \
         --user-data-dir=/home/u/.config/Claude --gpu-preferences=YAAAAAAAAAAgAQAEAAAAAAAAAAAAAGAA";
     let fs = TestFs::new();
     let root = SysRoot::at(fs.root());
@@ -352,25 +574,47 @@ fn a_process_from_a_test_run_is_invisible_to_every_other_detector() {
     let fs = TestFs::new();
     let root = SysRoot::at(fs.root());
     let t0 = Instant::now();
-    fs.process(&FakeProc { pid: 10, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730"), ("UG_TEST_RUN", "e2e-1")], ..Default::default() });
+    fs.process(&FakeProc {
+        pid: 10,
+        comm: "cs2",
+        cmdline: &["cs2"],
+        environ: &[("SteamAppId", "730"), ("UG_TEST_RUN", "e2e-1")],
+        ..Default::default()
+    });
 
     let mut real = detector(vec![]);
-    assert!(real.scan(&root, t0).is_empty(), "an agent outside the test run ignores it");
+    assert!(
+        real.scan(&root, t0).is_empty(),
+        "an agent outside the test run ignores it"
+    );
 
     let mut other_run = detector(vec![]);
     other_run.set_test_run(Some("e2e-2".into()));
-    assert!(other_run.scan(&root, t0).is_empty(), "another test run ignores it too");
+    assert!(
+        other_run.scan(&root, t0).is_empty(),
+        "another test run ignores it too"
+    );
 
     let mut same_run = detector(vec![]);
     same_run.set_test_run(Some("e2e-1".into()));
-    assert_eq!(started(&same_run.scan(&root, t0)).len(), 1, "the test's own agent sees it");
+    assert_eq!(
+        started(&same_run.scan(&root, t0)).len(),
+        1,
+        "the test's own agent sees it"
+    );
 }
 
 #[test]
 fn a_test_agent_ignores_the_users_real_games() {
     let fs = TestFs::new();
     let root = SysRoot::at(fs.root());
-    fs.process(&FakeProc { pid: 10, comm: "cs2", cmdline: &["cs2"], environ: &[("SteamAppId", "730")], ..Default::default() });
+    fs.process(&FakeProc {
+        pid: 10,
+        comm: "cs2",
+        cmdline: &["cs2"],
+        environ: &[("SteamAppId", "730")],
+        ..Default::default()
+    });
     let mut d = detector(vec![]);
     d.set_test_run(Some("e2e-1".into()));
     assert!(d.scan(&root, Instant::now()).is_empty());
@@ -395,17 +639,31 @@ fn a_tracked_app_counts_its_time_but_is_never_a_game() {
     fs.process(&editor(70, 0));
     d.scan(&root, t0);
     fs.process(&editor(70, 500));
-    assert_eq!(started(&d.scan(&root, secs(t0, 5)))[0].key, "exe:wondershare filmora", "a game by behaviour");
+    assert_eq!(
+        started(&d.scan(&root, secs(t0, 5)))[0].key,
+        "exe:wondershare filmora",
+        "a game by behaviour"
+    );
 
     // Tracked while running: from the next scan it is an app, not a game.
     d.set_tracked_apps([("Wondershare Filmora.exe".to_string(), "Filmora".to_string())]);
     let ev = d.scan(&root, secs(t0, 6));
     let s = started(&ev);
     assert_eq!(s.len(), 1);
-    assert_eq!((s[0].key.as_str(), s[0].name.as_str(), s[0].is_app()), ("app:wondershare filmora", "Filmora", true));
-    assert!(d.running().iter().all(|g| !g.is_app()), "apps never get game mode");
+    assert_eq!(
+        (s[0].key.as_str(), s[0].name.as_str(), s[0].is_app()),
+        ("app:wondershare filmora", "Filmora", true)
+    );
+    assert!(
+        d.running().iter().all(|g| !g.is_app()),
+        "apps never get game mode"
+    );
     let ev = d.scan(&root, secs(t0, 10));
-    assert_eq!(stopped(&ev)[0].0.key, "exe:wondershare filmora", "the game session ends after the debounce");
+    assert_eq!(
+        stopped(&ev)[0].0.key,
+        "exe:wondershare filmora",
+        "the game session ends after the debounce"
+    );
     assert!(d.running().is_empty());
 
     fs.kill(70);
@@ -413,7 +671,11 @@ fn a_tracked_app_counts_its_time_but_is_never_a_game() {
     let ev = d.scan(&root, secs(t0, 24));
     let st = stopped(&ev);
     assert_eq!(st[0].0.key, "app:wondershare filmora");
-    assert_eq!(st[0].1, Duration::from_secs(14), "played from tracking to exit");
+    assert_eq!(
+        st[0].1,
+        Duration::from_secs(14),
+        "played from tracking to exit"
+    );
 }
 
 #[test]
@@ -422,8 +684,20 @@ fn a_browser_can_be_tracked_even_though_it_is_never_a_game() {
     let root = SysRoot::at(fs.root());
     let mut d = detector(vec![]);
     d.set_tracked_apps([("firefox".to_string(), "Firefox".to_string())]);
-    fs.process(&FakeProc { pid: 90, comm: "firefox", exe: Some("/usr/lib/firefox/firefox"), cmdline: &["/usr/lib/firefox/firefox"], ..Default::default() });
-    fs.process(&FakeProc { pid: 91, comm: "Isolated Web Co", exe: Some("/usr/lib/firefox/firefox"), cmdline: &["/usr/lib/firefox/firefox -contentproc"], ..Default::default() });
+    fs.process(&FakeProc {
+        pid: 90,
+        comm: "firefox",
+        exe: Some("/usr/lib/firefox/firefox"),
+        cmdline: &["/usr/lib/firefox/firefox"],
+        ..Default::default()
+    });
+    fs.process(&FakeProc {
+        pid: 91,
+        comm: "Isolated Web Co",
+        exe: Some("/usr/lib/firefox/firefox"),
+        cmdline: &["/usr/lib/firefox/firefox -contentproc"],
+        ..Default::default()
+    });
     let ev = d.scan(&root, Instant::now());
     let s = started(&ev);
     assert_eq!(s.len(), 1, "one app however many processes");
@@ -437,7 +711,14 @@ fn not_a_game_from_an_earlier_session_is_remembered() {
     let t0 = Instant::now();
     let mut d = detector(vec![]);
     d.ignore_exes(["Render.exe".to_string()]);
-    let p = |cpu| FakeProc { pid: 62, comm: "Render.exe", cmdline: &[r"C:\r\Render.exe"], maps: &["/x/d3d12.dll"], cpu_ticks: cpu, ..Default::default() };
+    let p = |cpu| FakeProc {
+        pid: 62,
+        comm: "Render.exe",
+        cmdline: &[r"C:\r\Render.exe"],
+        maps: &["/x/d3d12.dll"],
+        cpu_ticks: cpu,
+        ..Default::default()
+    };
     fs.process(&p(0));
     d.scan(&root, t0);
     fs.process(&p(900));

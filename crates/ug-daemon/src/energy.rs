@@ -34,8 +34,16 @@ pub struct EnergyMeter {
 
 impl EnergyMeter {
     pub fn load(root: SysRoot, path: &Path) -> EnergyMeter {
-        let f: File = std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-        EnergyMeter { root, path: path.to_path_buf(), days: f.days, prev: None }
+        let f: File = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        EnergyMeter {
+            root,
+            path: path.to_path_buf(),
+            days: f.days,
+            prev: None,
+        }
     }
 
     /// Whether any RAPL package counter is readable here.
@@ -54,7 +62,13 @@ impl EnergyMeter {
             if !name.starts_with("intel-rapl:") || name.matches(':').count() != 1 {
                 continue;
             }
-            let read = |f: &str| std::fs::read_to_string(e.path().join(f)).ok()?.trim().parse::<u64>().ok();
+            let read = |f: &str| {
+                std::fs::read_to_string(e.path().join(f))
+                    .ok()?
+                    .trim()
+                    .parse::<u64>()
+                    .ok()
+            };
             if let Some(uj) = read("energy_uj") {
                 total += uj;
                 wrap += read("max_energy_range_uj").unwrap_or(u64::MAX / 4);
@@ -67,7 +81,9 @@ impl EnergyMeter {
     /// Reads the counter and books the energy since the last read to `date`.
     /// The first read only sets the baseline. Returns the watt-hours added.
     pub fn tick(&mut self, date: &str) -> f64 {
-        let Some((now, wrap)) = self.counter() else { return 0.0 };
+        let Some((now, wrap)) = self.counter() else {
+            return 0.0;
+        };
         let added_uj = match self.prev {
             None => 0,
             Some((prev, _)) if now >= prev => now - prev,
@@ -98,12 +114,17 @@ impl EnergyMeter {
     }
 
     fn save(&self) -> Result<(), String> {
-        let text = serde_json::to_string_pretty(&File { days: self.days.clone() }).map_err(|e| e.to_string())?;
+        let text = serde_json::to_string_pretty(&File {
+            days: self.days.clone(),
+        })
+        .map_err(|e| e.to_string())?;
         if let Some(d) = self.path.parent() {
             std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
         }
         let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, text).and_then(|()| std::fs::rename(&tmp, &self.path)).map_err(|e| e.to_string())
+        std::fs::write(&tmp, text)
+            .and_then(|()| std::fs::rename(&tmp, &self.path))
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -116,7 +137,12 @@ pub fn local_date() -> String {
         libc::localtime_r(&now, &mut tm);
         tm
     };
-    format!("{:04}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
+    format!(
+        "{:04}-{:02}-{:02}",
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday
+    )
 }
 
 /// The whole machine's draw while running on battery, in watts: the one
@@ -125,8 +151,14 @@ pub fn battery_discharge_w(root: &SysRoot) -> Option<f64> {
     let base = root.join("sys/class/power_supply");
     for e in std::fs::read_dir(base).ok()?.filter_map(|e| e.ok()) {
         let p = e.path();
-        let read = |f: &str| std::fs::read_to_string(p.join(f)).ok().map(|s| s.trim().to_string());
-        if read("type").as_deref() != Some("Battery") || read("status").as_deref() != Some("Discharging") {
+        let read = |f: &str| {
+            std::fs::read_to_string(p.join(f))
+                .ok()
+                .map(|s| s.trim().to_string())
+        };
+        if read("type").as_deref() != Some("Battery")
+            || read("status").as_deref() != Some("Discharging")
+        {
             continue;
         }
         if let Some(uw) = read("power_now").and_then(|s| s.parse::<f64>().ok()) {
@@ -147,7 +179,10 @@ mod tests {
 
     fn rapl(fs: &TestFs, uj: u64) {
         fs.write("sys/class/powercap/intel-rapl:0/energy_uj", &uj.to_string());
-        fs.write("sys/class/powercap/intel-rapl:0/max_energy_range_uj", "1000000000");
+        fs.write(
+            "sys/class/powercap/intel-rapl:0/max_energy_range_uj",
+            "1000000000",
+        );
         fs.write("sys/class/powercap/intel-rapl:0:0/energy_uj", "999"); // a subdomain: ignored
     }
 
@@ -158,7 +193,11 @@ mod tests {
         let path = d.path().join("energy.json");
         let mut m = EnergyMeter::load(SysRoot::at(fs.root()), &path);
         rapl(&fs, 0);
-        assert_eq!(m.tick("2026-09-30"), 0.0, "the first read only sets the baseline");
+        assert_eq!(
+            m.tick("2026-09-30"),
+            0.0,
+            "the first read only sets the baseline"
+        );
         rapl(&fs, 360_000_000); // 360 J = 0.1 Wh
         assert!((m.tick("2026-09-30") - 0.1).abs() < 1e-9);
         rapl(&fs, 720_000_000);

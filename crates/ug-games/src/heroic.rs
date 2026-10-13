@@ -5,11 +5,14 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 fn config_roots(home: &Path) -> Vec<PathBuf> {
-    [".config/heroic", ".var/app/com.heroicgameslauncher.hgl/config/heroic"]
-        .iter()
-        .map(|r| home.join(r))
-        .filter(|p| p.is_dir())
-        .collect()
+    [
+        ".config/heroic",
+        ".var/app/com.heroicgameslauncher.hgl/config/heroic",
+    ]
+    .iter()
+    .map(|r| home.join(r))
+    .filter(|p| p.is_dir())
+    .collect()
 }
 
 pub fn scan(home: &Path) -> Vec<InstalledGame> {
@@ -28,12 +31,17 @@ fn read_json(p: &Path) -> Option<Value> {
 
 /// `legendaryConfig/legendary/installed.json`: an object keyed by app name.
 fn epic(root: &Path) -> Vec<InstalledGame> {
-    let Some(Value::Object(map)) = read_json(&root.join("legendaryConfig/legendary/installed.json")) else {
+    let Some(Value::Object(map)) =
+        read_json(&root.join("legendaryConfig/legendary/installed.json"))
+    else {
         return Vec::new();
     };
     map.iter()
         .filter_map(|(app, g)| {
-            let install = g.get("install_path").and_then(Value::as_str).map(PathBuf::from);
+            let install = g
+                .get("install_path")
+                .and_then(Value::as_str)
+                .map(PathBuf::from);
             Some(InstalledGame {
                 id: format!("heroic:epic:{app}"),
                 name: g.get("title")?.as_str()?.to_string(),
@@ -59,9 +67,15 @@ fn gog(root: &Path) -> Vec<InstalledGame> {
     };
     let library = read_json(&root.join("gog_store/library.json"));
     let title_for = |app: &str| -> Option<String> {
-        library.as_ref()?.get("games")?.as_array()?.iter().find_map(|g| {
-            (g.get("app_name")?.as_str()? == app).then(|| g.get("title")?.as_str().map(str::to_string))?
-        })
+        library
+            .as_ref()?
+            .get("games")?
+            .as_array()?
+            .iter()
+            .find_map(|g| {
+                (g.get("app_name")?.as_str()? == app)
+                    .then(|| g.get("title")?.as_str().map(str::to_string))?
+            })
     };
 
     installed
@@ -72,10 +86,12 @@ fn gog(root: &Path) -> Vec<InstalledGame> {
                 .filter(|g| !g.get("is_dlc").and_then(Value::as_bool).unwrap_or(false))
                 .filter_map(|g| {
                     let app = g.get("appName")?.as_str()?;
-                    let dir = g.get("install_path").and_then(Value::as_str).map(PathBuf::from);
-                    let name = title_for(app).or_else(|| {
-                        dir.as_ref()?.file_name()?.to_str().map(str::to_string)
-                    })?;
+                    let dir = g
+                        .get("install_path")
+                        .and_then(Value::as_str)
+                        .map(PathBuf::from);
+                    let name = title_for(app)
+                        .or_else(|| dir.as_ref()?.file_name()?.to_str().map(str::to_string))?;
                     Some(InstalledGame {
                         id: format!("heroic:gog:{app}"),
                         name,
@@ -99,7 +115,11 @@ fn sideload(root: &Path) -> Vec<InstalledGame> {
         .and_then(Value::as_array)
         .map(|arr| {
             arr.iter()
-                .filter(|g| g.get("is_installed").and_then(Value::as_bool).unwrap_or(true))
+                .filter(|g| {
+                    g.get("is_installed")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true)
+                })
                 .filter_map(|g| {
                     let app = g.get("app_name")?.as_str()?;
                     let exe = g.pointer("/install/executable").and_then(Value::as_str);
@@ -109,7 +129,10 @@ fn sideload(root: &Path) -> Vec<InstalledGame> {
                         launcher: Launcher::Heroic,
                         steam_appid: None,
                         exe_names: exe.map(|e| vec![normalise_exe(e)]).unwrap_or_default(),
-                        install_dir: g.get("folder_name").and_then(Value::as_str).map(PathBuf::from),
+                        install_dir: g
+                            .get("folder_name")
+                            .and_then(Value::as_str)
+                            .map(PathBuf::from),
                     })
                 })
                 .collect()
@@ -149,10 +172,21 @@ mod tests {
         let mut games = scan(&fs.root().join("home"));
         games.sort_by(|a, b| a.id.cmp(&b.id));
         let ids: Vec<&str> = games.iter().map(|g| g.id.as_str()).collect();
-        assert_eq!(ids, vec!["heroic:epic:Fortnite", "heroic:gog:1207664663", "heroic:gog:1234", "heroic:sideload:abc"]);
+        assert_eq!(
+            ids,
+            vec![
+                "heroic:epic:Fortnite",
+                "heroic:gog:1207664663",
+                "heroic:gog:1234",
+                "heroic:sideload:abc"
+            ]
+        );
         assert_eq!(games[0].exe_names, vec!["fortniteclient-win64-shipping"]);
         assert_eq!(games[1].name, "The Witcher 3: Wild Hunt");
-        assert_eq!(games[2].name, "Folder Named Game", "title falls back to the install folder");
+        assert_eq!(
+            games[2].name, "Folder Named Game",
+            "title falls back to the install folder"
+        );
         assert_eq!(games[3].exe_names, vec!["indie"]);
     }
 }

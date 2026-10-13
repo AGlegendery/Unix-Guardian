@@ -116,16 +116,31 @@ async fn main() -> Result<()> {
         reload: ug_core::logging::reload_handle(),
         gate: gate.clone(),
     };
-    let state_dir_early = args.state_dir.clone().unwrap_or_else(ug_core::paths::system_state);
+    let state_dir_early = args
+        .state_dir
+        .clone()
+        .unwrap_or_else(ug_core::paths::system_state);
     // A development daemon tunes a simulated GPU; only the real one, as root,
     // touches the card.
     let simulated_gpu = args.session || args.sysroot.is_some() || !privileged;
     let control: Box<dyn gputune::Control> = if simulated_gpu {
-        Box::new(gputune::Simulated::new(&gpus.iter().filter(|g| !g.boot_vga).map(|g| g.pci.clone()).collect::<Vec<_>>()))
+        Box::new(gputune::Simulated::new(
+            &gpus
+                .iter()
+                .filter(|g| !g.boot_vga)
+                .map(|g| g.pci.clone())
+                .collect::<Vec<_>>(),
+        ))
     } else {
-        Box::new(gputune::Real { sampler: Arc::clone(&sampler), root: root.clone() })
+        Box::new(gputune::Real {
+            sampler: Arc::clone(&sampler),
+            root: root.clone(),
+        })
     };
-    let gpu_tuner = Arc::new(std::sync::Mutex::new(gputune::Tuner::new(control, &state_dir_early)));
+    let gpu_tuner = Arc::new(std::sync::Mutex::new(gputune::Tuner::new(
+        control,
+        &state_dir_early,
+    )));
     let gpu = GpuIface {
         sampler: Arc::clone(&sampler),
         active: std::sync::Mutex::new(active_gpu),
@@ -157,7 +172,9 @@ async fn main() -> Result<()> {
     match conn.request_name_with_flags(DAEMON_BUS_NAME, flags).await {
         Ok(zbus::fdo::RequestNameReply::PrimaryOwner) => {}
         Ok(_) | Err(zbus::Error::NameTaken) => {
-            anyhow::bail!("another ug-daemon already owns {DAEMON_BUS_NAME}; not starting a second one")
+            anyhow::bail!(
+                "another ug-daemon already owns {DAEMON_BUS_NAME}; not starting a second one"
+            )
         }
         Err(e) => {
             return Err(e).context(
@@ -169,10 +186,15 @@ async fn main() -> Result<()> {
     }
 
     // Constructing the tuner undoes anything a crashed previous run left on.
-    let state_dir = args.state_dir.clone().unwrap_or_else(ug_core::paths::system_state);
+    let state_dir = args
+        .state_dir
+        .clone()
+        .unwrap_or_else(ug_core::paths::system_state);
     let development = args.session || args.sysroot.is_some();
     let services = if development {
-        tracing::warn!("development run: game mode will never stop or start the real system's services");
+        tracing::warn!(
+            "development run: game mode will never stop or start the real system's services"
+        );
         gamemode::ServiceManager::Disabled
     } else {
         gamemode::ServiceManager::Systemctl
@@ -200,14 +222,21 @@ async fn main() -> Result<()> {
         tracing::warn!("development run: power actions are simulated, never performed");
         power::Backend::Simulated(std::sync::Mutex::new(Vec::new()))
     } else {
-        power::Backend::Logind(zbus::Connection::system().await.context("connecting to the system bus for logind")?)
+        power::Backend::Logind(
+            zbus::Connection::system()
+                .await
+                .context("connecting to the system bus for logind")?,
+        )
     });
-    let (schedule, notes) = schedule::Schedule::load(&state_dir.join("schedule.json"), now_unix_ms());
+    let (schedule, notes) =
+        schedule::Schedule::load(&state_dir.join("schedule.json"), now_unix_ms());
     for n in notes {
         tracing::warn!(%n, "power schedule");
     }
     let schedule = Arc::new(std::sync::Mutex::new(schedule));
-    let watches = Arc::new(std::sync::Mutex::new(conditions::Watches::load(&state_dir.join("conditions.json"))));
+    let watches = Arc::new(std::sync::Mutex::new(conditions::Watches::load(
+        &state_dir.join("conditions.json"),
+    )));
     let watches_changed = Arc::new(tokio::sync::Notify::new());
     let battery = Arc::new(std::sync::Mutex::new(battery::Battery::new(
         root.clone(),
@@ -215,7 +244,10 @@ async fn main() -> Result<()> {
         // A --session run on the real /sys must not change charging.
         args.session && args.sysroot.is_none(),
     )));
-    let energy = Arc::new(std::sync::Mutex::new(energy::EnergyMeter::load(root.clone(), &state_dir.join("energy.json"))));
+    let energy = Arc::new(std::sync::Mutex::new(energy::EnergyMeter::load(
+        root.clone(),
+        &state_dir.join("energy.json"),
+    )));
     let observer = Arc::new(power::Observer {
         sampler: Arc::clone(&sampler),
         game_active: Arc::clone(&gamemode_active),
@@ -246,16 +278,24 @@ async fn main() -> Result<()> {
     // A development daemon counts for real only inside a private network
     // namespace (the e2e test), where the host's firewall is out of reach.
     let simulate_net = development && !net::in_private_userns();
-    let net_state = Arc::new(std::sync::Mutex::new(tokio::task::spawn_blocking({
-        let root = root.clone();
-        let state_dir = state_dir.clone();
-        let gaming = Arc::clone(&gamemode_active);
-        let game_pids = Arc::clone(&game_pids);
-        move || net::Net::new(root, simulate_net, &state_dir, gaming, game_pids)
-    })
-    .await?));
+    let net_state = Arc::new(std::sync::Mutex::new(
+        tokio::task::spawn_blocking({
+            let root = root.clone();
+            let state_dir = state_dir.clone();
+            let gaming = Arc::clone(&gamemode_active);
+            let game_pids = Arc::clone(&game_pids);
+            move || net::Net::new(root, simulate_net, &state_dir, gaming, game_pids)
+        })
+        .await?,
+    ));
     conn.object_server()
-        .at(DAEMON_OBJECT_PATH, net::NetIface { net: Arc::clone(&net_state), gate: gate.clone() })
+        .at(
+            DAEMON_OBJECT_PATH,
+            net::NetIface {
+                net: Arc::clone(&net_state),
+                gate: gate.clone(),
+            },
+        )
         .await
         .context("serving the net interface")?;
     tokio::spawn(net::run(Arc::clone(&net_state)));
@@ -267,7 +307,13 @@ async fn main() -> Result<()> {
         &state_dir,
     )));
     conn.object_server()
-        .at(DAEMON_OBJECT_PATH, cooling::CoolingIface { cooling: Arc::clone(&cooling), gate: gate.clone() })
+        .at(
+            DAEMON_OBJECT_PATH,
+            cooling::CoolingIface {
+                cooling: Arc::clone(&cooling),
+                gate: gate.clone(),
+            },
+        )
         .await
         .context("serving the cooling interface")?;
     tokio::spawn(cooling::run(Arc::clone(&cooling)));
@@ -280,16 +326,32 @@ async fn main() -> Result<()> {
     } else {
         Box::new(ug_driver::apply::SystemdRun)
     };
-    let driver_exec = Arc::new(ug_driver::apply::Executor::new(root.clone(), &state_dir, runner));
+    let driver_exec = Arc::new(ug_driver::apply::Executor::new(
+        root.clone(),
+        &state_dir,
+        runner,
+    ));
     if driver_refused.is_none() {
         // Ten minutes, as the roadmap asks; tests set it shorter.
-        let grace = std::env::var("UG_DRIVER_CHECK_GRACE_S").ok().and_then(|s| s.parse().ok()).unwrap_or(600);
-        tokio::spawn(driver::check_after_restart(Arc::clone(&driver_exec), root.clone(), std::time::Duration::from_secs(grace)));
+        let grace = std::env::var("UG_DRIVER_CHECK_GRACE_S")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(600);
+        tokio::spawn(driver::check_after_restart(
+            Arc::clone(&driver_exec),
+            root.clone(),
+            std::time::Duration::from_secs(grace),
+        ));
     }
     conn.object_server()
         .at(
             DAEMON_OBJECT_PATH,
-            driver::DriverIface { root: root.clone(), exec: driver_exec, gate: gate.clone(), refused: driver_refused },
+            driver::DriverIface {
+                root: root.clone(),
+                exec: driver_exec,
+                gate: gate.clone(),
+                refused: driver_refused,
+            },
         )
         .await
         .context("serving the driver interface")?;
@@ -310,13 +372,21 @@ async fn main() -> Result<()> {
         .await
         .context("serving the update interface")?;
     let backend_for_battery = Arc::clone(&backend);
-    tokio::spawn(power::run(conn.clone(), schedule, Arc::clone(&backend), schedule_changed));
+    tokio::spawn(power::run(
+        conn.clone(),
+        schedule,
+        Arc::clone(&backend),
+        schedule_changed,
+    ));
     tokio::spawn(power::watch(watches, observer, backend, watches_changed));
     tokio::spawn(power::meter(energy));
-    tokio::spawn(power::keep_battery(battery, match &*backend_for_battery {
-        power::Backend::Logind(c) => Some(c.clone()),
-        power::Backend::Simulated(_) => None,
-    }));
+    tokio::spawn(power::keep_battery(
+        battery,
+        match &*backend_for_battery {
+            power::Backend::Logind(c) => Some(c.clone()),
+            power::Backend::Simulated(_) => None,
+        },
+    ));
 
     tracing::info!(
         bus = if args.session { "session" } else { "system" },
@@ -330,7 +400,15 @@ async fn main() -> Result<()> {
     let watch_owner = Arc::clone(&gamemode_owner);
     let watch_active = Arc::clone(&gamemode_active);
     tokio::spawn(async move {
-        if let Err(e) = release_departed_clients(watch_conn, watch_subs, watch_tuner, watch_owner, watch_active).await {
+        if let Err(e) = release_departed_clients(
+            watch_conn,
+            watch_subs,
+            watch_tuner,
+            watch_owner,
+            watch_active,
+        )
+        .await
+        {
             tracing::error!(error = %e, "cannot watch for disconnecting clients");
         }
     });
@@ -351,13 +429,28 @@ async fn main() -> Result<()> {
     tracing::info!("shutting down");
     // Stopping the service ends game mode; the next start would undo it from
     // the state file anyway, but a stopped daemon should leave a clean system.
-    let report = tokio::task::spawn_blocking(move || tuner.lock().unwrap_or_else(|e| e.into_inner()).leave()).await?;
+    let report = tokio::task::spawn_blocking(move || {
+        tuner.lock().unwrap_or_else(|e| e.into_inner()).leave()
+    })
+    .await?;
     for l in report.skipped {
         tracing::warn!(%l, "could not restore on shutdown; will retry on next start");
     }
-    tokio::task::spawn_blocking(move || net_state.lock().unwrap_or_else(|e| e.into_inner()).shutdown()).await?;
+    tokio::task::spawn_blocking(move || {
+        net_state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .shutdown()
+    })
+    .await?;
     // Fans back to automatic control before leaving.
-    tokio::task::spawn_blocking(move || cooling.lock().unwrap_or_else(|e| e.into_inner()).restore_all()).await?;
+    tokio::task::spawn_blocking(move || {
+        cooling
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .restore_all()
+    })
+    .await?;
     Ok(())
 }
 
@@ -435,9 +528,15 @@ async fn release_departed_clients(
             subscribers.client_gone(args.name());
             // An agent that crashed or was killed mid-game must not leave the
             // machine in game mode.
-            let (t, o, a, n) =
-                (Arc::clone(&tuner), Arc::clone(&gamemode_owner), Arc::clone(&gamemode_active), args.name().to_string());
-            tokio::task::spawn_blocking(move || gamemode::GameModeIface::owner_gone(&t, &o, &a, &n));
+            let (t, o, a, n) = (
+                Arc::clone(&tuner),
+                Arc::clone(&gamemode_owner),
+                Arc::clone(&gamemode_active),
+                args.name().to_string(),
+            );
+            tokio::task::spawn_blocking(move || {
+                gamemode::GameModeIface::owner_gone(&t, &o, &a, &n)
+            });
         }
     }
     Ok(())

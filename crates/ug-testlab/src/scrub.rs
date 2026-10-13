@@ -23,14 +23,17 @@ impl Scrubber {
     /// which distribution it ran on.
     pub fn from_session(keep: &[&str]) -> Scrubber {
         let host = std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default();
-        let user = std::env::var("USER").or_else(|_| std::env::var("LOGNAME")).unwrap_or_default();
+        let user = std::env::var("USER")
+            .or_else(|_| std::env::var("LOGNAME"))
+            .unwrap_or_default();
         let home = std::env::var("HOME").unwrap_or_default();
         Scrubber::new(&home, &user, host.trim()).keeping(keep)
     }
 
     /// Never treats these words as names.
     pub fn keeping(mut self, keep: &[&str]) -> Scrubber {
-        self.words.retain(|w| !keep.iter().any(|k| k.eq_ignore_ascii_case(&w.0)));
+        self.words
+            .retain(|w| !keep.iter().any(|k| k.eq_ignore_ascii_case(&w.0)));
         self
     }
 
@@ -46,11 +49,22 @@ impl Scrubber {
         }
         words.sort_by_key(|w| std::cmp::Reverse(w.0.len()));
         let home = home.trim_end_matches('/');
-        Scrubber { home: if home.len() > 1 { home.to_string() } else { String::new() }, words }
+        Scrubber {
+            home: if home.len() > 1 {
+                home.to_string()
+            } else {
+                String::new()
+            },
+            words,
+        }
     }
 
     pub fn scrub(&self, text: &str) -> String {
-        let mut s = if self.home.is_empty() { text.to_string() } else { text.replace(&self.home, "~") };
+        let mut s = if self.home.is_empty() {
+            text.to_string()
+        } else {
+            text.replace(&self.home, "~")
+        };
         for (w, with) in &self.words {
             s = replace_word(&s, w, with);
         }
@@ -85,7 +99,12 @@ fn is_hex(s: &str) -> bool {
 /// What a run of hex digits, `:`, `.` and `-` is, if it identifies someone.
 fn classify(run: &str) -> Option<&'static str> {
     let dash: Vec<&str> = run.split('-').collect();
-    if dash.len() == 5 && [8, 4, 4, 4, 12].iter().zip(&dash).all(|(n, p)| p.len() == *n && is_hex(p)) {
+    if dash.len() == 5
+        && [8, 4, 4, 4, 12]
+            .iter()
+            .zip(&dash)
+            .all(|(n, p)| p.len() == *n && is_hex(p))
+    {
         return Some("<uuid>");
     }
     let colon: Vec<&str> = run.split(':').collect();
@@ -93,7 +112,11 @@ fn classify(run: &str) -> Option<&'static str> {
         return Some("<mac>");
     }
     let dot: Vec<&str> = run.split('.').collect();
-    if dot.len() == 4 && dot.iter().all(|p| !p.is_empty() && p.len() <= 3 && p.parse::<u8>().is_ok()) {
+    if dot.len() == 4
+        && dot
+            .iter()
+            .all(|p| !p.is_empty() && p.len() <= 3 && p.parse::<u8>().is_ok())
+    {
         return Some("<ip>");
     }
     // An IPv6 address has a `::` or at least four colons; times (15:40:22)
@@ -158,8 +181,12 @@ mod tests {
 
     #[test]
     fn the_home_folder_user_and_host_names_are_removed() {
-        let out = s().scrub("config in /home/alice/.config, user alice on alice-laptop; malice stays");
-        assert_eq!(out, "config in ~/.config, user <user> on <host>; malice stays");
+        let out =
+            s().scrub("config in /home/alice/.config, user alice on alice-laptop; malice stays");
+        assert_eq!(
+            out,
+            "config in ~/.config, user <user> on <host>; malice stays"
+        );
     }
 
     #[test]
@@ -169,7 +196,10 @@ mod tests {
              gw 192.168.1.1. dns fe80::1c2b:3dff:fe4e:5f60 and 2001:db8:0:0:0:0:0:1 \
              machine 0123456789abcdef0123456789abcdef.",
         );
-        assert_eq!(out, "root UUID=<uuid>, mac <mac>, gw <ip>. dns <ipv6> and <ipv6> machine <id>.");
+        assert_eq!(
+            out,
+            "root UUID=<uuid>, mac <mac>, gw <ip>. dns <ipv6> and <ipv6> machine <id>."
+        );
     }
 
     #[test]
@@ -182,7 +212,10 @@ mod tests {
     #[test]
     fn a_host_named_after_the_distribution_does_not_hide_it() {
         let sc = Scrubber::new("/home/bob", "bob", "debian").keeping(&["debian"]);
-        assert_eq!(sc.scrub("Debian 13 (id debian) for bob"), "Debian 13 (id debian) for <user>");
+        assert_eq!(
+            sc.scrub("Debian 13 (id debian) for bob"),
+            "Debian 13 (id debian) for <user>"
+        );
     }
 
     #[test]

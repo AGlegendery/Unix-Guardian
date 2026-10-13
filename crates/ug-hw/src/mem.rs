@@ -104,8 +104,14 @@ mod tests {
         let fs = TestFs::new();
         fs.proc_meminfo(16_000_000, 8_000_000, 0, 0);
         // orig_data compr_data mem_used_total ...
-        fs.write("sys/block/zram0/mm_stat", "4194304 1048576 2097152 0 0 0 0 0");
-        fs.write("sys/block/zram1/mm_stat", "4194304 1048576 1048576 0 0 0 0 0");
+        fs.write(
+            "sys/block/zram0/mm_stat",
+            "4194304 1048576 2097152 0 0 0 0 0",
+        );
+        fs.write(
+            "sys/block/zram1/mm_stat",
+            "4194304 1048576 1048576 0 0 0 0 0",
+        );
 
         let m = read(&SysRoot::at(fs.root()));
         assert_eq!(m.zram_used_kb, (2_097_152 + 1_048_576) / 1024);

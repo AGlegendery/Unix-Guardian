@@ -51,10 +51,16 @@ impl Action {
     }
 
     pub fn parse(s: &str) -> Result<Action, String> {
-        Action::ALL.into_iter().find(|a| a.name() == s).ok_or_else(|| {
-            let names: Vec<&str> = Action::ALL.iter().map(|a| a.name()).collect();
-            format!("unknown power action {s:?}; actions are: {}", names.join(", "))
-        })
+        Action::ALL
+            .into_iter()
+            .find(|a| a.name() == s)
+            .ok_or_else(|| {
+                let names: Vec<&str> = Action::ALL.iter().map(|a| a.name()).collect();
+                format!(
+                    "unknown power action {s:?}; actions are: {}",
+                    names.join(", ")
+                )
+            })
     }
 }
 
@@ -130,12 +136,19 @@ impl Schedule {
         let mut notes = Vec::new();
         let file = match std::fs::read_to_string(path) {
             Ok(s) => serde_json::from_str::<File>(&s).unwrap_or_else(|e| {
-                notes.push(format!("{} could not be read ({e}); starting with an empty schedule", path.display()));
+                notes.push(format!(
+                    "{} could not be read ({e}); starting with an empty schedule",
+                    path.display()
+                ));
                 File::default()
             }),
             Err(_) => File::default(),
         };
-        let mut s = Schedule { path: path.to_path_buf(), next_id: file.next_id.max(1), jobs: Vec::new() };
+        let mut s = Schedule {
+            path: path.to_path_buf(),
+            next_id: file.next_id.max(1),
+            jobs: Vec::new(),
+        };
         for mut job in file.jobs {
             if job.at_ms > now_ms {
                 s.jobs.push(job);
@@ -166,14 +179,27 @@ impl Schedule {
     }
 
     /// Adds a job for a time in the future.
-    pub fn add(&mut self, action: Action, at_ms: u64, repeat: Repeat, note: &str, now_ms: u64) -> Result<Job, String> {
+    pub fn add(
+        &mut self,
+        action: Action,
+        at_ms: u64,
+        repeat: Repeat,
+        note: &str,
+        now_ms: u64,
+    ) -> Result<Job, String> {
         if at_ms <= now_ms {
             return Err("that time has already passed".into());
         }
         if at_ms - now_ms > MAX_AHEAD_MS {
             return Err("that is more than a year away".into());
         }
-        let job = Job { id: self.next_id, action, at_ms, repeat, note: note.chars().take(200).collect() };
+        let job = Job {
+            id: self.next_id,
+            action,
+            at_ms,
+            repeat,
+            note: note.chars().take(200).collect(),
+        };
         self.next_id += 1;
         self.jobs.push(job.clone());
         self.sort();
@@ -233,7 +259,10 @@ impl Schedule {
     }
 
     fn save(&self) -> Result<(), String> {
-        let file = File { next_id: self.next_id, jobs: self.jobs.clone() };
+        let file = File {
+            next_id: self.next_id,
+            jobs: self.jobs.clone(),
+        };
         let text = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -270,7 +299,9 @@ mod tests {
     fn a_scheduled_restart_survives_a_daemon_restart() {
         let d = tempfile::tempdir().unwrap();
         let (mut s, _) = Schedule::load(&path(&d), 0);
-        let job = s.add(Action::Reboot, 2 * H, Repeat::Once, "updates", 0).unwrap();
+        let job = s
+            .add(Action::Reboot, 2 * H, Repeat::Once, "updates", 0)
+            .unwrap();
         drop(s);
         let (s, notes) = Schedule::load(&path(&d), H);
         assert!(notes.is_empty());
@@ -286,7 +317,10 @@ mod tests {
         let (s, notes) = Schedule::load(&path(&d), 3 * H);
         assert!(s.jobs().is_empty());
         assert!(notes[0].contains("not run late"), "{notes:?}");
-        assert!(Schedule::load(&path(&d), 3 * H).0.jobs().is_empty(), "the drop was saved");
+        assert!(
+            Schedule::load(&path(&d), 3 * H).0.jobs().is_empty(),
+            "the drop was saved"
+        );
     }
 
     #[test]
@@ -296,7 +330,11 @@ mod tests {
         s.add(Action::PowerOff, H, Repeat::Daily, "", 0).unwrap();
         drop(s);
         let (s, _) = Schedule::load(&path(&d), 50 * H);
-        assert_eq!(s.jobs()[0].at_ms, H + 3 * DAY_MS, "the first 1:00 after hour 50");
+        assert_eq!(
+            s.jobs()[0].at_ms,
+            H + 3 * DAY_MS,
+            "the first 1:00 after hour 50"
+        );
     }
 
     #[test]
@@ -304,12 +342,16 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let (mut s, _) = Schedule::load(&path(&d), 0);
         s.add(Action::Suspend, H, Repeat::Once, "", 0).unwrap();
-        s.add(Action::PowerOff, 2 * H, Repeat::Weekly, "", 0).unwrap();
+        s.add(Action::PowerOff, 2 * H, Repeat::Weekly, "", 0)
+            .unwrap();
         assert_eq!(s.jobs()[0].at_ms, H, "soonest first");
         assert!(s.take_due(H - 1, 120_000).0.is_empty());
         let (due, missed) = s.take_due(2 * H, 2 * H);
         assert!(missed.is_empty());
-        assert_eq!(due.iter().map(|j| j.action).collect::<Vec<_>>(), [Action::Suspend, Action::PowerOff]);
+        assert_eq!(
+            due.iter().map(|j| j.action).collect::<Vec<_>>(),
+            [Action::Suspend, Action::PowerOff]
+        );
         assert_eq!(s.jobs().len(), 1);
         assert_eq!(s.jobs()[0].at_ms, 2 * H + 7 * DAY_MS);
         assert!(s.take_due(2 * H, 2 * H).0.is_empty(), "not taken twice");
@@ -326,15 +368,29 @@ mod tests {
         assert!(due.is_empty(), "nothing runs late");
         assert_eq!(missed.len(), 2);
         assert_eq!(s.jobs().len(), 1, "the one-off is gone");
-        assert_eq!(s.jobs()[0].at_ms, H + DAY_MS, "the daily one waits for tomorrow");
+        assert_eq!(
+            s.jobs()[0].at_ms,
+            H + DAY_MS,
+            "the daily one waits for tomorrow"
+        );
     }
 
     #[test]
     fn past_and_absurd_times_are_refused() {
         let d = tempfile::tempdir().unwrap();
         let (mut s, _) = Schedule::load(&path(&d), 10 * H);
-        assert!(s.add(Action::Reboot, 5 * H, Repeat::Once, "", 10 * H).is_err());
-        assert!(s.add(Action::Reboot, 10 * H + 400 * DAY_MS, Repeat::Once, "", 10 * H).is_err());
+        assert!(s
+            .add(Action::Reboot, 5 * H, Repeat::Once, "", 10 * H)
+            .is_err());
+        assert!(s
+            .add(
+                Action::Reboot,
+                10 * H + 400 * DAY_MS,
+                Repeat::Once,
+                "",
+                10 * H
+            )
+            .is_err());
         assert!(s.jobs().is_empty());
     }
 

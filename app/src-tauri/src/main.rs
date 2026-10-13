@@ -207,7 +207,10 @@ fn report_bug(context: String) -> Result<(), String> {
     let os = std::fs::read_to_string("/etc/os-release")
         .unwrap_or_default()
         .lines()
-        .find_map(|l| l.strip_prefix("PRETTY_NAME=").map(|v| v.trim_matches('"').to_string()))
+        .find_map(|l| {
+            l.strip_prefix("PRETTY_NAME=")
+                .map(|v| v.trim_matches('"').to_string())
+        })
         .unwrap_or_default();
     let body = format!(
         "What I did:\n\nWhat happened:\n\nWhat I expected:\n\n---\nUnix Guardian {}\n{}\nLinux {}\n{}",
@@ -219,17 +222,29 @@ fn report_bug(context: String) -> Result<(), String> {
     let enc = |s: &str| -> String {
         s.bytes()
             .map(|b| match b {
-                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    (b as char).to_string()
+                }
                 _ => format!("%{b:02X}"),
             })
             .collect()
     };
-    let url = format!("mailto:{}?subject={}&body={}", ug_core::BUG_REPORT_EMAIL, enc("Unix Guardian bug report"), enc(&body));
+    let url = format!(
+        "mailto:{}?subject={}&body={}",
+        ug_core::BUG_REPORT_EMAIL,
+        enc("Unix Guardian bug report"),
+        enc(&body)
+    );
     std::process::Command::new("xdg-open")
         .arg(url)
         .spawn()
         .map(|_| ())
-        .map_err(|e| format!("Could not open a mail program ({e}). Write to {} instead.", ug_core::BUG_REPORT_EMAIL))
+        .map_err(|e| {
+            format!(
+                "Could not open a mail program ({e}). Write to {} instead.",
+                ug_core::BUG_REPORT_EMAIL
+            )
+        })
 }
 
 /// Opens `ug tui` in the user's terminal and closes this window completely.
@@ -262,7 +277,11 @@ fn open_terminal_interface(app: tauri::AppHandle) -> Result<(), String> {
     }
     for (term, mut args) in candidates {
         args.extend([ug.clone(), "tui".into()]);
-        if std::process::Command::new(&term).args(&args).spawn().is_ok() {
+        if std::process::Command::new(&term)
+            .args(&args)
+            .spawn()
+            .is_ok()
+        {
             app.exit(0);
             return Ok(());
         }
@@ -273,11 +292,14 @@ fn open_terminal_interface(app: tauri::AppHandle) -> Result<(), String> {
 /// True when the GPU the firmware booted on (`boot_vga`) is an NVIDIA card,
 /// i.e. NVIDIA renders the desktop. Reads sysfs only; never touches the GPU.
 fn nvidia_drives_display() -> bool {
-    let Ok(cards) = std::fs::read_dir("/sys/class/drm") else { return false };
+    let Ok(cards) = std::fs::read_dir("/sys/class/drm") else {
+        return false;
+    };
     cards.filter_map(|e| e.ok()).any(|e| {
         let dev = e.path().join("device");
         let boot = std::fs::read_to_string(dev.join("boot_vga")).is_ok_and(|s| s.trim() == "1");
-        let vendor = std::fs::read_to_string(dev.join("vendor")).is_ok_and(|s| s.trim() == "0x10de");
+        let vendor =
+            std::fs::read_to_string(dev.join("vendor")).is_ok_and(|s| s.trim() == "0x10de");
         boot && vendor
     })
 }

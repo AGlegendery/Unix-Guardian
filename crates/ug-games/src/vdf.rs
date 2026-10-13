@@ -25,7 +25,10 @@ impl Vdf {
     /// Parses a document. The top level is an implicit object, so a file with
     /// one root key comes back as `Obj([(root, ...)])`.
     pub fn parse(src: &str) -> Option<Vdf> {
-        let mut p = Parser { src: src.as_bytes(), pos: 0 };
+        let mut p = Parser {
+            src: src.as_bytes(),
+            pos: 0,
+        };
         let items = p.object_body(false)?;
         Some(Vdf::Obj(items))
     }
@@ -89,7 +92,10 @@ struct Located {
 }
 
 fn locate(src: &str, path: &[&str], key: &str) -> Result<Located, String> {
-    let mut p = Parser { src: src.as_bytes(), pos: 0 };
+    let mut p = Parser {
+        src: src.as_bytes(),
+        pos: 0,
+    };
     // Open objects: (key, whether it and every parent match the path so far).
     let mut stack: Vec<(String, bool)> = Vec::new();
     // Per depth: a block of the path's name there was already closed. Only
@@ -109,7 +115,9 @@ fn locate(src: &str, path: &[&str], key: &str) -> Result<Located, String> {
         };
         match tok {
             Tok::Close => {
-                let Some((_, matched)) = stack.pop() else { return Err("a `}` closes nothing".into()) };
+                let Some((_, matched)) = stack.pop() else {
+                    return Err("a `}` closes nothing".into());
+                };
                 let depth = stack.len() + 1;
                 if matched {
                     done[depth] = true;
@@ -126,13 +134,19 @@ fn locate(src: &str, path: &[&str], key: &str) -> Result<Located, String> {
                     Tok::Str(_) => {
                         let vend = value_end(src, vstart, p.pos);
                         p.skip_conditional();
-                        if stack.len() == path.len() && on_path(&stack) && k.eq_ignore_ascii_case(key) && found.is_none() {
+                        if stack.len() == path.len()
+                            && on_path(&stack)
+                            && k.eq_ignore_ascii_case(key)
+                            && found.is_none()
+                        {
                             found = Some((start, vstart, vend));
                         }
                     }
                     Tok::Open => {
                         let depth = stack.len();
-                        let matched = path.get(depth).is_some_and(|want| want.eq_ignore_ascii_case(&k))
+                        let matched = path
+                            .get(depth)
+                            .is_some_and(|want| want.eq_ignore_ascii_case(&k))
                             && on_path(&stack)
                             && !done[depth + 1];
                         stack.push((k, matched));
@@ -156,7 +170,10 @@ pub fn set_string(src: &str, path: &[&str], key: &str, value: &str) -> Result<St
         return Ok(format!("{}{}{}", &src[..s], quote(value), &src[e..]));
     }
     let Some((depth, close)) = at.deepest else {
-        return Err(format!("the file has no {:?} block", path.first().copied().unwrap_or("")));
+        return Err(format!(
+            "the file has no {:?} block",
+            path.first().copied().unwrap_or("")
+        ));
     };
     // Build the missing blocks and the value, indented with tabs like Steam.
     let tabs = |n: usize| "\t".repeat(n);
@@ -165,14 +182,24 @@ pub fn set_string(src: &str, path: &[&str], key: &str, value: &str) -> Result<St
         let d = depth + i;
         add.push_str(&format!("{}{}\n{}{{\n", tabs(d), quote(name), tabs(d)));
     }
-    add.push_str(&format!("{}{}\t\t{}\n", tabs(path.len()), quote(key), quote(value)));
+    add.push_str(&format!(
+        "{}{}\t\t{}\n",
+        tabs(path.len()),
+        quote(key),
+        quote(value)
+    ));
     for d in (depth..path.len()).rev() {
         add.push_str(&format!("{}}}\n", tabs(d)));
     }
     // Before the `}` line of the deepest block (or the `}` itself on a shared line).
     let line_start = src[..close].rfind('\n').map(|i| i + 1).unwrap_or(0);
     if src[line_start..close].trim().is_empty() {
-        Ok(format!("{}{}{}", &src[..line_start], add, &src[line_start..]))
+        Ok(format!(
+            "{}{}{}",
+            &src[..line_start],
+            add,
+            &src[line_start..]
+        ))
     } else {
         Ok(format!("{}\n{}{}", &src[..close], add, &src[close..]))
     }
@@ -189,7 +216,11 @@ pub fn remove_key(src: &str, path: &[&str], key: &str) -> Result<String, String>
     if src[line_start..k].trim().is_empty() && src[e..line_end].trim().is_empty() {
         Ok(format!("{}{}", &src[..line_start], &src[line_end..]))
     } else {
-        Ok(format!("{}{}", &src[..k], src[e..].trim_start_matches([' ', '\t'])))
+        Ok(format!(
+            "{}{}",
+            &src[..k],
+            src[e..].trim_start_matches([' ', '\t'])
+        ))
     }
 }
 
@@ -208,7 +239,9 @@ fn value_end(src: &str, s: usize, e: usize) -> usize {
         }
         e
     } else {
-        (s..e).find(|&i| b[i].is_ascii_whitespace() || b[i] == b'{' || b[i] == b'}' || b[i] == b'"').unwrap_or(e)
+        (s..e)
+            .find(|&i| b[i].is_ascii_whitespace() || b[i] == b'{' || b[i] == b'}' || b[i] == b'"')
+            .unwrap_or(e)
     }
 }
 
@@ -287,14 +320,20 @@ impl Parser<'_> {
                     }
                     self.pos += 1;
                 }
-                Some(Tok::Str(String::from_utf8_lossy(&self.src[start..self.pos]).into_owned()))
+                Some(Tok::Str(
+                    String::from_utf8_lossy(&self.src[start..self.pos]).into_owned(),
+                ))
             }
         }
     }
 
     fn skip_space_and_comments(&mut self) {
         loop {
-            while self.src.get(self.pos).is_some_and(|b| b.is_ascii_whitespace()) {
+            while self
+                .src
+                .get(self.pos)
+                .is_some_and(|b| b.is_ascii_whitespace())
+            {
                 self.pos += 1;
             }
             if self.src[self.pos..].starts_with(b"//") {
@@ -309,11 +348,19 @@ impl Parser<'_> {
 
     fn skip_conditional(&mut self) {
         let save = self.pos;
-        while self.src.get(self.pos).is_some_and(|&b| b == b' ' || b == b'\t') {
+        while self
+            .src
+            .get(self.pos)
+            .is_some_and(|&b| b == b' ' || b == b'\t')
+        {
             self.pos += 1;
         }
         if self.src.get(self.pos) == Some(&b'[') {
-            while self.src.get(self.pos).is_some_and(|&b| b != b']' && b != b'\n') {
+            while self
+                .src
+                .get(self.pos)
+                .is_some_and(|&b| b != b']' && b != b'\n')
+            {
                 self.pos += 1;
             }
             self.pos += 1;
@@ -345,10 +392,17 @@ mod tests {
     #[test]
     fn parses_an_app_manifest() {
         let v = Vdf::parse(MANIFEST).unwrap();
-        assert_eq!(v.path(&["AppState", "appid"]).and_then(Vdf::as_str), Some("730"));
-        assert_eq!(v.path(&["AppState", "name"]).and_then(Vdf::as_str), Some("Counter-Strike 2"));
         assert_eq!(
-            v.path(&["AppState", "UserConfig", "language"]).and_then(Vdf::as_str),
+            v.path(&["AppState", "appid"]).and_then(Vdf::as_str),
+            Some("730")
+        );
+        assert_eq!(
+            v.path(&["AppState", "name"]).and_then(Vdf::as_str),
+            Some("Counter-Strike 2")
+        );
+        assert_eq!(
+            v.path(&["AppState", "UserConfig", "language"])
+                .and_then(Vdf::as_str),
             Some("english")
         );
     }
@@ -356,7 +410,10 @@ mod tests {
     #[test]
     fn keys_are_case_insensitive_like_steam() {
         let v = Vdf::parse(MANIFEST).unwrap();
-        assert_eq!(v.path(&["appstate", "stateflags"]).and_then(Vdf::as_str), Some("4"));
+        assert_eq!(
+            v.path(&["appstate", "stateflags"]).and_then(Vdf::as_str),
+            Some("4")
+        );
     }
 
     #[test]
@@ -365,9 +422,18 @@ mod tests {
             "// a comment\n\"root\" {\n  \"path\" \"C:\\\\Games\\\\x\"  // trailing\n  bare value\n  \"q\" \"say \\\"hi\\\"\"\n}",
         )
         .unwrap();
-        assert_eq!(v.path(&["root", "path"]).and_then(Vdf::as_str), Some("C:\\Games\\x"));
-        assert_eq!(v.path(&["root", "bare"]).and_then(Vdf::as_str), Some("value"));
-        assert_eq!(v.path(&["root", "q"]).and_then(Vdf::as_str), Some("say \"hi\""));
+        assert_eq!(
+            v.path(&["root", "path"]).and_then(Vdf::as_str),
+            Some("C:\\Games\\x")
+        );
+        assert_eq!(
+            v.path(&["root", "bare"]).and_then(Vdf::as_str),
+            Some("value")
+        );
+        assert_eq!(
+            v.path(&["root", "q"]).and_then(Vdf::as_str),
+            Some("say \"hi\"")
+        );
     }
 
     #[test]
@@ -383,7 +449,10 @@ mod tests {
         let mut path = APPS.to_vec();
         path.push(appid);
         path.push("LaunchOptions");
-        Vdf::parse(src)?.path(&path).and_then(Vdf::as_str).map(str::to_string)
+        Vdf::parse(src)?
+            .path(&path)
+            .and_then(Vdf::as_str)
+            .map(str::to_string)
     }
 
     fn with_app(appid: &str) -> Vec<&str> {
@@ -394,28 +463,70 @@ mod tests {
 
     #[test]
     fn an_existing_value_is_replaced_and_nothing_else_moves() {
-        let out = set_string(LOCALCONFIG, &with_app("730"), "LaunchOptions", "mangohud %command% -novid").unwrap();
-        assert_eq!(launch(&out, "730").as_deref(), Some("mangohud %command% -novid"));
-        assert_eq!(out.replace("mangohud %command% -novid", "-novid"), LOCALCONFIG, "one value changed, every other byte kept");
+        let out = set_string(
+            LOCALCONFIG,
+            &with_app("730"),
+            "LaunchOptions",
+            "mangohud %command% -novid",
+        )
+        .unwrap();
+        assert_eq!(
+            launch(&out, "730").as_deref(),
+            Some("mangohud %command% -novid")
+        );
+        assert_eq!(
+            out.replace("mangohud %command% -novid", "-novid"),
+            LOCALCONFIG,
+            "one value changed, every other byte kept"
+        );
     }
 
     #[test]
     fn a_missing_value_and_a_missing_app_are_added_where_steam_would_have_them() {
-        let out = set_string(LOCALCONFIG, &with_app("760"), "LaunchOptions", "x %command%").unwrap();
+        let out = set_string(
+            LOCALCONFIG,
+            &with_app("760"),
+            "LaunchOptions",
+            "x %command%",
+        )
+        .unwrap();
         assert_eq!(launch(&out, "760").as_deref(), Some("x %command%"));
         assert_eq!(launch(&out, "730").as_deref(), Some("-novid"));
         let out = set_string(&out, &with_app("413150"), "launchoptions", "y %command%").unwrap();
         assert_eq!(launch(&out, "413150").as_deref(), Some("y %command%"));
         let doc = Vdf::parse(&out).unwrap();
-        assert_eq!(doc.path(&["UserLocalConfigStore", "Software", "Valve", "Steam", "PlayerLevel"]).and_then(Vdf::as_str), Some("0"));
+        assert_eq!(
+            doc.path(&[
+                "UserLocalConfigStore",
+                "Software",
+                "Valve",
+                "Steam",
+                "PlayerLevel"
+            ])
+            .and_then(Vdf::as_str),
+            Some("0")
+        );
         assert!(out.contains("\n\t\t\t\t\t\"413150\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"launchoptions\"\t\t\"y %command%\"\n\t\t\t\t\t}\n\t\t\t\t}"), "{out}");
     }
 
     #[test]
     fn a_value_added_and_removed_leaves_the_file_as_it_was() {
-        let added = set_string(LOCALCONFIG, &with_app("760"), "LaunchOptions", "x %command%").unwrap();
-        assert_eq!(remove_key(&added, &with_app("760"), "LaunchOptions").unwrap(), LOCALCONFIG);
-        assert_eq!(remove_key(LOCALCONFIG, &with_app("760"), "LaunchOptions").unwrap(), LOCALCONFIG, "nothing to remove");
+        let added = set_string(
+            LOCALCONFIG,
+            &with_app("760"),
+            "LaunchOptions",
+            "x %command%",
+        )
+        .unwrap();
+        assert_eq!(
+            remove_key(&added, &with_app("760"), "LaunchOptions").unwrap(),
+            LOCALCONFIG
+        );
+        assert_eq!(
+            remove_key(LOCALCONFIG, &with_app("760"), "LaunchOptions").unwrap(),
+            LOCALCONFIG,
+            "nothing to remove"
+        );
         let gone = remove_key(LOCALCONFIG, &with_app("730"), "launchoptions").unwrap();
         assert_eq!(launch(&gone, "730"), None);
         assert!(Vdf::parse(&gone).is_some());
@@ -431,7 +542,13 @@ mod tests {
     #[test]
     fn a_file_without_the_root_or_broken_is_refused() {
         assert!(set_string("\"Other\" { }", &with_app("730"), "LaunchOptions", "x").is_err());
-        assert!(set_string("\"UserLocalConfigStore\" { \"Software\" {", &with_app("730"), "LaunchOptions", "x").is_err());
+        assert!(set_string(
+            "\"UserLocalConfigStore\" { \"Software\" {",
+            &with_app("730"),
+            "LaunchOptions",
+            "x"
+        )
+        .is_err());
     }
 
     #[test]

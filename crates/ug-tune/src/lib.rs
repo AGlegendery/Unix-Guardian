@@ -51,7 +51,11 @@ enum Undo {
     /// A cpufreq policy. Kept as one entry because the order matters:
     /// `intel_pstate` refuses EPP writes while the governor is `performance`,
     /// so the governor must be restored before the EPP.
-    CpuPolicy { dir: PathBuf, governor: String, epp: Option<String> },
+    CpuPolicy {
+        dir: PathBuf,
+        governor: String,
+        epp: Option<String>,
+    },
     /// Start a unit we stopped.
     StartUnit { unit: String },
     /// Restore an autogroup's nice value, via any process still in it.
@@ -61,7 +65,11 @@ enum Undo {
     /// Put back a process's thread priorities: `(thread id, nice)`. Only
     /// while the process is the same one (its start time), so a reused
     /// process id is never touched.
-    ThreadNice { pid: i32, start: u64, threads: Vec<(i32, i32)> },
+    ThreadNice {
+        pid: i32,
+        start: u64,
+        threads: Vec<(i32, i32)>,
+    },
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -122,7 +130,18 @@ const GAME_NICE: i32 = -10;
 impl<U: Units> Tuner<U> {
     /// Creates a tuner, first undoing anything a previous run left applied.
     pub fn new(root: SysRoot, state_path: PathBuf, units: U) -> (Self, Report) {
-        let mut t = Tuner { root, state_path, units, undo: Vec::new(), latency: None, active: false, nice: Nice { get: nice_of, set: set_nice } };
+        let mut t = Tuner {
+            root,
+            state_path,
+            units,
+            undo: Vec::new(),
+            latency: None,
+            active: false,
+            nice: Nice {
+                get: nice_of,
+                set: set_nice,
+            },
+        };
         let leftovers: Persisted = std::fs::read_to_string(&t.state_path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -130,7 +149,10 @@ impl<U: Units> Tuner<U> {
         let report = if leftovers.undo.is_empty() {
             Report::default()
         } else {
-            tracing::warn!(changes = leftovers.undo.len(), "game mode was left on by a previous run; restoring");
+            tracing::warn!(
+                changes = leftovers.undo.len(),
+                "game mode was left on by a previous run; restoring"
+            );
             t.undo = leftovers.undo;
             t.revert()
         };
@@ -192,7 +214,11 @@ impl<U: Units> Tuner<U> {
     /// Records `undo`, then makes the change. If the change fails nothing was
     /// altered, so the entry is withdrawn again — otherwise the report would
     /// claim changes that never happened.
-    fn change(&mut self, undo: Undo, apply: impl FnOnce() -> std::io::Result<()>) -> std::io::Result<()> {
+    fn change(
+        &mut self,
+        undo: Undo,
+        apply: impl FnOnce() -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
         self.record(undo);
         apply().inspect_err(|_| {
             self.undo.pop();
@@ -201,7 +227,9 @@ impl<U: Units> Tuner<U> {
     }
 
     fn persist(&self) {
-        let doc = Persisted { undo: self.undo.clone() };
+        let doc = Persisted {
+            undo: self.undo.clone(),
+        };
         let json = serde_json::to_vec_pretty(&doc).unwrap_or_default();
         if let Err(e) = ug_core::paths::write_atomic(&self.state_path, &json) {
             // Carry on: failing to record the undo is bad, but refusing to tune
@@ -213,14 +241,17 @@ impl<U: Units> Tuner<U> {
     fn cpu_performance(&mut self, r: &mut Report) {
         let policies = policies(&self.root);
         if policies.is_empty() {
-            r.skipped.push("CPU performance mode: this system exposes no cpufreq policies.".into());
+            r.skipped
+                .push("CPU performance mode: this system exposes no cpufreq policies.".into());
             return;
         }
         let mut changed = 0;
         let mut before = None;
         let mut failure: Option<std::io::Error> = None;
         for dir in policies {
-            let Some(governor) = read(&dir.join("scaling_governor")) else { continue };
+            let Some(governor) = read(&dir.join("scaling_governor")) else {
+                continue;
+            };
             let available = read(&dir.join("scaling_available_governors")).unwrap_or_default();
             if !available.split_whitespace().any(|g| g == "performance") {
                 continue;
@@ -229,19 +260,29 @@ impl<U: Units> Tuner<U> {
             if governor == "performance" && epp.as_deref().is_none_or(|e| e == "performance") {
                 continue;
             }
-            let was = format!("{governor}{}", epp.as_ref().map(|e| format!("/{e}")).unwrap_or_default());
+            let was = format!(
+                "{governor}{}",
+                epp.as_ref().map(|e| format!("/{e}")).unwrap_or_default()
+            );
             let gov_path = dir.join("scaling_governor");
             let epp_path = dir.join("energy_performance_preference");
             let has_epp = epp.is_some();
-            let result = self.change(Undo::CpuPolicy { dir: dir.clone(), governor, epp }, || {
-                write(&gov_path, "performance")?;
-                if has_epp {
-                    // Refused with EBUSY under intel_pstate once the governor
-                    // is performance — which already implies that EPP.
-                    let _ = write(&epp_path, "performance");
-                }
-                Ok(())
-            });
+            let result = self.change(
+                Undo::CpuPolicy {
+                    dir: dir.clone(),
+                    governor,
+                    epp,
+                },
+                || {
+                    write(&gov_path, "performance")?;
+                    if has_epp {
+                        // Refused with EBUSY under intel_pstate once the governor
+                        // is performance — which already implies that EPP.
+                        let _ = write(&epp_path, "performance");
+                    }
+                    Ok(())
+                },
+            );
             match result {
                 Ok(()) => {
                     before.get_or_insert(was);
@@ -253,11 +294,15 @@ impl<U: Units> Tuner<U> {
             }
         }
         if let Some(b) = before {
-            r.applied.push(format!("CPU set to performance on {changed} cores (was {b})"));
+            r.applied.push(format!(
+                "CPU set to performance on {changed} cores (was {b})"
+            ));
         } else if let Some(e) = failure {
-            r.skipped.push(format!("CPU performance mode: {}", denied(&e)));
+            r.skipped
+                .push(format!("CPU performance mode: {}", denied(&e)));
         } else {
-            r.skipped.push("CPU performance mode: already in performance mode.".into());
+            r.skipped
+                .push("CPU performance mode: already in performance mode.".into());
         }
     }
 
@@ -273,12 +318,19 @@ impl<U: Units> Tuner<U> {
                 // this process dies, which is why it needs no undo entry.
                 if f.write_all(&0i32.to_ne_bytes()).is_ok() {
                     self.latency = Some(f);
-                    r.applied.push("Deep CPU idle states held off, so clocks do not drop between frames".into());
+                    r.applied.push(
+                        "Deep CPU idle states held off, so clocks do not drop between frames"
+                            .into(),
+                    );
                 } else {
-                    r.skipped.push("CPU idle states: the kernel refused the latency request.".into());
+                    r.skipped
+                        .push("CPU idle states: the kernel refused the latency request.".into());
                 }
             }
-            Err(e) => r.skipped.push(format!("CPU idle states: {} is not available ({e}).", path.display())),
+            Err(e) => r.skipped.push(format!(
+                "CPU idle states: {} is not available ({e}).",
+                path.display()
+            )),
         }
     }
 
@@ -287,20 +339,38 @@ impl<U: Units> Tuner<U> {
         // system configured higher than our value already has what games need.
         const SETTINGS: &[(&str, u64, bool, &str)] = &[
             ("vm/swappiness", 10, false, "swapping reduced"),
-            ("vm/max_map_count", 2_147_483_642, true, "memory map limit raised for games that need it"),
-            ("vm/compaction_proactiveness", 0, false, "background memory compaction paused"),
+            (
+                "vm/max_map_count",
+                2_147_483_642,
+                true,
+                "memory map limit raised for games that need it",
+            ),
+            (
+                "vm/compaction_proactiveness",
+                0,
+                false,
+                "background memory compaction paused",
+            ),
         ];
         let mut done = Vec::new();
         let mut failure: Option<std::io::Error> = None;
         for &(key, value, only_raise, what) in SETTINGS {
             let path = self.root.join(format!("proc/sys/{key}"));
             let Some(prev) = read(&path) else { continue };
-            let Ok(prev_n) = prev.parse::<u64>() else { continue };
+            let Ok(prev_n) = prev.parse::<u64>() else {
+                continue;
+            };
             if prev_n == value || (only_raise && prev_n >= value) {
                 continue;
             }
             let v = value.to_string();
-            match self.change(Undo::File { path: path.clone(), previous: prev }, || write(&path, &v)) {
+            match self.change(
+                Undo::File {
+                    path: path.clone(),
+                    previous: prev,
+                },
+                || write(&path, &v),
+            ) {
                 Ok(()) => done.push(what),
                 Err(e) => {
                     failure.get_or_insert(e);
@@ -327,7 +397,11 @@ impl<U: Units> Tuner<U> {
         let settings: [(&str, &str, &str); 3] = [
             ("net/ipv4/tcp_fastopen", "3", "TCP Fast Open"),
             ("net/ipv4/tcp_notsent_lowat", "16384", "smaller send queue"),
-            ("net/ipv4/tcp_congestion_control", "bbr", "BBR congestion control"),
+            (
+                "net/ipv4/tcp_congestion_control",
+                "bbr",
+                "BBR congestion control",
+            ),
         ];
         for (key, value, what) in settings {
             let path = self.root.join(format!("proc/sys/{key}"));
@@ -337,10 +411,18 @@ impl<U: Units> Tuner<U> {
             }
             // Writing "bbr" loads tcp_bbr on demand; a kernel without it
             // refuses, which only means that part is skipped.
-            match self.change(Undo::File { path: path.clone(), previous: prev }, || write(&path, value)) {
+            match self.change(
+                Undo::File {
+                    path: path.clone(),
+                    previous: prev,
+                },
+                || write(&path, value),
+            ) {
                 Ok(()) => done.push(what.to_string()),
                 Err(e) if key.ends_with("congestion_control") => {
-                    r.skipped.push(format!("BBR congestion control: not available in this kernel ({e})."));
+                    r.skipped.push(format!(
+                        "BBR congestion control: not available in this kernel ({e})."
+                    ));
                 }
                 Err(e) => {
                     failure.get_or_insert(e);
@@ -351,13 +433,16 @@ impl<U: Units> Tuner<U> {
             if self.units.wifi_power_save(&iface) != Some(true) {
                 continue;
             }
-            self.record(Undo::WifiPowerSave { iface: iface.clone() });
+            self.record(Undo::WifiPowerSave {
+                iface: iface.clone(),
+            });
             match self.units.set_wifi_power_save(&iface, false) {
                 Ok(()) => done.push(format!("Wi-Fi power saving off on {iface}")),
                 Err(e) => {
                     self.undo.pop();
                     self.persist();
-                    r.skipped.push(format!("Wi-Fi power saving on {iface}: {e}"));
+                    r.skipped
+                        .push(format!("Wi-Fi power saving on {iface}: {e}"));
                 }
             }
         }
@@ -376,7 +461,9 @@ impl<U: Units> Tuner<U> {
             if !self.units.is_active(unit) {
                 continue;
             }
-            self.record(Undo::StartUnit { unit: unit.to_string() });
+            self.record(Undo::StartUnit {
+                unit: unit.to_string(),
+            });
             match self.units.stop(unit) {
                 Ok(()) => paused.push(*unit),
                 Err(e) => {
@@ -387,9 +474,13 @@ impl<U: Units> Tuner<U> {
             }
         }
         if paused.is_empty() {
-            r.skipped.push("Background tasks: none were scheduled.".into());
+            r.skipped
+                .push("Background tasks: none were scheduled.".into());
         } else {
-            r.applied.push(format!("Background tasks held until you stop playing: {}", paused.join(", ")));
+            r.applied.push(format!(
+                "Background tasks held until you stop playing: {}",
+                paused.join(", ")
+            ));
         }
     }
 
@@ -401,12 +492,20 @@ impl<U: Units> Tuner<U> {
             // names must be the caller's own, or this would let any user raise
             // the priority of anything on the machine.
             if owner(&self.root, pid) != Some(caller_uid) {
-                r.skipped.push(format!("Priority: process {pid} does not belong to you."));
+                r.skipped
+                    .push(format!("Priority: process {pid} does not belong to you."));
                 continue;
             }
-            let before: Vec<(i32, i32)> = tasks(&self.root, pid).into_iter().filter_map(|tid| Some((tid, (self.nice.get)(tid)?))).collect();
+            let before: Vec<(i32, i32)> = tasks(&self.root, pid)
+                .into_iter()
+                .filter_map(|tid| Some((tid, (self.nice.get)(tid)?)))
+                .collect();
             if let (Some(start), false) = (start_time(&self.root, pid), before.is_empty()) {
-                self.record(Undo::ThreadNice { pid, start, threads: before.clone() });
+                self.record(Undo::ThreadNice {
+                    pid,
+                    start,
+                    threads: before.clone(),
+                });
                 let mut raised = 0;
                 for &(tid, _) in &before {
                     if (self.nice.set)(tid, GAME_NICE) {
@@ -422,7 +521,16 @@ impl<U: Units> Tuner<U> {
             if let Some((id, nice)) = autogroup(&self.root, pid) {
                 if !groups.contains(&id) && nice > -10 {
                     let path = self.root.join(format!("proc/{pid}/autogroup"));
-                    if self.change(Undo::Autogroup { id: id.clone(), previous: nice }, || write(&path, "-10")).is_ok() {
+                    if self
+                        .change(
+                            Undo::Autogroup {
+                                id: id.clone(),
+                                previous: nice,
+                            },
+                            || write(&path, "-10"),
+                        )
+                        .is_ok()
+                    {
                         groups.push(id);
                     }
                 }
@@ -432,8 +540,14 @@ impl<U: Units> Tuner<U> {
             // With autogroup scheduling, per-thread nice only orders threads
             // within the game's own group; the group's nice is what gives the
             // game an edge over everything else on the desktop.
-            let how = if groups.is_empty() { "" } else { " (and its scheduling group)" };
-            r.applied.push(format!("Game given higher CPU priority: {threads} threads{how}"));
+            let how = if groups.is_empty() {
+                ""
+            } else {
+                " (and its scheduling group)"
+            };
+            r.applied.push(format!(
+                "Game given higher CPU priority: {threads} threads{how}"
+            ));
         }
     }
 
@@ -459,7 +573,11 @@ impl<U: Units> Tuner<U> {
                     !self.root.join(format!("sys/class/net/{iface}")).exists()
                         || self.units.set_wifi_power_save(iface, true).is_ok()
                 }
-                Undo::ThreadNice { pid, start, threads } => {
+                Undo::ThreadNice {
+                    pid,
+                    start,
+                    threads,
+                } => {
                     // Gone, or a different process under the same id: the
                     // game ended and took its priorities with it.
                     if start_time(&self.root, *pid) != Some(*start) {
@@ -467,7 +585,10 @@ impl<U: Units> Tuner<U> {
                     } else {
                         let alive = tasks(&self.root, *pid);
                         let set = self.nice.set;
-                        threads.iter().filter(|(tid, _)| alive.contains(tid)).all(|&(tid, nice)| set(tid, nice))
+                        threads
+                            .iter()
+                            .filter(|(tid, _)| alive.contains(tid))
+                            .all(|&(tid, nice)| set(tid, nice))
                     }
                 }
                 Undo::Autogroup { id, previous } => {
@@ -475,7 +596,11 @@ impl<U: Units> Tuner<U> {
                     // group (the launcher, say) can carry the write. None left
                     // means the group is gone and there is nothing to restore.
                     match member_of(&self.root, id) {
-                        Some(pid) => write(&self.root.join(format!("proc/{pid}/autogroup")), &previous.to_string()).is_ok(),
+                        Some(pid) => write(
+                            &self.root.join(format!("proc/{pid}/autogroup")),
+                            &previous.to_string(),
+                        )
+                        .is_ok(),
                         None => true,
                     }
                 }
@@ -486,7 +611,8 @@ impl<U: Units> Tuner<U> {
             self.persist();
         }
         if failed.is_empty() {
-            r.applied.push("Everything game mode changed has been restored".into());
+            r.applied
+                .push("Everything game mode changed has been restored".into());
         } else {
             for u in &failed {
                 r.skipped.push(format!("Could not restore {u:?}"));
@@ -511,7 +637,9 @@ fn denied(e: &std::io::Error) -> String {
 }
 
 fn read(p: &Path) -> Option<String> {
-    std::fs::read_to_string(p).ok().map(|s| s.trim().to_string())
+    std::fs::read_to_string(p)
+        .ok()
+        .map(|s| s.trim().to_string())
 }
 
 fn write(p: &Path, v: &str) -> std::io::Result<()> {
@@ -536,7 +664,10 @@ fn policies(root: &SysRoot) -> Vec<PathBuf> {
         .map(|d| {
             d.filter_map(|e| e.ok())
                 .map(|e| e.path())
-                .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("policy")))
+                .filter(|p| {
+                    p.file_name()
+                        .is_some_and(|n| n.to_string_lossy().starts_with("policy"))
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -546,7 +677,12 @@ fn policies(root: &SysRoot) -> Vec<PathBuf> {
 
 fn owner(root: &SysRoot, pid: i32) -> Option<u32> {
     let s = std::fs::read_to_string(root.join(format!("proc/{pid}/status"))).ok()?;
-    s.lines().find_map(|l| l.strip_prefix("Uid:"))?.split_whitespace().next()?.parse().ok()
+    s.lines()
+        .find_map(|l| l.strip_prefix("Uid:"))?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()
 }
 
 /// A thread's nice value. getpriority can return -1 legitimately, so errno
@@ -570,12 +706,20 @@ fn set_nice(tid: i32, nice: i32) -> bool {
 /// with the pid, it names one process for good.
 fn start_time(root: &SysRoot, pid: i32) -> Option<u64> {
     let s = std::fs::read_to_string(root.join(format!("proc/{pid}/stat"))).ok()?;
-    s.rsplit_once(')')?.1.split_whitespace().nth(19)?.parse().ok()
+    s.rsplit_once(')')?
+        .1
+        .split_whitespace()
+        .nth(19)?
+        .parse()
+        .ok()
 }
 
 fn tasks(root: &SysRoot, pid: i32) -> Vec<i32> {
     std::fs::read_dir(root.join(format!("proc/{pid}/task")))
-        .map(|d| d.filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok()).collect())
+        .map(|d| {
+            d.filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -591,10 +735,13 @@ fn autogroup(root: &SysRoot, pid: i32) -> Option<(String, i32)> {
 
 /// Any process currently in autogroup `id`.
 fn member_of(root: &SysRoot, id: &str) -> Option<i32> {
-    std::fs::read_dir(root.join("proc")).ok()?.filter_map(|e| e.ok()).find_map(|e| {
-        let pid: i32 = e.file_name().to_str()?.parse().ok()?;
-        (autogroup(root, pid)?.0 == id).then_some(pid)
-    })
+    std::fs::read_dir(root.join("proc"))
+        .ok()?
+        .filter_map(|e| e.ok())
+        .find_map(|e| {
+            let pid: i32 = e.file_name().to_str()?.parse().ok()?;
+            (autogroup(root, pid)?.0 == id).then_some(pid)
+        })
 }
 
 #[cfg(test)]

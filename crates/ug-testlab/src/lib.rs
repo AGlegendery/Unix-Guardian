@@ -139,22 +139,44 @@ pub struct Options {
 
 impl Options {
     pub fn new(front: &'static str, daemon_on_session: bool) -> Options {
-        Options { daemon_on_session, front, journal: journal::path(), quick: false }
+        Options {
+            daemon_on_session,
+            front,
+            journal: journal::path(),
+            quick: false,
+        }
     }
 }
 
 /// Runs every step and returns the scrubbed report. `progress` is called
 /// before each step and once at the end (`done == total`).
-pub async fn run<F: FnMut(Progress) + Send>(opts: &Options, mut progress: F) -> Result<Report, String> {
-    let dir = opts.journal.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+pub async fn run<F: FnMut(Progress) + Send>(
+    opts: &Options,
+    mut progress: F,
+) -> Result<Report, String> {
+    let dir = opts
+        .journal
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
     let _lock = journal::RunLock::take(&dir)?;
     let mut lab = steps::Lab::new(opts).await;
     let total = STEPS.len();
     for (i, (id, label)) in STEPS.iter().enumerate() {
-        progress(Progress { done: i, total, id, label });
+        progress(Progress {
+            done: i,
+            total,
+            id,
+            label,
+        });
         lab.step(id).await;
     }
-    progress(Progress { done: total, total, id: "done", label: "Done" });
+    progress(Progress {
+        done: total,
+        total,
+        id: "done",
+        label: "Done",
+    });
     Ok(lab.finish())
 }
 
@@ -165,8 +187,14 @@ pub async fn recover(opts: &Options) -> Vec<String> {
     if journal::Journal::open(&opts.journal).items().is_empty() {
         return Vec::new();
     }
-    let dir = opts.journal.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
-    let Ok(_lock) = journal::RunLock::take(&dir) else { return Vec::new() };
+    let dir = opts
+        .journal
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let Ok(_lock) = journal::RunLock::take(&dir) else {
+        return Vec::new();
+    };
     let mut lab = steps::Lab::new(opts).await;
     lab.put_back().await
 }

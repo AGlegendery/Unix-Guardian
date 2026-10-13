@@ -32,10 +32,24 @@ fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
         let p = e.path();
         let name = e.file_name().to_string_lossy().to_string();
         if p.is_dir() {
-            if !["target", "node_modules", ".git", "dist", "build", ".svelte-kit"].contains(&name.as_str()) {
+            if ![
+                "target",
+                "node_modules",
+                ".git",
+                "dist",
+                "build",
+                ".svelte-kit",
+            ]
+            .contains(&name.as_str())
+            {
                 sources(&p, out);
             }
-        } else if [".rs", ".ts", ".svelte", ".sh", ".toml", ".service", ".desktop"].iter().any(|x| name.ends_with(x)) {
+        } else if [
+            ".rs", ".ts", ".svelte", ".sh", ".toml", ".service", ".desktop",
+        ]
+        .iter()
+        .any(|x| name.ends_with(x))
+        {
             out.push(p);
         }
     }
@@ -45,17 +59,31 @@ fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
 fn nothing_writes_where_the_whole_session_reads() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut files = Vec::new();
-    for d in ["crates", "app/src", "app/src-tauri/src", "data", "packaging", "scripts"] {
+    for d in [
+        "crates",
+        "app/src",
+        "app/src-tauri/src",
+        "data",
+        "packaging",
+        "scripts",
+    ] {
         sources(&root.join(d), &mut files);
     }
-    assert!(files.len() > 50, "found only {} source files under {}", files.len(), root.display());
+    assert!(
+        files.len() > 50,
+        "found only {} source files under {}",
+        files.len(),
+        root.display()
+    );
     let mut found = Vec::new();
     for f in files {
         let rel = f.strip_prefix(&root).unwrap().display().to_string();
         if ALLOWED.contains(&rel.as_str()) || rel.ends_with("-e2e.sh") {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(&f) else { continue };
+        let Ok(text) = std::fs::read_to_string(&f) else {
+            continue;
+        };
         for (n, line) in text.lines().enumerate() {
             for p in PLACES {
                 if line.contains(p) {
@@ -64,5 +92,9 @@ fn nothing_writes_where_the_whole_session_reads() {
             }
         }
     }
-    assert!(found.is_empty(), "session-wide places in the code (GPU and MangoHud variables go per program):\n{}", found.join("\n"));
+    assert!(
+        found.is_empty(),
+        "session-wide places in the code (GPU and MangoHud variables go per program):\n{}",
+        found.join("\n")
+    );
 }

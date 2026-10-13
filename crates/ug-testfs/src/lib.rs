@@ -35,7 +35,11 @@ pub fn fixture(name: &str) -> PathBuf {
     let p = base.join(name);
     if !p.is_dir() {
         let available: Vec<String> = fs::read_dir(&base)
-            .map(|d| d.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+            .map(|d| {
+                d.filter_map(|e| e.ok())
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
             .unwrap_or_default();
         panic!("no fixture named {name:?}; available: {available:?}");
     }
@@ -119,7 +123,14 @@ impl TestFs {
     }
 
     /// Adds a DRM card node with its PCI identity.
-    pub fn drm_card(&self, index: u32, pci: &str, vendor: u16, device: u16, boot_vga: bool) -> &Self {
+    pub fn drm_card(
+        &self,
+        index: u32,
+        pci: &str,
+        vendor: u16,
+        device: u16,
+        boot_vga: bool,
+    ) -> &Self {
         let base = format!("sys/class/drm/card{index}/device");
         self.write(format!("{base}/vendor"), &format!("0x{vendor:04x}"));
         self.write(format!("{base}/device"), &format!("0x{device:04x}"));
@@ -146,7 +157,13 @@ impl TestFs {
     }
 
     /// Writes a `/proc/meminfo` with the four fields the memory reader needs.
-    pub fn proc_meminfo(&self, total_kb: u64, available_kb: u64, swap_total_kb: u64, swap_free_kb: u64) -> &Self {
+    pub fn proc_meminfo(
+        &self,
+        total_kb: u64,
+        available_kb: u64,
+        swap_total_kb: u64,
+        swap_free_kb: u64,
+    ) -> &Self {
         self.write(
             "proc/meminfo",
             &format!(
@@ -262,29 +279,37 @@ pub struct Hwmon<'a> {
 impl Hwmon<'_> {
     /// Adds `tempN_label` and `tempN_input`. Input is millidegrees, as in sysfs.
     pub fn temp(self, n: u32, label: &str, millidegrees: i64) -> Self {
-        self.fs.write(self.rel.join(format!("temp{n}_label")), label);
         self.fs
-            .write(self.rel.join(format!("temp{n}_input")), &millidegrees.to_string());
+            .write(self.rel.join(format!("temp{n}_label")), label);
+        self.fs.write(
+            self.rel.join(format!("temp{n}_input")),
+            &millidegrees.to_string(),
+        );
         self
     }
 
     /// Adds `tempN_input` with no label, which is how many chips report.
     pub fn temp_unlabelled(self, n: u32, millidegrees: i64) -> Self {
-        self.fs
-            .write(self.rel.join(format!("temp{n}_input")), &millidegrees.to_string());
+        self.fs.write(
+            self.rel.join(format!("temp{n}_input")),
+            &millidegrees.to_string(),
+        );
         self
     }
 
     /// Adds `fanN_input`, in RPM.
     pub fn fan(self, n: u32, rpm: u32) -> Self {
-        self.fs.write(self.rel.join(format!("fan{n}_input")), &rpm.to_string());
+        self.fs
+            .write(self.rel.join(format!("fan{n}_input")), &rpm.to_string());
         self
     }
 
     /// Adds `powerN_average`, in microwatts.
     pub fn power(self, n: u32, microwatts: u64) -> Self {
-        self.fs
-            .write(self.rel.join(format!("power{n}_average")), &microwatts.to_string());
+        self.fs.write(
+            self.rel.join(format!("power{n}_average")),
+            &microwatts.to_string(),
+        );
         self
     }
 

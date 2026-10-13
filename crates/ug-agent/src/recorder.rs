@@ -33,7 +33,15 @@ impl Engine {
         match self {
             Engine::Native(p) => vec![p.display().to_string()],
             // --die-with-parent: the sandbox goes when the agent does.
-            Engine::Flatpak => ["flatpak", "run", "--die-with-parent", "--command=gpu-screen-recorder", FLATPAK_ID].map(String::from).to_vec(),
+            Engine::Flatpak => [
+                "flatpak",
+                "run",
+                "--die-with-parent",
+                "--command=gpu-screen-recorder",
+                FLATPAK_ID,
+            ]
+            .map(String::from)
+            .to_vec(),
         }
     }
 
@@ -47,7 +55,11 @@ impl Engine {
 
 fn on_path(name: &str) -> Option<PathBuf> {
     std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).map(|d| d.join(name)).find(|f| f.is_file()))
+        .map(|p| {
+            std::env::split_paths(&p)
+                .map(|d| d.join(name))
+                .find(|f| f.is_file())
+        })
         .flatten()
 }
 
@@ -56,7 +68,10 @@ pub fn find_engine(home: &Path) -> Option<Engine> {
     if let Some(p) = on_path("gpu-screen-recorder") {
         return Some(Engine::Native(p));
     }
-    let flatpak = [PathBuf::from("/var/lib/flatpak/app").join(FLATPAK_ID), home.join(".local/share/flatpak/app").join(FLATPAK_ID)];
+    let flatpak = [
+        PathBuf::from("/var/lib/flatpak/app").join(FLATPAK_ID),
+        home.join(".local/share/flatpak/app").join(FLATPAK_ID),
+    ];
     (on_path("flatpak").is_some() && flatpak.iter().any(|d| d.exists())).then_some(Engine::Flatpak)
 }
 
@@ -74,7 +89,9 @@ pub fn parse_captures(out: &str) -> Vec<(String, Option<(u32, u32)>)> {
         let c = match l.split_once('|') {
             Some((name, res)) => {
                 let res = res.split('|').next().unwrap_or(res);
-                let wh = res.split_once('x').and_then(|(w, h)| Some((w.trim().parse().ok()?, h.trim().parse().ok()?)));
+                let wh = res
+                    .split_once('x')
+                    .and_then(|(w, h)| Some((w.trim().parse().ok()?, h.trim().parse().ok()?)));
                 (name.to_string(), wh)
             }
             None => (l.to_string(), None),
@@ -114,7 +131,12 @@ pub fn validate(s: &RecorderSettings) -> Result<(), String> {
     if ![15, 30, 60, 120].contains(&s.replay_seconds) {
         return Err("the replay buffer is 15, 30, 60 or 120 seconds".into());
     }
-    if !s.capture.is_empty() && !s.capture.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c)) {
+    if !s.capture.is_empty()
+        && !s
+            .capture
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+    {
         return Err(format!("{:?} is not a capture choice", s.capture));
     }
     Ok(())
@@ -128,7 +150,14 @@ pub fn record_args(s: &RecorderSettings, capture: &str, target: Target<'_>) -> V
         "high" => "very_high",
         _ => "high",
     };
-    let mut a: Vec<String> = vec!["-w".into(), capture.into(), "-f".into(), s.fps.to_string(), "-q".into(), q.into()];
+    let mut a: Vec<String> = vec![
+        "-w".into(),
+        capture.into(),
+        "-f".into(),
+        s.fps.to_string(),
+        "-q".into(),
+        q.into(),
+    ];
     if capture == "portal" {
         // Remember the screen chosen in the desktop's dialog.
         a.extend(["-restore-portal-session".into(), "yes".into()]);
@@ -145,7 +174,12 @@ pub fn record_args(s: &RecorderSettings, capture: &str, target: Target<'_>) -> V
     a.extend(["-c".into(), "mp4".into()]);
     match target {
         Target::File(f) => a.extend(["-o".into(), f.display().to_string()]),
-        Target::Replay(dir) => a.extend(["-r".into(), s.replay_seconds.to_string(), "-o".into(), dir.display().to_string()]),
+        Target::Replay(dir) => a.extend([
+            "-r".into(),
+            s.replay_seconds.to_string(),
+            "-o".into(),
+            dir.display().to_string(),
+        ]),
     }
     a
 }
@@ -184,7 +218,10 @@ pub fn videos_dir(home: &Path) -> PathBuf {
     let conf = std::fs::read_to_string(home.join(".config/user-dirs.dirs")).unwrap_or_default();
     conf.lines()
         .find_map(|l| l.strip_prefix("XDG_VIDEOS_DIR="))
-        .map(|v| v.trim_matches('"').replace("$HOME", &home.display().to_string()))
+        .map(|v| {
+            v.trim_matches('"')
+                .replace("$HOME", &home.display().to_string())
+        })
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join("Videos"))
 }
@@ -202,22 +239,36 @@ const ENGINE_COMM: &str = "gpu-screen-reco";
 fn ppid(proc_root: &Path, pid: i32) -> Option<i32> {
     let stat = std::fs::read_to_string(proc_root.join(pid.to_string()).join("stat")).ok()?;
     // After the last ')' (the name may hold spaces): state, then the parent.
-    stat.rsplit_once(')')?.1.split_whitespace().nth(1)?.parse().ok()
+    stat.rsplit_once(')')?
+        .1
+        .split_whitespace()
+        .nth(1)?
+        .parse()
+        .ok()
 }
 
 fn comm(proc_root: &Path, pid: i32) -> Option<String> {
-    std::fs::read_to_string(proc_root.join(pid.to_string()).join("comm")).ok().map(|c| c.trim_end().to_string())
+    std::fs::read_to_string(proc_root.join(pid.to_string()).join("comm"))
+        .ok()
+        .map(|c| c.trim_end().to_string())
 }
 
 fn pids(proc_root: &Path) -> Vec<i32> {
     std::fs::read_dir(proc_root)
-        .map(|d| d.flatten().filter_map(|e| e.file_name().to_str()?.parse().ok()).collect())
+        .map(|d| {
+            d.flatten()
+                .filter_map(|e| e.file_name().to_str()?.parse().ok())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 /// Every process below `root`.
 fn descendants(proc_root: &Path, root: i32) -> Vec<i32> {
-    let all: Vec<(i32, i32)> = pids(proc_root).into_iter().filter_map(|p| Some((p, ppid(proc_root, p)?))).collect();
+    let all: Vec<(i32, i32)> = pids(proc_root)
+        .into_iter()
+        .filter_map(|p| Some((p, ppid(proc_root, p)?)))
+        .collect();
     let mut out = Vec::new();
     let mut todo = vec![root];
     while let Some(p) = todo.pop() {
@@ -232,7 +283,10 @@ fn descendants(proc_root: &Path, root: i32) -> Vec<i32> {
 /// The recorder processes to signal for our child `root`: the recorder
 /// inside the Flatpak, or the child itself when it is the recorder.
 fn engine_pids(proc_root: &Path, root: i32) -> Vec<i32> {
-    let inside: Vec<i32> = descendants(proc_root, root).into_iter().filter(|p| comm(proc_root, *p).as_deref() == Some(ENGINE_COMM)).collect();
+    let inside: Vec<i32> = descendants(proc_root, root)
+        .into_iter()
+        .filter(|p| comm(proc_root, *p).as_deref() == Some(ENGINE_COMM))
+        .collect();
     if inside.is_empty() {
         vec![root]
     } else {
@@ -252,7 +306,8 @@ fn leftover_engines(proc_root: &Path, folder: &Path, ours: &[i32]) -> Vec<i32> {
         .filter(|p| !ours.contains(p) && comm(proc_root, *p).as_deref() == Some(ENGINE_COMM))
         .filter(|p| std::fs::metadata(proc_root.join(p.to_string())).is_ok_and(|m| m.uid() == me))
         .filter(|p| {
-            let cmd = std::fs::read(proc_root.join(p.to_string()).join("cmdline")).unwrap_or_default();
+            let cmd =
+                std::fs::read(proc_root.join(p.to_string()).join("cmdline")).unwrap_or_default();
             cmd.split(|b| *b == 0).any(|a| {
                 let a = String::from_utf8_lossy(a);
                 a == folder || a.starts_with(&format!("{folder}/"))
@@ -263,7 +318,11 @@ fn leftover_engines(proc_root: &Path, folder: &Path, ours: &[i32]) -> Vec<i32> {
 
 fn alive(proc_root: &Path, pid: i32) -> bool {
     match std::fs::read_to_string(proc_root.join(pid.to_string()).join("stat")) {
-        Ok(stat) => stat.rsplit_once(')').and_then(|(_, rest)| rest.split_whitespace().next()) != Some("Z"),
+        Ok(stat) => {
+            stat.rsplit_once(')')
+                .and_then(|(_, rest)| rest.split_whitespace().next())
+                != Some("Z")
+        }
         Err(_) => false,
     }
 }
@@ -316,7 +375,10 @@ pub struct Recorder {
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 impl Recorder {
@@ -340,7 +402,10 @@ impl Recorder {
     }
 
     fn settings(&self) -> RecorderSettings {
-        self.settings.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn folder(&self, s: &RecorderSettings) -> PathBuf {
@@ -358,8 +423,14 @@ impl Recorder {
         }
         let mut argv = engine.argv();
         argv.push("--list-capture-options".into());
-        let out = std::process::Command::new(&argv[0]).args(&argv[1..]).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output();
-        let c = out.map(|o| parse_captures(&String::from_utf8_lossy(&o.stdout))).unwrap_or_default();
+        let out = std::process::Command::new(&argv[0])
+            .args(&argv[1..])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output();
+        let c = out
+            .map(|o| parse_captures(&String::from_utf8_lossy(&o.stdout)))
+            .unwrap_or_default();
         self.lock().captures = Some(c.clone());
         c
     }
@@ -382,7 +453,9 @@ impl Recorder {
         if let Some(status) = ended {
             let r = i.running.take().expect("checked above");
             if !status.success() {
-                i.problem = format!("The recorder stopped by itself ({status}). {}", i.problem).trim().to_string();
+                i.problem = format!("The recorder stopped by itself ({status}). {}", i.problem)
+                    .trim()
+                    .to_string();
             } else if !r.replay {
                 i.last_saved = r.file;
             }
@@ -393,12 +466,23 @@ impl Recorder {
         self.reap();
         let s = self.settings();
         let engine = find_engine(&self.home);
-        let captures = engine.as_ref().map(|e| self.capture_list(e)).unwrap_or_default();
-        let res = engine.as_ref().and_then(|e| self.captures(e).into_iter().find(|c| c.0 == self.capture(&s)).and_then(|c| c.1));
+        let captures = engine
+            .as_ref()
+            .map(|e| self.capture_list(e))
+            .unwrap_or_default();
+        let res = engine.as_ref().and_then(|e| {
+            self.captures(e)
+                .into_iter()
+                .find(|c| c.0 == self.capture(&s))
+                .and_then(|c| c.1)
+        });
         let mb = mb_per_minute(&s, res);
         let i = self.lock();
         RecorderState {
-            engine: engine.as_ref().map(|e| e.name().to_string()).unwrap_or_default(),
+            engine: engine
+                .as_ref()
+                .map(|e| e.name().to_string())
+                .unwrap_or_default(),
             can_set_up: engine.is_none() && on_path("flatpak").is_some(),
             mode: if i.installing {
                 "installing".into()
@@ -410,7 +494,12 @@ impl Recorder {
                 }
             },
             since_unix_ms: i.running.as_ref().map(|r| r.since).unwrap_or(0),
-            file: i.running.as_ref().filter(|r| !r.replay).map(|r| r.file.clone()).unwrap_or_default(),
+            file: i
+                .running
+                .as_ref()
+                .filter(|r| !r.replay)
+                .map(|r| r.file.clone())
+                .unwrap_or_default(),
             last_saved: i.last_saved.clone(),
             problem: i.problem.clone(),
             setup_pct: i.setup.as_ref().map(|s| s.0).unwrap_or(0),
@@ -424,13 +513,17 @@ impl Recorder {
     }
 
     fn capture_list(&self, e: &Engine) -> Vec<String> {
-        offered(self.captures(e).into_iter().map(|c| c.0).collect(), &capture_env())
+        offered(
+            self.captures(e).into_iter().map(|c| c.0).collect(),
+            &capture_env(),
+        )
     }
 
     pub fn set(&self, s: RecorderSettings) -> Result<(), String> {
         validate(&s)?;
         let text = serde_json::to_string_pretty(&s).map_err(|e| e.to_string())?;
-        ug_core::paths::write_atomic(&self.file, text.as_bytes()).map_err(|e| format!("{}: {e}", self.file.display()))?;
+        ug_core::paths::write_atomic(&self.file, text.as_bytes())
+            .map_err(|e| format!("{}: {e}", self.file.display()))?;
         *self.settings.lock().unwrap_or_else(|e| e.into_inner()) = s;
         Ok(())
     }
@@ -440,7 +533,8 @@ impl Recorder {
         if self.lock().running.is_some() {
             return Err("The recorder is already running; stop it first.".into());
         }
-        let engine = find_engine(&self.home).ok_or("gpu-screen-recorder is not installed; set it up first (ug record setup).")?;
+        let engine = find_engine(&self.home)
+            .ok_or("gpu-screen-recorder is not installed; set it up first (ug record setup).")?;
         self.stop_leftovers(&[]);
         let s = self.settings();
         let env = capture_env();
@@ -451,7 +545,11 @@ impl Recorder {
         std::fs::create_dir_all(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
         let stamp = chrono_like(now_ms());
         let file = folder.join(format!("Recording {stamp}.mp4"));
-        let target = if replay { Target::Replay(&folder) } else { Target::File(&file) };
+        let target = if replay {
+            Target::Replay(&folder)
+        } else {
+            Target::File(&file)
+        };
         let mut argv = engine.argv();
         argv.extend(record_args(&s, &self.capture(&s), target));
         tracing::info!(argv = ?argv, "recorder starting");
@@ -479,15 +577,25 @@ impl Recorder {
             std::thread::spawn(move || {
                 for l in std::io::BufReader::new(err).lines().map_while(Result::ok) {
                     if l.to_lowercase().contains("error") {
-                        inner.lock().unwrap_or_else(|e| e.into_inner()).problem = l.trim().to_string();
+                        inner.lock().unwrap_or_else(|e| e.into_inner()).problem =
+                            l.trim().to_string();
                     }
                 }
             });
         }
         let mut i = self.lock();
         i.problem.clear();
-        let shown = if replay { String::new() } else { file.display().to_string() };
-        i.running = Some(Running { child, replay, file: shown.clone(), since: now_ms() });
+        let shown = if replay {
+            String::new()
+        } else {
+            file.display().to_string()
+        };
+        i.running = Some(Running {
+            child,
+            replay,
+            file: shown.clone(),
+            since: now_ms(),
+        });
         Ok(shown)
     }
 
@@ -522,7 +630,11 @@ impl Recorder {
             }
             // It may have ended by itself: say why rather than "not running".
             let problem = self.lock().problem.clone();
-            return Err(if problem.is_empty() { "The recorder is not running.".into() } else { problem });
+            return Err(if problem.is_empty() {
+                "The recorder is not running.".into()
+            } else {
+                problem
+            });
         };
         let engines = engine_pids(proc_root, r.child.id() as i32);
         let finished = interrupt_and_wait(proc_root, &engines, std::time::Duration::from_secs(10));
@@ -534,7 +646,10 @@ impl Recorder {
         }
         let _ = r.child.wait();
         if !finished {
-            return Err("The recorder did not finish in time and was stopped; the file may be incomplete.".into());
+            return Err(
+                "The recorder did not finish in time and was stopped; the file may be incomplete."
+                    .into(),
+            );
         }
         if r.replay {
             return Ok(String::new());
@@ -608,10 +723,24 @@ impl Recorder {
 
     fn set_up(&self, on: bool) -> Result<(), String> {
         let r = if on {
-            run(&["flatpak", "remote-add", "--user", "--if-not-exists", "flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo"])
-                .and_then(|_| self.install())
+            run(&[
+                "flatpak",
+                "remote-add",
+                "--user",
+                "--if-not-exists",
+                "flathub",
+                "https://dl.flathub.org/repo/flathub.flatpakrepo",
+            ])
+            .and_then(|_| self.install())
         } else {
-            run(&["flatpak", "uninstall", "--user", "--noninteractive", "-y", FLATPAK_ID])
+            run(&[
+                "flatpak",
+                "uninstall",
+                "--user",
+                "--noninteractive",
+                "-y",
+                FLATPAK_ID,
+            ])
         };
         let mut i = self.lock();
         i.installing = false;
@@ -627,7 +756,8 @@ impl Recorder {
     fn install(&self) -> Result<(), String> {
         use std::io::Read;
         let argv = ["flatpak", "install", "--user", "-y", "flathub", FLATPAK_ID];
-        let (mut child, mut master) = spawn_on_pty(&argv).map_err(|e| format!("could not start flatpak: {e}"))?;
+        let (mut child, mut master) =
+            spawn_on_pty(&argv).map_err(|e| format!("could not start flatpak: {e}"))?;
         let mut progress = InstallProgress::default();
         let mut buf = [0u8; 4096];
         loop {
@@ -669,7 +799,11 @@ fn run(argv: &[&str]) -> Result<(), String> {
     if out.status.success() {
         Ok(())
     } else {
-        Err(format!("`{}` failed: {}", argv.join(" "), String::from_utf8_lossy(&out.stderr).trim()))
+        Err(format!(
+            "`{}` failed: {}",
+            argv.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
     }
 }
 
@@ -678,7 +812,12 @@ fn run(argv: &[&str]) -> Result<(), String> {
 fn spawn_on_pty(argv: &[&str]) -> std::io::Result<(std::process::Child, std::fs::File)> {
     use std::os::fd::{FromRawFd, OwnedFd};
     let (mut m, mut s) = (0, 0);
-    let ws = libc::winsize { ws_row: 30, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0 };
+    let ws = libc::winsize {
+        ws_row: 30,
+        ws_col: 120,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
     // SAFETY: openpty writes two descriptors we then own; the other pointers
     // may be null.
     if unsafe { libc::openpty(&mut m, &mut s, std::ptr::null_mut(), std::ptr::null(), &ws) } != 0 {
@@ -740,7 +879,10 @@ impl InstallProgress {
         }
         if let Some(p) = parse_progress(line) {
             self.step = Some(p);
-        } else if ["Warning:", "error:", "Error:"].iter().any(|w| line.starts_with(w)) {
+        } else if ["Warning:", "error:", "Error:"]
+            .iter()
+            .any(|w| line.starts_with(w))
+        {
             self.messages.push(line.to_string());
         }
     }
@@ -785,10 +927,14 @@ fn strip_ansi(s: &str) -> String {
 
 /// `Installing 2/7… ███   42%  …` → (2, 7, 42).
 fn parse_progress(line: &str) -> Option<(u32, u32, u8)> {
-    let rest = ["Installing ", "Updating ", "Uninstalling "].iter().find_map(|w| line.strip_prefix(w))?;
+    let rest = ["Installing ", "Updating ", "Uninstalling "]
+        .iter()
+        .find_map(|w| line.strip_prefix(w))?;
     let (nm, rest) = rest.split_once('…').or_else(|| rest.split_once(' '))?;
     let (n, m) = nm.trim_end_matches("...").split_once('/')?;
-    let pct = rest.split_whitespace().find_map(|w| w.strip_suffix('%')?.parse::<u8>().ok())?;
+    let pct = rest
+        .split_whitespace()
+        .find_map(|w| w.strip_suffix('%')?.parse::<u8>().ok())?;
     Some((n.parse().ok()?, m.parse().ok()?, pct.min(100)))
 }
 
@@ -796,12 +942,26 @@ fn parse_progress(line: &str) -> Option<(u32, u32, u8)> {
 /// messages: a broken download is said plainly, since Flatpak keeps what
 /// it already fetched and a second try goes on from there.
 fn install_failure(messages: &[String]) -> String {
-    let errors: Vec<&String> = messages.iter().filter(|m| !m.starts_with("Warning:")).collect();
-    let all = messages.join(" ");
-    let network = ["Failure when receiving data", "Failed sending data", "Could not resolve host", "Timeout was reached", "Connection reset", "HTTP error"]
+    let errors: Vec<&String> = messages
         .iter()
-        .any(|w| all.contains(w));
-    let detail = errors.last().map(|e| e.as_str()).or(messages.last().map(|e| e.as_str())).unwrap_or("no message");
+        .filter(|m| !m.starts_with("Warning:"))
+        .collect();
+    let all = messages.join(" ");
+    let network = [
+        "Failure when receiving data",
+        "Failed sending data",
+        "Could not resolve host",
+        "Timeout was reached",
+        "Connection reset",
+        "HTTP error",
+    ]
+    .iter()
+    .any(|w| all.contains(w));
+    let detail = errors
+        .last()
+        .map(|e| e.as_str())
+        .or(messages.last().map(|e| e.as_str()))
+        .unwrap_or("no message");
     if network {
         format!("The download from Flathub broke off ({detail}). Set up again: Flatpak keeps what it already downloaded.")
     } else {
@@ -848,7 +1008,10 @@ mod tests {
         let pcts: Vec<u8> = seen.iter().map(|s| s.0).collect();
         assert_eq!(seen.first(), Some(&(0, "1/2".to_string())));
         assert!(pcts.contains(&4), "step 1 at 8% is 4% overall: {pcts:?}");
-        assert!(pcts.windows(2).all(|w| w[0] <= w[1]), "never goes back: {pcts:?}");
+        assert!(
+            pcts.windows(2).all(|w| w[0] <= w[1]),
+            "never goes back: {pcts:?}"
+        );
         assert_eq!(p.overall(), Some((100, "2/2".to_string())));
         assert!(p.messages.is_empty(), "{:?}", p.messages);
     }
@@ -862,9 +1025,18 @@ mod tests {
         p.finish();
         assert_eq!(p.overall(), Some((1, "1/3".to_string())));
         let m = install_failure(&p.messages);
-        assert!(m.starts_with("The download from Flathub broke off (error: While pulling"), "{m}");
-        assert!(install_failure(&["error: No remote refs found for 'x'".into()]).starts_with("flatpak install failed: error: No remote"));
-        assert_eq!(parse_progress("Installing 3/7… ██▍   42%  1.2 MB/s  00:30"), Some((3, 7, 42)));
+        assert!(
+            m.starts_with("The download from Flathub broke off (error: While pulling"),
+            "{m}"
+        );
+        assert!(
+            install_failure(&["error: No remote refs found for 'x'".into()])
+                .starts_with("flatpak install failed: error: No remote")
+        );
+        assert_eq!(
+            parse_progress("Installing 3/7… ██▍   42%  1.2 MB/s  00:30"),
+            Some((3, 7, 42))
+        );
         assert_eq!(parse_progress("Looking for matches…"), None);
     }
 
@@ -875,13 +1047,31 @@ mod tests {
     fn x11_without_the_kms_helper_offers_the_window_not_the_monitor() {
         use ug_core::capture::CaptureEnv;
         let list = || vec!["focused".to_string(), "eDP-1".into()];
-        let user_flatpak = CaptureEnv { wayland: false, nvidia_desktop: false, kms_reachable: false };
+        let user_flatpak = CaptureEnv {
+            wayland: false,
+            nvidia_desktop: false,
+            kms_reachable: false,
+        };
         assert_eq!(offered(list(), &user_flatpak), ["focused"]);
-        assert_eq!(offered(vec!["eDP-1".into()], &user_flatpak), ["focused"], "older engines do not list it");
-        let system = CaptureEnv { kms_reachable: true, ..user_flatpak };
+        assert_eq!(
+            offered(vec!["eDP-1".into()], &user_flatpak),
+            ["focused"],
+            "older engines do not list it"
+        );
+        let system = CaptureEnv {
+            kms_reachable: true,
+            ..user_flatpak
+        };
         assert_eq!(offered(list(), &system), ["screen", "focused", "eDP-1"]);
-        let wayland = CaptureEnv { wayland: true, nvidia_desktop: false, kms_reachable: false };
-        assert_eq!(offered(vec!["eDP-1".into(), "portal".into()], &wayland), ["portal"]);
+        let wayland = CaptureEnv {
+            wayland: true,
+            nvidia_desktop: false,
+            kms_reachable: false,
+        };
+        assert_eq!(
+            offered(vec!["eDP-1".into(), "portal".into()], &wayland),
+            ["portal"]
+        );
     }
 
     /// The real gpu-screen-recorder 5 (Flatpak) on the laptop, 2026-10-04:
@@ -890,18 +1080,34 @@ mod tests {
     fn cameras_are_not_offered_and_nothing_twice() {
         let real = "eDP-1|1920x1080\nregion\n/dev/video0|1280x720@30hz|mjpeg\n/dev/video0|1280x720@10hz|yuyv\n\
                     /dev/video0|640x480@30hz|mjpeg\nportal\neDP-1|1920x1080\n";
-        assert_eq!(parse_captures(real), [("eDP-1".to_string(), Some((1920, 1080))), ("portal".into(), None)]);
+        assert_eq!(
+            parse_captures(real),
+            [
+                ("eDP-1".to_string(), Some((1920, 1080))),
+                ("portal".into(), None)
+            ]
+        );
     }
 
     #[test]
     fn capture_choices_and_their_sizes_are_read_from_the_engine() {
-        let c = parse_captures("window\nfocused\nregion\nportal\nDP-1|2560x1440\neDP-1|1920x1080\n");
+        let c =
+            parse_captures("window\nfocused\nregion\nportal\nDP-1|2560x1440\neDP-1|1920x1080\n");
         assert_eq!(
             c,
-            [("focused".to_string(), None), ("portal".into(), None), ("DP-1".into(), Some((2560, 1440))), ("eDP-1".into(), Some((1920, 1080)))]
+            [
+                ("focused".to_string(), None),
+                ("portal".into(), None),
+                ("DP-1".into(), Some((2560, 1440))),
+                ("eDP-1".into(), Some((1920, 1080)))
+            ]
         );
         let mut s = RecorderSettings::default();
-        assert_eq!(mb_per_minute(&s, None), 91.0, "12 Mbit/s and one audio track ≈ 91 MB a minute");
+        assert_eq!(
+            mb_per_minute(&s, None),
+            91.0,
+            "12 Mbit/s and one audio track ≈ 91 MB a minute"
+        );
         s.quality = "small".into();
         s.fps = 30;
         assert_eq!(mb_per_minute(&s, None), 23.5);
@@ -920,9 +1126,20 @@ mod tests {
         s.audio_output = false;
         s.audio_mic = false;
         let a = record_args(&s, "DP-1", Target::Replay(Path::new("/v")));
-        assert_eq!(a.join(" "), "-w DP-1 -f 60 -q high -k hevc -c mp4 -r 60 -o /v");
-        assert!(validate(&RecorderSettings { fps: 50, ..Default::default() }).is_err());
-        assert!(validate(&RecorderSettings { capture: "DP-1; rm".into(), ..Default::default() }).is_err());
+        assert_eq!(
+            a.join(" "),
+            "-w DP-1 -f 60 -q high -k hevc -c mp4 -r 60 -o /v"
+        );
+        assert!(validate(&RecorderSettings {
+            fps: 50,
+            ..Default::default()
+        })
+        .is_err());
+        assert!(validate(&RecorderSettings {
+            capture: "DP-1; rm".into(),
+            ..Default::default()
+        })
+        .is_err());
         assert!(validate(&RecorderSettings::default()).is_ok());
     }
 
@@ -931,14 +1148,21 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         assert_eq!(videos_dir(d.path()), d.path().join("Videos"));
         std::fs::create_dir_all(d.path().join(".config")).unwrap();
-        std::fs::write(d.path().join(".config/user-dirs.dirs"), "XDG_VIDEOS_DIR=\"$HOME/ویدیو\"\n").unwrap();
+        std::fs::write(
+            d.path().join(".config/user-dirs.dirs"),
+            "XDG_VIDEOS_DIR=\"$HOME/ویدیو\"\n",
+        )
+        .unwrap();
         assert_eq!(videos_dir(d.path()), d.path().join("ویدیو"));
     }
 
     /// A fake /proc entry: `stat` with the parent, `comm`, NUL-separated
     /// `cmdline`.
     fn proc_entry(fs: &ug_testfs::TestFs, pid: i32, ppid: i32, comm: &str, args: &[&str]) {
-        fs.write(format!("{pid}/stat"), &format!("{pid} ({comm}) S {ppid} 1 1 0 -1"));
+        fs.write(
+            format!("{pid}/stat"),
+            &format!("{pid} ({comm}) S {ppid} 1 1 0 -1"),
+        );
         fs.write(format!("{pid}/comm"), &format!("{comm}\n"));
         fs.write(format!("{pid}/cmdline"), &(args.join("\0") + "\0"));
     }
@@ -951,13 +1175,49 @@ mod tests {
     #[test]
     fn the_signal_goes_to_the_recorder_inside_the_flatpak_not_to_bwrap() {
         let fs = ug_testfs::TestFs::new();
-        proc_entry(&fs, 100, 1, "bwrap", &["bwrap", "--args", "74", "--", "gpu-screen-recorder"]);
-        proc_entry(&fs, 101, 100, "bwrap", &["bwrap", "--args", "74", "--", "gpu-screen-recorder"]);
-        proc_entry(&fs, 102, 101, "gpu-screen-reco", &["gpu-screen-recorder", "-w", "portal", "-o", "/v/Unix Guardian/a.mp4"]);
-        proc_entry(&fs, 200, 1, "gpu-screen-reco", &["gpu-screen-recorder", "-o", "/elsewhere/b.mp4"]);
+        proc_entry(
+            &fs,
+            100,
+            1,
+            "bwrap",
+            &["bwrap", "--args", "74", "--", "gpu-screen-recorder"],
+        );
+        proc_entry(
+            &fs,
+            101,
+            100,
+            "bwrap",
+            &["bwrap", "--args", "74", "--", "gpu-screen-recorder"],
+        );
+        proc_entry(
+            &fs,
+            102,
+            101,
+            "gpu-screen-reco",
+            &[
+                "gpu-screen-recorder",
+                "-w",
+                "portal",
+                "-o",
+                "/v/Unix Guardian/a.mp4",
+            ],
+        );
+        proc_entry(
+            &fs,
+            200,
+            1,
+            "gpu-screen-reco",
+            &["gpu-screen-recorder", "-o", "/elsewhere/b.mp4"],
+        );
         assert_eq!(engine_pids(fs.root(), 100), [102]);
         // A recorder on PATH is our child itself.
-        proc_entry(&fs, 300, 1, "gpu-screen-reco", &["gpu-screen-recorder", "-o", "/v/c.mp4"]);
+        proc_entry(
+            &fs,
+            300,
+            1,
+            "gpu-screen-reco",
+            &["gpu-screen-recorder", "-o", "/v/c.mp4"],
+        );
         assert_eq!(engine_pids(fs.root(), 300), [300]);
     }
 
@@ -966,27 +1226,77 @@ mod tests {
     #[test]
     fn a_leftover_recorder_writing_into_our_folder_is_found() {
         let fs = ug_testfs::TestFs::new();
-        proc_entry(&fs, 101, 1480, "bwrap", &["bwrap", "--", "gpu-screen-recorder"]);
-        proc_entry(&fs, 102, 101, "gpu-screen-reco", &["gpu-screen-recorder", "-w", "portal", "-o", "/v/Unix Guardian/Recording 1.mp4"]);
-        proc_entry(&fs, 103, 1480, "gpu-screen-reco", &["gpu-screen-recorder", "-r", "30", "-o", "/v/Unix Guardian"]);
-        proc_entry(&fs, 200, 1, "gpu-screen-reco", &["gpu-screen-recorder", "-o", "/home/u/mine.mp4"]);
-        proc_entry(&fs, 300, 1, "firefox", &["firefox", "-o", "/v/Unix Guardian/x"]);
+        proc_entry(
+            &fs,
+            101,
+            1480,
+            "bwrap",
+            &["bwrap", "--", "gpu-screen-recorder"],
+        );
+        proc_entry(
+            &fs,
+            102,
+            101,
+            "gpu-screen-reco",
+            &[
+                "gpu-screen-recorder",
+                "-w",
+                "portal",
+                "-o",
+                "/v/Unix Guardian/Recording 1.mp4",
+            ],
+        );
+        proc_entry(
+            &fs,
+            103,
+            1480,
+            "gpu-screen-reco",
+            &["gpu-screen-recorder", "-r", "30", "-o", "/v/Unix Guardian"],
+        );
+        proc_entry(
+            &fs,
+            200,
+            1,
+            "gpu-screen-reco",
+            &["gpu-screen-recorder", "-o", "/home/u/mine.mp4"],
+        );
+        proc_entry(
+            &fs,
+            300,
+            1,
+            "firefox",
+            &["firefox", "-o", "/v/Unix Guardian/x"],
+        );
         let mut found = leftover_engines(fs.root(), Path::new("/v/Unix Guardian"), &[]);
         found.sort();
         assert_eq!(found, [102, 103]);
-        assert_eq!(leftover_engines(fs.root(), Path::new("/v/Unix Guardian"), &[102]), [103], "ours is not a leftover");
+        assert_eq!(
+            leftover_engines(fs.root(), Path::new("/v/Unix Guardian"), &[102]),
+            [103],
+            "ours is not a leftover"
+        );
     }
 
     /// With real processes: the signal reaches a grandchild, and stopping
     /// waits for it to be gone.
     #[test]
     fn interrupting_reaches_a_real_grandchild() {
-        let mut child = std::process::Command::new("sh").args(["-c", "sleep 300; true"]).spawn().unwrap();
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "sleep 300; true"])
+            .spawn()
+            .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(200));
         let proc_root = Path::new("/proc");
         let kids = descendants(proc_root, child.id() as i32);
-        let sleeper = *kids.iter().find(|p| comm(proc_root, **p).as_deref() == Some("sleep")).expect("sleep is a child of sh");
-        assert!(interrupt_and_wait(proc_root, &[sleeper], std::time::Duration::from_secs(5)));
+        let sleeper = *kids
+            .iter()
+            .find(|p| comm(proc_root, **p).as_deref() == Some("sleep"))
+            .expect("sleep is a child of sh");
+        assert!(interrupt_and_wait(
+            proc_root,
+            &[sleeper],
+            std::time::Duration::from_secs(5)
+        ));
         assert!(!alive(proc_root, sleeper));
         let _ = child.wait();
     }

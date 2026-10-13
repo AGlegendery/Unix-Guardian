@@ -28,12 +28,18 @@ impl Paused {
     /// Keeps the list in `file`, and resumes what an earlier agent left
     /// paused there. Returns how many were resumed.
     pub fn keep_in(&mut self, root: &SysRoot, file: PathBuf) -> usize {
-        let left: Vec<(i32, u64)> = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let left: Vec<(i32, u64)> = std::fs::read(&file)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
         self.file = Some(file);
         self.pids.extend(left);
         let n = self.resume_all(root);
         if n > 0 {
-            tracing::warn!(count = n, "resumed apps an earlier agent had paused and not resumed");
+            tracing::warn!(
+                count = n,
+                "resumed apps an earlier agent had paused and not resumed"
+            );
         }
         n
     }
@@ -47,7 +53,10 @@ impl Paused {
             }
         } else {
             let v: Vec<&(i32, u64)> = self.pids.iter().collect();
-            ug_core::paths::write_atomic(f, serde_json::to_string(&v).unwrap_or_default().as_bytes())
+            ug_core::paths::write_atomic(
+                f,
+                serde_json::to_string(&v).unwrap_or_default().as_bytes(),
+            )
         };
         if let Err(e) = r {
             tracing::warn!(error = %e, file = %f.display(), "could not record paused apps");
@@ -56,7 +65,13 @@ impl Paused {
 
     /// Pauses every process of `uid` whose name matches one of `names`
     /// (compared to `comm`, case-insensitively). Returns the names paused.
-    pub fn pause_matching(&mut self, root: &SysRoot, uid: u32, names: &[String], protect: &[i32]) -> Vec<String> {
+    pub fn pause_matching(
+        &mut self,
+        root: &SysRoot,
+        uid: u32,
+        names: &[String],
+        protect: &[i32],
+    ) -> Vec<String> {
         if names.is_empty() {
             return Vec::new();
         }
@@ -66,7 +81,9 @@ impl Paused {
             if protect.contains(&pid) || pid == std::process::id() as i32 {
                 continue;
             }
-            let Some(p) = ug_games::proc::read(root, pid) else { continue };
+            let Some(p) = ug_games::proc::read(root, pid) else {
+                continue;
+            };
             if p.uid != uid || !wanted.contains(&p.comm.to_lowercase()) {
                 continue;
             }
@@ -171,12 +188,19 @@ mod tests {
         let mut paused = Paused::default();
         let names = paused.pause_matching(&SysRoot::real(), uid, &["UGFakeDiscord".into()], &[]);
         assert_eq!(names, vec!["ugfakediscord"]);
-        assert!(wait_state(target.id(), 'T'), "matched by name, case-insensitively");
+        assert!(
+            wait_state(target.id(), 'T'),
+            "matched by name, case-insensitively"
+        );
         assert_ne!(state(bystander.id()), 'T', "others untouched");
 
         assert_eq!(paused.resume_all(&SysRoot::real()), 1);
         assert!(wait_state(target.id(), 'S'));
-        assert_eq!(state(users_own.id()), 'T', "the one the user stopped stays stopped");
+        assert_eq!(
+            state(users_own.id()),
+            'T',
+            "the one the user stopped stays stopped"
+        );
 
         for c in [&mut target, &mut bystander, &mut users_own] {
             let _ = c.kill();
@@ -218,7 +242,12 @@ mod tests {
         let uid = unsafe { libc::getuid() };
         let mut game = spawn_named("ugfakegame");
         let mut paused = Paused::default();
-        let hit = paused.pause_matching(&SysRoot::real(), uid, &["ugfakegame".into()], &[game.id() as i32]);
+        let hit = paused.pause_matching(
+            &SysRoot::real(),
+            uid,
+            &["ugfakegame".into()],
+            &[game.id() as i32],
+        );
         assert!(hit.is_empty());
         assert_ne!(state(game.id()), 'T');
         let _ = game.kill();

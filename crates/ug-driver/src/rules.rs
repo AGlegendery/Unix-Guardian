@@ -21,21 +21,60 @@ use serde::Deserialize;
 
 /// The rule files shipped with Unix Guardian.
 pub const SHIPPED: &[(&str, &str)] = &[
-    ("nvidia.toml", include_str!("../../../data/driver-rules/nvidia.toml")),
-    ("common.toml", include_str!("../../../data/driver-rules/common.toml")),
-    ("wifi.toml", include_str!("../../../data/driver-rules/wifi.toml")),
-    ("bluetooth.toml", include_str!("../../../data/driver-rules/bluetooth.toml")),
-    ("audio.toml", include_str!("../../../data/driver-rules/audio.toml")),
-    ("input.toml", include_str!("../../../data/driver-rules/input.toml")),
-    ("camera.toml", include_str!("../../../data/driver-rules/camera.toml")),
-    ("printing.toml", include_str!("../../../data/driver-rules/printing.toml")),
-    ("sleep.toml", include_str!("../../../data/driver-rules/sleep.toml")),
-    ("firmware.toml", include_str!("../../../data/driver-rules/firmware.toml")),
+    (
+        "nvidia.toml",
+        include_str!("../../../data/driver-rules/nvidia.toml"),
+    ),
+    (
+        "common.toml",
+        include_str!("../../../data/driver-rules/common.toml"),
+    ),
+    (
+        "wifi.toml",
+        include_str!("../../../data/driver-rules/wifi.toml"),
+    ),
+    (
+        "bluetooth.toml",
+        include_str!("../../../data/driver-rules/bluetooth.toml"),
+    ),
+    (
+        "audio.toml",
+        include_str!("../../../data/driver-rules/audio.toml"),
+    ),
+    (
+        "input.toml",
+        include_str!("../../../data/driver-rules/input.toml"),
+    ),
+    (
+        "camera.toml",
+        include_str!("../../../data/driver-rules/camera.toml"),
+    ),
+    (
+        "printing.toml",
+        include_str!("../../../data/driver-rules/printing.toml"),
+    ),
+    (
+        "sleep.toml",
+        include_str!("../../../data/driver-rules/sleep.toml"),
+    ),
+    (
+        "firmware.toml",
+        include_str!("../../../data/driver-rules/firmware.toml"),
+    ),
 ];
 
 /// What a problem is about, for grouping on the page.
-pub const CATEGORIES: &[&str] =
-    &["graphics", "wifi", "bluetooth", "audio", "input", "camera", "printing", "sleep", "firmware"];
+pub const CATEGORIES: &[&str] = &[
+    "graphics",
+    "wifi",
+    "bluetooth",
+    "audio",
+    "input",
+    "camera",
+    "printing",
+    "sleep",
+    "firmware",
+];
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Rule {
@@ -73,13 +112,23 @@ pub fn load(files: &[(&str, &str)]) -> Result<Vec<Rule>, String> {
         let mut f: File = toml::from_str(text).map_err(|e| format!("{name}: {e}"))?;
         for r in &mut f.rule {
             if r.category.is_empty() {
-                r.category = if f.category.is_empty() { "graphics".into() } else { f.category.clone() };
+                r.category = if f.category.is_empty() {
+                    "graphics".into()
+                } else {
+                    f.category.clone()
+                };
             }
             if !CATEGORIES.contains(&r.category.as_str()) {
-                return Err(format!("{name}: rule {}: unknown category `{}`", r.id, r.category));
+                return Err(format!(
+                    "{name}: rule {}: unknown category `{}`",
+                    r.id, r.category
+                ));
             }
             if !matches!(r.severity.as_str(), "critical" | "important" | "advice") {
-                return Err(format!("{name}: rule {}: severity must be critical, important or advice", r.id));
+                return Err(format!(
+                    "{name}: rule {}: severity must be critical, important or advice",
+                    r.id
+                ));
             }
             for c in &r.when {
                 parse(c).map_err(|e| format!("{name}: rule {}: {e}", r.id))?;
@@ -128,14 +177,19 @@ fn parse(c: &str) -> Result<Cond, String> {
     let rhs = words[2].trim();
     let operand = if let Some(f) = rhs.strip_prefix('$') {
         Operand::Fact(f.to_string())
-    } else if rhs.len() >= 2 && (rhs.starts_with('"') && rhs.ends_with('"') || rhs.starts_with('\'') && rhs.ends_with('\'')) {
+    } else if rhs.len() >= 2
+        && (rhs.starts_with('"') && rhs.ends_with('"')
+            || rhs.starts_with('\'') && rhs.ends_with('\''))
+    {
         Operand::Lit(Value::Str(rhs[1..rhs.len() - 1].to_string()))
     } else if rhs == "true" || rhs == "false" {
         Operand::Lit(Value::Bool(rhs == "true"))
     } else if let Ok(n) = rhs.parse::<f64>() {
         Operand::Lit(Value::Num(n))
     } else {
-        return Err(format!("`{rhs}` is not a number, true/false, a quoted string or a $fact"));
+        return Err(format!(
+            "`{rhs}` is not a number, true/false, a quoted string or a $fact"
+        ));
     };
     Ok(Cond::Cmp(words[0].to_string(), op.to_string(), operand))
 }
@@ -186,7 +240,9 @@ fn holds(c: &Cond, facts: &Facts) -> bool {
 
 /// Whether every condition of a rule holds.
 pub fn matches(rule: &Rule, facts: &Facts) -> bool {
-    rule.when.iter().all(|c| parse(c).is_ok_and(|c| holds(&c, facts)))
+    rule.when
+        .iter()
+        .all(|c| parse(c).is_ok_and(|c| holds(&c, facts)))
 }
 
 #[cfg(test)]
@@ -194,7 +250,10 @@ mod tests {
     use super::*;
 
     fn facts(pairs: &[(&str, Value)]) -> Facts {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
     }
 
     #[test]
@@ -205,7 +264,10 @@ mod tests {
             ("k", Value::Str("550.163.01".into())),
             ("l", Value::Str("550.120".into())),
             ("n", Value::Num(550.0)),
-            ("cmd", Value::Str("quiet splash nvidia-drm.modeset=1".into())),
+            (
+                "cmd",
+                Value::Str("quiet splash nvidia-drm.modeset=1".into()),
+            ),
         ]);
         let ok = |c: &str| holds(&parse(c).unwrap(), &f);
         assert!(ok("a.on") && ok("!a.off") && ok("!missing"));
@@ -233,7 +295,11 @@ how_en = ""
 how_fa = ""
 "#;
         assert!(load(&[("bad.toml", bad)]).unwrap_err().contains("bad.toml"));
-        let worse = bad.replace("urgent", "advice").replace("[\"a\"]", "[\"a ~ 3\"]");
-        assert!(load(&[("bad.toml", &worse)]).unwrap_err().contains("unknown comparison"));
+        let worse = bad
+            .replace("urgent", "advice")
+            .replace("[\"a\"]", "[\"a ~ 3\"]");
+        assert!(load(&[("bad.toml", &worse)])
+            .unwrap_err()
+            .contains("unknown comparison"));
     }
 }

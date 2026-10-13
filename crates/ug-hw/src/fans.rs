@@ -33,11 +33,17 @@ fn read(p: PathBuf) -> Option<u32> {
 /// Every hwmon `pwmN` that has an `_enable` switch.
 pub fn discover(root: &SysRoot) -> Vec<Fan> {
     let mut out = Vec::new();
-    let mut dirs: Vec<PathBuf> =
-        std::fs::read_dir(root.join("sys/class/hwmon")).into_iter().flatten().flatten().map(|e| e.path()).collect();
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(root.join("sys/class/hwmon"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .collect();
     dirs.sort();
     for d in dirs {
-        let chip = std::fs::read_to_string(d.join("name")).map(|s| s.trim().to_string()).unwrap_or_default();
+        let chip = std::fs::read_to_string(d.join("name"))
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
         for n in 1..=8u32 {
             if !d.join(format!("pwm{n}")).exists() || !d.join(format!("pwm{n}_enable")).exists() {
                 continue;
@@ -63,7 +69,9 @@ pub fn source_temp(root: &SysRoot, fan: &Fan) -> Option<f64> {
     if fan.chip == "amdgpu" {
         for label in ["junction", "edge"] {
             for i in 1..=8 {
-                if std::fs::read_to_string(fan.dir.join(format!("temp{i}_label"))).is_ok_and(|l| l.trim() == label) {
+                if std::fs::read_to_string(fan.dir.join(format!("temp{i}_label")))
+                    .is_ok_and(|l| l.trim() == label)
+                {
                     if let Some(c) = milli(fan.dir.join(format!("temp{i}_input"))) {
                         return Some(c);
                     }
@@ -73,7 +81,11 @@ pub fn source_temp(root: &SysRoot, fan: &Fan) -> Option<f64> {
         return milli(fan.dir.join("temp1_input"));
     }
     for name in ["coretemp", "k10temp", "zenpower"] {
-        for e in std::fs::read_dir(root.join("sys/class/hwmon")).into_iter().flatten().flatten() {
+        for e in std::fs::read_dir(root.join("sys/class/hwmon"))
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
             if std::fs::read_to_string(e.path().join("name")).is_ok_and(|n| n.trim() == name) {
                 if let Some(c) = milli(e.path().join("temp1_input")) {
                     return Some(c);
@@ -89,7 +101,9 @@ pub fn source_temp(root: &SysRoot, fan: &Fan) -> Option<f64> {
 pub fn curve_pct(points: &[(f64, f64)], temp: f64) -> f64 {
     let mut p: Vec<(f64, f64)> = points.to_vec();
     p.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let Some(&first) = p.first() else { return 100.0 };
+    let Some(&first) = p.first() else {
+        return 100.0;
+    };
     let last = *p.last().expect("non-empty");
     if temp <= first.0 {
         return first.1;
@@ -100,7 +114,11 @@ pub fn curve_pct(points: &[(f64, f64)], temp: f64) -> f64 {
     for w in p.windows(2) {
         let ((t0, d0), (t1, d1)) = (w[0], w[1]);
         if temp <= t1 {
-            return if t1 > t0 { d0 + (d1 - d0) * (temp - t0) / (t1 - t0) } else { d1 };
+            return if t1 > t0 {
+                d0 + (d1 - d0) * (temp - t0) / (t1 - t0)
+            } else {
+                d1
+            };
         }
     }
     last.1
@@ -123,12 +141,17 @@ pub fn validate(points: &[(f64, f64)]) -> Result<(), String> {
     if points.len() < 2 {
         return Err("a fan curve needs at least two points".into());
     }
-    if points.iter().any(|p| !(0.0..=100.0).contains(&p.1) || !(0.0..=110.0).contains(&p.0)) {
+    if points
+        .iter()
+        .any(|p| !(0.0..=100.0).contains(&p.1) || !(0.0..=110.0).contains(&p.0))
+    {
         return Err("points are 0–110 °C and 0–100 %".into());
     }
     for t in [80.0, 90.0, 100.0] {
         if curve_pct(points, t) < 30.0 {
-            return Err(format!("the fan would run below 30 % at {t:.0} °C; that is not allowed"));
+            return Err(format!(
+                "the fan would run below 30 % at {t:.0} °C; that is not allowed"
+            ));
         }
     }
     Ok(())
@@ -146,7 +169,11 @@ mod tests {
         assert_eq!(curve_pct(&c, 50.0), 30.0);
         assert_eq!(curve_pct(&c, 70.0), 70.0);
         assert_eq!(curve_pct(&c, 95.0), 100.0);
-        assert_eq!(curve_pct(&[(80.0, 100.0), (40.0, 20.0)], 60.0), 60.0, "order does not matter");
+        assert_eq!(
+            curve_pct(&[(80.0, 100.0), (40.0, 20.0)], 60.0),
+            60.0,
+            "order does not matter"
+        );
     }
 
     #[test]
@@ -159,7 +186,10 @@ mod tests {
     #[test]
     fn dangerous_curves_are_refused() {
         assert!(validate(&[(40.0, 20.0), (90.0, 100.0)]).is_ok());
-        assert!(validate(&[(40.0, 0.0), (100.0, 20.0)]).is_err(), "20 % at 100 °C");
+        assert!(
+            validate(&[(40.0, 0.0), (100.0, 20.0)]).is_err(),
+            "20 % at 100 °C"
+        );
         assert!(validate(&[(40.0, 20.0)]).is_err());
         assert!(validate(&[(40.0, 20.0), (90.0, 150.0)]).is_err());
     }
@@ -168,15 +198,28 @@ mod tests {
     fn discovers_driveable_fans_only() {
         let fs = TestFs::new();
         let g = "sys/class/hwmon/hwmon3";
-        fs.write(format!("{g}/name"), "amdgpu").write(format!("{g}/pwm1"), "102").write(format!("{g}/pwm1_enable"), "2");
-        fs.write(format!("{g}/fan1_input"), "1450").write(format!("{g}/temp2_label"), "junction").write(format!("{g}/temp2_input"), "71000");
-        fs.write("sys/class/hwmon/hwmon4/name", "acpitz").write("sys/class/hwmon/hwmon4/temp1_input", "50000");
-        fs.write("sys/class/hwmon/hwmon5/name", "nct6798").write("sys/class/hwmon/hwmon5/pwm2", "80");
+        fs.write(format!("{g}/name"), "amdgpu")
+            .write(format!("{g}/pwm1"), "102")
+            .write(format!("{g}/pwm1_enable"), "2");
+        fs.write(format!("{g}/fan1_input"), "1450")
+            .write(format!("{g}/temp2_label"), "junction")
+            .write(format!("{g}/temp2_input"), "71000");
+        fs.write("sys/class/hwmon/hwmon4/name", "acpitz")
+            .write("sys/class/hwmon/hwmon4/temp1_input", "50000");
+        fs.write("sys/class/hwmon/hwmon5/name", "nct6798")
+            .write("sys/class/hwmon/hwmon5/pwm2", "80");
         let root = SysRoot::at(fs.root());
         let fans = discover(&root);
-        assert_eq!(fans.len(), 1, "pwm2 without _enable cannot be switched to manual");
+        assert_eq!(
+            fans.len(),
+            1,
+            "pwm2 without _enable cannot be switched to manual"
+        );
         assert_eq!(fans[0].id, "amdgpu/pwm1");
-        assert_eq!((fans[0].rpm, fans[0].pwm, fans[0].enable), (Some(1450), Some(102), Some(2)));
+        assert_eq!(
+            (fans[0].rpm, fans[0].pwm, fans[0].enable),
+            (Some(1450), Some(102), Some(2))
+        );
         assert_eq!(source_temp(&root, &fans[0]), Some(71.0));
     }
 }

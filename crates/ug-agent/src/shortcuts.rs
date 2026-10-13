@@ -27,12 +27,12 @@
 //! the new keys); elsewhere it binds again with the new suggestion and says
 //! the desktop may keep its own.
 
+use crate::deskkeys::{self, DeskKeys};
+use crate::keys::Combo;
 use futures_lite::StreamExt;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use crate::keys::Combo;
-use crate::deskkeys::{self, DeskKeys};
 use ug_proto::{DesktopKeys, ShortcutInfo, ShortcutsState};
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value};
 
@@ -46,11 +46,31 @@ pub struct Action {
 }
 
 pub const ACTIONS: [Action; 5] = [
-    Action { id: "open-window", description: "Open Unix Guardian", preferred: "LOGO+SHIFT+u" },
-    Action { id: "toggle-overlay", description: "Show or hide the in-game overlay", preferred: "LOGO+SHIFT+o" },
-    Action { id: "toggle-gamemode", description: "Turn game mode on or off", preferred: "LOGO+SHIFT+g" },
-    Action { id: "toggle-recording", description: "Start or stop recording", preferred: "LOGO+SHIFT+r" },
-    Action { id: "save-replay", description: "Save the last seconds (replay)", preferred: "LOGO+SHIFT+s" },
+    Action {
+        id: "open-window",
+        description: "Open Unix Guardian",
+        preferred: "LOGO+SHIFT+u",
+    },
+    Action {
+        id: "toggle-overlay",
+        description: "Show or hide the in-game overlay",
+        preferred: "LOGO+SHIFT+o",
+    },
+    Action {
+        id: "toggle-gamemode",
+        description: "Turn game mode on or off",
+        preferred: "LOGO+SHIFT+g",
+    },
+    Action {
+        id: "toggle-recording",
+        description: "Start or stop recording",
+        preferred: "LOGO+SHIFT+r",
+    },
+    Action {
+        id: "save-replay",
+        description: "Save the last seconds (replay)",
+        preferred: "LOGO+SHIFT+s",
+    },
 ];
 
 /// The application id the portal knows Unix Guardian by: the basename of its
@@ -75,18 +95,34 @@ trait GlobalShortcuts {
     #[zbus(property, name = "version")]
     fn version(&self) -> zbus::Result<u32>;
     #[zbus(signal)]
-    fn activated(&self, session_handle: OwnedObjectPath, shortcut_id: String, timestamp: u64, options: HashMap<String, OwnedValue>) -> zbus::Result<()>;
+    fn activated(
+        &self,
+        session_handle: OwnedObjectPath,
+        shortcut_id: String,
+        timestamp: u64,
+        options: HashMap<String, OwnedValue>,
+    ) -> zbus::Result<()>;
     #[zbus(signal)]
-    fn shortcuts_changed(&self, session_handle: OwnedObjectPath, shortcuts: Vec<(String, HashMap<String, OwnedValue>)>) -> zbus::Result<()>;
+    fn shortcuts_changed(
+        &self,
+        session_handle: OwnedObjectPath,
+        shortcuts: Vec<(String, HashMap<String, OwnedValue>)>,
+    ) -> zbus::Result<()>;
 }
 
-#[zbus::proxy(interface = "org.freedesktop.portal.Request", default_service = "org.freedesktop.portal.Desktop")]
+#[zbus::proxy(
+    interface = "org.freedesktop.portal.Request",
+    default_service = "org.freedesktop.portal.Desktop"
+)]
 trait Request {
     #[zbus(signal)]
     fn response(&self, response: u32, results: HashMap<String, OwnedValue>) -> zbus::Result<()>;
 }
 
-#[zbus::proxy(interface = "org.freedesktop.portal.Session", default_service = "org.freedesktop.portal.Desktop")]
+#[zbus::proxy(
+    interface = "org.freedesktop.portal.Session",
+    default_service = "org.freedesktop.portal.Desktop"
+)]
 trait Session {
     fn close(&self) -> zbus::Result<()>;
 }
@@ -102,11 +138,19 @@ trait Registry {
 
 /// KDE's shortcut store, where the portal keeps the keys it gives programs
 /// (component = the application id, action = the shortcut id).
-#[zbus::proxy(interface = "org.kde.KGlobalAccel", default_service = "org.kde.kglobalaccel", default_path = "/kglobalaccel")]
+#[zbus::proxy(
+    interface = "org.kde.KGlobalAccel",
+    default_service = "org.kde.kglobalaccel",
+    default_path = "/kglobalaccel"
+)]
 trait KGlobalAccel {
     /// Sets the keys of another program's action and tells that program.
     #[zbus(name = "setForeignShortcutKeys")]
-    fn set_foreign_shortcut_keys(&self, action_id: &[&str], keys: &[(Vec<i32>,)]) -> zbus::Result<()>;
+    fn set_foreign_shortcut_keys(
+        &self,
+        action_id: &[&str],
+        keys: &[(Vec<i32>,)],
+    ) -> zbus::Result<()>;
     #[zbus(name = "shortcutKeys")]
     fn shortcut_keys(&self, action_id: &[&str]) -> zbus::Result<Vec<(Vec<i32>,)>>;
     /// Who uses a key (match type 0: exactly this key).
@@ -116,12 +160,26 @@ trait KGlobalAccel {
         &self,
         key: &(Vec<i32>,),
         match_type: &(i32,),
-    ) -> zbus::Result<Vec<(String, String, String, String, String, String, Vec<i32>, Vec<i32>)>>;
+    ) -> zbus::Result<
+        Vec<(
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            Vec<i32>,
+            Vec<i32>,
+        )>,
+    >;
 }
 
 /// What to bind instead, where there is no portal.
 fn fallback() -> String {
-    let cmds: Vec<String> = ACTIONS.iter().map(|a| format!("ug shortcut {}", a.id)).collect();
+    let cmds: Vec<String> = ACTIONS
+        .iter()
+        .map(|a| format!("ug shortcut {}", a.id))
+        .collect();
     format!(
         "This desktop does not offer global shortcuts to programs (no GlobalShortcuts portal). Bind these commands to keys in its own shortcut settings instead: {}.{}",
         cmds.join(", "),
@@ -157,13 +215,19 @@ pub struct Shortcuts {
 
 impl Shortcuts {
     /// The choice lives in `shortcuts.json` in the configuration directory.
-    pub fn new(config_dir: &std::path::Path, pressed: tokio::sync::mpsc::UnboundedSender<String>) -> Arc<Shortcuts> {
+    pub fn new(
+        config_dir: &std::path::Path,
+        pressed: tokio::sync::mpsc::UnboundedSender<String>,
+    ) -> Arc<Shortcuts> {
         let file = config_dir.join("shortcuts.json");
         let saved = std::fs::read_to_string(&file)
             .ok()
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
             .unwrap_or_default();
-        let enabled = saved.get("enabled").and_then(|e| e.as_bool()).unwrap_or(false);
+        let enabled = saved
+            .get("enabled")
+            .and_then(|e| e.as_bool())
+            .unwrap_or(false);
         // Only keys that still read as a shortcut, for shortcuts that exist.
         let chosen = saved
             .get("keys")
@@ -178,7 +242,12 @@ impl Shortcuts {
         Arc::new(Shortcuts {
             file,
             desk: DeskKeys::new(config_dir),
-            inner: Mutex::new(Inner { enabled, chosen, status: "off".into(), ..Default::default() }),
+            inner: Mutex::new(Inner {
+                enabled,
+                chosen,
+                status: "off".into(),
+                ..Default::default()
+            }),
             pressed,
         })
     }
@@ -188,7 +257,8 @@ impl Shortcuts {
             let i = self.lock();
             serde_json::json!({ "enabled": i.enabled, "keys": i.chosen }).to_string()
         };
-        ug_core::paths::write_atomic(&self.file, text.as_bytes()).map_err(|e| format!("{}: {e}", self.file.display()))
+        ug_core::paths::write_atomic(&self.file, text.as_bytes())
+            .map_err(|e| format!("{}: {e}", self.file.display()))
     }
 
     /// The keys to ask for: the user's, or the suggested ones.
@@ -226,7 +296,9 @@ impl Shortcuts {
     /// The shortcuts in the desktop's own settings (no portal).
     pub fn desktop_keys(&self) -> DesktopKeys {
         DesktopKeys {
-            desktop: DeskKeys::desk().map(|d| d.name().to_string()).unwrap_or_default(),
+            desktop: DeskKeys::desk()
+                .map(|d| d.name().to_string())
+                .unwrap_or_default(),
             set_up: !self.desk.written().entries.is_empty(),
             problem: self.lock().desk_problem.clone(),
         }
@@ -270,27 +342,42 @@ impl Shortcuts {
                     Err(e) => {
                         // `set_up` took out what it wrote; the earlier
                         // record stays (undoing it twice is harmless).
-                        return Err(format!("Could not write {}'s shortcut settings: {e}", desk.name()));
+                        return Err(format!(
+                            "Could not write {}'s shortcut settings: {e}",
+                            desk.name()
+                        ));
                     }
                 };
                 me.desk.save(&w)?;
                 let problem = if skipped.is_empty() {
                     String::new()
                 } else {
-                    format!("Left alone, the desktop already uses them: {}. Pick other keys for these.", skipped.join(", "))
+                    format!(
+                        "Left alone, the desktop already uses them: {}. Pick other keys for these.",
+                        skipped.join(", ")
+                    )
                 };
                 me.lock().desk_problem = problem.clone();
                 Ok(format!(
                     "{} shortcuts written into {}'s keyboard settings.{}",
                     w.entries.len(),
                     desk.name(),
-                    if problem.is_empty() { String::new() } else { format!(" {problem}") }
+                    if problem.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" {problem}")
+                    }
                 ))
             } else {
-                deskkeys::undo(&r, desk, &before).map_err(|e| format!("Could not change {}'s shortcut settings: {e}", desk.name()))?;
+                deskkeys::undo(&r, desk, &before).map_err(|e| {
+                    format!("Could not change {}'s shortcut settings: {e}", desk.name())
+                })?;
                 me.desk.save(&deskkeys::Written::default())?;
                 me.lock().desk_problem.clear();
-                Ok(format!("Unix Guardian's shortcuts removed from {}'s keyboard settings.", desk.name()))
+                Ok(format!(
+                    "Unix Guardian's shortcuts removed from {}'s keyboard settings.",
+                    desk.name()
+                ))
             }
         })
         .await
@@ -366,8 +453,12 @@ impl Shortcuts {
     /// problem) for the page.
     async fn run(self: &Arc<Self>) -> Result<(), (&'static str, String)> {
         let failed = |what: &str, e: zbus::Error| ("failed", format!("{what}: {e}"));
-        let conn = zbus::Connection::session().await.map_err(|e| failed("no session bus", e))?;
-        let portal = GlobalShortcutsProxy::new(&conn).await.map_err(|e| failed("the portal", e))?;
+        let conn = zbus::Connection::session()
+            .await
+            .map_err(|e| failed("no session bus", e))?;
+        let portal = GlobalShortcutsProxy::new(&conn)
+            .await
+            .map_err(|e| failed("the portal", e))?;
         // No such interface (or no portal at all): say what to do instead.
         if portal.version().await.is_err() {
             return Err(("unavailable", fallback()));
@@ -380,7 +471,10 @@ impl Shortcuts {
             }
         }
 
-        let sender = conn.unique_name().map(|n| n.trim_start_matches(':').replace('.', "_")).unwrap_or_default();
+        let sender = conn
+            .unique_name()
+            .map(|n| n.trim_start_matches(':').replace('.', "_"))
+            .unwrap_or_default();
         let token = format!("ug{}", std::process::id());
 
         let session_token = token.clone();
@@ -405,8 +499,14 @@ impl Shortcuts {
         self.lock().session = Some((conn.clone(), session.clone()));
 
         // Listen before binding, so no press is missed.
-        let mut pressed = portal.receive_activated().await.map_err(|e| failed("listening for shortcuts", e))?;
-        let mut changed = portal.receive_shortcuts_changed().await.map_err(|e| failed("listening for shortcuts", e))?;
+        let mut pressed = portal
+            .receive_activated()
+            .await
+            .map_err(|e| failed("listening for shortcuts", e))?;
+        let mut changed = portal
+            .receive_shortcuts_changed()
+            .await
+            .map_err(|e| failed("listening for shortcuts", e))?;
 
         let wanted: Vec<(&str, HashMap<&str, Value<'_>>)> = {
             let mut i = self.lock();
@@ -437,7 +537,10 @@ impl Shortcuts {
         // choice wins where it can be set (KDE).
         let chosen: Vec<&Action> = {
             let i = self.lock();
-            ACTIONS.iter().filter(|a| i.chosen.contains_key(a.id)).collect()
+            ACTIONS
+                .iter()
+                .filter(|a| i.chosen.contains_key(a.id))
+                .collect()
         };
         for a in chosen {
             let keys = Self::wanted(&self.lock(), a);
@@ -480,7 +583,10 @@ impl Shortcuts {
     pub async fn set_keys(self: &Arc<Self>, id: &str, keys: &str) -> Result<String, String> {
         let Some(action) = ACTIONS.iter().find(|a| a.id == id) else {
             let ids: Vec<&str> = ACTIONS.iter().map(|a| a.id).collect();
-            return Err(format!("Unknown shortcut `{id}`; known: {}.", ids.join(", ")));
+            return Err(format!(
+                "Unknown shortcut `{id}`; known: {}.",
+                ids.join(", ")
+            ));
         };
         let combo = if keys.trim().is_empty() {
             Combo::parse(action.preferred).expect("the suggested keys parse")
@@ -489,8 +595,15 @@ impl Shortcuts {
         };
         let (status, session) = {
             let i = self.lock();
-            if let Some(other) = ACTIONS.iter().find(|a| a.id != id && Self::wanted(&i, a) == combo) {
-                return Err(format!("{} is already the shortcut for \"{}\".", combo.label(), other.description));
+            if let Some(other) = ACTIONS
+                .iter()
+                .find(|a| a.id != id && Self::wanted(&i, a) == combo)
+            {
+                return Err(format!(
+                    "{} is already the shortcut for \"{}\".",
+                    combo.label(),
+                    other.description
+                ));
             }
             (i.status.clone(), i.session.clone())
         };
@@ -524,7 +637,10 @@ impl Shortcuts {
         // Written into the desktop's own settings: write the new keys there.
         if status == "unavailable" && !self.desk.written().entries.is_empty() {
             let said = self.set_up_desktop_keys(true).await?;
-            return Ok(format!("{label} now does \"{}\". {said}", action.description));
+            return Ok(format!(
+                "{label} now does \"{}\". {said}",
+                action.description
+            ));
         }
         Ok(match status.as_str() {
             _ if done_in_kde => format!("{label} now does \"{}\".", action.description),
@@ -553,11 +669,18 @@ impl Shortcuts {
     }
 
     fn set_triggers(&self, v: Option<&OwnedValue>) {
-        let Some(v) = v.and_then(|v| v.try_clone().ok()) else { return };
-        let Ok(list) = <Vec<(String, HashMap<String, OwnedValue>)>>::try_from(v) else { return };
+        let Some(v) = v.and_then(|v| v.try_clone().ok()) else {
+            return;
+        };
+        let Ok(list) = <Vec<(String, HashMap<String, OwnedValue>)>>::try_from(v) else {
+            return;
+        };
         let mut i = self.lock();
         for (id, props) in list {
-            let t = props.get("trigger_description").and_then(|v| String::try_from(v.try_clone().ok()?).ok()).unwrap_or_default();
+            let t = props
+                .get("trigger_description")
+                .and_then(|v| String::try_from(v.try_clone().ok()?).ok())
+                .unwrap_or_default();
             i.triggers.insert(id, t);
         }
     }
@@ -567,14 +690,21 @@ impl Shortcuts {
 /// the shortcut is not there to change); an error says why KDE did not take
 /// them, e.g. another program's shortcut uses the key.
 async fn kde_set(conn: &zbus::Connection, a: &Action, keys: &Combo) -> Result<bool, String> {
-    let dbus = zbus::fdo::DBusProxy::new(conn).await.map_err(|e| e.to_string())?;
+    let dbus = zbus::fdo::DBusProxy::new(conn)
+        .await
+        .map_err(|e| e.to_string())?;
     let name = zbus::names::BusName::try_from("org.kde.kglobalaccel").map_err(|e| e.to_string())?;
     if !dbus.name_has_owner(name).await.unwrap_or(false) {
         return Ok(false);
     }
-    let kde = KGlobalAccelProxy::new(conn).await.map_err(|e| e.to_string())?;
+    let kde = KGlobalAccelProxy::new(conn)
+        .await
+        .map_err(|e| e.to_string())?;
     let action_id = [APP_ID, a.id, APP_ID, a.description];
-    let now = kde.shortcut_keys(&action_id).await.map_err(|e| format!("KDE: {e}"))?;
+    let now = kde
+        .shortcut_keys(&action_id)
+        .await
+        .map_err(|e| format!("KDE: {e}"))?;
     if now.is_empty() {
         return Ok(false);
     }
@@ -582,7 +712,10 @@ async fn kde_set(conn: &zbus::Connection, a: &Action, keys: &Combo) -> Result<bo
     if now.iter().any(|k| k.0.first() == Some(&code)) {
         return Ok(true);
     }
-    let users = kde.global_shortcuts_by_key(&(vec![code],), &(0,)).await.map_err(|e| format!("KDE: {e}"))?;
+    let users = kde
+        .global_shortcuts_by_key(&(vec![code],), &(0,))
+        .await
+        .map_err(|e| format!("KDE: {e}"))?;
     if let Some(u) = users.iter().find(|u| !(u.2 == APP_ID && u.4 == a.id)) {
         let what = if u.5.is_empty() { &u.4 } else { &u.5 };
         let who = if u.3.is_empty() { &u.2 } else { &u.3 };
@@ -591,8 +724,13 @@ async fn kde_set(conn: &zbus::Connection, a: &Action, keys: &Combo) -> Result<bo
             keys.label()
         ));
     }
-    kde.set_foreign_shortcut_keys(&action_id, &[(vec![code],)]).await.map_err(|e| format!("KDE refused the keys: {e}"))?;
-    let after = kde.shortcut_keys(&action_id).await.map_err(|e| format!("KDE: {e}"))?;
+    kde.set_foreign_shortcut_keys(&action_id, &[(vec![code],)])
+        .await
+        .map_err(|e| format!("KDE refused the keys: {e}"))?;
+    let after = kde
+        .shortcut_keys(&action_id)
+        .await
+        .map_err(|e| format!("KDE: {e}"))?;
     if !after.iter().any(|k| k.0.first() == Some(&code)) {
         return Err("KDE did not take the keys. Change them in System Settings, Shortcuts.".into());
     }
@@ -600,7 +738,10 @@ async fn kde_set(conn: &zbus::Connection, a: &Action, keys: &Combo) -> Result<bo
 }
 
 async fn close(conn: &zbus::Connection, path: OwnedObjectPath) {
-    let proxy = SessionProxy::builder(conn).path(path).ok().map(|b| b.build());
+    let proxy = SessionProxy::builder(conn)
+        .path(path)
+        .ok()
+        .map(|b| b.build());
     if let Some(p) = proxy {
         if let Ok(p) = p.await {
             if let Err(e) = p.close().await {
@@ -630,10 +771,15 @@ where
         .build()
         .await
         .map_err(|e| ("failed", e.to_string()))?;
-    let mut responses = req.receive_response().await.map_err(|e| ("failed", e.to_string()))?;
+    let mut responses = req
+        .receive_response()
+        .await
+        .map_err(|e| ("failed", e.to_string()))?;
     let mut opts = HashMap::new();
     opts.insert("handle_token", Value::from(token.to_string()));
-    let handle = call(opts).await.map_err(|e| ("failed", format!("the portal refused: {e}")))?;
+    let handle = call(opts)
+        .await
+        .map_err(|e| ("failed", format!("the portal refused: {e}")))?;
     if handle.as_str() != path {
         tracing::debug!(expected = %path, got = %handle, "portal request path differs");
     }
@@ -667,8 +813,12 @@ pub async fn perform(
     recorder: &Arc<crate::recorder::Recorder>,
 ) -> Result<String, String> {
     let rec = Arc::clone(recorder);
-    let blocking = |f: Box<dyn FnOnce(&crate::recorder::Recorder) -> Result<String, String> + Send>| async move {
-        tokio::task::spawn_blocking(move || f(&rec)).await.map_err(|e| e.to_string())?
+    let blocking = |f: Box<
+        dyn FnOnce(&crate::recorder::Recorder) -> Result<String, String> + Send,
+    >| async move {
+        tokio::task::spawn_blocking(move || f(&rec))
+            .await
+            .map_err(|e| e.to_string())?
     };
     match id {
         "toggle-recording" => {
@@ -686,24 +836,44 @@ pub async fn perform(
                 if r.is_replaying() {
                     r.save_replay().map(|f| format!("Replay saved: {f}"))
                 } else {
-                    r.start_replay().map(|()| "Keeping the last seconds now; press the shortcut again to save them.".to_string())
+                    r.start_replay().map(|()| {
+                        "Keeping the last seconds now; press the shortcut again to save them."
+                            .to_string()
+                    })
                 }
             }))
             .await
         }
-        "open-window" => crate::tray::open_window().await.map(|()| "Opening Unix Guardian.".to_string()),
+        "open-window" => crate::tray::open_window()
+            .await
+            .map(|()| "Opening Unix Guardian.".to_string()),
         "toggle-overlay" => {
             let o = Arc::clone(overlay);
-            let shown = tokio::task::spawn_blocking(move || o.toggle()).await.map_err(|e| e.to_string())??;
-            Ok(if shown { "Overlay shown." } else { "Overlay hidden." }.to_string())
+            let shown = tokio::task::spawn_blocking(move || o.toggle())
+                .await
+                .map_err(|e| e.to_string())??;
+            Ok(if shown {
+                "Overlay shown."
+            } else {
+                "Overlay hidden."
+            }
+            .to_string())
         }
         "toggle-gamemode" => {
             let on = crate::iface::lock(core).toggle_gamemode();
-            Ok(if on { "Game mode on." } else { "Game mode off." }.to_string())
+            Ok(if on {
+                "Game mode on."
+            } else {
+                "Game mode off."
+            }
+            .to_string())
         }
         other => {
             let ids: Vec<&str> = ACTIONS.iter().map(|a| a.id).collect();
-            Err(format!("Unknown shortcut `{other}`; known: {}.", ids.join(", ")))
+            Err(format!(
+                "Unknown shortcut `{other}`; known: {}.",
+                ids.join(", ")
+            ))
         }
     }
 }

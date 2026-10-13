@@ -35,7 +35,9 @@ pub fn gateway4(root: &SysRoot) -> Option<(String, Ipv4Addr)> {
         if f.len() < 8 || f[1] != "00000000" || f[7] != "00000000" {
             continue;
         }
-        let Ok(gw) = u32::from_str_radix(f[2], 16) else { continue };
+        let Ok(gw) = u32::from_str_radix(f[2], 16) else {
+            continue;
+        };
         let flags = u16::from_str_radix(f[3], 16).unwrap_or(0);
         // RTF_UP and RTF_GATEWAY; a default route without a gateway (a VPN
         // point-to-point link) has no router to ping.
@@ -64,19 +66,30 @@ pub fn dns_servers(root: &SysRoot) -> Vec<IpAddr> {
             .filter_map(|a| a.trim().split('%').next()?.parse().ok())
             .collect()
     };
-    let main: Vec<IpAddr> = parse("etc/resolv.conf").into_iter().filter(|a| !a.is_loopback()).collect();
+    let main: Vec<IpAddr> = parse("etc/resolv.conf")
+        .into_iter()
+        .filter(|a| !a.is_loopback())
+        .collect();
     if !main.is_empty() {
         return main;
     }
-    parse("run/systemd/resolve/resolv.conf").into_iter().filter(|a| !a.is_loopback()).collect()
+    parse("run/systemd/resolve/resolv.conf")
+        .into_iter()
+        .filter(|a| !a.is_loopback())
+        .collect()
 }
 
 /// The interface the kernel would use to reach `ip`, asking `ip route get`
 /// (so policy routing, as VPNs in TUN mode set up, is honoured — the main
 /// table in `/proc/net/route` does not show it).
 pub fn route_dev(ip: IpAddr) -> Option<String> {
-    let bin = ["/usr/sbin/ip", "/sbin/ip", "/usr/bin/ip", "/bin/ip"].into_iter().find(|p| std::path::Path::new(p).exists())?;
-    let out = std::process::Command::new(bin).args(["-o", "route", "get", &ip.to_string()]).output().ok()?;
+    let bin = ["/usr/sbin/ip", "/sbin/ip", "/usr/bin/ip", "/bin/ip"]
+        .into_iter()
+        .find(|p| std::path::Path::new(p).exists())?;
+    let out = std::process::Command::new(bin)
+        .args(["-o", "route", "get", &ip.to_string()])
+        .output()
+        .ok()?;
     parse_route_get(&String::from_utf8_lossy(&out.stdout))
 }
 
@@ -98,7 +111,9 @@ pub fn is_tun(root: &SysRoot, dev: &str) -> bool {
     if root.join(format!("sys/class/net/{dev}/tun_flags")).exists() {
         return true;
     }
-    let Some(bin) = ["/usr/sbin/ip", "/sbin/ip", "/usr/bin/ip", "/bin/ip"].into_iter().find(|p| std::path::Path::new(p).exists())
+    let Some(bin) = ["/usr/sbin/ip", "/sbin/ip", "/usr/bin/ip", "/bin/ip"]
+        .into_iter()
+        .find(|p| std::path::Path::new(p).exists())
     else {
         return false;
     };
@@ -111,7 +126,8 @@ pub fn is_tun(root: &SysRoot, dev: &str) -> bool {
 /// `… link/none promiscuity 0 … \    tun type tun pi off vnet_hdr off …`
 fn is_tun_details(s: &str) -> bool {
     let w: Vec<&str> = s.split_whitespace().collect();
-    w.windows(3).any(|x| x[0] == "tun" && x[1] == "type" && x[2] == "tun")
+    w.windows(3)
+        .any(|x| x[0] == "tun" && x[1] == "type" && x[2] == "tun")
 }
 
 /// What kind of link a network interface is, in words for people:
@@ -121,8 +137,14 @@ fn is_tun_details(s: &str) -> bool {
 pub fn iface_kind(root: &SysRoot, dev: &str) -> &'static str {
     let base = root.join(format!("sys/class/net/{dev}"));
     let uevent = std::fs::read_to_string(base.join("uevent")).unwrap_or_default();
-    let devtype = uevent.lines().find_map(|l| l.strip_prefix("DEVTYPE=")).unwrap_or("").trim();
-    let arphrd = std::fs::read_to_string(base.join("type")).ok().and_then(|t| t.trim().parse::<u32>().ok());
+    let devtype = uevent
+        .lines()
+        .find_map(|l| l.strip_prefix("DEVTYPE="))
+        .unwrap_or("")
+        .trim();
+    let arphrd = std::fs::read_to_string(base.join("type"))
+        .ok()
+        .and_then(|t| t.trim().parse::<u32>().ok());
     if devtype == "wlan" || base.join("wireless").exists() || base.join("phy80211").exists() {
         return "Wi-Fi";
     }
@@ -143,8 +165,13 @@ pub fn iface_kind(root: &SysRoot, dev: &str) -> &'static str {
         return "dial-up (PPP)";
     }
     if arphrd == Some(1) && base.join("device").exists() {
-        let usb = std::fs::canonicalize(base.join("device")).is_ok_and(|p| p.to_string_lossy().contains("/usb"));
-        return if usb { "USB network (tethering)" } else { "wired" };
+        let usb = std::fs::canonicalize(base.join("device"))
+            .is_ok_and(|p| p.to_string_lossy().contains("/usb"));
+        return if usb {
+            "USB network (tethering)"
+        } else {
+            "wired"
+        };
     }
     match dev.get(..2) {
         Some("wl") => "Wi-Fi",
@@ -152,7 +179,9 @@ pub fn iface_kind(root: &SysRoot, dev: &str) -> &'static str {
         Some("ww") => "mobile broadband",
         Some("wg") => "WireGuard VPN",
         Some("pp") => "dial-up (PPP)",
-        _ if dev.starts_with("tun") || dev.starts_with("tap") || dev.contains("tun") => "VPN or proxy (TUN)",
+        _ if dev.starts_with("tun") || dev.starts_with("tap") || dev.contains("tun") => {
+            "VPN or proxy (TUN)"
+        }
         _ if arphrd == Some(65534) => "VPN or tunnel",
         _ => "unknown kind of link",
     }
@@ -161,8 +190,15 @@ pub fn iface_kind(root: &SysRoot, dev: &str) -> &'static str {
 /// Every socket in one of the `/proc/.../net/*` tables.
 pub fn sockets(root: &SysRoot, dir: &str) -> Vec<SockEntry> {
     let mut out = Vec::new();
-    for (file, proto) in [("tcp", Proto::Tcp), ("tcp6", Proto::Tcp), ("udp", Proto::Udp), ("udp6", Proto::Udp)] {
-        let Ok(text) = std::fs::read_to_string(root.join(format!("{dir}/{file}"))) else { continue };
+    for (file, proto) in [
+        ("tcp", Proto::Tcp),
+        ("tcp6", Proto::Tcp),
+        ("udp", Proto::Udp),
+        ("udp6", Proto::Udp),
+    ] {
+        let Ok(text) = std::fs::read_to_string(root.join(format!("{dir}/{file}"))) else {
+            continue;
+        };
         out.extend(text.lines().skip(1).filter_map(|l| parse_line(l, proto)));
     }
     out
@@ -189,7 +225,9 @@ fn parse_addr(s: &str) -> Option<SocketAddr> {
     let (host, port) = s.split_once(':')?;
     let port = u16::from_str_radix(port, 16).ok()?;
     let ip = match host.len() {
-        8 => IpAddr::V4(Ipv4Addr::from(u32::from_str_radix(host, 16).ok()?.to_le_bytes())),
+        8 => IpAddr::V4(Ipv4Addr::from(
+            u32::from_str_radix(host, 16).ok()?.to_le_bytes(),
+        )),
         32 => {
             let mut b = [0u8; 16];
             for w in 0..4 {
@@ -197,7 +235,9 @@ fn parse_addr(s: &str) -> Option<SocketAddr> {
                 b[w * 4..w * 4 + 4].copy_from_slice(&word.to_le_bytes());
             }
             let v6 = Ipv6Addr::from(b);
-            v6.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(IpAddr::V6(v6))
+            v6.to_ipv4_mapped()
+                .map(IpAddr::V4)
+                .unwrap_or(IpAddr::V6(v6))
         }
         _ => return None,
     };
@@ -207,10 +247,18 @@ fn parse_addr(s: &str) -> Option<SocketAddr> {
 /// Inodes of the sockets a process holds open. Empty when its `fd`
 /// directory cannot be read (another user's process, or it exited).
 pub fn socket_inodes(root: &SysRoot, pid: i32) -> HashSet<u64> {
-    let Ok(dir) = std::fs::read_dir(root.join(format!("proc/{pid}/fd"))) else { return HashSet::new() };
+    let Ok(dir) = std::fs::read_dir(root.join(format!("proc/{pid}/fd"))) else {
+        return HashSet::new();
+    };
     dir.flatten()
         .filter_map(|e| std::fs::read_link(e.path()).ok())
-        .filter_map(|t| t.to_str()?.strip_prefix("socket:[")?.strip_suffix(']')?.parse().ok())
+        .filter_map(|t| {
+            t.to_str()?
+                .strip_prefix("socket:[")?
+                .strip_suffix(']')?
+                .parse()
+                .ok()
+        })
         .collect()
 }
 
@@ -228,7 +276,11 @@ pub fn is_public(ip: IpAddr) -> bool {
         }
         IpAddr::V6(a) => {
             let s0 = a.segments()[0];
-            !(a.is_loopback() || a.is_unspecified() || a.is_multicast() || s0 & 0xfe00 == 0xfc00 || s0 & 0xffc0 == 0xfe80)
+            !(a.is_loopback()
+                || a.is_unspecified()
+                || a.is_multicast()
+                || s0 & 0xfe00 == 0xfc00
+                || s0 & 0xffc0 == 0xfe80)
         }
     }
 }
@@ -249,7 +301,11 @@ pub fn game_peer(root: &SysRoot, pids: &[i32]) -> Option<IpAddr> {
         }
         inodes.extend(own);
     }
-    let mine = || table.iter().filter(|s| inodes.contains(&s.inode) && is_public(s.remote.ip()));
+    let mine = || {
+        table
+            .iter()
+            .filter(|s| inodes.contains(&s.inode) && is_public(s.remote.ip()))
+    };
     mine()
         .find(|s| s.proto == Proto::Udp && s.remote.port() != 0)
         .or_else(|| mine().find(|s| s.proto == Proto::Tcp && s.state == 1))
@@ -261,7 +317,8 @@ mod tests {
     use super::*;
     use ug_testfs::TestFs;
 
-    const ROUTE: &str = "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n\
+    const ROUTE: &str =
+        "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n\
         wlp8s0\t00000000\t0101A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n\
         enp7s0\t00000000\t0100A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n\
         lxcbr0\t0003000A\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0";
@@ -278,17 +335,32 @@ mod tests {
     #[test]
     fn no_gateway_without_a_default_route() {
         let fs = TestFs::new();
-        fs.write("proc/net/route", "Iface\tDestination\tGateway\n lo\t0000007F\t00000000\t0001\t0\t0\t0\t000000FF");
+        fs.write(
+            "proc/net/route",
+            "Iface\tDestination\tGateway\n lo\t0000007F\t00000000\t0001\t0\t0\t0\t000000FF",
+        );
         assert_eq!(gateway4(&SysRoot::at(fs.root())), None);
     }
 
     #[test]
     fn dns_skips_the_local_stub_for_the_upstream_servers() {
         let fs = TestFs::new();
-        fs.write("etc/resolv.conf", "# stub\nnameserver 127.0.0.53\noptions edns0");
-        fs.write("run/systemd/resolve/resolv.conf", "nameserver 192.168.1.1\nnameserver fe80::1%wlp8s0");
+        fs.write(
+            "etc/resolv.conf",
+            "# stub\nnameserver 127.0.0.53\noptions edns0",
+        );
+        fs.write(
+            "run/systemd/resolve/resolv.conf",
+            "nameserver 192.168.1.1\nnameserver fe80::1%wlp8s0",
+        );
         let got = dns_servers(&SysRoot::at(fs.root()));
-        assert_eq!(got, vec!["192.168.1.1".parse::<IpAddr>().unwrap(), "fe80::1".parse().unwrap()]);
+        assert_eq!(
+            got,
+            vec![
+                "192.168.1.1".parse::<IpAddr>().unwrap(),
+                "fe80::1".parse().unwrap()
+            ]
+        );
     }
 
     #[test]
@@ -309,21 +381,32 @@ mod tests {
 
     #[test]
     fn route_get_names_the_device() {
-        assert_eq!(parse_route_get("1.1.1.1 via 192.168.1.1 dev wlp8s0 src 192.168.1.100 uid 1000 \\    cache"), Some("wlp8s0".into()));
-        assert_eq!(parse_route_get("1.1.1.1 dev singbox_tun table 2022 src 172.18.0.1 uid 1000"), Some("singbox_tun".into()));
+        assert_eq!(
+            parse_route_get(
+                "1.1.1.1 via 192.168.1.1 dev wlp8s0 src 192.168.1.100 uid 1000 \\    cache"
+            ),
+            Some("wlp8s0".into())
+        );
+        assert_eq!(
+            parse_route_get("1.1.1.1 dev singbox_tun table 2022 src 172.18.0.1 uid 1000"),
+            Some("singbox_tun".into())
+        );
         assert_eq!(parse_route_get(""), None);
     }
 
     #[test]
     fn ip_link_details_show_a_tun_device() {
         assert!(is_tun_details("9: xray0: <POINTOPOINT,UP> mtu 1500 link/none promiscuity 0 \\    tun type tun pi off vnet_hdr off persist off"));
-        assert!(!is_tun_details("3: wlp8s0: <BROADCAST,UP> mtu 1500 link/ether 02:00:00:00:00:01 promiscuity 0"));
+        assert!(!is_tun_details(
+            "3: wlp8s0: <BROADCAST,UP> mtu 1500 link/ether 02:00:00:00:00:01 promiscuity 0"
+        ));
     }
 
     #[test]
     fn a_tun_device_has_tun_flags() {
         let fs = TestFs::new();
-        fs.write("sys/class/net/xray0/tun_flags", "0x1001").dir("sys/class/net/wlan0");
+        fs.write("sys/class/net/xray0/tun_flags", "0x1001")
+            .dir("sys/class/net/wlan0");
         let root = SysRoot::at(fs.root());
         assert!(is_tun(&root, "xray0"));
         assert!(!is_tun(&root, "wlan0"));
@@ -331,7 +414,15 @@ mod tests {
 
     #[test]
     fn public_excludes_local_networks() {
-        for a in ["192.168.1.1", "10.0.0.1", "127.0.0.1", "100.64.0.1", "fe80::1", "fd00::1", "0.0.0.0"] {
+        for a in [
+            "192.168.1.1",
+            "10.0.0.1",
+            "127.0.0.1",
+            "100.64.0.1",
+            "fe80::1",
+            "fd00::1",
+            "0.0.0.0",
+        ] {
             assert!(!is_public(a.parse().unwrap()), "{a}");
         }
         for a in ["1.1.1.1", "155.133.248.34", "2606:4700::1111"] {
@@ -357,7 +448,10 @@ mod tests {
             "sl local rem st\n0: 6401A8C0:C001 22F8859B:6987 01 0:0 0:0 0 1000 0 222 2\n\
              1: 6401A8C0:C002 08080808:0035 01 0:0 0:0 0 1000 0 333 2",
         );
-        assert_eq!(game_peer(&root, &[42, 43]), Some("155.133.248.34".parse().unwrap()));
+        assert_eq!(
+            game_peer(&root, &[42, 43]),
+            Some("155.133.248.34".parse().unwrap())
+        );
         assert_eq!(game_peer(&root, &[43]), None);
     }
 
@@ -365,7 +459,10 @@ mod tests {
     fn iface_kind_reads_sysfs_not_just_the_name() {
         let fs = TestFs::new();
         let root = SysRoot::at(fs.root());
-        fs.write("sys/class/net/wlp8s0/uevent", "DEVTYPE=wlan\nINTERFACE=wlp8s0");
+        fs.write(
+            "sys/class/net/wlp8s0/uevent",
+            "DEVTYPE=wlan\nINTERFACE=wlp8s0",
+        );
         fs.write("sys/class/net/wlp8s0/type", "1");
         fs.write("sys/class/net/xray_tun/type", "65534");
         fs.write("sys/class/net/xray_tun/tun_flags", "0x1001");
@@ -373,10 +470,18 @@ mod tests {
         fs.write("sys/class/net/proton0/uevent", "DEVTYPE=wireguard");
         fs.write("sys/class/net/enp7s0/type", "1");
         fs.dir("sys/devices/pci0000:00/0000:07:00.0");
-        std::os::unix::fs::symlink(fs.root().join("sys/devices/pci0000:00/0000:07:00.0"), fs.root().join("sys/class/net/enp7s0/device")).unwrap();
+        std::os::unix::fs::symlink(
+            fs.root().join("sys/devices/pci0000:00/0000:07:00.0"),
+            fs.root().join("sys/class/net/enp7s0/device"),
+        )
+        .unwrap();
         fs.write("sys/class/net/usb0/type", "1");
         fs.dir("sys/devices/pci0000:00/usb1/1-1/1-1:1.0");
-        std::os::unix::fs::symlink(fs.root().join("sys/devices/pci0000:00/usb1/1-1/1-1:1.0"), fs.root().join("sys/class/net/usb0/device")).unwrap();
+        std::os::unix::fs::symlink(
+            fs.root().join("sys/devices/pci0000:00/usb1/1-1/1-1:1.0"),
+            fs.root().join("sys/class/net/usb0/device"),
+        )
+        .unwrap();
         fs.write("sys/class/net/lxcbr0/uevent", "DEVTYPE=bridge");
         assert_eq!(iface_kind(&root, "wlp8s0"), "Wi-Fi");
         assert_eq!(iface_kind(&root, "xray_tun"), "VPN or proxy (TUN)");
@@ -384,7 +489,11 @@ mod tests {
         assert_eq!(iface_kind(&root, "enp7s0"), "wired");
         assert_eq!(iface_kind(&root, "usb0"), "USB network (tethering)");
         assert_eq!(iface_kind(&root, "lxcbr0"), "bridge");
-        assert_eq!(iface_kind(&root, "eth0"), "wired", "no sysfs: the name decides");
+        assert_eq!(
+            iface_kind(&root, "eth0"),
+            "wired",
+            "no sysfs: the name decides"
+        );
         assert_eq!(iface_kind(&root, "zz9"), "unknown kind of link");
     }
 }

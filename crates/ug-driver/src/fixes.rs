@@ -36,7 +36,10 @@ pub enum Step {
     /// Installs packages with the distribution's package manager (after
     /// refreshing its lists where that is safe); undo removes the packages
     /// it added, and only those.
-    Install { family: String, packages: Vec<String> },
+    Install {
+        family: String,
+        packages: Vec<String>,
+    },
     /// Regenerates the boot loader's configuration; run again on undo,
     /// after the files are put back.
     Regen { argv: Vec<String> },
@@ -44,7 +47,10 @@ pub enum Step {
     /// told to resume from it (several undoable actions; see `swap`).
     HibernateSwap { plan: crate::swap::Plan },
     /// A program with its exact opposite (kernelstub -a / -d).
-    Command { argv: Vec<String>, undo: Vec<String> },
+    Command {
+        argv: Vec<String>,
+        undo: Vec<String>,
+    },
     /// Rebuilds the initramfs so a module setting also holds at boot. Run
     /// again on undo.
     Initramfs { argv: Vec<String> },
@@ -166,8 +172,15 @@ pub const AUTO: &[&str] = &[
 /// Automatic fixes that change nothing at boot, so no initramfs rebuild and
 /// no restart; they also work on image-based systems (`/etc` and sysfs
 /// stay writable there).
-const LIVE: &[&str] =
-    &["rfkill-unblock-wifi", "rfkill-unblock-bt", "enable-bluetooth", "enable-cups", "enable-avahi", "load-i2c-hid", "load-uvcvideo"];
+const LIVE: &[&str] = &[
+    "rfkill-unblock-wifi",
+    "rfkill-unblock-bt",
+    "enable-bluetooth",
+    "enable-cups",
+    "enable-avahi",
+    "load-i2c-hid",
+    "load-uvcvideo",
+];
 
 pub const FILE_NOUVEAU: &str = "/etc/modprobe.d/unix-guardian-blacklist-nouveau.conf";
 pub const FILE_DRM: &str = "/etc/modprobe.d/unix-guardian-nvidia-drm.conf";
@@ -238,7 +251,12 @@ fn title(fix_id: &str) -> &'static str {
 /// param`), for any parameter made of plain characters.
 fn boot_params(fix_id: &str) -> Option<(Vec<String>, Vec<String>)> {
     let one = |p: &str| vec![p.to_string()];
-    let plain = |p: &str| !p.is_empty() && p.len() <= 200 && p.chars().all(|c| c.is_ascii_alphanumeric() || "._-=,:/+".contains(c));
+    let plain = |p: &str| {
+        !p.is_empty()
+            && p.len() <= 200
+            && p.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "._-=,:/+".contains(c))
+    };
     Some(match fix_id {
         "remove-nomodeset" => (vec![], one("nomodeset")),
         "amd-ppfeaturemask" => (one("amdgpu.ppfeaturemask=0xffffffff"), vec![]),
@@ -277,13 +295,30 @@ fn boot_fix(fix_id: &str, root: &SysRoot, facts: &Facts) -> Result<AutoFix, Stri
     if steps.is_empty() {
         return Err("The boot settings are already that way.".into());
     }
-    Ok(AutoFix { fix_id: fix_id.into(), title, steps, needs_reboot: true })
+    Ok(AutoFix {
+        fix_id: fix_id.into(),
+        title,
+        steps,
+        needs_reboot: true,
+    })
 }
 
 /// The steps that change the kernel parameters, the boot loader's way.
-pub(crate) fn boot_steps(root: &SysRoot, add: &[&str], remove: &[&str]) -> Result<Vec<Step>, String> {
-    let read = |p: &str| std::fs::read_to_string(root.join(p.trim_start_matches('/'))).map_err(|e| format!("reading {p}: {e}"));
-    let write = |path: &str, new: String, old: &str| (new != old).then(|| Step::Write { path: path.into(), content: new });
+pub(crate) fn boot_steps(
+    root: &SysRoot,
+    add: &[&str],
+    remove: &[&str],
+) -> Result<Vec<Step>, String> {
+    let read = |p: &str| {
+        std::fs::read_to_string(root.join(p.trim_start_matches('/')))
+            .map_err(|e| format!("reading {p}: {e}"))
+    };
+    let write = |path: &str, new: String, old: &str| {
+        (new != old).then(|| Step::Write {
+            path: path.into(),
+            content: new,
+        })
+    };
     use crate::bootparams as bp;
     let steps: Vec<Step> = match bp::detect(root) {
         None => return Err("The boot loader (GRUB, systemd-boot, rEFInd or kernelstub) was not recognised, so the parameter has to be changed by hand.".into()),
@@ -328,39 +363,71 @@ pub(crate) fn boot_steps(root: &SysRoot, add: &[&str], remove: &[&str]) -> Resul
 /// resume parameters, which the executor reads once the file exists) and
 /// an initramfs rebuild.
 fn hibernate_fix(root: &SysRoot, facts: &Facts) -> Result<AutoFix, String> {
-    hibernate_fix_with(root, facts, |d| crate::swap::free_bytes(&root.join(d.trim_start_matches('/'))))
+    hibernate_fix_with(root, facts, |d| {
+        crate::swap::free_bytes(&root.join(d.trim_start_matches('/')))
+    })
 }
 
 /// The same, with the free space given (tests).
-pub(crate) fn hibernate_fix_with(root: &SysRoot, facts: &Facts, free: impl Fn(&str) -> Option<u64>) -> Result<AutoFix, String> {
+pub(crate) fn hibernate_fix_with(
+    root: &SysRoot,
+    facts: &Facts,
+    free: impl Fn(&str) -> Option<u64>,
+) -> Result<AutoFix, String> {
     let lockdown = s(facts, "kernel.lockdown");
     if !lockdown.is_empty() && lockdown != "none" {
         return Err("The kernel is in lockdown (Secure Boot), which turns hibernation off; more swap would not help.".into());
     }
     if !facts.get("distro.can_change").is_some_and(Value::truthy) {
-        return Err(format!("{} is image-based; set up the swap by hand instead.", s(facts, "distro.name")));
+        return Err(format!(
+            "{} is image-based; set up the swap by hand instead.",
+            s(facts, "distro.name")
+        ));
     }
     if crate::bootparams::detect(root).is_none() {
         return Err("The boot loader was not recognised, so the kernel could not be told where to resume from.".into());
     }
     let Some((tool, argv)) = initramfs_tool(root) else {
-        return Err("No initramfs tool was found, so the early boot could not be told to resume.".into());
+        return Err(
+            "No initramfs tool was found, so the early boot could not be told to resume.".into(),
+        );
     };
     if tool == "mkinitcpio" {
         let conf = std::fs::read_to_string(root.join("etc/mkinitcpio.conf")).unwrap_or_default();
-        let hooks = conf.lines().find(|l| l.trim_start().starts_with("HOOKS=")).unwrap_or("");
-        if !hooks.split(|c: char| !c.is_alphanumeric() && c != '-').any(|h| h == "resume" || h == "systemd") {
+        let hooks = conf
+            .lines()
+            .find(|l| l.trim_start().starts_with("HOOKS="))
+            .unwrap_or("");
+        if !hooks
+            .split(|c: char| !c.is_alphanumeric() && c != '-')
+            .any(|h| h == "resume" || h == "systemd")
+        {
             return Err("mkinitcpio's HOOKS have neither resume nor systemd, so the early boot would not resume; add the resume hook after filesystems first.".into());
         }
     }
     let mem = std::fs::read_to_string(root.join("proc/meminfo"))
         .unwrap_or_default()
         .lines()
-        .find_map(|l| l.strip_prefix("MemTotal:").and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok()))
+        .find_map(|l| {
+            l.strip_prefix("MemTotal:")
+                .and_then(|r| r.split_whitespace().next())
+                .and_then(|n| n.parse().ok())
+        })
         .unwrap_or(0u64);
     let plan = crate::swap::plan(root, mem, free)?;
-    let steps = vec![Step::Backup, Step::HibernateSwap { plan }, Step::Initramfs { argv: argv.iter().map(|a| a.to_string()).collect() }];
-    Ok(AutoFix { fix_id: "hibernate-swap".into(), title: title("hibernate-swap").into(), steps, needs_reboot: true })
+    let steps = vec![
+        Step::Backup,
+        Step::HibernateSwap { plan },
+        Step::Initramfs {
+            argv: argv.iter().map(|a| a.to_string()).collect(),
+        },
+    ];
+    Ok(AutoFix {
+        fix_id: "hibernate-swap".into(),
+        title: title("hibernate-swap").into(),
+        steps,
+        needs_reboot: true,
+    })
 }
 
 /// Whether Unix Guardian can run a fix itself on this machine.
@@ -375,11 +442,18 @@ pub fn can_run(fix_id: &str, facts: &Facts) -> bool {
     if AUTO.contains(&fix_id) {
         return yes("distro.can_change");
     }
-    yes("distro.can_change") && yes("snapshot.tool") && crate::packages::for_fix(fix_id, &s(facts, "distro.family"), facts).is_some()
+    yes("distro.can_change")
+        && yes("snapshot.tool")
+        && crate::packages::for_fix(fix_id, &s(facts, "distro.family"), facts).is_some()
 }
 
 /// A package fix: backup, snapshot, install, and what goes with it.
-fn package_fix(fix_id: &str, root: &SysRoot, facts: &Facts, packages: Vec<String>) -> Result<AutoFix, String> {
+fn package_fix(
+    fix_id: &str,
+    root: &SysRoot,
+    facts: &Facts,
+    packages: Vec<String>,
+) -> Result<AutoFix, String> {
     if !facts.get("distro.can_change").is_some_and(Value::truthy) {
         return Err(format!(
             "{} is image-based or not one Unix Guardian can safely change; run the commands by hand instead.",
@@ -389,24 +463,48 @@ fn package_fix(fix_id: &str, root: &SysRoot, facts: &Facts, packages: Vec<String
     let family = s(facts, "distro.family");
     let snap = crate::snapshot::detect(root, &family);
     let Some(tool) = snap.tool else {
-        let get = if snap.get_one.is_empty() { String::new() } else { format!(" To get one: {}.", snap.get_one.join("; ")) };
+        let get = if snap.get_one.is_empty() {
+            String::new()
+        } else {
+            format!(" To get one: {}.", snap.get_one.join("; "))
+        };
         return Err(format!(
             "{} Unix Guardian installs packages only when it can take a snapshot first, so the commands are shown instead.{get}",
             snap.summary
         ));
     };
-    let debian_firmware = family == "apt" && s(facts, "distro.id") == "debian" && packages.iter().any(|p| p.starts_with("firmware-"));
+    let debian_firmware = family == "apt"
+        && s(facts, "distro.id") == "debian"
+        && packages.iter().any(|p| p.starts_with("firmware-"));
     if debian_firmware && !facts.get("apt.nonfree_firmware").is_some_and(Value::truthy) {
         return Err("These firmware packages are in Debian's non-free-firmware component, which is not in the package sources yet. Add it first (see that finding).".into());
     }
-    let mut steps = vec![Step::Backup, Step::Snapshot { tool }, Step::Install { family, packages }];
+    let mut steps = vec![
+        Step::Backup,
+        Step::Snapshot { tool },
+        Step::Install { family, packages },
+    ];
     match fix_id {
-        "install-bluez" => steps.push(Step::EnableUnits { units: vec!["bluetooth.service".into()], now: true }),
-        "install-cups" => steps.push(Step::EnableUnits { units: vec!["cups.socket".into()], now: true }),
+        "install-bluez" => steps.push(Step::EnableUnits {
+            units: vec!["bluetooth.service".into()],
+            now: true,
+        }),
+        "install-cups" => steps.push(Step::EnableUnits {
+            units: vec!["cups.socket".into()],
+            now: true,
+        }),
         _ => {}
     }
-    let needs_reboot = matches!(fix_id, "install-firmware" | "install-sof-firmware" | "broadcom-wl" | "install-nvidia-driver");
-    Ok(AutoFix { fix_id: fix_id.into(), title: title(fix_id).into(), steps, needs_reboot })
+    let needs_reboot = matches!(
+        fix_id,
+        "install-firmware" | "install-sof-firmware" | "broadcom-wl" | "install-nvidia-driver"
+    );
+    Ok(AutoFix {
+        fix_id: fix_id.into(),
+        title: title(fix_id).into(),
+        steps,
+        needs_reboot,
+    })
 }
 
 /// Builds an automatic fix, or says why it cannot run here.
@@ -439,15 +537,30 @@ pub fn auto(fix_id: &str, root: &SysRoot, facts: &Facts) -> Result<AutoFix, Stri
     let Some((_, argv)) = initramfs_tool(root) else {
         return Err("No initramfs tool (update-initramfs, mkinitcpio or dracut) was found, so the change could not be made to hold at boot.".into());
     };
-    let initramfs = Step::Initramfs { argv: argv.iter().map(|a| a.to_string()).collect() };
+    let initramfs = Step::Initramfs {
+        argv: argv.iter().map(|a| a.to_string()).collect(),
+    };
     let steps = match fix_id {
         "nouveau-blacklist" => vec![
-            Step::Write { path: FILE_NOUVEAU.into(), content: format!("{HEADER}blacklist nouveau\noptions nouveau modeset=0\n") },
+            Step::Write {
+                path: FILE_NOUVEAU.into(),
+                content: format!("{HEADER}blacklist nouveau\noptions nouveau modeset=0\n"),
+            },
             initramfs,
         ],
         "nvidia-drm-modeset" => {
-            let fbdev = if num(facts, "nvidia.lib_major") >= 545.0 { " fbdev=1" } else { "" };
-            vec![Step::Write { path: FILE_DRM.into(), content: format!("{HEADER}options nvidia-drm modeset=1{fbdev}\n") }, initramfs]
+            let fbdev = if num(facts, "nvidia.lib_major") >= 545.0 {
+                " fbdev=1"
+            } else {
+                ""
+            };
+            vec![
+                Step::Write {
+                    path: FILE_DRM.into(),
+                    content: format!("{HEADER}options nvidia-drm modeset=1{fbdev}\n"),
+                },
+                initramfs,
+            ]
         }
         _ => {
             // The file sorts after the distribution's own nvidia*.conf, so
@@ -457,14 +570,25 @@ pub fn auto(fix_id: &str, root: &SysRoot, facts: &Facts) -> Result<AutoFix, Stri
                 content: format!("{HEADER}options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_TemporaryFilePath=/var/tmp\n"),
             }];
             steps.push(Step::EnableUnits {
-                units: ["nvidia-suspend.service", "nvidia-resume.service", "nvidia-hibernate.service"].map(String::from).to_vec(),
+                units: [
+                    "nvidia-suspend.service",
+                    "nvidia-resume.service",
+                    "nvidia-hibernate.service",
+                ]
+                .map(String::from)
+                .to_vec(),
                 now: false,
             });
             steps.push(initramfs);
             steps
         }
     };
-    Ok(AutoFix { fix_id: fix_id.into(), title: title(fix_id).into(), steps, needs_reboot: true })
+    Ok(AutoFix {
+        fix_id: fix_id.into(),
+        title: title(fix_id).into(),
+        steps,
+        needs_reboot: true,
+    })
 }
 
 pub const FILE_I2C_HID: &str = "/etc/modules-load.d/unix-guardian-i2c-hid.conf";
@@ -473,28 +597,50 @@ pub const FILE_UVC: &str = "/etc/modules-load.d/unix-guardian-uvcvideo.conf";
 /// The fixes that take effect at once.
 fn live(fix_id: &str, root: &SysRoot) -> Result<AutoFix, String> {
     let units = |u: &[&str]| -> Result<Vec<Step>, String> {
-        let missing: Vec<&&str> = u.iter().filter(|u| !crate::inventory::unit_exists(root, u)).collect();
+        let missing: Vec<&&str> = u
+            .iter()
+            .filter(|u| !crate::inventory::unit_exists(root, u))
+            .collect();
         if missing.len() == u.len() {
             return Err(format!("{} is not installed.", u.join(" / ")));
         }
-        let have = u.iter().filter(|u| crate::inventory::unit_exists(root, u)).map(|u| u.to_string()).collect();
-        Ok(vec![Step::EnableUnits { units: have, now: true }])
+        let have = u
+            .iter()
+            .filter(|u| crate::inventory::unit_exists(root, u))
+            .map(|u| u.to_string())
+            .collect();
+        Ok(vec![Step::EnableUnits {
+            units: have,
+            now: true,
+        }])
     };
     let unblock = |kind: &str| -> Result<Vec<Step>, String> {
         let (_, hard, files) = crate::hardware::rfkill(root, kind);
         if files.is_empty() {
             return Err(if hard {
-                "It is switched off by a hardware switch or key, which no program can turn on.".into()
+                "It is switched off by a hardware switch or key, which no program can turn on."
+                    .into()
             } else {
                 "It is not switched off.".into()
             });
         }
-        Ok(files.into_iter().map(|path| Step::SysWrite { path, value: "0".into() }).collect())
+        Ok(files
+            .into_iter()
+            .map(|path| Step::SysWrite {
+                path,
+                value: "0".into(),
+            })
+            .collect())
     };
     let load = |module: &str, file: &str| {
         vec![
-            Step::Write { path: file.into(), content: format!("{HEADER_LIVE}{module}\n") },
-            Step::Modprobe { module: module.into() },
+            Step::Write {
+                path: file.into(),
+                content: format!("{HEADER_LIVE}{module}\n"),
+            },
+            Step::Modprobe {
+                module: module.into(),
+            },
         ]
     };
     let steps = match fix_id {
@@ -506,16 +652,28 @@ fn live(fix_id: &str, root: &SysRoot) -> Result<AutoFix, String> {
         "load-i2c-hid" => load("i2c_hid_acpi", FILE_I2C_HID),
         _ => load("uvcvideo", FILE_UVC),
     };
-    Ok(AutoFix { fix_id: fix_id.into(), title: title(fix_id).into(), steps, needs_reboot: false })
+    Ok(AutoFix {
+        fix_id: fix_id.into(),
+        title: title(fix_id).into(),
+        steps,
+        needs_reboot: false,
+    })
 }
 
 /// The packages that carry the firmware this machine misses: from the
 /// kernel log when it was read, else from what the file checks found.
 pub(crate) fn firmware_packages(facts: &Facts) -> Vec<String> {
-    let mut files: Vec<String> =
-        s(facts, "firmware.missing").split(", ").filter(|f| !f.is_empty()).map(str::to_string).collect();
+    let mut files: Vec<String> = s(facts, "firmware.missing")
+        .split(", ")
+        .filter(|f| !f.is_empty())
+        .map(str::to_string)
+        .collect();
     let yes = |k: &str| facts.get(k).is_some_and(Value::truthy);
-    for (k, f) in [("firmware.iwlwifi_missing", "iwlwifi-"), ("firmware.amdgpu_missing", "amdgpu/"), ("firmware.i915_missing", "i915/")] {
+    for (k, f) in [
+        ("firmware.iwlwifi_missing", "iwlwifi-"),
+        ("firmware.amdgpu_missing", "amdgpu/"),
+        ("firmware.i915_missing", "i915/"),
+    ] {
         if yes(k) {
             files.push(f.into());
         }
@@ -536,7 +694,10 @@ pub(crate) fn firmware_packages(facts: &Facts) -> Vec<String> {
 }
 
 pub(crate) fn is_ubuntu(facts: &Facts) -> bool {
-    s(facts, "distro.id") == "ubuntu" || s(facts, "distro.like").split_whitespace().any(|l| l == "ubuntu")
+    s(facts, "distro.id") == "ubuntu"
+        || s(facts, "distro.like")
+            .split_whitespace()
+            .any(|l| l == "ubuntu")
 }
 
 /// The plan as the user reviews it.
@@ -554,7 +715,12 @@ pub fn plan(fix_id: &str, root: &SysRoot, facts: &Facts) -> DriverPlan {
                 String::new()
             },
         },
-        Err(e) => DriverPlan { fix_id: fix_id.into(), title: title(fix_id).into(), refused: e, ..Default::default() },
+        Err(e) => DriverPlan {
+            fix_id: fix_id.into(),
+            title: title(fix_id).into(),
+            refused: e,
+            ..Default::default()
+        },
     }
 }
 
@@ -807,7 +973,10 @@ pub fn commands(fix_id: &str, facts: &Facts) -> Vec<String> {
         _ => vec![],
     };
     if v.is_empty() && !title(fix_id).is_empty() {
-        v.push(format!("# No commands are known for {}; see the explanation.", s(facts, "distro.name")));
+        v.push(format!(
+            "# No commands are known for {}; see the explanation.",
+            s(facts, "distro.name")
+        ));
     }
     v.retain(|c| !c.is_empty());
     v
@@ -819,7 +988,11 @@ mod tests {
     use ug_testfs::TestFs;
 
     fn debian(fs: &TestFs) -> Facts {
-        fs.write("etc/os-release", "ID=debian\nPRETTY_NAME=\"Debian GNU/Linux 13\"\n").write("usr/sbin/update-initramfs", "");
+        fs.write(
+            "etc/os-release",
+            "ID=debian\nPRETTY_NAME=\"Debian GNU/Linux 13\"\n",
+        )
+        .write("usr/sbin/update-initramfs", "");
         crate::inventory::facts(&SysRoot::at(fs.root()), &Default::default())
     }
 
@@ -830,16 +1003,35 @@ mod tests {
         f.insert("nvidia.lib_major".into(), Value::Num(550.0));
         let root = SysRoot::at(fs.root());
         let p = auto("nvidia-drm-modeset", &root, &f).unwrap();
-        assert_eq!(p.steps[0], Step::Write { path: FILE_DRM.into(), content: format!("{HEADER}options nvidia-drm modeset=1 fbdev=1\n") });
-        assert_eq!(p.steps[1], Step::Initramfs { argv: ["update-initramfs", "-u", "-k", "all"].map(String::from).to_vec() });
+        assert_eq!(
+            p.steps[0],
+            Step::Write {
+                path: FILE_DRM.into(),
+                content: format!("{HEADER}options nvidia-drm modeset=1 fbdev=1\n")
+            }
+        );
+        assert_eq!(
+            p.steps[1],
+            Step::Initramfs {
+                argv: ["update-initramfs", "-u", "-k", "all"]
+                    .map(String::from)
+                    .to_vec()
+            }
+        );
         assert!(p.needs_reboot);
         f.insert("nvidia.lib_major".into(), Value::Num(535.0));
-        let Step::Write { content, .. } = &auto("nvidia-drm-modeset", &root, &f).unwrap().steps[0] else { panic!() };
+        let Step::Write { content, .. } = &auto("nvidia-drm-modeset", &root, &f).unwrap().steps[0]
+        else {
+            panic!()
+        };
         assert!(!content.contains("fbdev"), "fbdev=1 only exists from 545");
         for id in AUTO.iter().filter(|i| !LIVE.contains(i)) {
             for step in auto(id, &root, &f).unwrap().steps {
                 if let Step::Write { path, .. } = step {
-                    assert!(path.starts_with("/etc/modprobe.d/unix-guardian-"), "only files of our own: {path}");
+                    assert!(
+                        path.starts_with("/etc/modprobe.d/unix-guardian-"),
+                        "only files of our own: {path}"
+                    );
                 }
             }
         }
@@ -850,12 +1042,16 @@ mod tests {
         let fs = TestFs::new();
         let f = debian(&fs);
         let root = SysRoot::at(fs.root());
-        assert!(auto("install-headers", &root, &f).unwrap_err().contains("commands are shown"));
+        assert!(auto("install-headers", &root, &f)
+            .unwrap_err()
+            .contains("commands are shown"));
         assert!(!commands("install-headers", &f).is_empty());
         let mut immutable = f.clone();
         immutable.insert("distro.can_change".into(), Value::Bool(false));
         assert!(auto("nouveau-blacklist", &root, &immutable).is_err());
-        assert!(plan("nouveau-blacklist", &root, &immutable).refused.contains("by hand"));
+        assert!(plan("nouveau-blacklist", &root, &immutable)
+            .refused
+            .contains("by hand"));
         assert!(plan("teleport", &root, &f).refused.contains("Unknown fix"));
     }
 
@@ -864,20 +1060,50 @@ mod tests {
         let fs = TestFs::new();
         let f = debian(&fs);
         let root = SysRoot::at(fs.root());
-        assert!(auto("rfkill-unblock-wifi", &root, &f).unwrap_err().contains("not switched off"));
-        fs.write("sys/class/rfkill/rfkill1/type", "wlan\n").write("sys/class/rfkill/rfkill1/soft", "1\n").write("sys/class/rfkill/rfkill1/hard", "0\n");
+        assert!(auto("rfkill-unblock-wifi", &root, &f)
+            .unwrap_err()
+            .contains("not switched off"));
+        fs.write("sys/class/rfkill/rfkill1/type", "wlan\n")
+            .write("sys/class/rfkill/rfkill1/soft", "1\n")
+            .write("sys/class/rfkill/rfkill1/hard", "0\n");
         let p = auto("rfkill-unblock-wifi", &root, &f).unwrap();
-        assert_eq!(p.steps, [Step::SysWrite { path: "/sys/class/rfkill/rfkill1/soft".into(), value: "0".into() }]);
+        assert_eq!(
+            p.steps,
+            [Step::SysWrite {
+                path: "/sys/class/rfkill/rfkill1/soft".into(),
+                value: "0".into()
+            }]
+        );
         assert!(!p.needs_reboot);
-        fs.write("sys/class/rfkill/rfkill1/hard", "1\n").write("sys/class/rfkill/rfkill1/soft", "0\n");
-        assert!(auto("rfkill-unblock-wifi", &root, &f).unwrap_err().contains("hardware switch"));
-        assert!(auto("enable-cups", &root, &f).unwrap_err().contains("not installed"));
+        fs.write("sys/class/rfkill/rfkill1/hard", "1\n")
+            .write("sys/class/rfkill/rfkill1/soft", "0\n");
+        assert!(auto("rfkill-unblock-wifi", &root, &f)
+            .unwrap_err()
+            .contains("hardware switch"));
+        assert!(auto("enable-cups", &root, &f)
+            .unwrap_err()
+            .contains("not installed"));
         fs.write("usr/lib/systemd/system/cups.socket", "");
-        assert_eq!(auto("enable-cups", &root, &f).unwrap().steps, [Step::EnableUnits { units: vec!["cups.socket".into()], now: true }]);
-        let Step::Write { path, content } = &auto("load-uvcvideo", &root, &f).unwrap().steps[0] else { panic!() };
-        assert!(path.starts_with("/etc/modules-load.d/unix-guardian-") && content.ends_with("uvcvideo\n"));
+        assert_eq!(
+            auto("enable-cups", &root, &f).unwrap().steps,
+            [Step::EnableUnits {
+                units: vec!["cups.socket".into()],
+                now: true
+            }]
+        );
+        let Step::Write { path, content } = &auto("load-uvcvideo", &root, &f).unwrap().steps[0]
+        else {
+            panic!()
+        };
+        assert!(
+            path.starts_with("/etc/modules-load.d/unix-guardian-")
+                && content.ends_with("uvcvideo\n")
+        );
         for id in LIVE {
-            assert!(!title(id).is_empty() && !commands(id, &f).is_empty(), "{id} has a title and commands");
+            assert!(
+                !title(id).is_empty() && !commands(id, &f).is_empty(),
+                "{id} has a title and commands"
+            );
         }
     }
 
@@ -886,13 +1112,26 @@ mod tests {
         let fs = TestFs::new();
         let f = debian(&fs);
         let root = SysRoot::at(fs.root());
-        fs.write("etc/default/grub", "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet\"\n").write("usr/sbin/update-grub", "");
+        fs.write("etc/default/grub", "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet\"\n")
+            .write("usr/sbin/update-grub", "");
         let p = auto("param-add:split_lock_detect=off", &root, &f).unwrap();
         assert_eq!(p.title, "Add the kernel parameter split_lock_detect=off");
-        assert!(matches!(&p.steps[0], Step::Write { content, .. } if content.contains("quiet split_lock_detect=off")));
-        assert!(auto("param-remove:absent", &root, &f).unwrap_err().contains("already"));
-        for bad in ["param-add:a b", "param-add:x;reboot", "param-add:", "param-add:$(id)"] {
-            assert!(auto(bad, &root, &f).unwrap_err().contains("Unknown fix"), "{bad}");
+        assert!(
+            matches!(&p.steps[0], Step::Write { content, .. } if content.contains("quiet split_lock_detect=off"))
+        );
+        assert!(auto("param-remove:absent", &root, &f)
+            .unwrap_err()
+            .contains("already"));
+        for bad in [
+            "param-add:a b",
+            "param-add:x;reboot",
+            "param-add:",
+            "param-add:$(id)",
+        ] {
+            assert!(
+                auto(bad, &root, &f).unwrap_err().contains("Unknown fix"),
+                "{bad}"
+            );
         }
     }
 }

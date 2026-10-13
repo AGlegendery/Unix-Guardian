@@ -26,7 +26,10 @@ pub const SESSION_WIDE: [&str; 7] = [
 ];
 
 /// The files older versions wrote into `environment.d`.
-pub const LEGACY_FILES: [&str; 2] = ["90-unix-guardian-gpu.conf", "90-unix-guardian-mangohud.conf"];
+pub const LEGACY_FILES: [&str; 2] = [
+    "90-unix-guardian-gpu.conf",
+    "90-unix-guardian-mangohud.conf",
+];
 
 /// What [`retire`] did with one file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,7 +45,12 @@ pub struct Retired {
 /// `<ug_config>/retired/<name>.<stamp>`, if it is there and Unix Guardian
 /// wrote it. Never deletes it, and never touches anything else (not
 /// `environment.d.disabled`, where a repair may have put a copy).
-pub fn retire(config_home: &Path, ug_config: &Path, name: &str, stamp: &str) -> std::io::Result<Option<Retired>> {
+pub fn retire(
+    config_home: &Path,
+    ug_config: &Path,
+    name: &str,
+    stamp: &str,
+) -> std::io::Result<Option<Retired>> {
     let path = config_home.join("environment.d").join(name);
     let text = match std::fs::read_to_string(&path) {
         Ok(t) => t,
@@ -81,12 +89,18 @@ mod tests {
         std::fs::write(env.join("90-unix-guardian-mangohud.conf"), ours).unwrap();
         std::fs::write(env.join("50-mine.conf"), "MANGOHUD=1\n").unwrap();
         let ug = config.join("unix-guardian");
-        let r = retire(&config, &ug, "90-unix-guardian-mangohud.conf", "7").unwrap().unwrap();
+        let r = retire(&config, &ug, "90-unix-guardian-mangohud.conf", "7")
+            .unwrap()
+            .unwrap();
         assert_eq!(r.vars, [("MANGOHUD".to_string(), "1".to_string())]);
         assert_eq!(std::fs::read_to_string(&r.moved_to).unwrap(), ours);
         assert!(!env.join("90-unix-guardian-mangohud.conf").exists());
         assert!(env.join("50-mine.conf").exists());
         std::fs::write(env.join("90-unix-guardian-mangohud.conf"), "MANGOHUD=1\n").unwrap();
-        assert_eq!(retire(&config, &ug, "90-unix-guardian-mangohud.conf", "8").unwrap(), None, "not ours");
+        assert_eq!(
+            retire(&config, &ug, "90-unix-guardian-mangohud.conf", "8").unwrap(),
+            None,
+            "not ours"
+        );
     }
 }

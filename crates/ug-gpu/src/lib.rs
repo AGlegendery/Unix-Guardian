@@ -79,12 +79,27 @@ pub fn check_tune(t: &GpuTune, s: &GpuTuneState) -> Result<(), String> {
         if !s.power_limit {
             problems.push("the power limit cannot be changed on this GPU".to_string());
         } else if t.power_limit_w < s.power_min_w || t.power_limit_w > s.power_max_w {
-            problems.push(format!("the power limit must be {:.0}–{:.0} W", s.power_min_w, s.power_max_w));
+            problems.push(format!(
+                "the power limit must be {:.0}–{:.0} W",
+                s.power_min_w, s.power_max_w
+            ));
         }
     }
     for (what, v, ok, lo, hi) in [
-        ("core clock offset", t.core_offset_mhz, s.core_offset, s.core_min_mhz, s.core_max_mhz),
-        ("memory clock offset", t.mem_offset_mhz, s.mem_offset, s.mem_min_mhz, s.mem_max_mhz),
+        (
+            "core clock offset",
+            t.core_offset_mhz,
+            s.core_offset,
+            s.core_min_mhz,
+            s.core_max_mhz,
+        ),
+        (
+            "memory clock offset",
+            t.mem_offset_mhz,
+            s.mem_offset,
+            s.mem_min_mhz,
+            s.mem_max_mhz,
+        ),
     ] {
         if v != 0 {
             if !ok {
@@ -136,7 +151,8 @@ impl GpuSet {
             match info.vendor {
                 Vendor::Nvidia => {
                     info.driver_version = nvidia::module_version(root).unwrap_or_default();
-                    let slot = std::sync::Arc::clone(nvml.as_ref().expect("slot exists for NVIDIA"));
+                    let slot =
+                        std::sync::Arc::clone(nvml.as_ref().expect("slot exists for NVIDIA"));
                     backends.push(Box::new(nvidia::NvidiaGpu::new(slot, info)));
                 }
                 Vendor::Amd => match amd::AmdGpu::open(root, info) {
@@ -308,7 +324,10 @@ mod tests {
     #[test]
     fn a_suspended_gpu_is_reported_asleep_without_being_queried() {
         let fs = TestFs::new();
-        fs.write("sys/bus/pci/devices/0000:01:00.0/power/runtime_status", "suspended");
+        fs.write(
+            "sys/bus/pci/devices/0000:01:00.0/power/runtime_status",
+            "suspended",
+        );
         let set = set_with(&fs, vec![Box::new(MustNotWake("0000:01:00.0".into()))]);
 
         let s = &set.telemetry()[0];
@@ -320,7 +339,10 @@ mod tests {
     #[test]
     fn a_gpu_mid_suspend_is_left_alone_too() {
         let fs = TestFs::new();
-        fs.write("sys/bus/pci/devices/0000:01:00.0/power/runtime_status", "suspending");
+        fs.write(
+            "sys/bus/pci/devices/0000:01:00.0/power/runtime_status",
+            "suspending",
+        );
         let set = set_with(&fs, vec![Box::new(MustNotWake("0000:01:00.0".into()))]);
         assert!(set.telemetry()[0].asleep);
     }
@@ -328,7 +350,10 @@ mod tests {
     #[test]
     fn an_active_gpu_is_read_normally() {
         let fs = TestFs::new();
-        fs.write("sys/bus/pci/devices/0000:01:00.0/power/runtime_status", "active");
+        fs.write(
+            "sys/bus/pci/devices/0000:01:00.0/power/runtime_status",
+            "active",
+        );
         let set = set_with(&fs, vec![Box::new(Awake("0000:01:00.0".into()))]);
 
         let s = &set.telemetry()[0];
@@ -346,8 +371,14 @@ mod tests {
     #[test]
     fn only_the_sleeping_gpu_is_skipped_on_a_hybrid_laptop() {
         let fs = TestFs::new();
-        fs.write("sys/bus/pci/devices/0000:00:02.0/power/runtime_status", "active");
-        fs.write("sys/bus/pci/devices/0000:01:00.0/power/runtime_status", "suspended");
+        fs.write(
+            "sys/bus/pci/devices/0000:00:02.0/power/runtime_status",
+            "active",
+        );
+        fs.write(
+            "sys/bus/pci/devices/0000:01:00.0/power/runtime_status",
+            "suspended",
+        );
         let set = set_with(
             &fs,
             vec![

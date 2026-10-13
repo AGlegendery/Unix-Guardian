@@ -12,7 +12,9 @@ mod lab;
 mod pages;
 mod theme;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+};
 use crossterm::{execute, terminal};
 use data::{Bus, Cached};
 use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
@@ -23,9 +25,9 @@ use ratatui::Frame;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use ug_proto::{
-    AppTraffic, BatteryCare, FpsSession, OverlayState, ExtraSample, FpsReading, HistoryPoint, NetControlStatus, NetRule,
-    PingComparison, PingReport, InstalledGameInfo, Inventory, PowerCapability, PowerJob, PowerWatch,
-    ProfileInfo, RunningGameInfo, Snapshot,
+    AppTraffic, BatteryCare, ExtraSample, FpsReading, FpsSession, HistoryPoint, InstalledGameInfo,
+    Inventory, NetControlStatus, NetRule, OverlayState, PingComparison, PingReport,
+    PowerCapability, PowerJob, PowerWatch, ProfileInfo, RunningGameInfo, Snapshot,
 };
 
 use theme::Theme;
@@ -246,7 +248,12 @@ impl App {
                     let r = self.bus.snapshot();
                     if let Ok(s) = &r {
                         let t = s.ts_unix_ms as f64 / 1000.0;
-                        let gpu = s.gpus.iter().find(|g| !g.asleep && !g.temp_c.is_nan()).map(|g| g.temp_c).unwrap_or(f64::NAN);
+                        let gpu = s
+                            .gpus
+                            .iter()
+                            .find(|g| !g.asleep && !g.temp_c.is_nan())
+                            .map(|g| g.temp_c)
+                            .unwrap_or(f64::NAN);
                         self.temps.push_back((t, s.cpu.temp_c, gpu));
                         while self.temps.len() > 120 {
                             self.temps.pop_front();
@@ -329,7 +336,9 @@ impl App {
                     self.fps.store(r);
                 }
                 if self.tab == 2 && self.sessions.due() {
-                    let r = self.bus.fps_sessions(data::now_ms().saturating_sub(7 * 86_400_000));
+                    let r = self
+                        .bus
+                        .fps_sessions(data::now_ms().saturating_sub(7 * 86_400_000));
                     self.sessions.store(r);
                 }
                 if self.tab == 1 && self.snapshot.due() {
@@ -348,8 +357,14 @@ impl App {
                 }
                 if self.tab == 1 && self.shortcuts.due() {
                     let r = self.bus.shortcuts();
-                    let fallback = r.as_ref().is_ok_and(|s| s.status == "unavailable" || s.status == "failed");
-                    self.desk_keys = if fallback { self.bus.desktop_keys().ok() } else { None };
+                    let fallback = r
+                        .as_ref()
+                        .is_ok_and(|s| s.status == "unavailable" || s.status == "failed");
+                    self.desk_keys = if fallback {
+                        self.bus.desktop_keys().ok()
+                    } else {
+                        None
+                    };
                     self.shortcuts.store(r);
                 }
             }
@@ -371,8 +386,14 @@ impl App {
                 if self.driver_ops.due() {
                     let r = self.bus.driver_ops();
                     // A change just finished: check again.
-                    let was_running = self.driver_ops.value.as_ref().is_some_and(|v| v.iter().any(|o| o.state == "running" || o.state == "undoing"));
-                    let running = r.as_ref().is_ok_and(|v| v.iter().any(|o| o.state == "running" || o.state == "undoing"));
+                    let was_running = self.driver_ops.value.as_ref().is_some_and(|v| {
+                        v.iter()
+                            .any(|o| o.state == "running" || o.state == "undoing")
+                    });
+                    let running = r.as_ref().is_ok_and(|v| {
+                        v.iter()
+                            .any(|o| o.state == "running" || o.state == "undoing")
+                    });
                     self.driver_ops.store(r);
                     if was_running && !running {
                         self.driver.invalidate();
@@ -384,7 +405,13 @@ impl App {
                     let r = self.bus.update_state();
                     // The install restarts the agent: keep the last state
                     // until the new one answers.
-                    if r.is_ok() || !self.update.value.as_ref().is_some_and(|u| !u.step.is_empty()) {
+                    if r.is_ok()
+                        || !self
+                            .update
+                            .value
+                            .as_ref()
+                            .is_some_and(|u| !u.step.is_empty())
+                    {
                         self.update.store(r);
                     }
                 }
@@ -412,8 +439,17 @@ impl App {
                     let r = self.bus.ping(data::now_ms().saturating_sub(5 * 60_000));
                     if let Ok(rep) = &r {
                         // Compare around the last time game mode went on, once per mark.
-                        let mark = rep.marks.iter().rev().find(|m| m.kind == "gamemode-on").map(|m| m.ts_unix_ms);
-                        let far = rep.targets.iter().find(|t| t.id == "game" && !t.addr.is_empty()).or_else(|| rep.targets.iter().find(|t| t.id == "internet"));
+                        let mark = rep
+                            .marks
+                            .iter()
+                            .rev()
+                            .find(|m| m.kind == "gamemode-on")
+                            .map(|m| m.ts_unix_ms);
+                        let far = rep
+                            .targets
+                            .iter()
+                            .find(|t| t.id == "game" && !t.addr.is_empty())
+                            .or_else(|| rep.targets.iter().find(|t| t.id == "internet"));
                         if let (Some(m), Some(t)) = (mark, far) {
                             if data::now_ms() > m + 10_000 {
                                 if let Ok(c) = self.bus.ping_compare(&t.id, m) {
@@ -432,12 +468,18 @@ impl App {
             }
             6 => {
                 if self.playtime.due() {
-                    let since = ug_core::playtime::since(ug_core::playtime::RANGES[self.choice.min(2)], data::now_ms());
+                    let since = ug_core::playtime::since(
+                        ug_core::playtime::RANGES[self.choice.min(2)],
+                        data::now_ms(),
+                    );
                     let r = self.bus.playtime(since);
                     self.playtime.store(r);
                 }
                 if self.playtime_extra.due() {
-                    let r = self.bus.tracked_apps().and_then(|a| Ok((a, self.bus.playtime_imported()?)));
+                    let r = self
+                        .bus
+                        .tracked_apps()
+                        .and_then(|a| Ok((a, self.bus.playtime_imported()?)));
                     self.playtime_extra.store(r);
                 }
                 if self.tab == 1 && self.programs.due() {
@@ -446,7 +488,11 @@ impl App {
                 }
                 if self.tab == 2 && self.pt_sessions.due() {
                     let since = ug_core::playtime::local_midnight_offset(data::now_ms(), -29);
-                    let r = self.bus.playtime_sessions(since).map(|v| v.into_iter().filter(|s| !s.key.starts_with("app:")).collect());
+                    let r = self.bus.playtime_sessions(since).map(|v| {
+                        v.into_iter()
+                            .filter(|s| !s.key.starts_with("app:"))
+                            .collect()
+                    });
                     self.pt_sessions.store(r);
                 }
             }
@@ -461,10 +507,18 @@ impl App {
                 }
             }
         }
-        if self.armed.as_ref().is_some_and(|(_, t)| t.elapsed() > Duration::from_secs(5)) {
+        if self
+            .armed
+            .as_ref()
+            .is_some_and(|(_, t)| t.elapsed() > Duration::from_secs(5))
+        {
             self.armed = None;
         }
-        if self.notice.as_ref().is_some_and(|(_, _, t)| t.elapsed() > Duration::from_secs(6)) {
+        if self
+            .notice
+            .as_ref()
+            .is_some_and(|(_, _, t)| t.elapsed() > Duration::from_secs(6))
+        {
             self.notice = None;
         }
     }
@@ -552,7 +606,9 @@ impl App {
             },
             _ => match code {
                 KeyCode::Up | KeyCode::Char('k') => self.row = self.row.saturating_sub(1),
-                KeyCode::Down | KeyCode::Char('j') => self.row = (self.row + 1).min(self.rows.saturating_sub(1)),
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.row = (self.row + 1).min(self.rows.saturating_sub(1))
+                }
                 KeyCode::Tab => self.switch_tab((self.tab + 1) % self.tabs()),
                 KeyCode::BackTab => self.switch_tab((self.tab + self.tabs() - 1) % self.tabs()),
                 KeyCode::Left | KeyCode::Char('h') => pages::step_choice(self, -1),
@@ -561,17 +617,25 @@ impl App {
                 KeyCode::Char('x') | KeyCode::Delete => pages::remove(self, self.row),
                 KeyCode::Char('s') if self.page == 4 => pages::toggle_background(self),
                 KeyCode::Char('b') => pages::block(self, self.row),
-                KeyCode::Char('c') if (self.page, self.tab) == (5, 1) => pages::record_shortcut(self, self.row),
+                KeyCode::Char('c') if (self.page, self.tab) == (5, 1) => {
+                    pages::record_shortcut(self, self.row)
+                }
                 KeyCode::Char('e') if self.page == 6 => pages::export_playtime(self),
-                KeyCode::Char('y') if (self.page, self.tab) == (8, 1) => pages::keep_driver_op(self, self.row),
+                KeyCode::Char('y') if (self.page, self.tab) == (8, 1) => {
+                    pages::keep_driver_op(self, self.row)
+                }
                 KeyCode::Char('r') if (self.page, self.tab) == (3, 1) => pages::reset_traffic(self),
                 KeyCode::Char('r') if self.page == 8 => {
                     self.driver.invalidate();
                     self.driver_review = None;
                 }
-                KeyCode::Char('o') if (self.page, self.tab) == (1, 2) => pages::toggle_launch_overlay(self),
+                KeyCode::Char('o') if (self.page, self.tab) == (1, 2) => {
+                    pages::toggle_launch_overlay(self)
+                }
                 KeyCode::Char('u') if (self.page, self.tab) == (1, 2) => pages::undo_launch(self),
-                KeyCode::Char('g') if self.page == 0 || (self.page, self.tab) == (1, 0) => pages::toggle_game_mode(self),
+                KeyCode::Char('g') if self.page == 0 || (self.page, self.tab) == (1, 0) => {
+                    pages::toggle_game_mode(self)
+                }
                 KeyCode::Char('n') if self.page == 6 => pages::not_a_game(self, self.row),
                 KeyCode::Char('i') if self.page == 6 => pages::import_steam(self, false),
                 KeyCode::Char('u') if self.page == 6 => pages::import_steam(self, true),
@@ -596,7 +660,9 @@ impl App {
             return;
         }
         let pos = Position { x, y };
-        let Some(&(_, hit)) = self.hits.iter().rev().find(|(r, _)| r.contains(pos)) else { return };
+        let Some(&(_, hit)) = self.hits.iter().rev().find(|(r, _)| r.contains(pos)) else {
+            return;
+        };
         match hit {
             Hit::Menu(i) => {
                 self.go(i);
@@ -626,7 +692,11 @@ impl App {
         if self.page == 10 && self.focus == Focus::Page && !self.lab.confirm {
             lab::scroll(self, down);
         } else if self.focus == Focus::Menu {
-            self.go(if down { (self.page + 1).min(PAGES.len() - 1) } else { self.page.saturating_sub(1) });
+            self.go(if down {
+                (self.page + 1).min(PAGES.len() - 1)
+            } else {
+                self.page.saturating_sub(1)
+            });
         } else if down {
             self.row = (self.row + 1).min(self.rows.saturating_sub(1));
         } else {
@@ -650,7 +720,12 @@ impl App {
         let wide = area.width >= 100 && area.height >= 26;
         let outer = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Min(5), Constraint::Length(1), Constraint::Length(1)])
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Min(5),
+                Constraint::Length(1),
+                Constraint::Length(1),
+            ])
             .split(area);
         self.draw_header(f, outer[0]);
         let body = outer[1];
@@ -679,19 +754,27 @@ impl App {
 
     fn draw_header(&self, f: &mut Frame, r: Rect) {
         let t = &self.theme;
-        let dot = |ok: bool| Span::styled("● ", Style::default().fg(if ok { t.ok } else { t.danger }));
+        let dot =
+            |ok: bool| Span::styled("● ", Style::default().fg(if ok { t.ok } else { t.danger }));
         let service = self.inventory.value.is_some() && self.inventory.error.is_none();
         let agent = self.profiles.error.is_none();
         let left = Line::from(vec![Span::styled(" Unix Guardian", t.accent())]);
-        let right = Line::from(vec![dot(service), Span::styled("service  ", t.muted()), dot(agent), Span::styled("agent ", t.muted())])
-            .right_aligned();
+        let right = Line::from(vec![
+            dot(service),
+            Span::styled("service  ", t.muted()),
+            dot(agent),
+            Span::styled("agent ", t.muted()),
+        ])
+        .right_aligned();
         f.render_widget(Paragraph::new(left), r);
         f.render_widget(Paragraph::new(right), r);
     }
 
     fn draw_menu(&mut self, f: &mut Frame, r: Rect) {
         let t = &self.theme;
-        let block = Block::default().borders(Borders::RIGHT).border_style(t.border());
+        let block = Block::default()
+            .borders(Borders::RIGHT)
+            .border_style(t.border());
         let inner = block.inner(r);
         f.render_widget(block, r);
         for (i, (name, _, built)) in PAGES.iter().enumerate() {
@@ -699,20 +782,32 @@ impl App {
             if y >= inner.bottom() {
                 break;
             }
-            let row = Rect { x: inner.x, y, width: inner.width, height: 1 };
+            let row = Rect {
+                x: inner.x,
+                y,
+                width: inner.width,
+                height: 1,
+            };
             let active = i == self.page;
             let style = if active {
-                if self.focus == Focus::Menu { t.selected() } else { t.accent() }
+                if self.focus == Focus::Menu {
+                    t.selected()
+                } else {
+                    t.accent()
+                }
             } else if *built {
                 t.muted()
             } else {
                 t.faint()
             };
             let marker = if active { "▌" } else { " " };
-            f.render_widget(Paragraph::new(Line::from(vec![
-                Span::styled(marker, t.accent()),
-                Span::styled(format!("{name:<18}"), style),
-            ])), row);
+            f.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(marker, t.accent()),
+                    Span::styled(format!("{name:<18}"), style),
+                ])),
+                row,
+            );
             self.hits.push((row, Hit::Menu(i)));
         }
     }
@@ -723,12 +818,34 @@ impl App {
         for (i, (_, short, built)) in PAGES.iter().enumerate() {
             let w = short.len() as u16 + 2;
             if x + w > r.right() {
-                f.render_widget(Paragraph::new(Span::styled("…", t.faint())), Rect { x, y: r.y, width: 1, height: 1 });
+                f.render_widget(
+                    Paragraph::new(Span::styled("…", t.faint())),
+                    Rect {
+                        x,
+                        y: r.y,
+                        width: 1,
+                        height: 1,
+                    },
+                );
                 break;
             }
-            let rect = Rect { x, y: r.y, width: w, height: 1 };
-            let style = if i == self.page { t.selected() } else if *built { t.muted() } else { t.faint() };
-            f.render_widget(Paragraph::new(Span::styled(format!(" {short} "), style)), rect);
+            let rect = Rect {
+                x,
+                y: r.y,
+                width: w,
+                height: 1,
+            };
+            let style = if i == self.page {
+                t.selected()
+            } else if *built {
+                t.muted()
+            } else {
+                t.faint()
+            };
+            f.render_widget(
+                Paragraph::new(Span::styled(format!(" {short} "), style)),
+                rect,
+            );
             self.hits.push((rect, Hit::Menu(i)));
             x += w + 1;
         }
@@ -745,7 +862,10 @@ impl App {
                 r,
             );
         } else if let Some((text, ok, _)) = &self.notice {
-            let mut spans = vec![Span::styled(format!(" {text}"), Style::default().fg(if *ok { t.ok } else { t.danger }))];
+            let mut spans = vec![Span::styled(
+                format!(" {text}"),
+                Style::default().fg(if *ok { t.ok } else { t.danger }),
+            )];
             let hint = format!("   A bug? {}", ug_core::BUG_REPORT_EMAIL);
             if !ok && (text.chars().count() + hint.chars().count() + 1) < r.width as usize {
                 spans.push(Span::styled(hint, t.faint()));
@@ -761,7 +881,14 @@ impl App {
         } else if self.recording.is_some() {
             pages::keys(self)
         } else if self.focus == Focus::Menu {
-            vec![("↑↓", "menu"), ("Enter", "open"), ("1-9", "jump"), ("?", "help"), ("g", "window"), ("q", "quit")]
+            vec![
+                ("↑↓", "menu"),
+                ("Enter", "open"),
+                ("1-9", "jump"),
+                ("?", "help"),
+                ("g", "window"),
+                ("q", "quit"),
+            ]
         } else {
             let mut k = vec![("↑↓", "move")];
             k.extend(pages::keys(self));
@@ -773,14 +900,22 @@ impl App {
             spans.push(Span::styled(key, t.accent()));
             spans.push(Span::styled(format!(" {what}  "), t.muted()));
         }
-        f.render_widget(Paragraph::new(Line::from(spans)).style(Style::default().bg(t.selected_bg)), r);
+        f.render_widget(
+            Paragraph::new(Line::from(spans)).style(Style::default().bg(t.selected_bg)),
+            r,
+        );
     }
 
     fn draw_help(&self, f: &mut Frame, area: Rect) {
         let t = &self.theme;
         let w = 64.min(area.width - 4);
         let h = 20.min(area.height - 2);
-        let r = Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h };
+        let r = Rect {
+            x: area.x + (area.width - w) / 2,
+            y: area.y + (area.height - h) / 2,
+            width: w,
+            height: h,
+        };
         f.render_widget(ratatui::widgets::Clear, r);
         let lines = vec![
             Line::from(Span::styled("Keys", t.title())),
@@ -796,12 +931,23 @@ impl App {
             Line::from("  g               open the graphical window"),
             Line::from("  q  Ctrl-C       quit"),
             Line::from(""),
-            Line::from(Span::styled("Mouse: click anything; the wheel scrolls.", t.muted())),
+            Line::from(Span::styled(
+                "Mouse: click anything; the wheel scrolls.",
+                t.muted(),
+            )),
             Line::from(Span::styled("Shut down and restart ask twice.", t.muted())),
-            Line::from(Span::styled(format!("Found a bug? {}", ug_core::BUG_REPORT_EMAIL), t.accent())),
+            Line::from(Span::styled(
+                format!("Found a bug? {}", ug_core::BUG_REPORT_EMAIL),
+                t.accent(),
+            )),
         ];
         f.render_widget(
-            Paragraph::new(lines).block(Block::default().borders(Borders::ALL).border_style(t.accent()).title(" Help ")),
+            Paragraph::new(lines).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(t.accent())
+                    .title(" Help "),
+            ),
             r,
         );
     }
@@ -835,11 +981,20 @@ pub fn run(daemon_session: bool) -> anyhow::Result<Exit> {
     app.lab.daemon_session = daemon_session;
     app.lab.recover_in_background();
     // SAFETY: the handler only stores to an atomic and calls alarm(2).
-    unsafe { libc::signal(libc::SIGTERM, on_terminate as *const () as libc::sighandler_t) };
+    unsafe {
+        libc::signal(
+            libc::SIGTERM,
+            on_terminate as *const () as libc::sighandler_t,
+        )
+    };
 
     terminal::enable_raw_mode()?;
     let mut out = std::io::stdout();
-    execute!(out, terminal::EnterAlternateScreen, event::EnableMouseCapture)?;
+    execute!(
+        out,
+        terminal::EnterAlternateScreen,
+        event::EnableMouseCapture
+    )?;
     // Restore the terminal even if something panics mid-draw.
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -883,12 +1038,20 @@ pub fn run(daemon_session: bool) -> anyhow::Result<Exit> {
 
     restore()?;
     result?;
-    Ok(if app.open_window { Exit::OpenWindow } else { Exit::Quit })
+    Ok(if app.open_window {
+        Exit::OpenWindow
+    } else {
+        Exit::Quit
+    })
 }
 
 fn restore() -> std::io::Result<()> {
     terminal::disable_raw_mode()?;
-    execute!(std::io::stdout(), event::DisableMouseCapture, terminal::LeaveAlternateScreen)
+    execute!(
+        std::io::stdout(),
+        event::DisableMouseCapture,
+        terminal::LeaveAlternateScreen
+    )
 }
 
 #[cfg(test)]
@@ -900,7 +1063,14 @@ mod tests {
         let mut term = ratatui::Terminal::new(TestBackend::new(w, h)).unwrap();
         term.draw(|f| app.draw(f)).unwrap();
         let buf = term.backend().buffer().clone();
-        (0..h).map(|y| (0..w).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>() + "\n").collect()
+        (0..h)
+            .map(|y| {
+                (0..w)
+                    .map(|x| buf[(x, y)].symbol().to_string())
+                    .collect::<String>()
+                    + "\n"
+            })
+            .collect()
     }
 
     #[test]
@@ -918,7 +1088,10 @@ mod tests {
         }
         app.go(0);
         app.refresh();
-        assert!(render(&mut app, 120, 34).contains("Cannot reach"), "an unreachable service is said, not hidden");
+        assert!(
+            render(&mut app, 120, 34).contains("Cannot reach"),
+            "an unreachable service is said, not hidden"
+        );
     }
 
     fn snap(i: u64) -> Snapshot {
@@ -946,11 +1119,33 @@ mod tests {
         app.go(3);
         app.choice = 0;
         for i in 0..10 {
-            let e = ExtraSample { battery_pct: 81.0, battery_w: 9.5, battery_status: "Discharging".into(), disk_read_bps: 2_500_000, load_avg_1: 1.25, processes: 612, ..Default::default() };
+            let e = ExtraSample {
+                battery_pct: 81.0,
+                battery_w: 9.5,
+                battery_status: "Discharging".into(),
+                disk_read_bps: 2_500_000,
+                load_avg_1: 1.25,
+                processes: 612,
+                ..Default::default()
+            };
             app.live.push_back((snap(i), e));
         }
         let screen = render(&mut app, 140, 44);
-        for want in ["Live", "Load avg", "1.25", "612", "81 % 9.5 W", "Temperature", "Clock", "Memory", "Disk", "Internet", "Battery power", "▂▇▅▁", "Battery power  9.5 W"] {
+        for want in [
+            "Live",
+            "Load avg",
+            "1.25",
+            "612",
+            "81 % 9.5 W",
+            "Temperature",
+            "Clock",
+            "Memory",
+            "Disk",
+            "Internet",
+            "Battery power",
+            "▂▇▅▁",
+            "Battery power  9.5 W",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
         // A sleeping graphics card is never charted (it was not read).
@@ -962,7 +1157,11 @@ mod tests {
         let mut app = App::new(Bus::offline());
         app.go(3);
         app.tab = 2;
-        let mut r = FpsReading { state: "not-installed".into(), install_hint: "sudo apt install mangohud".into(), ..Default::default() };
+        let mut r = FpsReading {
+            state: "not-installed".into(),
+            install_hint: "sudo apt install mangohud".into(),
+            ..Default::default()
+        };
         app.fps.store(Ok(r.clone()));
         assert!(render(&mut app, 120, 34).contains("sudo apt install mangohud"));
         r.state = "not-set-up".into();
@@ -986,30 +1185,111 @@ mod tests {
         use ug_proto::{AppTraffic, NetRule, PingSample, PingStats, PingTarget};
         let mut app = App::new(Bus::offline());
         app.go(4);
-        let samples: Vec<PingSample> = (0..30).map(|i| PingSample { ts_unix_ms: data::now_ms() - 30_000 + i * 1000, rtt_ms: 20.0 + (i % 3) as f64 }).collect();
-        let stats = PingStats { sent: 30, received: 30, median_ms: 21.0, jitter_ms: 1.5, p95_ms: 22.0, loss_pct: 0.0 };
+        let samples: Vec<PingSample> = (0..30)
+            .map(|i| PingSample {
+                ts_unix_ms: data::now_ms() - 30_000 + i * 1000,
+                rtt_ms: 20.0 + (i % 3) as f64,
+            })
+            .collect();
+        let stats = PingStats {
+            sent: 30,
+            received: 30,
+            median_ms: 21.0,
+            jitter_ms: 1.5,
+            p95_ms: 22.0,
+            loss_pct: 0.0,
+        };
         app.ping.store(Ok(PingReport {
             targets: vec![
-                PingTarget { id: "gateway".into(), label: "Router".into(), addr: "192.168.1.1".into(), samples: samples.clone(), stats: stats.clone(), problem: String::new(), via: "wlan0".into(), through_vpn: false },
-                PingTarget { id: "internet".into(), label: "DNS server".into(), addr: "1.1.1.1".into(), samples, stats, problem: String::new(), via: "tun0".into(), through_vpn: true },
+                PingTarget {
+                    id: "gateway".into(),
+                    label: "Router".into(),
+                    addr: "192.168.1.1".into(),
+                    samples: samples.clone(),
+                    stats: stats.clone(),
+                    problem: String::new(),
+                    via: "wlan0".into(),
+                    through_vpn: false,
+                },
+                PingTarget {
+                    id: "internet".into(),
+                    label: "DNS server".into(),
+                    addr: "1.1.1.1".into(),
+                    samples,
+                    stats,
+                    problem: String::new(),
+                    via: "tun0".into(),
+                    through_vpn: true,
+                },
             ],
             marks: vec![],
         }));
         let steam = AppTraffic {
-            id: "a/steam".into(), name: "steam".into(), kind: "app".into(), uid: 1000, exe: "steam".into(), pids: vec![1],
-            rx_bps: 4_200_000, tx_bps: 20_000, rx_bytes: 9e8 as u64, tx_bytes: 1, state: String::new(), category: "launcher".into(), has_game: false,
+            id: "a/steam".into(),
+            name: "steam".into(),
+            kind: "app".into(),
+            uid: 1000,
+            exe: "steam".into(),
+            pids: vec![1],
+            rx_bps: 4_200_000,
+            tx_bps: 20_000,
+            rx_bytes: 9e8 as u64,
+            tx_bytes: 1,
+            state: String::new(),
+            category: "launcher".into(),
+            has_game: false,
         };
-        let firefox = AppTraffic { id: "a/ff".into(), name: "firefox-esr".into(), category: String::new(), rx_bps: 300_000, ..steam.clone() };
-        let rule = NetRule { app: "qbittorrent".into(), block: false, up_kbps: 1000, down_kbps: 8000, when: "gaming".into(), active: false };
-        app.net.store(Ok((vec![steam, firefox], vec![rule], NetControlStatus { available: true, ..Default::default() })));
+        let firefox = AppTraffic {
+            id: "a/ff".into(),
+            name: "firefox-esr".into(),
+            category: String::new(),
+            rx_bps: 300_000,
+            ..steam.clone()
+        };
+        let rule = NetRule {
+            app: "qbittorrent".into(),
+            block: false,
+            up_kbps: 1000,
+            down_kbps: 8000,
+            when: "gaming".into(),
+            active: false,
+        };
+        app.net.store(Ok((
+            vec![steam, firefox],
+            vec![rule],
+            NetControlStatus {
+                available: true,
+                ..Default::default()
+            },
+        )));
         let screen = render(&mut app, 130, 40);
-        for want in ["Router", "21 ms", "1.1.1.1", "through the VPN (tun0)", "direct (wlan0)", "Ping, last five minutes", "Background tasks", "steam", "launcher", "4.2 MB/s"] {
+        for want in [
+            "Router",
+            "21 ms",
+            "1.1.1.1",
+            "through the VPN (tun0)",
+            "direct (wlan0)",
+            "Ping, last five minutes",
+            "Background tasks",
+            "steam",
+            "launcher",
+            "4.2 MB/s",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
-        assert!(!screen.contains("firefox-esr"), "a browser download is not a background task");
+        assert!(
+            !screen.contains("firefox-esr"),
+            "a browser download is not a background task"
+        );
         app.tab = 1;
         let screen = render(&mut app, 130, 40);
-        for want in ["firefox-esr", "Rules", "qbittorrent", "up 1.0 Mbit/s", "waits for a game"] {
+        for want in [
+            "firefox-esr",
+            "Rules",
+            "qbittorrent",
+            "up 1.0 Mbit/s",
+            "waits for a game",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
     }
@@ -1025,34 +1305,75 @@ mod tests {
             what_en: "What it means".into(),
             why_en: "Why it matters".into(),
             how_en: "How it is fixed".into(),
-            fix_id: if auto { "nvidia-suspend".into() } else { "reboot".into() },
+            fix_id: if auto {
+                "nvidia-suspend".into()
+            } else {
+                "reboot".into()
+            },
             fix_auto: auto,
             commands: vec!["sudo do-the-thing".into()],
             ..Default::default()
         };
         app.driver.store(Ok(ug_proto::DriverReport {
             distro: "Debian".into(),
-            findings: vec![finding("vram", "important", true), finding("mismatch", "critical", false)],
+            findings: vec![
+                finding("vram", "important", true),
+                finding("mismatch", "critical", false),
+            ],
             ..Default::default()
         }));
         let screen = render(&mut app, 130, 40);
-        for want in ["Check", "Changes made", "IMPORTANT", "Title of vram", "fixable here", "Why it matters", "Enter: review the fix", "sudo do-the-thing"] {
+        for want in [
+            "Check",
+            "Changes made",
+            "IMPORTANT",
+            "Title of vram",
+            "fixable here",
+            "Why it matters",
+            "Enter: review the fix",
+            "sudo do-the-thing",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
-        app.driver_review = Some(("nvidia-suspend".into(), Ok(ug_proto::DriverPlan {
-            fix_id: "nvidia-suspend".into(),
-            steps: vec![ug_proto::DriverStep { kind: "write-file".into(), target: "/etc/modprobe.d/x.conf".into(), detail: "options nvidia X=1".into(), undo: "put back".into() }],
-            needs_reboot: true,
-            ..Default::default()
-        })));
+        app.driver_review = Some((
+            "nvidia-suspend".into(),
+            Ok(ug_proto::DriverPlan {
+                fix_id: "nvidia-suspend".into(),
+                steps: vec![ug_proto::DriverStep {
+                    kind: "write-file".into(),
+                    target: "/etc/modprobe.d/x.conf".into(),
+                    detail: "options nvidia X=1".into(),
+                    undo: "put back".into(),
+                }],
+                needs_reboot: true,
+                ..Default::default()
+            }),
+        ));
         let screen = render(&mut app, 130, 40);
-        for want in ["Exactly this will happen", "write-file /etc/modprobe.d/x.conf", "| options nvidia X=1", "Enter again applies it"] {
+        for want in [
+            "Exactly this will happen",
+            "write-file /etc/modprobe.d/x.conf",
+            "| options nvidia X=1",
+            "Enter again applies it",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
         app.tab = 1;
-        app.driver_ops.store(Ok(vec![ug_proto::DriverOp { id: "d1".into(), title: "Keep video memory".into(), state: "done".into(), log: vec!["Wrote /etc/modprobe.d/x.conf".into()], needs_reboot: true, ..Default::default() }]));
+        app.driver_ops.store(Ok(vec![ug_proto::DriverOp {
+            id: "d1".into(),
+            title: "Keep video memory".into(),
+            state: "done".into(),
+            log: vec!["Wrote /etc/modprobe.d/x.conf".into()],
+            needs_reboot: true,
+            ..Default::default()
+        }]));
         let screen = render(&mut app, 130, 40);
-        for want in ["done", "Keep video memory", "Wrote /etc/modprobe.d/x.conf", "Enter twice undoes"] {
+        for want in [
+            "done",
+            "Keep video memory",
+            "Wrote /etc/modprobe.d/x.conf",
+            "Enter twice undoes",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
     }
@@ -1062,9 +1383,17 @@ mod tests {
         let mut app = App::new(Bus::offline());
         app.go(12);
         app.refresh();
-        assert!(render(&mut app, 120, 34).contains("Cannot reach the session bus"), "says why when there is no agent");
+        assert!(
+            render(&mut app, 120, 34).contains("Cannot reach the session bus"),
+            "says why when there is no agent"
+        );
         app.settings.store(Ok(ug_proto::SettingsState {
-            settings: ug_proto::AgentSettings { notifications: false, scan_interval_s: 5, close_window_on_game: true, check_updates: true },
+            settings: ug_proto::AgentSettings {
+                notifications: false,
+                scan_interval_s: 5,
+                close_window_on_game: true,
+                check_updates: true,
+            },
             agent_version: "0.1.0".into(),
             config_dir: "/home/u/.config/unix-guardian".into(),
             data_dir: "/home/u/.local/share/unix-guardian".into(),
@@ -1072,7 +1401,19 @@ mod tests {
         }));
         app.tray.store(Ok(false));
         let screen = render(&mut app, 130, 34);
-        for want in ["Settings", "Notifications", "‹ off ›", "Close the window when a game starts", "‹ on ›", "‹ 5 s ›", "Look for updates daily", "‹ hidden ›", "0.1.0", ".config/unix-guardian", "GNU GPL"] {
+        for want in [
+            "Settings",
+            "Notifications",
+            "‹ off ›",
+            "Close the window when a game starts",
+            "‹ on ›",
+            "‹ 5 s ›",
+            "Look for updates daily",
+            "‹ hidden ›",
+            "0.1.0",
+            ".config/unix-guardian",
+            "GNU GPL",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
         assert!(!screen.contains("Not built yet"));
@@ -1083,7 +1424,10 @@ mod tests {
         let mut app = App::new(Bus::offline());
         app.go(11);
         app.refresh();
-        assert!(render(&mut app, 120, 34).contains("Cannot reach the session bus"), "says why when there is no agent");
+        assert!(
+            render(&mut app, 120, 34).contains("Cannot reach the session bus"),
+            "says why when there is no agent"
+        );
         let mut u = ug_proto::UpdateState {
             current: "0.1.0-beta.1".into(),
             latest: "v0.1.0-beta.2".into(),
@@ -1098,7 +1442,16 @@ mod tests {
         };
         app.update.store(Ok(u.clone()));
         let screen = render(&mut app, 130, 34);
-        for want in ["Updates", "0.1.0-beta.1", "Check now", "Install Unix Guardian 0.1.0 beta 2", "What's new", "• Self-update from the terminal", "2026-10-04", "example.invalid"] {
+        for want in [
+            "Updates",
+            "0.1.0-beta.1",
+            "Check now",
+            "Install Unix Guardian 0.1.0 beta 2",
+            "What's new",
+            "• Self-update from the terminal",
+            "2026-10-04",
+            "example.invalid",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
         assert!(!screen.contains("Not built yet"));
@@ -1108,20 +1461,32 @@ mod tests {
         u.how = "sudo apt upgrade unix-guardian".into();
         app.update.store(Ok(u.clone()));
         let screen = render(&mut app, 130, 34);
-        assert!(screen.contains("Update this copy with: sudo apt upgrade unix-guardian") && !screen.contains("Install Unix"), "{screen}");
+        assert!(
+            screen.contains("Update this copy with: sudo apt upgrade unix-guardian")
+                && !screen.contains("Install Unix"),
+            "{screen}"
+        );
         // While it installs, no buttons but the check, and what happens.
         u.can_install = true;
         u.step = "installing".into();
         u.previous = "0.0.9".into();
         app.update.store(Ok(u.clone()));
         let screen = render(&mut app, 130, 34);
-        assert!(screen.contains("password is asked for") && !screen.contains("Install Unix") && !screen.contains("Go back to"), "{screen}");
+        assert!(
+            screen.contains("password is asked for")
+                && !screen.contains("Install Unix")
+                && !screen.contains("Go back to"),
+            "{screen}"
+        );
         u.step.clear();
         u.latest.clear();
         u.can_install = false;
         app.update.store(Ok(u));
         let screen = render(&mut app, 130, 34);
-        assert!(screen.contains("up to date") && screen.contains("Go back to 0.0.9"), "{screen}");
+        assert!(
+            screen.contains("up to date") && screen.contains("Go back to 0.0.9"),
+            "{screen}"
+        );
     }
 
     #[test]
@@ -1131,11 +1496,25 @@ mod tests {
         app.tab = 2;
         let now = data::now_ms();
         let today = ug_core::playtime::local_midnight_offset(now, 0);
-        let s = |a: u64, b: u64| ug_proto::PlaytimeSession { key: "steam:730".into(), name: "CS2".into(), started_unix_ms: a, ended_unix_ms: b };
+        let s = |a: u64, b: u64| ug_proto::PlaytimeSession {
+            key: "steam:730".into(),
+            name: "CS2".into(),
+            started_unix_ms: a,
+            ended_unix_ms: b,
+        };
         let yesterday = ug_core::playtime::local_midnight_offset(now, -1);
-        app.pt_sessions.store(Ok(vec![s(yesterday + 3_600_000, yesterday + 3 * 3_600_000)]));
+        app.pt_sessions.store(Ok(vec![s(
+            yesterday + 3_600_000,
+            yesterday + 3 * 3_600_000,
+        )]));
         let screen = render(&mut app, 120, 34);
-        for want in [&ug_core::playtime::local_time(today)[..10], "2 h", "Days played 1/30", "When you play", "Streak 1 days"] {
+        for want in [
+            &ug_core::playtime::local_time(today)[..10],
+            "2 h",
+            "Days played 1/30",
+            "When you play",
+            "Streak 1 days",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
     }
@@ -1144,11 +1523,21 @@ mod tests {
     fn the_recorder_page_shows_what_it_does_and_how_to_set_it_up() {
         let mut app = App::new(Bus::offline());
         app.go(7);
-        app.recorder.store(Ok(ug_proto::RecorderState { can_set_up: true, mode: "idle".into(), ..Default::default() }));
+        app.recorder.store(Ok(ug_proto::RecorderState {
+            can_set_up: true,
+            mode: "idle".into(),
+            ..Default::default()
+        }));
         let screen = render(&mut app, 120, 34);
-        assert!(screen.contains("gpu-screen-recorder is not installed") && screen.contains("Set it up"), "{screen}");
+        assert!(
+            screen.contains("gpu-screen-recorder is not installed") && screen.contains("Set it up"),
+            "{screen}"
+        );
         // While it installs: Flatpak's progress, as a bar.
-        app.recorder.store(Ok(ug_proto::RecorderState { mode: "installing".into(), ..Default::default() }));
+        app.recorder.store(Ok(ug_proto::RecorderState {
+            mode: "installing".into(),
+            ..Default::default()
+        }));
         assert!(render(&mut app, 120, 34).contains("Asking Flathub what to download"));
         app.recorder.store(Ok(ug_proto::RecorderState {
             mode: "installing".into(),
@@ -1157,7 +1546,10 @@ mod tests {
             ..Default::default()
         }));
         let screen = render(&mut app, 120, 34);
-        assert!(screen.contains("G ━━━━━━━━━━━━━━━───────────────  47 %  step 4/7"), "{screen}");
+        assert!(
+            screen.contains("G ━━━━━━━━━━━━━━━───────────────  47 %  step 4/7"),
+            "{screen}"
+        );
         app.recorder.store(Ok(ug_proto::RecorderState {
             engine: "flatpak".into(),
             mode: "replay".into(),
@@ -1169,7 +1561,14 @@ mod tests {
             ..Default::default()
         }));
         let screen = render(&mut app, 120, 34);
-        for want in ["keeping the last 60 s", "Enter writes them to a file", "‹ balanced ›", "‹ 60 fps ›", "About 91 MB a minute", "Last saved: /home/u/Videos/Unix Guardian/Replay 1.mp4"] {
+        for want in [
+            "keeping the last 60 s",
+            "Enter writes them to a file",
+            "‹ balanced ›",
+            "‹ 60 fps ›",
+            "About 91 MB a minute",
+            "Last saved: /home/u/Videos/Unix Guardian/Replay 1.mp4",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
     }
@@ -1177,13 +1576,39 @@ mod tests {
     #[test]
     fn a_terminal_key_press_reads_as_a_shortcut() {
         use pages::combo;
-        assert_eq!(combo(KeyCode::Char('g'), KeyModifiers::CONTROL | KeyModifiers::ALT, false).as_deref(), Some("Ctrl+Alt+G"));
-        assert_eq!(combo(KeyCode::Char('G'), KeyModifiers::ALT, true).as_deref(), Some("Meta+Alt+Shift+G"));
-        assert_eq!(combo(KeyCode::Char('g'), KeyModifiers::SUPER, false).as_deref(), Some("Meta+G"));
-        assert_eq!(combo(KeyCode::F(5), KeyModifiers::NONE, false).as_deref(), Some("F5"));
-        assert_eq!(combo(KeyCode::Char(' '), KeyModifiers::CONTROL, false).as_deref(), Some("Ctrl+Space"));
-        assert_eq!(combo(KeyCode::PageUp, KeyModifiers::ALT, false).as_deref(), Some("Alt+Page_Up"));
-        assert_eq!(combo(KeyCode::Char(','), KeyModifiers::ALT, false).as_deref(), Some("Alt+,"));
+        assert_eq!(
+            combo(
+                KeyCode::Char('g'),
+                KeyModifiers::CONTROL | KeyModifiers::ALT,
+                false
+            )
+            .as_deref(),
+            Some("Ctrl+Alt+G")
+        );
+        assert_eq!(
+            combo(KeyCode::Char('G'), KeyModifiers::ALT, true).as_deref(),
+            Some("Meta+Alt+Shift+G")
+        );
+        assert_eq!(
+            combo(KeyCode::Char('g'), KeyModifiers::SUPER, false).as_deref(),
+            Some("Meta+G")
+        );
+        assert_eq!(
+            combo(KeyCode::F(5), KeyModifiers::NONE, false).as_deref(),
+            Some("F5")
+        );
+        assert_eq!(
+            combo(KeyCode::Char(' '), KeyModifiers::CONTROL, false).as_deref(),
+            Some("Ctrl+Space")
+        );
+        assert_eq!(
+            combo(KeyCode::PageUp, KeyModifiers::ALT, false).as_deref(),
+            Some("Alt+Page_Up")
+        );
+        assert_eq!(
+            combo(KeyCode::Char(','), KeyModifiers::ALT, false).as_deref(),
+            Some("Alt+,")
+        );
         assert_eq!(combo(KeyCode::CapsLock, KeyModifiers::ALT, false), None);
     }
 
@@ -1212,29 +1637,66 @@ mod tests {
             ..Default::default()
         }));
         let screen = render(&mut app, 120, 34);
-        for want in ["Global shortcuts", "Use global shortcuts", "‹ on ›", "Meta+Shift+G", "Do toggle-gamemode", "on by hand"] {
+        for want in [
+            "Global shortcuts",
+            "Use global shortcuts",
+            "‹ on ›",
+            "Meta+Shift+G",
+            "Do toggle-gamemode",
+            "on by hand",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
-        assert!(!screen.contains("ug shortcut"), "no commands while the desktop binds the keys");
-        app.shortcuts.store(Ok(ug_proto::ShortcutsState { enabled: true, status: "unavailable".into(), shortcuts: keys(""), ..Default::default() }));
+        assert!(
+            !screen.contains("ug shortcut"),
+            "no commands while the desktop binds the keys"
+        );
+        app.shortcuts.store(Ok(ug_proto::ShortcutsState {
+            enabled: true,
+            status: "unavailable".into(),
+            shortcuts: keys(""),
+            ..Default::default()
+        }));
         let screen = render(&mut app, 120, 34);
-        for want in ["not offered by this desktop", "ug shortcut toggle-overlay", "Meta+Alt+K (yours)"] {
+        for want in [
+            "not offered by this desktop",
+            "ug shortcut toggle-overlay",
+            "Meta+Alt+K (yours)",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
-        assert!(!screen.contains("own settings"), "no Set up row where the desktop's settings can't be written");
+        assert!(
+            !screen.contains("own settings"),
+            "no Set up row where the desktop's settings can't be written"
+        );
         // GNOME or XFCE: a row writes the keys into the desktop's settings.
-        app.desk_keys = Some(ug_proto::DesktopKeys { desktop: "XFCE".into(), set_up: false, problem: String::new() });
+        app.desk_keys = Some(ug_proto::DesktopKeys {
+            desktop: "XFCE".into(),
+            set_up: false,
+            problem: String::new(),
+        });
         let screen = render(&mut app, 120, 34);
-        for want in ["Keys in XFCE's own settings", "‹ set up ›", "ug shortcut toggle-overlay"] {
+        for want in [
+            "Keys in XFCE's own settings",
+            "‹ set up ›",
+            "ug shortcut toggle-overlay",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
         assert_eq!(app.rows, 5);
-        app.desk_keys = Some(ug_proto::DesktopKeys { desktop: "XFCE".into(), set_up: true, problem: "Left alone: Ctrl+Alt+G already runs gimp.".into() });
+        app.desk_keys = Some(ug_proto::DesktopKeys {
+            desktop: "XFCE".into(),
+            set_up: true,
+            problem: "Left alone: Ctrl+Alt+G already runs gimp.".into(),
+        });
         let screen = render(&mut app, 120, 34);
         for want in ["‹ written ›", "Enter removes them", "already runs gimp"] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
-        assert!(!screen.contains("ug shortcut toggle-overlay"), "written: no commands to bind by hand");
+        assert!(
+            !screen.contains("ug shortcut toggle-overlay"),
+            "written: no commands to bind by hand"
+        );
         app.desk_keys = None;
 
         // c records new keys for the selected shortcut; Tab adds Meta, which
@@ -1251,30 +1713,66 @@ mod tests {
         assert_eq!(app.recording, None);
         app.key(KeyCode::Char('c'), KeyModifiers::NONE);
         app.key(KeyCode::Esc, KeyModifiers::NONE);
-        assert_eq!((app.recording.clone(), app.focus, app.quit), (None, Focus::Page, false));
+        assert_eq!(
+            (app.recording.clone(), app.focus, app.quit),
+            (None, Focus::Page, false)
+        );
     }
 
     #[test]
     fn the_overlay_page_and_fps_sessions_draw() {
         let mut app = App::new(Bus::offline());
         app.go(5);
-        app.overlay.store(Ok(OverlayState { installed: true, set_up: true, settings: Default::default(), ..Default::default() }));
+        app.overlay.store(Ok(OverlayState {
+            installed: true,
+            set_up: true,
+            settings: Default::default(),
+            ..Default::default()
+        }));
         let screen = render(&mut app, 120, 34);
-        for want in ["Overlay", "only while gaming", "top-left", "50 %", "Alt_L+o", "Remove Unix Guardian's setup"] {
+        for want in [
+            "Overlay",
+            "only while gaming",
+            "top-left",
+            "50 %",
+            "Alt_L+o",
+            "Remove Unix Guardian's setup",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
-        app.overlay.store(Ok(OverlayState { installed: false, install_hint: "sudo apt install mangohud".into(), ..Default::default() }));
+        app.overlay.store(Ok(OverlayState {
+            installed: false,
+            install_hint: "sudo apt install mangohud".into(),
+            ..Default::default()
+        }));
         assert!(render(&mut app, 120, 34).contains("sudo apt install mangohud"));
 
         app.go(3);
         app.tab = 2;
-        app.fps.store(Ok(FpsReading { state: "idle".into(), ..Default::default() }));
+        app.fps.store(Ok(FpsReading {
+            state: "idle".into(),
+            ..Default::default()
+        }));
         app.sessions.store(Ok(vec![FpsSession {
-            game: "cs2".into(), started_unix_ms: data::now_ms(), duration_s: 3120, frames: 1, avg_fps: 141.0,
-            low_1pct_fps: 96.0, low_01pct_fps: 71.0, p99_frametime_ms: 10.4, stutters: 2,
+            game: "cs2".into(),
+            started_unix_ms: data::now_ms(),
+            duration_s: 3120,
+            frames: 1,
+            avg_fps: 141.0,
+            low_1pct_fps: 96.0,
+            low_01pct_fps: 71.0,
+            p99_frametime_ms: 10.4,
+            stutters: 2,
         }]));
         let screen = render(&mut app, 120, 34);
-        for want in ["Game sessions this week", "cs2", "141", "96", "71", "smooth"] {
+        for want in [
+            "Game sessions this week",
+            "cs2",
+            "141",
+            "96",
+            "71",
+            "smooth",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
     }
@@ -1287,15 +1785,32 @@ mod tests {
         let screen = render(&mut app, 120, 34);
         assert!(screen.contains("Show tuning") && screen.contains("wakes the graphics card"));
         let st = ug_proto::GpuTuneState {
-            pci: "0000:01:00.0".into(), power_limit: true, power_limit_w: 60.0, power_default_w: 60.0, power_min_w: 35.0, power_max_w: 95.0,
-            core_offset: true, core_min_mhz: -200, core_max_mhz: 300, ..Default::default()
+            pci: "0000:01:00.0".into(),
+            power_limit: true,
+            power_limit_w: 60.0,
+            power_default_w: 60.0,
+            power_min_w: 35.0,
+            power_max_w: 95.0,
+            core_offset: true,
+            core_min_mhz: -200,
+            core_max_mhz: 300,
+            ..Default::default()
         };
-        app.tune_draft = ug_proto::GpuTune { power_limit_w: 60.0, ..Default::default() };
+        app.tune_draft = ug_proto::GpuTune {
+            power_limit_w: 60.0,
+            ..Default::default()
+        };
         app.tune = Some(("0000:01:00.0".into(), st));
         app.row = 0;
         pages::step_choice(&mut app, -1);
         let screen = render(&mut app, 120, 34);
-        for want in ["55 W", "default 60, 35–95 W", "Core clock offset", "Try for 30 seconds", "88 °C"] {
+        for want in [
+            "55 W",
+            "default 60, 35–95 W",
+            "Core clock offset",
+            "Try for 30 seconds",
+            "88 °C",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
     }
@@ -1311,7 +1826,11 @@ mod tests {
         for (w, h) in [(120, 34), (80, 24)] {
             let mut app = App::new(Bus::offline());
             render(&mut app, w, h);
-            let (rect, _) = *app.hits.iter().find(|(_, hit)| *hit == Hit::Menu(2)).expect("menu entry 3 is clickable");
+            let (rect, _) = *app
+                .hits
+                .iter()
+                .find(|(_, hit)| *hit == Hit::Menu(2))
+                .expect("menu entry 3 is clickable");
             app.click(rect.x, rect.y);
             assert_eq!(app.page, 2);
             assert_eq!(app.focus, Focus::Page);
@@ -1342,13 +1861,30 @@ mod tests {
             sessions: 3,
             last_played_unix_ms: 0,
         };
-        app.playtime.store(Ok(vec![e("steam:730", "Counter-Strike 2", 3 * 3600 + 7 * 60), e("steam:1245620", "Elden Ring", 25 * 60)]));
+        app.playtime.store(Ok(vec![
+            e("steam:730", "Counter-Strike 2", 3 * 3600 + 7 * 60),
+            e("steam:1245620", "Elden Ring", 25 * 60),
+        ]));
         let screen = render(&mut app, 120, 34);
-        for want in ["This week", "Played this week", "3 h 32 min", "2 games", "most played", "3 h 07 min", "88 %", "25 min"] {
+        for want in [
+            "This week",
+            "Played this week",
+            "3 h 32 min",
+            "2 games",
+            "most played",
+            "3 h 07 min",
+            "88 %",
+            "25 min",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
         app.key(KeyCode::Char('x'), KeyModifiers::NONE);
-        assert!(app.armed.as_ref().is_some_and(|(a, _)| a.contains("Counter-Strike 2")), "first press only arms");
+        assert!(
+            app.armed
+                .as_ref()
+                .is_some_and(|(a, _)| a.contains("Counter-Strike 2")),
+            "first press only arms"
+        );
         assert!(render(&mut app, 120, 34).contains("press again: delete"));
     }
 
@@ -1369,13 +1905,23 @@ mod tests {
             e("exe:wondershare filmora", "Wondershare Filmora", 900, 1),
             e("app:dolphin", "Dolphin", 600, 3),
         ]));
-        let firefox = ug_proto::TrackedApp { exe: "firefox-esr".into(), name: "Firefox ESR".into() };
-        let dolphin = ug_proto::TrackedApp { exe: "dolphin".into(), name: "Dolphin".into() };
-        app.playtime_extra.store(Ok((vec![dolphin.clone()], vec![])));
+        let firefox = ug_proto::TrackedApp {
+            exe: "firefox-esr".into(),
+            name: "Firefox ESR".into(),
+        };
+        let dolphin = ug_proto::TrackedApp {
+            exe: "dolphin".into(),
+            name: "Dolphin".into(),
+        };
+        app.playtime_extra
+            .store(Ok((vec![dolphin.clone()], vec![])));
         app.programs.store(Ok(vec![dolphin, firefox]));
 
         let games = render(&mut app, 120, 34);
-        assert!(games.contains("1×  guessed") && games.contains("2 games"), "{games}");
+        assert!(
+            games.contains("1×  guessed") && games.contains("2 games"),
+            "{games}"
+        );
         assert!(!games.contains("Dolphin"), "apps are not games");
 
         app.row = 0;
@@ -1383,15 +1929,30 @@ mod tests {
         assert!(app.armed.is_none(), "a Steam game is never moved");
         app.row = 1;
         app.key(KeyCode::Char('n'), KeyModifiers::NONE);
-        assert!(app.armed.as_ref().is_some_and(|(a, _)| a == "move Wondershare Filmora to Apps"), "first press only arms");
+        assert!(
+            app.armed
+                .as_ref()
+                .is_some_and(|(a, _)| a == "move Wondershare Filmora to Apps"),
+            "first press only arms"
+        );
         assert!(render(&mut app, 120, 34).contains("n again: not a game"));
 
         app.key(KeyCode::Tab, KeyModifiers::NONE);
         let apps = render(&mut app, 120, 34);
-        for want in ["Apps this week", "1 counted", "Dolphin", "counting", "Open now", "+ Firefox ESR"] {
+        for want in [
+            "Apps this week",
+            "1 counted",
+            "Dolphin",
+            "counting",
+            "Open now",
+            "+ Firefox ESR",
+        ] {
             assert!(apps.contains(want), "missing {want:?} in\n{apps}");
         }
-        assert!(!apps.contains("+ Dolphin"), "a tracked app is not offered again");
+        assert!(
+            !apps.contains("+ Dolphin"),
+            "a tracked app is not offered again"
+        );
         assert_eq!(app.rows, 2, "Dolphin, then Firefox to add");
     }
 
@@ -1403,8 +1964,15 @@ mod tests {
         app.key(KeyCode::Tab, KeyModifiers::NONE);
         app.key(KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.tab, 2);
-        let game = |id: &str, name: &str, launcher: &str| ug_proto::InstalledGameInfo { id: id.into(), name: name.into(), launcher: launcher.into() };
-        app.installed.store(Ok(vec![game("steam:730", "Counter-Strike 2", "steam"), game("lutris:3", "osu!", "lutris")]));
+        let game = |id: &str, name: &str, launcher: &str| ug_proto::InstalledGameInfo {
+            id: id.into(),
+            name: name.into(),
+            launcher: launcher.into(),
+        };
+        app.installed.store(Ok(vec![
+            game("steam:730", "Counter-Strike 2", "steam"),
+            game("lutris:3", "osu!", "lutris"),
+        ]));
         let info = ug_proto::LaunchInfo {
             appid: 730,
             name: "Counter-Strike 2".into(),
@@ -1414,14 +1982,35 @@ mod tests {
             overlay_problem: "MangoHud is not installed.".into(),
             ..Default::default()
         };
-        app.launch = Some(pages::LaunchEdit { appid: 730, info: Ok(info), gpu: String::new(), overlay: false, after: Ok("__NV_PRIME_RENDER_OFFLOAD=1 %command% -novid".into()) });
+        app.launch = Some(pages::LaunchEdit {
+            appid: 730,
+            info: Ok(info),
+            gpu: String::new(),
+            overlay: false,
+            after: Ok("__NV_PRIME_RENDER_OFFLOAD=1 %command% -novid".into()),
+        });
         let screen = render(&mut app, 120, 34);
-        for want in ["Steam launch options", "Counter-Strike 2", "System's choice", "[–]", "MangoHud is not installed.", "Now    -novid", "After  __NV_PRIME_RENDER_OFFLOAD=1 %command% -novid", "Steam is running"] {
+        for want in [
+            "Steam launch options",
+            "Counter-Strike 2",
+            "System's choice",
+            "[–]",
+            "MangoHud is not installed.",
+            "Now    -novid",
+            "After  __NV_PRIME_RENDER_OFFLOAD=1 %command% -novid",
+            "Steam is running",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
-        assert!(!screen.contains("osu!"), "only Steam games have Steam launch options");
+        assert!(
+            !screen.contains("osu!"),
+            "only Steam games have Steam launch options"
+        );
         app.key(KeyCode::Char('o'), KeyModifiers::NONE);
-        assert!(!app.launch.as_ref().unwrap().overlay, "the overlay cannot be chosen without MangoHud");
+        assert!(
+            !app.launch.as_ref().unwrap().overlay,
+            "the overlay cannot be chosen without MangoHud"
+        );
     }
 
     #[test]
@@ -1433,31 +2022,70 @@ mod tests {
         assert!(app.armed.is_some(), "first press only arms");
         app.key(KeyCode::Esc, KeyModifiers::NONE);
         assert!(app.armed.is_none());
-        assert_eq!(app.focus, Focus::Page, "Esc cancelled the action, it did not leave the page");
+        assert_eq!(
+            app.focus,
+            Focus::Page,
+            "Esc cancelled the action, it did not leave the page"
+        );
     }
     #[test]
     fn many_profiles_scroll_in_one_line_and_the_chosen_one_is_always_shown() {
         let mut app = App::new(Bus::offline());
         app.go(1);
-        let mut list: Vec<ug_proto::ProfileInfo> = ["competitive", "balanced", "quiet"].iter().map(|id| ug_proto::ProfileInfo { id: id.to_string(), builtin: true, ..Default::default() }).collect();
+        let mut list: Vec<ug_proto::ProfileInfo> = ["competitive", "balanced", "quiet"]
+            .iter()
+            .map(|id| ug_proto::ProfileInfo {
+                id: id.to_string(),
+                builtin: true,
+                ..Default::default()
+            })
+            .collect();
         for i in 0..12 {
-            list.push(ug_proto::ProfileInfo { id: format!("my-very-long-profile-name-for-game-{i}"), ..Default::default() });
+            list.push(ug_proto::ProfileInfo {
+                id: format!("my-very-long-profile-name-for-game-{i}"),
+                ..Default::default()
+            });
         }
         app.profiles.store(Ok(list));
-        let line = |s: &str| s.lines().find(|l| l.contains("Profile ")).unwrap_or_default().to_string();
+        let line = |s: &str| {
+            s.lines()
+                .find(|l| l.contains("Profile "))
+                .unwrap_or_default()
+                .to_string()
+        };
         let screen = render(&mut app, 80, 24);
         assert!(line(&screen).contains("Competitive"), "{screen}");
-        assert!(line(&screen).contains('›'), "hidden profiles on the right are marked:\n{screen}");
-        assert!(!line(&screen).contains('‹'), "nothing is hidden on the left yet");
+        assert!(
+            line(&screen).contains('›'),
+            "hidden profiles on the right are marked:\n{screen}"
+        );
+        assert!(
+            !line(&screen).contains('‹'),
+            "nothing is hidden on the left yet"
+        );
         app.choice = 14;
         let screen = render(&mut app, 80, 24);
-        assert!(line(&screen).contains("game-11 (yours)"), "the chosen profile is scrolled into view:\n{screen}");
-        assert!(line(&screen).contains('‹') && !line(&screen).contains('›'), "{screen}");
+        assert!(
+            line(&screen).contains("game-11 (yours)"),
+            "the chosen profile is scrolled into view:\n{screen}"
+        );
+        assert!(
+            line(&screen).contains('‹') && !line(&screen).contains('›'),
+            "{screen}"
+        );
         app.choice = 8;
         let screen = render(&mut app, 80, 24);
-        assert!(line(&screen).contains("game-5 (yours)") && line(&screen).contains('‹') && line(&screen).contains('›'), "{screen}");
+        assert!(
+            line(&screen).contains("game-5 (yours)")
+                && line(&screen).contains('‹')
+                && line(&screen).contains('›'),
+            "{screen}"
+        );
         // A name wider than the whole line is cut, not dropped.
-        app.profiles.store(Ok(vec![ug_proto::ProfileInfo { id: "x".repeat(200), ..Default::default() }]));
+        app.profiles.store(Ok(vec![ug_proto::ProfileInfo {
+            id: "x".repeat(200),
+            ..Default::default()
+        }]));
         app.choice = 0;
         let screen = render(&mut app, 80, 24);
         assert!(line(&screen).contains("xxx…"), "{screen}");
@@ -1471,10 +2099,22 @@ mod tests {
         app.tab = 1;
         let period = |title: &str, n: usize, label: &dyn Fn(usize) -> String| data::TrafficPeriod {
             title: title.into(),
-            bars: (0..n).map(|i| (label(i), (i as u64 + 1) * 10_000_000, 1_000_000)).collect(),
+            bars: (0..n)
+                .map(|i| (label(i), (i as u64 + 1) * 10_000_000, 1_000_000))
+                .collect(),
             apps: vec![
-                AppUsage { name: "steam".into(), category: "launcher".into(), rx_bytes: 3_000_000_000, tx_bytes: 10_000_000 },
-                AppUsage { name: "firefox-esr".into(), category: String::new(), rx_bytes: 400_000_000, tx_bytes: 5_000_000 },
+                AppUsage {
+                    name: "steam".into(),
+                    category: "launcher".into(),
+                    rx_bytes: 3_000_000_000,
+                    tx_bytes: 10_000_000,
+                },
+                AppUsage {
+                    name: "firefox-esr".into(),
+                    category: String::new(),
+                    rx_bytes: 400_000_000,
+                    tx_bytes: 5_000_000,
+                },
             ],
         };
         app.traffic.store(Ok(data::TrafficView {
@@ -1482,22 +2122,43 @@ mod tests {
             since: "2026-09-01".into(),
             periods: [
                 period("Today, 2026-10-05", 24, &|i| (i + 1).to_string()),
-                period("Week 2026-10-03 to 2026-10-09", 7, &|i| ["Sa", "Su", "Mo", "Tu", "We", "Th", "Fr"][i].to_string()),
+                period("Week 2026-10-03 to 2026-10-09", 7, &|i| {
+                    ["Sa", "Su", "Mo", "Tu", "We", "Th", "Fr"][i].to_string()
+                }),
                 period("Month 2026-10", 31, &|i| (i + 1).to_string()),
             ],
         }));
         let screen = render(&mut app, 120, 40);
-        for want in ["Used so far", "52.00 GB", "since 2026-09-01", "Today, 2026-10-05", "Apps that used the most", "steam", "3.01 GB", "firefox-esr", "24", "█"] {
+        for want in [
+            "Used so far",
+            "52.00 GB",
+            "since 2026-09-01",
+            "Today, 2026-10-05",
+            "Apps that used the most",
+            "steam",
+            "3.01 GB",
+            "firefox-esr",
+            "24",
+            "█",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
         app.focus = Focus::Page;
         app.key(KeyCode::Right, KeyModifiers::NONE);
         let screen = render(&mut app, 120, 40);
-        assert!(screen.contains("Week 2026-10-03") && screen.contains("Sa") && screen.contains("Fr"), "{screen}");
+        assert!(
+            screen.contains("Week 2026-10-03") && screen.contains("Sa") && screen.contains("Fr"),
+            "{screen}"
+        );
         app.key(KeyCode::Right, KeyModifiers::NONE);
         assert!(render(&mut app, 120, 40).contains("Month 2026-10"));
         app.key(KeyCode::Char('r'), KeyModifiers::NONE);
-        assert!(app.armed.as_ref().is_some_and(|(a, _)| a.contains("internet-use")), "the first r only arms");
+        assert!(
+            app.armed
+                .as_ref()
+                .is_some_and(|(a, _)| a.contains("internet-use")),
+            "the first r only arms"
+        );
     }
 
     #[test]
@@ -1505,14 +2166,41 @@ mod tests {
         use ug_proto::AppTraffic;
         let mut app = App::new(Bus::offline());
         app.go(4);
-        let a = |name: &str, state: &str| AppTraffic { id: format!("x/{name}"), name: name.into(), kind: "app".into(), state: state.into(), ..Default::default() };
-        app.net.store(Ok((vec![a("firefox-esr", "background"), a("qbittorrent", "background"), a("v2rayn", "")], vec![], NetControlStatus { available: true, ..Default::default() })));
+        let a = |name: &str, state: &str| AppTraffic {
+            id: format!("x/{name}"),
+            name: name.into(),
+            kind: "app".into(),
+            state: state.into(),
+            ..Default::default()
+        };
+        app.net.store(Ok((
+            vec![
+                a("firefox-esr", "background"),
+                a("qbittorrent", "background"),
+                a("v2rayn", ""),
+            ],
+            vec![],
+            NetControlStatus {
+                available: true,
+                ..Default::default()
+            },
+        )));
         app.net_bg = Some((true, 1000, 8000, "always".into()));
         let screen = render(&mut app, 130, 40);
-        for want in ["Slow down background apps", "On", "up 1.0 Mbit/s, down 8.0 Mbit/s", "2 slowed now", "s turns it off", "VPNs and proxies, DNS managers"] {
+        for want in [
+            "Slow down background apps",
+            "On",
+            "up 1.0 Mbit/s, down 8.0 Mbit/s",
+            "2 slowed now",
+            "s turns it off",
+            "VPNs and proxies, DNS managers",
+        ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
         app.net_bg = None;
-        assert!(!render(&mut app, 130, 40).contains("Slow down background apps"), "an older service: nothing promised");
+        assert!(
+            !render(&mut app, 130, 40).contains("Slow down background apps"),
+            "an older service: nothing promised"
+        );
     }
 }

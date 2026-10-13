@@ -124,7 +124,10 @@ impl PowerReader {
                 continue;
             }
             let max_uj = read_u64(path.join("max_energy_range_uj")).unwrap_or(u64::MAX);
-            self.domains.push(Domain { energy_path, max_uj });
+            self.domains.push(Domain {
+                energy_path,
+                max_uj,
+            });
         }
 
         tracing::debug!(domains = self.domains.len(), "RAPL scan complete");
@@ -138,7 +141,10 @@ mod tests {
 
     fn rapl_fs(energy_uj: u64, max_uj: u64) -> TestFs {
         let fs = TestFs::new();
-        fs.write("sys/class/powercap/intel-rapl:0/energy_uj", &energy_uj.to_string());
+        fs.write(
+            "sys/class/powercap/intel-rapl:0/energy_uj",
+            &energy_uj.to_string(),
+        );
         fs.write(
             "sys/class/powercap/intel-rapl:0/max_energy_range_uj",
             &max_uj.to_string(),

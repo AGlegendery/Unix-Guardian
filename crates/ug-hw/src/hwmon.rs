@@ -168,7 +168,9 @@ fn collect(chip: &std::path::Path, prefix: &str) -> Vec<Sensor> {
     let mut out: Vec<Sensor> = Vec::new();
     for entry in entries.filter_map(|e| e.ok()) {
         let fname = entry.file_name();
-        let Some(fname) = fname.to_str() else { continue };
+        let Some(fname) = fname.to_str() else {
+            continue;
+        };
         let Some(rest) = fname.strip_prefix(prefix) else {
             continue;
         };
@@ -243,7 +245,9 @@ mod tests {
     #[test]
     fn package_temp_falls_back_to_lowest_index_when_unlabelled() {
         let fs = TestFs::new();
-        fs.hwmon(0, "k10temp").temp_unlabelled(3, 60_000).temp_unlabelled(1, 55_000);
+        fs.hwmon(0, "k10temp")
+            .temp_unlabelled(3, 60_000)
+            .temp_unlabelled(1, 55_000);
 
         let chips = enumerate(&SysRoot::at(fs.root()));
         assert_eq!(chips[0].package_temp(), Some(55.0));
@@ -252,7 +256,9 @@ mod tests {
     #[test]
     fn amd_package_temp_prefers_tctl() {
         let fs = TestFs::new();
-        fs.hwmon(0, "k10temp").temp(1, "Tctl", 61_500).temp(2, "Tccd1", 58_000);
+        fs.hwmon(0, "k10temp")
+            .temp(1, "Tctl", 61_500)
+            .temp(2, "Tccd1", 58_000);
 
         let chips = enumerate(&SysRoot::at(fs.root()));
         assert_eq!(chips[0].package_temp(), Some(61.5));

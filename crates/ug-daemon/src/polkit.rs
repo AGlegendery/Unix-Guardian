@@ -41,7 +41,16 @@ pub mod action {
     /// Every action, for the test that keeps this list and the shipped
     /// policy file in step.
     #[cfg(test)]
-    pub const ALL: &[&str] = &[DAEMON_DEBUG, GAMEMODE, POWER, NET, GPU_TUNE, COOLING, DRIVER, UPDATE];
+    pub const ALL: &[&str] = &[
+        DAEMON_DEBUG,
+        GAMEMODE,
+        POWER,
+        NET,
+        GPU_TUNE,
+        COOLING,
+        DRIVER,
+        UPDATE,
+    ];
 }
 
 /// Bit 0 of CheckAuthorization's flags: allow polkit to prompt the user.
@@ -148,8 +157,7 @@ impl Gate {
 mod tests {
     use super::action;
 
-    const POLICY: &str =
-        include_str!("../../../packaging/polkit/org.unixguardian.policy");
+    const POLICY: &str = include_str!("../../../packaging/polkit/org.unixguardian.policy");
 
     #[test]
     fn every_action_the_daemon_checks_is_defined_in_the_shipped_policy() {

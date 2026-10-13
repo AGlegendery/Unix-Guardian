@@ -40,7 +40,11 @@ impl Proc {
     pub fn exe_basename(&self) -> String {
         let first = self.cmdline.first().map(String::as_str).unwrap_or("");
         if self.is_windows_exe() {
-            return first.rsplit(['/', '\\']).next().unwrap_or(first).to_string();
+            return first
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or(first)
+                .to_string();
         }
         if let Some(e) = self.exe_name.as_deref().filter(|e| !e.is_empty()) {
             return e.to_string();
@@ -108,7 +112,10 @@ pub fn read(root: &SysRoot, pid: i32) -> Option<Proc> {
         .next()?
         .parse()
         .ok()?;
-    let comm = std::fs::read_to_string(d.join("comm")).ok()?.trim_end().to_string();
+    let comm = std::fs::read_to_string(d.join("comm"))
+        .ok()?
+        .trim_end()
+        .to_string();
     // Kernel threads have an empty cmdline; that is fine, they are never games.
     let cmdline = std::fs::read(d.join("cmdline"))
         .map(|b| {
@@ -122,9 +129,22 @@ pub fn read(root: &SysRoot, pid: i32) -> Option<Proc> {
     // detection considers; a deleted binary reads as "name (deleted)".
     let exe_name = std::fs::read_link(d.join("exe")).ok().and_then(|p| {
         let name = p.file_name()?.to_string_lossy().into_owned();
-        Some(name.strip_suffix(" (deleted)").map(str::to_string).unwrap_or(name))
+        Some(
+            name.strip_suffix(" (deleted)")
+                .map(str::to_string)
+                .unwrap_or(name),
+        )
     });
-    Some(Proc { pid, ppid, uid, comm, cmdline, start_ticks, cpu_ticks, exe_name })
+    Some(Proc {
+        pid,
+        ppid,
+        uid,
+        comm,
+        cmdline,
+        start_ticks,
+        cpu_ticks,
+        exe_name,
+    })
 }
 
 /// The Steam App ID a process was launched with, if any.
@@ -141,12 +161,17 @@ pub fn steam_app_id(root: &SysRoot, pid: i32) -> Option<u32> {
             return (id != 0).then_some(id);
         }
         if let Some(v) = var.strip_prefix(b"SteamGameId=") {
-            game_id = std::str::from_utf8(v).ok().and_then(|s| s.parse::<u64>().ok());
+            game_id = std::str::from_utf8(v)
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok());
         }
     }
     // Non-Steam shortcuts: SteamGameId's high bits hold the shortcut id and the
     // App ID field is unused, so the low 32 bits identify it well enough.
-    game_id.filter(|&g| g != 0).map(|g| (g >> 32) as u32).filter(|&id| id != 0)
+    game_id
+        .filter(|&g| g != 0)
+        .map(|g| (g >> 32) as u32)
+        .filter(|&id| id != 0)
 }
 
 /// The `UG_TEST_RUN` token a process was started with, if any. Set by the
@@ -180,11 +205,15 @@ pub fn graphics(root: &SysRoot, pid: i32) -> Graphics {
     };
     let mut g = Graphics::default();
     for line in maps.lines() {
-        let Some(path) = line.split_whitespace().nth(5) else { continue };
+        let Some(path) = line.split_whitespace().nth(5) else {
+            continue;
+        };
         let name = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
-        if name.starts_with("libvulkan") || name == "vulkan-1.dll" || name.starts_with("winevulkan") {
+        if name.starts_with("libvulkan") || name == "vulkan-1.dll" || name.starts_with("winevulkan")
+        {
             g.vulkan = true;
-        } else if name.starts_with("libgl") || name.starts_with("libegl") || name == "opengl32.dll" {
+        } else if name.starts_with("libgl") || name.starts_with("libegl") || name == "opengl32.dll"
+        {
             g.opengl = true;
         } else if (name.starts_with("d3d") && name.ends_with(".dll")) || name == "dxgi.dll" {
             g.direct3d = true;
@@ -212,7 +241,13 @@ mod tests {
     #[test]
     fn reads_a_process_whose_name_contains_parentheses() {
         let fs = TestFs::new();
-        fs.process(&FakeProc { pid: 42, comm: "a (weird) name", cpu_ticks: 250, start_ticks: 900, ..Default::default() });
+        fs.process(&FakeProc {
+            pid: 42,
+            comm: "a (weird) name",
+            cpu_ticks: 250,
+            start_ticks: 900,
+            ..Default::default()
+        });
         let p = read(&SysRoot::at(fs.root()), 42).unwrap();
         assert_eq!(p.comm, "a (weird) name");
         assert_eq!(p.cpu_ticks, 250);
@@ -226,7 +261,10 @@ mod tests {
         fs.process(&FakeProc {
             pid: 7,
             comm: "Cyberpunk2077.e",
-            cmdline: &[r"C:\Games\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe", "--launcher-skip"],
+            cmdline: &[
+                r"C:\Games\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe",
+                "--launcher-skip",
+            ],
             ..Default::default()
         });
         let p = read(&SysRoot::at(fs.root()), 7).unwrap();
@@ -237,9 +275,21 @@ mod tests {
     #[test]
     fn steam_app_id_comes_from_the_environment() {
         let fs = TestFs::new();
-        fs.process(&FakeProc { pid: 1, environ: &[("HOME", "/h"), ("SteamAppId", "730")], ..Default::default() });
-        fs.process(&FakeProc { pid: 2, environ: &[("SteamAppId", "0")], ..Default::default() });
-        fs.process(&FakeProc { pid: 3, environ: &[("PATH", "/usr/bin")], ..Default::default() });
+        fs.process(&FakeProc {
+            pid: 1,
+            environ: &[("HOME", "/h"), ("SteamAppId", "730")],
+            ..Default::default()
+        });
+        fs.process(&FakeProc {
+            pid: 2,
+            environ: &[("SteamAppId", "0")],
+            ..Default::default()
+        });
+        fs.process(&FakeProc {
+            pid: 3,
+            environ: &[("PATH", "/usr/bin")],
+            ..Default::default()
+        });
         let root = SysRoot::at(fs.root());
         assert_eq!(steam_app_id(&root, 1), Some(730));
         assert_eq!(steam_app_id(&root, 2), None, "0 is Steam's 'not a game'");
@@ -251,10 +301,18 @@ mod tests {
         let fs = TestFs::new();
         fs.process(&FakeProc {
             pid: 9,
-            maps: &["/usr/lib/libc.so.6", "/pfx/drive_c/windows/system32/d3d11.dll", "/usr/lib/libvulkan.so.1"],
+            maps: &[
+                "/usr/lib/libc.so.6",
+                "/pfx/drive_c/windows/system32/d3d11.dll",
+                "/usr/lib/libvulkan.so.1",
+            ],
             ..Default::default()
         });
-        fs.process(&FakeProc { pid: 10, maps: &["/usr/lib/libc.so.6"], ..Default::default() });
+        fs.process(&FakeProc {
+            pid: 10,
+            maps: &["/usr/lib/libc.so.6"],
+            ..Default::default()
+        });
         let root = SysRoot::at(fs.root());
         let g = graphics(&root, 9);
         assert!(g.direct3d && g.vulkan && !g.opengl);

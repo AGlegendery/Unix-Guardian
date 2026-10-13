@@ -20,7 +20,10 @@ pub struct Settings {
 /// Checks a value before it is saved.
 fn validate(s: &AgentSettings) -> Result<(), String> {
     if !(1..=10).contains(&s.scan_interval_s) {
-        return Err(format!("scan interval must be 1 to 10 seconds, not {}", s.scan_interval_s));
+        return Err(format!(
+            "scan interval must be 1 to 10 seconds, not {}",
+            s.scan_interval_s
+        ));
     }
     Ok(())
 }
@@ -40,11 +43,20 @@ impl Settings {
                 }
             })
             .unwrap_or_default();
-        Settings { file, current: Mutex::new(current), scan_fixed, changed: tokio::sync::watch::channel(()).0 }
+        Settings {
+            file,
+            current: Mutex::new(current),
+            scan_fixed,
+            changed: tokio::sync::watch::channel(()).0,
+        }
     }
 
     pub fn get(&self) -> AgentSettings {
-        let mut s = self.current.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mut s = self
+            .current
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         if let Some(i) = self.scan_fixed {
             s.scan_interval_s = i;
         }
@@ -58,7 +70,8 @@ impl Settings {
     pub fn set(&self, s: AgentSettings) -> Result<(), String> {
         validate(&s)?;
         let text = serde_json::to_string_pretty(&s).map_err(|e| e.to_string())?;
-        ug_core::paths::write_atomic(&self.file, text.as_bytes()).map_err(|e| format!("{}: {e}", self.file.display()))?;
+        ug_core::paths::write_atomic(&self.file, text.as_bytes())
+            .map_err(|e| format!("{}: {e}", self.file.display()))?;
         *self.current.lock().unwrap_or_else(|e| e.into_inner()) = s;
         self.changed.send_replace(());
         Ok(())
@@ -80,11 +93,23 @@ mod tests {
         let s = Settings::load(d.path(), None);
         assert_eq!(s.get(), AgentSettings::default(), "no file: defaults");
         let w = s.watch();
-        let quiet = AgentSettings { notifications: false, scan_interval_s: 5, close_window_on_game: true, check_updates: false };
+        let quiet = AgentSettings {
+            notifications: false,
+            scan_interval_s: 5,
+            close_window_on_game: true,
+            check_updates: false,
+        };
         s.set(quiet.clone()).unwrap();
         assert!(w.has_changed().unwrap(), "the loop is told");
-        assert_eq!(Settings::load(d.path(), None).get(), quiet, "kept for the next start");
-        let bad = AgentSettings { scan_interval_s: 0, ..quiet.clone() };
+        assert_eq!(
+            Settings::load(d.path(), None).get(),
+            quiet,
+            "kept for the next start"
+        );
+        let bad = AgentSettings {
+            scan_interval_s: 0,
+            ..quiet.clone()
+        };
         assert!(s.set(bad).unwrap_err().contains("1 to 10"));
         assert_eq!(s.get(), quiet, "a refused value changes nothing");
     }
@@ -93,8 +118,15 @@ mod tests {
     fn a_broken_file_gives_the_defaults_and_the_command_line_interval_wins() {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("settings.json"), "{ not json").unwrap();
-        assert_eq!(Settings::load(d.path(), None).get(), AgentSettings::default());
-        std::fs::write(d.path().join("settings.json"), r#"{"notifications":true,"scan_interval_s":9,"close_window_on_game":false}"#).unwrap();
+        assert_eq!(
+            Settings::load(d.path(), None).get(),
+            AgentSettings::default()
+        );
+        std::fs::write(
+            d.path().join("settings.json"),
+            r#"{"notifications":true,"scan_interval_s":9,"close_window_on_game":false}"#,
+        )
+        .unwrap();
         // A file from before check_updates existed keeps its values.
         let old = Settings::load(d.path(), None).get();
         assert_eq!((old.scan_interval_s, old.check_updates), (9, true));
