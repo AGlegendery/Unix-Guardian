@@ -8,6 +8,15 @@ Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 
 Last updated: 2026-10-11 (test-lab fixes from Hyprland/XFCE/GNOME reports; work is on `main` now).
 
+## Now (2026-10-14): installer + Arch
+
+The laptop runs **Arch Linux + Hyprland** now (was Parrot/KDE). `installer.sh`
+(repo root) and its README sections are done in `c943006`, not pushed: no
+GitHub credentials (user asked to run `gh auth login`). webkit2gtk-4.1 was
+not installed; the user was asked to run `bash ./installer.sh` themselves
+(sudo). Next: push, `ug testlab` on Arch, fix failures, add an Arch row to
+README "Tested on". Nothing installed under /usr/local yet on this system.
+
 ## Where we are
 
 - Repo: `/home/aglegend/SSDBkup/IMPORTANT/ProgramingTable/unix-guardian`
