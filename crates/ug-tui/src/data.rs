@@ -21,7 +21,8 @@ pub struct Bus {
 fn msg(e: zbus::Error, who: &str) -> String {
     match e {
         zbus::Error::MethodError(name, _, _) if name.as_str().ends_with("ServiceUnknown") => {
-            format!("The Unix Guardian {who} is not running.")
+            let root = std::path::Path::new("/");
+            if who == "agent" { ug_core::missing::agent_down(root) } else { ug_core::missing::daemon_down(root) }
         }
         zbus::Error::MethodError(_, Some(m), _) => m,
         other => other.to_string(),

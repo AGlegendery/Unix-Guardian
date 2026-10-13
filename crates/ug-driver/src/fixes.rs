@@ -604,7 +604,13 @@ pub fn commands(fix_id: &str, facts: &Facts) -> Vec<String> {
         "install-nvidia-driver" => by(
             &["sudo apt install nvidia-driver firmware-misc-nonfree"],
             &["sudo pacman -S --needed nvidia-open-dkms nvidia-utils lib32-nvidia-utils"],
-            &["# needs RPM Fusion (nonfree) enabled", "sudo dnf install akmod-nvidia xorg-x11-drv-nvidia-cuda"],
+            &[
+                "# Fedora's NVIDIA driver comes from RPM Fusion; this enables it",
+                "sudo dnf install https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm",
+                "sudo dnf install akmod-nvidia xorg-x11-drv-nvidia-cuda",
+                "# with Secure Boot on, enroll akmods' key, then restart and confirm it in the blue MOK screen:",
+                "sudo kmodgenca -a && sudo mokutil --import /etc/pki/akmods/certs/public_key.der",
+            ],
             &["# add the NVIDIA repository first (YaST or zypper addrepo)", "sudo zypper install-new-recommends --repo NVIDIA"],
         ),
         "install-headers" => by(

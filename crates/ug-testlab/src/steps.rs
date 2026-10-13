@@ -274,7 +274,7 @@ impl Lab {
                         "service",
                         "reachable",
                         Status::Fail,
-                        format!("{e}. Is it installed and running? sudo systemctl start unix-guardiand"),
+                        format!("{e}. {}", ug_core::missing::daemon_down(std::path::Path::new("/"))),
                     ),
                 }
             }
@@ -300,7 +300,7 @@ impl Lab {
                         }
                     }
                     (Err(e), _) => {
-                        self.add("agent", "reachable", Status::Fail, format!("{e}. Start it: systemctl --user start ug-agent"));
+                        self.add("agent", "reachable", Status::Fail, format!("{e}. {}", ug_core::missing::agent_down(std::path::Path::new("/"))));
                         self.agent = None;
                     }
                 }

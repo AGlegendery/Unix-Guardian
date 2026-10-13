@@ -152,6 +152,20 @@ if [ -e /usr/local/share/unix-guardian/installed-files ]; then
   die "Unix Guardian is installed from the release tarball. Remove it first with that folder's: sudo ./install.sh --uninstall"
 fi
 
+# A copy put in ~/.local/bin by hand (only the window, say) comes first on
+# PATH, so it would run instead of this install and find no service.
+stale=()
+for b in ug ug-app ug-agent ug-daemon ug-stress; do
+  # ugrep also installs a program called ug: only ours mention Unix Guardian.
+  f="$HOME/.local/bin/$b"
+  [ -f "$f" ] && grep -qa "Unix Guardian" "$f" && stale+=("$f")
+done
+if [ "${#stale[@]}" -gt 0 ]; then
+  note "older copies found: ${stale[*]}"
+  note "they would run instead of the version installed now."
+  if ask "Remove them?"; then rm -f "${stale[@]}"; ok "removed"; fi
+fi
+
 step "Installing Unix Guardian on $os_name"
 [ -e /usr/local/bin/ug-daemon ] && echo "  An earlier install was found; it is updated in place, settings kept."
 
@@ -365,4 +379,14 @@ EOF
 if [[ ":${XDG_CURRENT_DESKTOP:-}:" == *:GNOME:* ]]; then
   echo "  GNOME: the tray icon needs the AppIndicator extension (README, \"Tray icon on GNOME\")."
 fi
+# An NVIDIA card (vendor 0x10de, display class 0x03) without NVIDIA's own
+# driver loaded: games run on nouveau. The driver check says how to fix it.
+for d in /sys/bus/pci/devices/*; do
+  if [ "$(cat "$d/vendor" 2>/dev/null)" = 0x10de ] && [[ "$(cat "$d/class" 2>/dev/null)" == 0x03* ]] \
+     && [ ! -d /sys/module/nvidia ]; then
+    note "This NVIDIA card is not using NVIDIA's driver. See how to install it: ug diagnose"
+    [ "$pm" = dnf ] && note "(on Fedora it comes from RPM Fusion; ug diagnose lists the commands)"
+    break
+  fi
+done
 echo "  Log of this run: $log"

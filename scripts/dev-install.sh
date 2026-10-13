@@ -91,6 +91,12 @@ sed 's|^Exec=ug-agent|Exec=/usr/local/bin/ug-agent|' "$pkg/autostart/ug-agent.de
   | install -Dm644 /dev/stdin /etc/xdg/autostart/ug-agent.desktop
 systemctl --global enable ug-agent.service
 
+# SELinux (Fedora): give the new files their folders' labels before the
+# services start, so a file that kept another label is not refused.
+if command -v restorecon >/dev/null && command -v selinuxenabled >/dev/null && selinuxenabled; then
+  for f in "${files[@]}"; do [ -e "$f" ] && restorecon -F "$f"; done
+fi
+
 systemctl daemon-reload
 # dbus-broker and dbus-daemon both pick up new policy on reload.
 systemctl reload dbus.service 2>/dev/null || busctl call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig

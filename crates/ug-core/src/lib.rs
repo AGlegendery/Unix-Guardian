@@ -8,6 +8,7 @@ pub mod distro;
 pub mod gpu_default;
 pub mod playtime;
 pub mod logging;
+pub mod missing;
 pub mod paths;
 pub mod profile;
 pub mod session_env;

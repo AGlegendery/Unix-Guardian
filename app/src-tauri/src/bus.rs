@@ -32,10 +32,14 @@ struct Monitor {
 
 type Res<T> = Result<T, String>;
 
-const DAEMON_DOWN: &str = "The Unix Guardian service is not running. Install or start it: \
-     sudo systemctl start unix-guardiand";
-const AGENT_DOWN: &str = "The Unix Guardian agent is not running in this session. Start it: \
-     systemctl --user start ug-agent";
+/// Start it when it is installed; run the installer when only the window is.
+fn daemon_down() -> String {
+    ug_core::missing::daemon_down(std::path::Path::new("/"))
+}
+
+fn agent_down() -> String {
+    ug_core::missing::agent_down(std::path::Path::new("/"))
+}
 
 impl Bus {
     pub fn new(daemon_on_session: bool) -> Self {
@@ -56,14 +60,14 @@ impl Bus {
     }
 
     async fn daemon(&self) -> Res<&zbus::Connection> {
-        self.daemon.get_or_try_init(|| self.daemon_bus()).await.map_err(|_| DAEMON_DOWN.to_string())
+        self.daemon.get_or_try_init(|| self.daemon_bus()).await.map_err(|_| daemon_down())
     }
 
     async fn agent(&self) -> Res<&zbus::Connection> {
         self.agent
             .get_or_try_init(zbus::Connection::session)
             .await
-            .map_err(|_| AGENT_DOWN.to_string())
+            .map_err(|_| agent_down())
     }
 
     /// Ends the sample stream (the page hid, or asked). Closing the window ends
@@ -88,7 +92,7 @@ impl Monitor {
 /// people; a missing service gets the hint for starting it.
 fn daemon_err(e: zbus::Error) -> String {
     match e {
-        zbus::Error::MethodError(name, _, _) if name.as_str().ends_with("ServiceUnknown") => DAEMON_DOWN.into(),
+        zbus::Error::MethodError(name, _, _) if name.as_str().ends_with("ServiceUnknown") => daemon_down(),
         zbus::Error::MethodError(_, Some(msg), _) => msg,
         other => other.to_string(),
     }
@@ -96,7 +100,7 @@ fn daemon_err(e: zbus::Error) -> String {
 
 fn agent_err(e: zbus::Error) -> String {
     match e {
-        zbus::Error::MethodError(name, _, _) if name.as_str().ends_with("ServiceUnknown") => AGENT_DOWN.into(),
+        zbus::Error::MethodError(name, _, _) if name.as_str().ends_with("ServiceUnknown") => agent_down(),
         zbus::Error::MethodError(_, Some(msg), _) => msg,
         other => other.to_string(),
     }
@@ -171,7 +175,7 @@ pub async fn monitor_start(app: AppHandle, bus: State<'_, Bus>, interval_ms: u32
     if let Some(m) = slot.take() {
         m.end().await;
     }
-    let conn = bus.daemon_bus().await.map_err(|_| DAEMON_DOWN.to_string())?;
+    let conn = bus.daemon_bus().await.map_err(|_| daemon_down())?;
     let d = DaemonProxy::new(&conn).await.map_err(daemon_err)?;
     // Listen before subscribing, or the first sample arrives before the match
     // rule exists and is lost (found in the CLI, 05-findings.md).

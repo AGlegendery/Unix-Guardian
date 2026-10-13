@@ -802,7 +802,7 @@ fn agent_hint(e: zbus::Error) -> anyhow::Error {
             return anyhow::anyhow!("{m}");
         }
     }
-    anyhow::anyhow!("{e}\nIs ug-agent running in this session? It starts with your desktop login.")
+    anyhow::anyhow!("{e}\n{}", ug_core::missing::agent_down(std::path::Path::new("/")))
 }
 
 async fn game(command: GameCommand, json: bool) -> Result<()> {

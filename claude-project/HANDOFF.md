@@ -19,6 +19,14 @@ setup-git done). Test lab on Arch/Hyprland: 48 pass, 0 fail. Fixed a false
 `nvidia-version-mismatch` (the open module's version line, "Open Kernel Module
 for x86_64 615.71.09", read as "for"). README has an Arch row. The user must
 re-run `bash ./installer.sh` to get the fix installed.
+Fedora (user's 2026-10-12 report, before installer.sh: only ug-app copied to
+~/.local/bin, so service/agent unreachable): window, CLI, TUI and test lab now
+say "not installed, run bash ./installer.sh" when the unit files are missing
+(`ug_core::missing`); dev-install.sh relabels for SELinux; the installer
+removes stale ~/.local/bin copies and notes an NVIDIA card without its driver;
+the dnf NVIDIA fix lists RPM Fusion + akmods MOK steps. Not run on Fedora yet
+(no docker access here): next time the user boots Fedora, `bash ./installer.sh`
+then `ug testlab`.
 
 ## Where we are
 
