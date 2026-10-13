@@ -352,3 +352,14 @@ fn sleep_firmware_and_debian_s_firmware_component() {
     std::fs::remove_file(fs.root().join("lib/firmware/iwlwifi-so-a0-gf-a0-83.ucode")).unwrap();
     assert!(has(&fs, &Env::default(), "firmware-iwlwifi-missing"));
 }
+
+#[test]
+fn the_open_kernel_module_version_is_read() {
+    // Arch's nvidia-open: "Open Kernel Module for x86_64", the version after "for x86_64".
+    let fs = TestFs::new();
+    fs.write("proc/driver/nvidia/version", "NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  615.71.09  Release Build  (root@)  \nGCC version:  gcc version 15.2.1\n")
+        .write("usr/lib/libnvidia-ml.so.615.71.09", "");
+    let f = inventory::facts(&SysRoot::at(fs.root()), &Env::default());
+    assert_eq!(f["nvidia.kernel_version"].text(), "615.71.09");
+    assert!(!ids(&fs, &Env::default()).contains(&"nvidia-version-mismatch".to_string()));
+}

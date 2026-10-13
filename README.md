@@ -231,6 +231,7 @@ need a restart.
 | GNOME (Wayland) | Debian-based | ✅ Passed |
 | Hyprland (Wayland) | Debian-based | ✅ Passed |
 | XFCE (X11) | Debian-based | ⚠️ Passed except the recorder (being fixed) |
+| Hyprland (Wayland) | Arch Linux | ✅ Passed (installed with `installer.sh`) |
 | — | CachyOS | ⏳ Pending |
 
 Tried it somewhere else? Run the test lab (`ug testlab` or the Test lab page)
@@ -492,6 +493,7 @@ gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com
 | گنوم (ویلند) | مبتنی بر دبیان | ✅ موفق |
 | Hyprland (ویلند) | مبتنی بر دبیان | ✅ موفق |
 | XFCE (X11) | مبتنی بر دبیان | ⚠️ موفق به‌جز ریکوردر (در حال رفع) |
+| Hyprland (ویلند) | آرچ لینوکس | ✅ موفق (نصب با `installer.sh`) |
 | — | CachyOS | ⏳ در انتظار |
 
 روی سیستم دیگری امتحانش کردید؟ تست نرم‌افزاری (`ug testlab` یا همین صفحه در برنامه) را اجرا کنید و گزارشش را برای ما ایمیل کنید.

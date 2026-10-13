@@ -141,10 +141,13 @@ pub fn nvidia_family(name: &str) -> &'static str {
     }
 }
 
-/// `550.163.01` from "NVRM version: NVIDIA UNIX x86_64 Kernel Module  550.163.01  …".
+/// `550.163.01` from "NVRM version: NVIDIA UNIX x86_64 Kernel Module  550.163.01  …",
+/// or from the open module's "… Open Kernel Module for x86_64  615.71.09  …":
+/// the first word after "Kernel Module" that starts with a digit.
 fn nvidia_kernel_version(root: &SysRoot) -> String {
     if let Ok(t) = std::fs::read_to_string(root.join("proc/driver/nvidia/version")) {
-        if let Some(v) = t.lines().next().and_then(|l| l.split("Kernel Module").nth(1)).and_then(|r| r.split_whitespace().next()) {
+        let after = t.lines().next().and_then(|l| l.split("Kernel Module").nth(1));
+        if let Some(v) = after.and_then(|r| r.split_whitespace().find(|w| w.starts_with(|c: char| c.is_ascii_digit()) && w.contains('.'))) {
             return v.to_string();
         }
     }

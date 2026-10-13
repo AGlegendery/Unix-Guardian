@@ -15,7 +15,10 @@ The laptop runs **Arch Linux + Hyprland** now (was Parrot/KDE). `installer.sh`
 GitHub credentials (user asked to run `gh auth login`). webkit2gtk-4.1 was
 not installed; the user was asked to run `bash ./installer.sh` themselves
 (sudo). Installer ran fine on Arch (daemon + agent up); main pushed (gh auth
-setup-git done). Next: read the user's test-lab report, fix, add Arch row.
+setup-git done). Test lab on Arch/Hyprland: 48 pass, 0 fail. Fixed a false
+`nvidia-version-mismatch` (the open module's version line, "Open Kernel Module
+for x86_64 615.71.09", read as "for"). README has an Arch row. The user must
+re-run `bash ./installer.sh` to get the fix installed.
 
 ## Where we are
 
