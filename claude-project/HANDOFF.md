@@ -27,6 +27,13 @@ removes stale ~/.local/bin copies and notes an NVIDIA card without its driver;
 the dnf NVIDIA fix lists RPM Fusion + akmods MOK steps. Not run on Fedora yet
 (no docker access here): next time the user boots Fedora, `bash ./installer.sh`
 then `ug testlab`.
+Release (2026-10-14, user asked for a beta for all distros): CI is green for
+the first time (cargo fmt over everything, clippy clean, CI containers got
+PyGObject + diffutils). The release tarball's install.sh now installs
+WebKitGTK/AppIndicator and relabels SELinux. Tag push was refused by auto
+mode, so the user runs: `git tag -a v0.1.0-beta.1 -m ... && git push origin
+v0.1.0-beta.1`; release.yml makes a draft; publish with `gh release edit
+v0.1.0-beta.1 --draft=false` after checking it. Repo stays private.
 
 ## Where we are
 
