@@ -59,7 +59,9 @@ sed -e "s/@VERSION@/$debver/" -e "s/@ARCH@/$arch/" -e "s/@DEPENDS@/$depends/" \
 install -m755 packaging/deb/postinst packaging/deb/prerm packaging/deb/postrm "$deb/DEBIAN/"
 # Files under /etc are the admin's to edit.
 (cd "$deb" && find etc -type f | sed 's|^|/|') > "$deb/DEBIAN/conffiles"
-fakeroot dpkg-deb --build -Zxz "$deb" "$out/unix-guardian_${debver}_${arch}.deb" >/dev/null
+# GitHub renames "~" in uploaded file names (to "."), which breaks SHA256SUMS:
+# the file name says 0.1.0-beta1, the package inside keeps 0.1.0~beta1.
+fakeroot dpkg-deb --build -Zxz "$deb" "$out/unix-guardian_${debver//\~/-}_${arch}.deb" >/dev/null
 
 # --- install.sh tarball ---------------------------------------------------
 tdir="$work/unix-guardian-$ver-x86_64"
