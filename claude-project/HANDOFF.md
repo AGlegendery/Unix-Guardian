@@ -34,6 +34,10 @@ WebKitGTK/AppIndicator and relabels SELinux. Tag push was refused by auto
 mode, so the user runs: `git tag -a v0.1.0-beta.1 -m ... && git push origin
 v0.1.0-beta.1`; release.yml makes a draft; publish with `gh release edit
 v0.1.0-beta.1 --draft=false` after checking it. Repo stays private.
+2026-10-14: tag re-pushed on `8d6bb4f` (deb name without "~": GitHub turned
+it into "." and broke SHA256SUMS). Draft checked: sums OK, all three
+signatures verify with PUBLIC_KEY, tarball installs into a scratch root.
+User publishes with `gh release edit untagged-04fde8244b1ae9495c46 --draft=false`.
 
 ## Where we are
 
