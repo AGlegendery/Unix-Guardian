@@ -55,6 +55,11 @@ update.toml public_key in the sysroot). Open question to the user, no answer
 yet: let installer.sh (development) installs update from the signed release
 tarball too (recommended; install.sh now takes them over) or keep showing
 the git pull command. No code written for this yet.
+2026-10-14 11:44: user ran release.sh 0.1.0-beta.2 and pushed (tag on
+`fa68d03`). Draft checked: release.yml green incl. the tarball test, sums OK,
+3 signatures OK with PUBLIC_KEY, binaries say 0.1.0-beta.2, install.sh has
+no installer.sh reference. User publishes with
+`gh release edit v0.1.0-beta.2 --repo AGlegendery/Unix-Guardian --draft=false`.
 
 ## Where we are
 
