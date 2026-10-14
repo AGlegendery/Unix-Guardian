@@ -46,6 +46,15 @@ replaces a source-folder install itself; `scripts/tarball-install-test.sh`
 install/uninstall and the takeover in scratch roots. beta.1's tarball still
 has the old install.sh; a beta.2 (scripts/release.sh 0.1.0-beta.2, user pushes
 the tag) would ship the fix.
+2026-10-14 ~11:00, STOPPED (user closed the app): user asked to "complete the
+update section". Found: check works (repo is public now); download → verify
+→ install.sh → rollback has never run end to end. Next: scripts/update-e2e.sh
+(daemon --session --sysroot, agent, file:// feed with a tarball from
+stage.sh signed by a test key via `sign keygen --no-password` and
+update.toml public_key in the sysroot). Open question to the user, no answer
+yet: let installer.sh (development) installs update from the signed release
+tarball too (recommended; install.sh now takes them over) or keep showing
+the git pull command. No code written for this yet.
 
 ## Where we are
 
