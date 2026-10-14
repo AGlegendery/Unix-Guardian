@@ -43,6 +43,8 @@ jobs:
       - run: cargo test --workspace
       - name: Packages
         run: ./scripts/build-packages.sh
+      - name: The tarball installs, takes over a source install and uninstalls
+        run: ./scripts/tarball-install-test.sh dist/*.tar.gz
       - name: Sign
         env:
           MINISIGN_KEY: ${{ secrets.MINISIGN_KEY }}

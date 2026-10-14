@@ -47,11 +47,34 @@ if [ -z "$root" ]; then
     echo "Unix Guardian is installed from a package already (/usr/bin/ug-daemon); update the package instead." >&2
     exit 1
   fi
-  if [ -e /etc/systemd/system/unix-guardiand.service ]; then
-    echo "An install from the source folder is present; remove it first there: bash ./installer.sh --uninstall" >&2
-    exit 1
-  fi
   command -v systemctl >/dev/null || { echo "Unix Guardian needs systemd." >&2; exit 1; }
+fi
+
+# An install from the source folder (scripts/dev-install.sh) is replaced by
+# this one: its files are the same programs, and its units in /etc would
+# shadow ours. Keep this list in step with dev-install.sh's;
+# scripts/tarball-install-test.sh checks it.
+if [ -e "$root/etc/systemd/system/unix-guardiand.service" ]; then
+  echo "Replacing the install made from the source folder (settings and history are kept)."
+  if live; then
+    systemctl disable --now unix-guardiand.service 2>/dev/null || true
+    systemctl --global disable ug-agent.service 2>/dev/null || true
+  fi
+  for f in /usr/local/bin/ug-daemon /usr/local/bin/ug-agent /usr/local/bin/ug \
+           /usr/local/bin/ug-stress /usr/local/bin/ug-app \
+           /etc/systemd/user/ug-agent.service \
+           /usr/local/share/dbus-1/services/org.unixguardian.Agent1.service \
+           /etc/xdg/autostart/ug-agent.desktop \
+           /etc/systemd/system/unix-guardiand.service \
+           /usr/local/share/dbus-1/system-services/org.unixguardian.Daemon1.service \
+           /etc/dbus-1/system.d/org.unixguardian.Daemon1.conf \
+           /usr/share/polkit-1/actions/org.unixguardian.policy \
+           /usr/local/share/applications/unix-guardian.desktop \
+           /usr/local/share/icons/hicolor/scalable/apps/unix-guardian.svg \
+           /usr/local/share/icons/hicolor/{scalable,16x16}/status/unix-guardian-{normal,warning,critical,gamemode,offline}.svg; do
+    rm -f "$root$f"
+  done
+  live && systemctl daemon-reload
 fi
 
 # The window and the tray need WebKitGTK 4.1 and an AppIndicator library

@@ -27,6 +27,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
 
+  # The release tarball's install.sh, into scratch roots (no root, no services).
+  tarball:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/tarball-install-test.sh
+
   # The daemon has to build and behave on every Tier 1 family, and the
   # interesting differences (paths, dbus flavour, os-release shapes) only show
   # up in the distribution's own userland.

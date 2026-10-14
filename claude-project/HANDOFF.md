@@ -38,6 +38,14 @@ v0.1.0-beta.1 --draft=false` after checking it. Repo stays private.
 it into "." and broke SHA256SUMS). Draft checked: sums OK, all three
 signatures verify with PUBLIC_KEY, tarball installs into a scratch root.
 User publishes with `gh release edit untagged-04fde8244b1ae9495c46 --draft=false`.
+v0.1.0-beta.1 is published. The user's tarball install.sh stopped on the
+laptop's source-folder install and told them to run `installer.sh`, which the
+tarball doesn't have (it meant the repo's). Fixed: packaging/install.sh now
+replaces a source-folder install itself; `scripts/tarball-install-test.sh`
+(CI job `tarball`, and on the real tarball in release.yml) checks contents,
+install/uninstall and the takeover in scratch roots. beta.1's tarball still
+has the old install.sh; a beta.2 (scripts/release.sh 0.1.0-beta.2, user pushes
+the tag) would ship the fix.
 
 ## Where we are
 

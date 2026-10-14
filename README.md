@@ -193,6 +193,7 @@ a Flatpak; the installer says so and changes nothing.
 
 Remove with `sudo apt remove unix-guardian`, `sudo pacman -R unix-guardian` or
 `sudo ./install.sh --uninstall`. Your settings and history are kept.
+`install.sh` replaces an earlier install made with `bash ./installer.sh`.
 
 After installing, open **Unix Guardian** from the app menu, or run `ug tui`.
 
@@ -454,6 +455,7 @@ Bluefin، فدورا Silverblue/Kinoite، SteamOS و NixOS هنوز پشتیبا
 
 حذف: `sudo apt remove unix-guardian`، `sudo pacman -R unix-guardian` یا
 `sudo ./install.sh --uninstall`. تنظیمات و تاریخچه‌ی شما می‌ماند.
+`install.sh` نصب قبلی‌ای را که با `bash ./installer.sh` انجام شده جایگزین می‌کند.
 
 بعد از نصب، **Unix Guardian** را از منوی برنامه‌ها باز کنید یا `ug tui` بزنید.
 
