@@ -4,9 +4,9 @@
 # source tarball next to this file; once releases are tagged the same
 # PKGBUILD builds from GitHub.
 pkgname=unix-guardian
-pkgver=0.1.0beta1
+pkgver=0.1.0beta2
 # The release tag without its v (scripts/release.sh sets both).
-_tag=0.1.0-beta.1
+_tag=0.1.0-beta.2
 pkgrel=1
 pkgdesc="Linux gaming utility: game mode, monitoring, GPU tuning, playtime and MangoHud setup"
 arch=('x86_64')

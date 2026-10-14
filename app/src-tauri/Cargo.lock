@@ -4082,7 +4082,7 @@ dependencies = [
 
 [[package]]
 name = "ug-app"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "futures-lite",
  "serde",
@@ -4101,7 +4101,7 @@ dependencies = [
 
 [[package]]
 name = "ug-core"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "libc",
  "minisign-verify",
@@ -4116,7 +4116,7 @@ dependencies = [
 
 [[package]]
 name = "ug-driver"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "libc",
  "serde",
@@ -4131,7 +4131,7 @@ dependencies = [
 
 [[package]]
 name = "ug-gpu"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "nvml-wrapper",
  "tracing",
@@ -4141,7 +4141,7 @@ dependencies = [
 
 [[package]]
 name = "ug-hw"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "tracing",
  "ug-proto",
@@ -4149,7 +4149,7 @@ dependencies = [
 
 [[package]]
 name = "ug-proto"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -4158,7 +4158,7 @@ dependencies = [
 
 [[package]]
 name = "ug-testlab"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "libc",
  "serde",
