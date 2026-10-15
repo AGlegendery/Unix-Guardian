@@ -1,7 +1,8 @@
 //! `org.unixguardian.Daemon1.Driver`: the driver troubleshooter's changes.
 //!
 //! Diagnosis runs in the caller (it needs no root); the daemon only plans,
-//! applies and undoes fixes, each behind polkit with a password every time.
+//! applies and undoes fixes, each behind polkit (the password once, then
+//! kept a few minutes, so a fix and its undo or a second fix ask only once).
 //! A development daemon on the real system never changes drivers; with
 //! `--sysroot` it changes the scratch tree and records the programs it
 //! would run.

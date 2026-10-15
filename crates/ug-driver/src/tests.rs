@@ -279,6 +279,20 @@ fn flatpak_apps_need_the_runtime_of_this_exact_driver() {
         .find(|f| f.id == "nvidia-flatpak-gl-mismatch")
         .expect("found");
     assert!(f.commands[1].contains("org.freedesktop.Platform.GL.nvidia-550-163-01 org.freedesktop.Platform.GL32.nvidia-550-163-01"));
+    // The user asked for "do it for me" here too: the service installs the
+    // runtime system-wide, and undo uninstalls exactly it.
+    assert!(f.fix_auto, "Unix Guardian installs it itself");
+    fs.write("usr/bin/flatpak", "");
+    let facts = inventory::facts(&SysRoot::at(fs.root()), &Env::default());
+    let fix = crate::fixes::auto("flatpak-gl", &SysRoot::at(fs.root()), &facts).unwrap();
+    assert!(!fix.needs_reboot);
+    match &fix.steps[..] {
+        [crate::fixes::Step::Command { argv, undo }] => {
+            assert!(argv.join(" ").starts_with("flatpak install --system -y --noninteractive flathub org.freedesktop.Platform.GL.nvidia-550-163-01"), "{argv:?}");
+            assert_eq!(undo[..2], ["flatpak".to_string(), "uninstall".to_string()]);
+        }
+        other => panic!("{other:?}"),
+    }
 }
 
 #[test]
@@ -580,6 +594,27 @@ fn sleep_firmware_and_debian_s_firmware_component() {
     fs.write(
         "proc/swaps",
         "Filename Type Size Used Priority\n/dev/zram0 partition 4000000 0 100\n",
+    );
+    assert!(has(&fs, &Env::default(), "hibernate-swap-too-small"));
+    // The laptop (2026-10-15): 27 GB of memory and a 16 GB swap file. The
+    // kernel shrinks the image to image_size (2/5 of memory by default), so
+    // 16 GB is plenty; the old 60 % rule called it too small.
+    fs.write("proc/meminfo", "MemTotal:       28429964 kB
+")
+        .write("sys/power/image_size", "11534872576
+")
+        .write(
+            "proc/swaps",
+            "Filename Type Size Used Priority
+/swap/swapfile file 16777212 0 -1
+",
+        );
+    assert!(!has(&fs, &Env::default(), "hibernate-swap-too-small"));
+    fs.write(
+        "proc/swaps",
+        "Filename Type Size Used Priority
+/swap/swapfile file 8388604 0 -1
+",
     );
     assert!(has(&fs, &Env::default(), "hibernate-swap-too-small"));
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   // The driver troubleshooter: check, explain, and fix with a review first.
   // The check runs in this process (files only); fixes go to the service,
-  // which asks for the password each time and keeps an undo.
+  // which asks for the password once (kept a few minutes) and keeps an undo.
   import { api, errorText, type DriverFinding, type DriverOp, type DriverPlan, type DriverReport } from "../lib/api";
   import { locale, t } from "../lib/i18n.svelte";
   import GaugeLoader from "../lib/ui/GaugeLoader.svelte";
@@ -14,6 +14,37 @@
   let serviceDown = $state(false);
   let copied = $state<string | null>(null);
   let showFacts = $state(false);
+
+  // Why a fix the service will not run cannot be done here, from the
+  // service itself (the same check "Do it for me" would hit), so the
+  // button is shown disabled with its reason instead of left out.
+  let notHere = $state<Record<string, string>>({});
+  $effect(() => {
+    const r = report;
+    if (!r || serviceDown) return;
+    for (const f of r.findings) {
+      if (f.fix_auto || !f.fix_id || f.fix_id === "reboot" || notHere[f.id]) continue;
+      api.driverPlan(f.fix_id).then(
+        () => {},
+        (e) => (notHere = { ...notHere, [f.id]: errorText(e) }),
+      );
+    }
+  });
+  // A restart is its own button: two presses, then the system's restart.
+  let restartArmed = $state(false);
+  async function restart() {
+    if (!restartArmed) {
+      restartArmed = true;
+      setTimeout(() => (restartArmed = false), 5000);
+      return;
+    }
+    restartArmed = false;
+    try {
+      await api.powerNow("reboot");
+    } catch (e) {
+      error = errorText(e);
+    }
+  }
 
   // The review panel for one fix.
   let review = $state<{ finding: DriverFinding; plan: DriverPlan | null; agreed: boolean; busy: boolean } | null>(null);
@@ -221,8 +252,12 @@
         <pre dir="ltr">{f.commands.join("\n")}</pre>
       {/if}
       <div class="actions">
-        {#if f.fix_auto}
+        {#if f.fix_id === "reboot"}
+          <button class="btn primary" class:armed={restartArmed} onclick={restart} disabled={serviceDown}>{restartArmed ? t().drivers.restartConfirm : t().drivers.restartNow}</button>
+        {:else if f.fix_auto}
           <button class="btn primary" onclick={() => openReview(f)} disabled={serviceDown} title={serviceDown ? t().drivers.serviceDown : undefined}>{t().drivers.doIt}</button>
+        {:else if f.fix_id && notHere[f.id]}
+          <button class="btn primary" disabled title={notHere[f.id]}>{t().drivers.doIt}</button>
         {/if}
         {#if f.commands.length}
           <button class="btn" onclick={() => copy(f)}>{copied === f.id ? t().drivers.copied : t().drivers.copy}</button>
@@ -232,6 +267,9 @@
         {/if}
       </div>
       {#if f.fix_auto && serviceDown}<p class="small">{t().drivers.serviceDown}</p>{/if}
+      {#if !f.fix_auto && f.fix_id !== "reboot" && notHere[f.id]}
+        <p class="why-not"><span class="chip-warn">{t().drivers.notHere}</span> {notHere[f.id]}</p>
+      {/if}
 
       {#if review?.finding.id === f.id}{@render reviewPanel()}{/if}
     </section>
@@ -289,6 +327,9 @@
 </section>
 
 <style>
+  .why-not { margin: 10px 0 0; font-size: 0.82rem; color: var(--text-2); line-height: 1.7; }
+  .chip-warn { display: inline-block; padding: 1px 10px; border-radius: 999px; font-weight: 600; color: var(--warn); background: color-mix(in oklab, var(--warn) 14%, var(--card)); margin-inline-end: 6px; }
+  .btn.armed { box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 45%, transparent); }
   .on-accent { display: inline-flex; --ug-accent: #fff; --ug-fg: rgb(255 255 255 / 0.55); }
   .head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
   h1 { margin: 0; font-size: 1.55rem; font-weight: 800; }

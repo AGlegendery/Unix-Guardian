@@ -695,6 +695,16 @@ pub fn facts(root: &SysRoot, env: &Env) -> Facts {
             .join(", ")),
     );
     put("flatpak.gl_nvidia_wanted", s(&want));
+    // 32-bit games (Steam) need the GL32 twin, which only makes sense with
+    // the i386 compatibility runtime.
+    put(
+        "flatpak.i386",
+        Value::Bool(
+            runtimes
+                .iter()
+                .any(|r| r.starts_with("org.freedesktop.Platform.Compat.i386")),
+        ),
+    );
     put(
         "flatpak.gl_nvidia_matches",
         Value::Bool(!want.is_empty() && runtimes.contains(&want)),
@@ -726,6 +736,7 @@ pub fn facts(root: &SysRoot, env: &Env) -> Facts {
         Some(crate::bootparams::Loader::SystemdBoot { .. }) => "systemd-boot",
         Some(crate::bootparams::Loader::Refind) => "refind",
         Some(crate::bootparams::Loader::Kernelstub) => "kernelstub",
+        Some(crate::bootparams::Loader::Limine { .. }) => "limine",
         None => "",
     };
     f.insert("boot.loader".into(), Value::Str(loader.into()));

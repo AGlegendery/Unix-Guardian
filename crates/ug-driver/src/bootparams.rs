@@ -4,7 +4,12 @@
 //! distribution's config generator. systemd-boot: the `options` line of each
 //! entry in `/boot/loader/entries` (and `/etc/kernel/cmdline`, which
 //! `kernel-install` reads for new kernels). rEFInd: the options in
-//! `/boot/refind_linux.conf`. Pop!_OS: `kernelstub`.
+//! `/boot/refind_linux.conf`. Pop!_OS: `kernelstub`. Limine on Arch-based
+//! systems (limine-mkinitcpio-hook): `/etc/kernel/cmdline`, which
+//! limine-entry-tool copies into `limine.conf` when `limine-mkinitcpio`
+//! regenerates the entries; when the tool's own configuration sets
+//! `KERNEL_CMDLINE` instead, that file wins and the change is left to the
+//! user rather than guessed at.
 //!
 //! Edits are idempotent and exact: a parameter is added at the end, or
 //! replaces the one with the same name; removing it again gives back the
@@ -27,6 +32,32 @@ pub enum Loader {
     },
     Refind,
     Kernelstub,
+    /// limine-entry-tool: `/etc/kernel/cmdline`, then this regenerator.
+    Limine {
+        regen: Vec<String>,
+    },
+}
+
+/// Whether limine-entry-tool's own configuration sets the command line
+/// (then `/etc/kernel/cmdline` is not what it uses).
+fn limine_sets_cmdline(root: &SysRoot) -> bool {
+    let mut files = vec![
+        root.join("etc/default/limine"),
+        root.join("etc/limine-entry-tool.conf"),
+    ];
+    files.extend(
+        std::fs::read_dir(root.join("etc/limine-entry-tool.d"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path()),
+    );
+    files.iter().any(|f| {
+        std::fs::read_to_string(f)
+            .unwrap_or_default()
+            .lines()
+            .any(|l| l.trim_start().starts_with("KERNEL_CMDLINE"))
+    })
 }
 
 fn has(root: &SysRoot, p: &str) -> bool {
@@ -77,6 +108,14 @@ pub fn detect(root: &SysRoot) -> Option<Loader> {
     }
     if root.join("boot/refind_linux.conf").exists() {
         return Some(Loader::Refind);
+    }
+    if has(root, "limine-mkinitcpio")
+        && root.join("etc/kernel/cmdline").exists()
+        && !limine_sets_cmdline(root)
+    {
+        return Some(Loader::Limine {
+            regen: vec!["limine-mkinitcpio".into()],
+        });
     }
     None
 }
@@ -279,5 +318,22 @@ mod tests {
         );
         fs.write("usr/bin/kernelstub", "");
         assert_eq!(detect(&root), Some(Loader::Kernelstub));
+    }
+
+    #[test]
+    fn limine_uses_the_kernel_cmdline_unless_its_tool_sets_one() {
+        let fs = TestFs::new();
+        let root = SysRoot::at(fs.root());
+        fs.write("boot/limine.conf", "timeout: 3\n")
+            .write("usr/bin/limine-mkinitcpio", "")
+            .write("etc/kernel/cmdline", "root=UUID=x rw quiet\n");
+        assert_eq!(
+            detect(&root),
+            Some(Loader::Limine {
+                regen: vec!["limine-mkinitcpio".into()]
+            })
+        );
+        fs.write("etc/default/limine", "KERNEL_CMDLINE[default]=\"root=UUID=x rw\"\n");
+        assert_eq!(detect(&root), None, "its own setting wins: left to the user");
     }
 }

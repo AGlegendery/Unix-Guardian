@@ -4197,11 +4197,27 @@ fn activate_driver(app: &mut App, i: usize) {
     else {
         return;
     };
+    if fd.fix_id == "reboot" {
+        // Two presses, like the power page.
+        let confirm = "restart for the driver".to_string();
+        if app.armed.as_ref().is_some_and(|(a, _)| *a == confirm) {
+            app.armed = None;
+            let r = app.bus.power_now("reboot");
+            report(app, r.map(|_| "Restart requested.".to_string()));
+        } else {
+            app.say("Press Enter again to restart now.", true);
+            app.armed = Some((confirm, std::time::Instant::now()));
+        }
+        return;
+    }
     if !fd.fix_auto {
-        report(
-            app,
-            Err("Unix Guardian does not run this fix itself; the commands are shown below.".into()),
-        );
+        // The service's own reason, the same check "do it" would hit.
+        let why = match app.bus.driver_plan(&fd.fix_id) {
+            Err(e) => e,
+            Ok(_) => "Unix Guardian does not run this fix itself; the commands are shown below."
+                .into(),
+        };
+        report(app, Err(format!("Not automatic here: {why}")));
         return;
     }
     let confirm = format!("apply {}", fd.fix_id);

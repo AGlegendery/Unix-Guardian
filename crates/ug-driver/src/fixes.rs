@@ -320,7 +320,7 @@ pub(crate) fn boot_steps(
     };
     use crate::bootparams as bp;
     let steps: Vec<Step> = match bp::detect(root) {
-        None => return Err("The boot loader (GRUB, systemd-boot, rEFInd or kernelstub) was not recognised, so the parameter has to be changed by hand.".into()),
+        None => return Err("The boot loader (GRUB, systemd-boot, rEFInd, kernelstub or Limine with /etc/kernel/cmdline) was not recognised, so the parameter has to be changed by hand.".into()),
         Some(bp::Loader::Grub { regen }) => {
             let old = read("/etc/default/grub")?;
             match write("/etc/default/grub", bp::edit_grub(&old, add, remove), &old) {
@@ -343,6 +343,13 @@ pub(crate) fn boot_steps(
         Some(bp::Loader::Refind) => {
             let old = read("/boot/refind_linux.conf")?;
             write("/boot/refind_linux.conf", bp::edit_refind(&old, add, remove), &old).into_iter().collect()
+        }
+        Some(bp::Loader::Limine { regen }) => {
+            let old = read("/etc/kernel/cmdline")?;
+            match write("/etc/kernel/cmdline", bp::edit_kernel_cmdline(&old, add, remove), &old) {
+                Some(w) => vec![w, Step::Regen { argv: regen }],
+                None => vec![],
+            }
         }
         Some(bp::Loader::Kernelstub) => {
             let mut v = Vec::new();
@@ -435,6 +442,9 @@ pub fn can_run(fix_id: &str, facts: &Facts) -> bool {
     if LIVE.contains(&fix_id) {
         return true;
     }
+    if fix_id == "flatpak-gl" {
+        return !s(facts, "flatpak.gl_nvidia_wanted").is_empty();
+    }
     if boot_params(fix_id).is_some() || fix_id == "hibernate-swap" {
         return yes("distro.can_change") && yes("boot.loader");
     }
@@ -517,6 +527,9 @@ pub fn auto(fix_id: &str, root: &SysRoot, facts: &Facts) -> Result<AutoFix, Stri
     if fix_id == "hibernate-swap" {
         return hibernate_fix(root, facts);
     }
+    if fix_id == "flatpak-gl" {
+        return flatpak_gl_fix(root, facts);
+    }
     if !AUTO.contains(&fix_id) {
         return Err(if title(fix_id).is_empty() {
             format!("Unknown fix `{fix_id}`.")
@@ -587,6 +600,34 @@ pub fn auto(fix_id: &str, root: &SysRoot, facts: &Facts) -> Result<AutoFix, Stri
         title: title(fix_id).into(),
         steps,
         needs_reboot: true,
+    })
+}
+
+/// Flatpak's NVIDIA GL runtime for the running driver, installed system-wide
+/// (user installations see system runtimes too); undo uninstalls exactly
+/// what was installed. No restart: Flatpak apps pick it up when started.
+fn flatpak_gl_fix(root: &SysRoot, facts: &Facts) -> Result<AutoFix, String> {
+    let want = s(facts, "flatpak.gl_nvidia_wanted");
+    if want.is_empty() {
+        return Err("The running NVIDIA driver's version could not be read, so the matching runtime is not known.".into());
+    }
+    if !["usr/bin/flatpak", "bin/flatpak"].iter().any(|p| root.join(p).exists()) {
+        return Err("Flatpak is not installed.".into());
+    }
+    let mut refs = vec![want.clone()];
+    if facts.get("flatpak.i386").is_some_and(Value::truthy) {
+        refs.push(want.replace("Platform.GL.", "Platform.GL32."));
+    }
+    let v = |a: &[&str]| a.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    let mut argv = v(&["flatpak", "install", "--system", "-y", "--noninteractive", "flathub"]);
+    argv.extend(refs.iter().cloned());
+    let mut undo = v(&["flatpak", "uninstall", "--system", "-y", "--noninteractive"]);
+    undo.extend(refs);
+    Ok(AutoFix {
+        fix_id: "flatpak-gl".into(),
+        title: title("flatpak-gl").into(),
+        steps: vec![Step::Command { argv, undo }],
+        needs_reboot: false,
     })
 }
 

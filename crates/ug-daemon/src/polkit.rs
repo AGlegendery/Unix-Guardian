@@ -35,7 +35,7 @@ pub mod action {
     pub const GPU_TUNE: &str = "org.unixguardian.gpu.tune";
     /// Fan curves and the firmware's fan modes.
     pub const COOLING: &str = "org.unixguardian.cooling";
-    /// Graphics driver fixes and their undo (password every time).
+    /// Driver fixes and their undo (password kept a few minutes).
     pub const DRIVER: &str = "org.unixguardian.driver.fix";
     /// Install a new version the user chose, or go back (password every time).
     pub const UPDATE: &str = "org.unixguardian.update.install";

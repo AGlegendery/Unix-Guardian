@@ -354,7 +354,7 @@ pub mod daemon {
     pub trait Driver {
         /// Exactly what a fix will do here, or why it cannot be done.
         fn plan(&self, fix_id: &str) -> zbus::Result<DriverPlan>;
-        /// Starts a fix (polkit, password every time); returns the
+        /// Starts a fix (polkit: the password once, kept a few minutes); returns the
         /// operation's id. Progress is in `Ops`.
         fn apply(&self, fix_id: &str) -> zbus::Result<String>;
         /// Every fix applied, newest first.
