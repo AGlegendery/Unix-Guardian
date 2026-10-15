@@ -1836,7 +1836,11 @@ fn sleep(app: &mut App, f: &mut Frame, r: Rect) {
     if s.sleep_modes.len() <= 1 {
         notes.push(format!(
             "Sleep variant: not supported by firmware; it offers only {}.",
-            if s.sleep_mode.is_empty() { "s2idle" } else { &s.sleep_mode }
+            if s.sleep_mode.is_empty() {
+                "s2idle"
+            } else {
+                &s.sleep_mode
+            }
         ));
     } else {
         notes.push("s2idle wakes at once and drains more; deep (S3) takes a second longer and uses far less battery.".into());
@@ -1845,7 +1849,9 @@ fn sleep(app: &mut App, f: &mut Frame, r: Rect) {
         notes.push(s.buttons_note.clone());
     }
     for h in &s.lid_handled_by {
-        notes.push(format!("The lid is handled by {h}; these apply whenever it is not running."));
+        notes.push(format!(
+            "The lid is handled by {h}; these apply whenever it is not running."
+        ));
     }
     for h in &s.power_key_handled_by {
         notes.push(format!("The power button is handled by {h}."));
@@ -2104,10 +2110,18 @@ fn gpu_tune_page(app: &mut App, f: &mut Frame, r: Rect) {
             "Not supported: this card and driver allow no power limit or clock offset from software.",
             t.warn_style(),
         ))];
-        lines.extend(st.notes.iter().map(|n| Line::from(Span::styled(n.clone(), t.faint()))));
+        lines.extend(
+            st.notes
+                .iter()
+                .map(|n| Line::from(Span::styled(n.clone(), t.faint()))),
+        );
         f.render_widget(
             Paragraph::new(lines).wrap(Wrap { trim: true }),
-            Rect { y, height: r.bottom().saturating_sub(y), ..r },
+            Rect {
+                y,
+                height: r.bottom().saturating_sub(y),
+                ..r
+            },
         );
         return;
     }
@@ -2426,7 +2440,10 @@ fn step_cooling(app: &mut App, d: i32) {
             if fan.mode == "firmware" {
                 report(
                     app,
-                    Err(format!("{}: fan speed is not supported by the firmware.", fan.label)),
+                    Err(format!(
+                        "{}: fan speed is not supported by the firmware.",
+                        fan.label
+                    )),
                 );
                 return;
             }
@@ -2576,7 +2593,15 @@ fn battery(app: &mut App, f: &mut Frame, r: Rect) {
     }
     let y = y + 3;
     if y + 2 < r.bottom() {
-        battery_today(app, f, Rect { y, height: r.bottom() - y, ..r });
+        battery_today(
+            app,
+            f,
+            Rect {
+                y,
+                height: r.bottom() - y,
+                ..r
+            },
+        );
     }
 }
 
@@ -2590,7 +2615,9 @@ fn battery_today(app: &mut App, f: &mut Frame, r: Rect) {
     // local_time is "Thu 10:14"; the clock is its last five characters.
     let hhmm = |ms: u64| {
         let s = data::local_time(ms);
-        s.get(s.len().saturating_sub(5)..).unwrap_or_default().to_string()
+        s.get(s.len().saturating_sub(5)..)
+            .unwrap_or_default()
+            .to_string()
     };
     let mut lines = vec![
         Line::from(Span::styled("Today", t.title())),
@@ -2609,11 +2636,20 @@ fn battery_today(app: &mut App, f: &mut Frame, r: Rect) {
             rep.avg_battery_w, rep.used_wh, rep.used_pct
         );
         if rep.full_runtime_min > 0 {
-            l += &format!("; a full charge lasts about {} at that draw", hm(rep.full_runtime_min));
+            l += &format!(
+                "; a full charge lasts about {} at that draw",
+                hm(rep.full_runtime_min)
+            );
         }
         lines.push(Line::from(Span::styled(l, t.muted())));
     }
-    for p in rep.periods.iter().rev().filter(|p| p.end_unix_ms - p.start_unix_ms >= 60_000).take(4) {
+    for p in rep
+        .periods
+        .iter()
+        .rev()
+        .filter(|p| p.end_unix_ms - p.start_unix_ms >= 60_000)
+        .take(4)
+    {
         let what = match p.kind.as_str() {
             "battery" => "battery",
             "ac" => "charger",
@@ -4228,8 +4264,9 @@ fn activate_driver(app: &mut App, i: usize) {
         // The service's own reason, the same check "do it" would hit.
         let why = match app.bus.driver_plan(&fd.fix_id) {
             Err(e) => e,
-            Ok(_) => "Unix Guardian does not run this fix itself; the commands are shown below."
-                .into(),
+            Ok(_) => {
+                "Unix Guardian does not run this fix itself; the commands are shown below.".into()
+            }
         };
         report(app, Err(format!("Not automatic here: {why}")));
         return;

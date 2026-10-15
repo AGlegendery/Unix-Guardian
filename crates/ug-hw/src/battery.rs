@@ -63,7 +63,10 @@ pub fn battery_info(root: &SysRoot) -> Option<BatteryInfo> {
 /// there is no DRM display at all (a server, a VM without KMS).
 pub fn screen_on(root: &SysRoot) -> Option<bool> {
     let mut seen = false;
-    for e in std::fs::read_dir(root.join("sys/class/drm")).ok()?.flatten() {
+    for e in std::fs::read_dir(root.join("sys/class/drm"))
+        .ok()?
+        .flatten()
+    {
         let p = e.path();
         let Some(enabled) = read_trimmed(p.join("enabled")) else {
             continue;

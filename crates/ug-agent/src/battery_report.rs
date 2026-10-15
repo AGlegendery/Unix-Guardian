@@ -134,13 +134,13 @@ pub fn report(rows: &[Row], info: Option<&BatteryInfo>, health_rows: &[Row]) -> 
             _ => {
                 screen_ms.push(lit);
                 out.periods.push(PowerPeriod {
-                start_unix_ms: r.ts_ms,
-                end_unix_ms: r.ts_ms + dt,
-                kind: kind.into(),
-                start_pct: r.pct.unwrap_or(f64::NAN),
-                end_pct: r.pct.unwrap_or(f64::NAN),
-                avg_w: r.w.unwrap_or(f64::NAN),
-                screen_on_min: 0,
+                    start_unix_ms: r.ts_ms,
+                    end_unix_ms: r.ts_ms + dt,
+                    kind: kind.into(),
+                    start_pct: r.pct.unwrap_or(f64::NAN),
+                    end_pct: r.pct.unwrap_or(f64::NAN),
+                    avg_w: r.w.unwrap_or(f64::NAN),
+                    screen_on_min: 0,
                 })
             }
         }
@@ -200,7 +200,9 @@ fn discharge_runs(rows: &[Row]) -> Vec<(f64, f64)> {
     if let Some((wh, a, b, _, _)) = cur {
         runs.push((wh, a - b));
     }
-    runs.into_iter().filter(|(_, d)| *d >= MIN_RUN_PCT).collect()
+    runs.into_iter()
+        .filter(|(_, d)| *d >= MIN_RUN_PCT)
+        .collect()
 }
 
 pub fn health(info: Option<&BatteryInfo>, rows: &[Row]) -> Vec<HealthEstimate> {
@@ -212,7 +214,12 @@ pub fn health(info: Option<&BatteryInfo>, rows: &[Row]) -> Vec<HealthEstimate> {
             method: "fuel-gauge".into(),
             pct,
             capacity_wh: f,
-            confidence: if (50.0..=105.0).contains(&pct) { "high" } else { "low" }.into(),
+            confidence: if (50.0..=105.0).contains(&pct) {
+                "high"
+            } else {
+                "low"
+            }
+            .into(),
             basis: format!(
                 "The battery's own gauge: {f:.1} Wh at the last full charge, {d:.1} Wh when new."
             ),
@@ -311,7 +318,11 @@ mod tests {
 
     #[test]
     fn a_gap_in_the_readings_is_an_off_period() {
-        let rows = vec![row(0, 80.0, 10.0, false), row(1, 80.0, 10.0, false), row(60, 70.0, 10.0, false)];
+        let rows = vec![
+            row(0, 80.0, 10.0, false),
+            row(1, 80.0, 10.0, false),
+            row(60, 70.0, 10.0, false),
+        ];
         let r = report(&rows, Some(&info()), &[]);
         let kinds: Vec<&str> = r.periods.iter().map(|p| p.kind.as_str()).collect();
         assert_eq!(kinds, ["battery", "off", "battery"]);
@@ -338,11 +349,19 @@ mod tests {
 
     #[test]
     fn short_runs_are_not_measured_and_implausible_ones_are_dropped() {
-        let short: Vec<Row> = (0..10).map(|i| row(i, 100.0 - i as f64 * 0.5, 15.0, false)).collect();
-        assert!(!health(Some(&info()), &short).iter().any(|e| e.method == "measured"));
+        let short: Vec<Row> = (0..10)
+            .map(|i| row(i, 100.0 - i as f64 * 0.5, 15.0, false))
+            .collect();
+        assert!(!health(Some(&info()), &short)
+            .iter()
+            .any(|e| e.method == "measured"));
         // 20 points for 1 Wh would be a 5 Wh battery.
-        let silly: Vec<Row> = (0..=20).map(|i| row(i, 100.0 - i as f64, 3.0, false)).collect();
-        assert!(!health(Some(&info()), &silly).iter().any(|e| e.method == "measured"));
+        let silly: Vec<Row> = (0..=20)
+            .map(|i| row(i, 100.0 - i as f64, 3.0, false))
+            .collect();
+        assert!(!health(Some(&info()), &silly)
+            .iter()
+            .any(|e| e.method == "measured"));
     }
 
     #[test]

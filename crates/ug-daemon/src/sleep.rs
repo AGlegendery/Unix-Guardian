@@ -129,7 +129,11 @@ impl Sleep {
             || self.root.join("sys/class/input").exists() && lid_input(&self.root);
         SleepSettings {
             sleep_mode_kept: self.root.join(KEEP_FILE).exists(),
-            sleep_modes: if sleep_modes.len() > 1 { sleep_modes } else { Vec::new() },
+            sleep_modes: if sleep_modes.len() > 1 {
+                sleep_modes
+            } else {
+                Vec::new()
+            },
             sleep_mode,
             has_lid,
             lid_battery: value(BUTTONS[0].1, BUTTONS[0].2),
@@ -223,7 +227,8 @@ impl Sleep {
     }
 
     pub fn uses_elogind(&self) -> bool {
-        self.drop_in_dir().starts_with(self.root.join("etc/elogind"))
+        self.drop_in_dir()
+            .starts_with(self.root.join("etc/elogind"))
     }
 }
 
@@ -268,9 +273,11 @@ pub fn reload_logind(elogind: bool) -> Result<(), String> {
     match pid {
         // SAFETY: kill with a pid read from /proc and a valid signal.
         Some(pid) if unsafe { libc::kill(pid, libc::SIGHUP) } == 0 => Ok(()),
-        _ => Err("Saved, but elogind was not found to reload it; it applies after the next \
+        _ => Err(
+            "Saved, but elogind was not found to reload it; it applies after the next \
                   restart."
-            .into()),
+                .into(),
+        ),
     }
 }
 
@@ -329,14 +336,20 @@ mod tests {
         s.set_button("power-key", "suspend").unwrap();
         let text = read(&fs, &file);
         assert!(text.contains("[Login]"), "{text}");
-        assert!(text.contains("HandleLidSwitchExternalPower=ignore"), "{text}");
+        assert!(
+            text.contains("HandleLidSwitchExternalPower=ignore"),
+            "{text}"
+        );
         assert!(text.contains("HandlePowerKey=suspend"), "{text}");
         let st = s.settings(None);
         assert_eq!(st.lid_ac, "ignore");
         assert_eq!(st.lid_battery, "suspend", "default");
         s.set_button("lid-ac", "suspend").unwrap();
         s.set_button("power-key", "poweroff").unwrap();
-        assert!(!fs.root().join(&file).exists(), "all defaults: no file left");
+        assert!(
+            !fs.root().join(&file).exists(),
+            "all defaults: no file left"
+        );
     }
 
     #[test]
@@ -356,13 +369,15 @@ mod tests {
         let fs = TestFs::new();
         let s = sleep(&fs);
         let mut live = Live::default();
-        live.values.insert("HandleLidSwitch".into(), "hibernate".into());
+        live.values
+            .insert("HandleLidSwitch".into(), "hibernate".into());
         live.blocks.push((
             "handle-lid-switch".into(),
             "ryoku-clamshell".into(),
             "route lid close through the secure Ryoku policy".into(),
         ));
-        live.blocks.push(("sleep".into(), "NetworkManager".into(), "x".into()));
+        live.blocks
+            .push(("sleep".into(), "NetworkManager".into(), "x".into()));
         let st = s.settings(Some(&live));
         assert_eq!(st.lid_battery, "hibernate");
         assert_eq!(st.lid_handled_by.len(), 1);
@@ -379,6 +394,9 @@ mod tests {
         let dev = Sleep::new(SysRoot::at(fs.root()), true, true);
         assert!(dev.set_mode("s2idle", true).is_err());
         assert!(dev.set_button("lid-ac", "ignore").is_err());
-        assert!(read(&fs, MEM_SLEEP).starts_with("s2idle [deep]"), "untouched");
+        assert!(
+            read(&fs, MEM_SLEEP).starts_with("s2idle [deep]"),
+            "untouched"
+        );
     }
 }

@@ -333,9 +333,11 @@ impl Cooling {
             let _ = write(&p, before.trim());
             self.verdicts.fan_mode_ignored = true;
             self.save_verdicts();
-            return Err("Fan speed is not supported by this laptop's firmware: it accepted the \
+            return Err(
+                "Fan speed is not supported by this laptop's firmware: it accepted the \
                         request and kept its own fan mode."
-                .into());
+                    .into(),
+            );
         }
         Ok(())
     }

@@ -611,7 +611,10 @@ fn flatpak_gl_fix(root: &SysRoot, facts: &Facts) -> Result<AutoFix, String> {
     if want.is_empty() {
         return Err("The running NVIDIA driver's version could not be read, so the matching runtime is not known.".into());
     }
-    if !["usr/bin/flatpak", "bin/flatpak"].iter().any(|p| root.join(p).exists()) {
+    if !["usr/bin/flatpak", "bin/flatpak"]
+        .iter()
+        .any(|p| root.join(p).exists())
+    {
         return Err("Flatpak is not installed.".into());
     }
     let mut refs = vec![want.clone()];
@@ -619,7 +622,14 @@ fn flatpak_gl_fix(root: &SysRoot, facts: &Facts) -> Result<AutoFix, String> {
         refs.push(want.replace("Platform.GL.", "Platform.GL32."));
     }
     let v = |a: &[&str]| a.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-    let mut argv = v(&["flatpak", "install", "--system", "-y", "--noninteractive", "flathub"]);
+    let mut argv = v(&[
+        "flatpak",
+        "install",
+        "--system",
+        "-y",
+        "--noninteractive",
+        "flathub",
+    ]);
     argv.extend(refs.iter().cloned());
     let mut undo = v(&["flatpak", "uninstall", "--system", "-y", "--noninteractive"]);
     undo.extend(refs);

@@ -2939,7 +2939,10 @@ async fn battery_report(days: Option<u32>, json: bool) -> Result<()> {
             r.avg_battery_w, r.used_wh, r.used_pct
         );
         if r.full_runtime_min > 0 {
-            print!("; a full charge lasts about {} at that draw", hm(r.full_runtime_min));
+            print!(
+                "; a full charge lasts about {} at that draw",
+                hm(r.full_runtime_min)
+            );
         }
         println!();
     }
@@ -2950,7 +2953,12 @@ async fn battery_report(days: Option<u32>, json: bool) -> Result<()> {
             "ac" => "on the charger",
             _ => "off or asleep",
         };
-        let mut line = format!("{}-{}  {:<15}", clock(p.start_unix_ms), clock(p.end_unix_ms), what);
+        let mut line = format!(
+            "{}-{}  {:<15}",
+            clock(p.start_unix_ms),
+            clock(p.end_unix_ms),
+            what
+        );
         if !p.start_pct.is_nan() && p.kind != "off" {
             line += &format!(" {:>3.0} % -> {:>3.0} %", p.start_pct, p.end_pct);
         }
@@ -2964,7 +2972,10 @@ async fn battery_report(days: Option<u32>, json: bool) -> Result<()> {
     }
     println!();
     if r.design_wh.is_finite() {
-        print!("Capacity: {:.1} Wh now, {:.1} Wh when new", r.full_wh, r.design_wh);
+        print!(
+            "Capacity: {:.1} Wh now, {:.1} Wh when new",
+            r.full_wh, r.design_wh
+        );
         if r.cycles > 0 {
             print!(", {} cycles", r.cycles);
         }
@@ -3181,13 +3192,21 @@ async fn power(conn: &zbus::Connection, command: PowerCommand, json: bool) -> Re
             if s.sleep_modes.is_empty() {
                 println!(
                     "Sleep: {} (the firmware offers no other way)",
-                    if s.sleep_mode.is_empty() { "s2idle" } else { &s.sleep_mode }
+                    if s.sleep_mode.is_empty() {
+                        "s2idle"
+                    } else {
+                        &s.sleep_mode
+                    }
                 );
             } else {
                 println!(
                     "Sleep: {}{}   (choices: {})",
                     s.sleep_mode,
-                    if s.sleep_mode_kept { ", kept after restart" } else { "" },
+                    if s.sleep_mode_kept {
+                        ", kept after restart"
+                    } else {
+                        ""
+                    },
                     s.sleep_modes.join(", ")
                 );
             }
@@ -3199,7 +3218,9 @@ async fn power(conn: &zbus::Connection, command: PowerCommand, json: bool) -> Re
                     println!("Lid closed charging:     {}", s.lid_ac);
                     println!("Lid closed docked:       {}", s.lid_docked);
                     for h in &s.lid_handled_by {
-                        println!("  The lid is handled by {h}; this applies when it is not running.");
+                        println!(
+                            "  The lid is handled by {h}; this applies when it is not running."
+                        );
                     }
                 }
                 println!("Power button:            {}", s.power_key);

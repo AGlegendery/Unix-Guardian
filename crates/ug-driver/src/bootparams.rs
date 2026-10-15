@@ -333,7 +333,14 @@ mod tests {
                 regen: vec!["limine-mkinitcpio".into()]
             })
         );
-        fs.write("etc/default/limine", "KERNEL_CMDLINE[default]=\"root=UUID=x rw\"\n");
-        assert_eq!(detect(&root), None, "its own setting wins: left to the user");
+        fs.write(
+            "etc/default/limine",
+            "KERNEL_CMDLINE[default]=\"root=UUID=x rw\"\n",
+        );
+        assert_eq!(
+            detect(&root),
+            None,
+            "its own setting wins: left to the user"
+        );
     }
 }

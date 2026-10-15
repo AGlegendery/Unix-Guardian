@@ -302,7 +302,11 @@ impl MonitorIface {
             .unwrap_or_default()
     }
 
-    async fn battery_report(&self, since_unix_ms: u64, until_unix_ms: u64) -> ug_proto::BatteryReport {
+    async fn battery_report(
+        &self,
+        since_unix_ms: u64,
+        until_unix_ms: u64,
+    ) -> ug_proto::BatteryReport {
         let h = Arc::clone(&self.history);
         tokio::task::spawn_blocking(move || {
             let rows = h.battery_rows(since_unix_ms, until_unix_ms);

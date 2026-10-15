@@ -599,16 +599,22 @@ fn sleep_firmware_and_debian_s_firmware_component() {
     // The laptop (2026-10-15): 27 GB of memory and a 16 GB swap file. The
     // kernel shrinks the image to image_size (2/5 of memory by default), so
     // 16 GB is plenty; the old 60 % rule called it too small.
-    fs.write("proc/meminfo", "MemTotal:       28429964 kB
-")
-        .write("sys/power/image_size", "11534872576
-")
-        .write(
-            "proc/swaps",
-            "Filename Type Size Used Priority
+    fs.write(
+        "proc/meminfo",
+        "MemTotal:       28429964 kB
+",
+    )
+    .write(
+        "sys/power/image_size",
+        "11534872576
+",
+    )
+    .write(
+        "proc/swaps",
+        "Filename Type Size Used Priority
 /swap/swapfile file 16777212 0 -1
 ",
-        );
+    );
     assert!(!has(&fs, &Env::default(), "hibernate-swap-too-small"));
     fs.write(
         "proc/swaps",
