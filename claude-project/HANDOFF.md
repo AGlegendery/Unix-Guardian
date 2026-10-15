@@ -6,9 +6,37 @@ in minutes. **Update this file after every finished item and commit it.**
 Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 `05-findings.md`, `07-conventions.md`, `03-architecture.md`.
 
-Last updated: 2026-10-11 (test-lab fixes from Hyprland/XFCE/GNOME reports; work is on `main` now).
+Last updated: 2026-10-15 (seven UI/behaviour asks; work is on `main`).
 
-## Now (2026-10-14): installer + Arch
+## Now (2026-10-15): Hyprland, sleep, fans, battery, Driver Fix, motion ✅
+
+Seven asks from the user, all on `main` (`2b17bb6` … `dc28602`), release
+binaries and the window rebuilt; CI was red on fmt only, fixed in `dc28602`.
+- Window on tiling compositors: min size 480×400, sidebar folds < 820 px,
+  dark backing (05-findings "Window resizing on Hyprland").
+- Fans: ideapad fan_mode writes are ignored by this laptop's EC; probed
+  once (switch and back), verdict in the daemon's `firmware.json`, shown as
+  "not supported by firmware"; a pwm that will not leave auto is mode
+  `firmware`.
+- Sleep and wake tab: Power.SleepSettings/SetSleepMode/SetButtonAction
+  (polkit `power.settings`), mem_sleep + tmpfiles keep, logind drop-in
+  `90-unix-guardian.conf` + reload, inhibitors reported (ryoku-clamshell
+  holds the lid here). `ug power sleep`, TUI System → Sleep,
+  `scripts/sleep-e2e.sh` (CI). Not run against the real logind yet.
+- Battery: agent records on_ac + screen_on; Monitor.BatteryReport; three
+  health methods (gauge 88.9 %, measured 82 %, cycles 74–87 % on the real
+  history). `ug battery report`, TUI under protection, window chart.
+- Driver Fix: flatpak-gl automatic, Limine via /etc/kernel/cmdline +
+  limine-mkinitcpio, restart button, disabled button with the service's
+  reason, hibernate-swap false positive fixed, driver.fix auth_admin_keep.
+- Settings → Animations: Classic / Lively (app.css `[data-motion=lively]`).
+- GPU tuning with nothing allowed shows "not supported".
+**Waiting on the user:** reinstall (`sudo ./scripts/dev-install.sh`), then
+try the Sleep tab (lid/power key change needs the new polkit action),
+fan tab, battery tab, Driver Fix on the Flatpak finding, Lively motion,
+and resizing in Hyprland.
+
+## Before (2026-10-14): installer + Arch
 
 The laptop runs **Arch Linux + Hyprland** now (was Parrot/KDE). `installer.sh`
 (repo root) and its README sections are done in `c943006`. At first no

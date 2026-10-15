@@ -562,3 +562,14 @@ off frees it.
   capture, quality presets measured against real files (±10%), the clip
   library with thumbnails, ffmpeg compression, Telegram (7.4), audio
   device choice from pw-dump, highlight on loud sound.
+
+## 2026-10-15: Hyprland, sleep, fans, battery, Driver Fix, motion
+
+Built and tested (unit tests, sleep-e2e, power-e2e, driver-e2e, browser
+preview, the release window on a headless Hyprland output); not yet run as
+the installed services. See HANDOFF "Now (2026-10-15)" for the list.
+Known not done: the agent's BatteryReport has no UPower backfill (history
+before the agent recorded is not shown); screen-on is DRM DPMS, so an
+external monitor that is on counts as screen on; Limine is supported only
+through /etc/kernel/cmdline (limine-entry-tool's KERNEL_CMDLINE is left to
+the user).
