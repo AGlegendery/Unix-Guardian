@@ -716,7 +716,7 @@ export const mockApi = {
     tuneKept = { ...zeroTune };
   },
   coolingState: async (): Promise<CoolingState> => ({
-    fans: [{ id: "amdgpu/pwm1", label: "Graphics card fan", rpm: 1450, pct: 40, temp_c: 64, mode: fanCurves["amdgpu/pwm1"] ? "curve" : "auto", curve: fanCurves["amdgpu/pwm1"] ?? [] }],
+    fans: [{ id: "amdgpu/pwm1", label: "Graphics card fan", rpm: 1450, pct: 40, temp_c: 64, mode: fanCurves["amdgpu/pwm1"] ? "curve" : "auto", curve: fanCurves["amdgpu/pwm1"] ?? [] }, { id: "dell_smm/pwm1", label: "dell_smm fan 1", rpm: 2900, pct: 50, temp_c: 58, mode: "firmware", curve: [] }],
     fan_mode: fanMode,
     fan_modes: [[0, "quiet"], [1, "standard"], [4, "cooling"]],
     notes: [],

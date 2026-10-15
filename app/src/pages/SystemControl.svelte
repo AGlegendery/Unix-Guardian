@@ -426,13 +426,13 @@
       {#if !bat.supported}
         <p class="muted">{bat.reason}</p>
       {:else}
-        <div class="line top">
-          <Segmented
-            label={t().sys.bat.title}
-            value={bat.mode}
-            options={(["off", "protect", "full-once"] as const).map((m) => ({ value: m, label: t().sys.bat.modes[m] }))}
-            onchange={(m) => setBat(m)}
-          />
+        <div class="modes" role="radiogroup" aria-label={t().sys.bat.title}>
+          {#each ["off", "protect", "full-once"] as const as m}
+            <button class="mode" role="radio" aria-checked={bat.mode === m} disabled={busy} onclick={() => bat?.mode !== m && setBat(m)}>
+              <span class="mode-top"><span class="dot" aria-hidden="true"></span><b>{t().sys.bat.modes[m]}</b></span>
+              <span class="mode-help">{t().sys.bat.modeHelp[m]}</span>
+            </button>
+          {/each}
         </div>
         {#if bat.adjustable}
           <div class="line">
@@ -443,7 +443,6 @@
         {:else}
           <p class="small">{t().sys.bat.vendor}</p>
         {/if}
-        <p class="small">{t().sys.bat.onceHint}</p>
       {/if}
     {/if}
   </section>
@@ -462,6 +461,13 @@
       <p class="muted">{t().sys.cool.noPpd}</p>
     {/if}
   </section>
+  {@const fanModeIgnored = (cool?.notes ?? []).some((n) => n.startsWith("Fan speed is not supported"))}
+  {#if fanModeIgnored}
+    <section class="card">
+      <h2>{t().sys.cool.fanMode} <span class="chip warn">{t().sys.cool.unsupported}</span></h2>
+      <p class="muted">{t().sys.cool.fanModeIgnored}</p>
+    </section>
+  {/if}
   {#if cool && cool.fan_mode >= 0}
     <section class="card">
       <h2>{t().sys.cool.fanMode}</h2>
@@ -476,13 +482,24 @@
   {/if}
   <section class="card">
     <h2>{t().sys.cool.fans}</h2>
+    {#if cool && !cool.fans.length}
+      <p class="muted"><span class="chip warn">{t().sys.cool.unsupported}</span></p>
+      <p class="small">{t().sys.cool.noFans}</p>
+    {/if}
     {#each cool?.fans ?? [] as f (f.id)}
       <div class="fan">
         <div class="fan-top">
           <b>{f.id.startsWith("amdgpu/") ? t().sys.cool.gpuFan : f.label}</b>
           <span class="muted" dir="ltr">{num(f.rpm)} rpm · {num(f.pct)}% · {num(f.temp_c)}°C</span>
-          <span class="chip">{f.mode === "curve" ? t().sys.cool.curve : t().sys.cool.auto}</span>
+          {#if f.mode === "firmware"}
+            <span class="chip warn">{t().sys.cool.unsupported}</span>
+          {:else}
+            <span class="chip">{f.mode === "curve" ? t().sys.cool.curve : t().sys.cool.auto}</span>
+          {/if}
         </div>
+        {#if f.mode === "firmware"}
+          <p class="small">{t().sys.cool.fanFirmware}</p>
+        {:else}
         <div class="line">
           {#each ["quiet", "balanced", "cool"] as const as p}
             <button class="btn" disabled={busy} onclick={() => coolRun(() => api.setFanCurve(f.id, FAN_PRESETS[p]))}>{t().sys.cool.presets[p]}</button>
@@ -492,10 +509,11 @@
         {#if f.curve.length}
           <p class="small" dir="ltr">{f.curve.map(([c, p]) => `${c}°C → ${p}%`).join("   ")}</p>
         {/if}
+        {/if}
       </div>
     {/each}
-    {#each cool?.notes ?? [] as n}<p class="muted">{n}</p>{/each}
-    <p class="small">{t().sys.cool.safety}</p>
+    {#each (cool?.notes ?? []).filter((n) => cool?.simulated && n.startsWith("Development")) as n}<p class="muted">{n}</p>{/each}
+    {#if cool?.fans.some((f) => f.mode !== "firmware")}<p class="small">{t().sys.cool.safety}</p>{/if}
   </section>
 {:else if tab === "usage"}
   <section class="card">
@@ -697,7 +715,6 @@
   .bar-val { font-size: 0.75rem; color: var(--text-2); }
   .bar-day { font-size: 0.75rem; color: var(--text-3); }
   .intro { margin: 0 0 14px; max-width: 75ch; }
-  .line.top { margin-top: 14px; }
   input[type="range"] { accent-color: var(--accent); width: 220px; }
   .kinds { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 8px 0 14px; }
   @media (max-width: 900px) { .kinds { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -746,6 +763,28 @@
   .secondary.armed { border-color: var(--danger); color: var(--danger); }
   .secondary:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .small { margin: 12px 0 0; color: var(--text-3); font-size: 0.8rem; max-width: 80ch; }
+  .chip.warn { background: color-mix(in oklab, var(--warn) 16%, var(--card)); color: var(--warn); font-weight: 600; }
+  .modes { display: grid; gap: 10px; margin-top: 16px; }
+  .mode {
+    all: unset;
+    box-sizing: border-box;
+    display: grid;
+    gap: 4px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: var(--card-2);
+    border: 1.5px solid transparent;
+    cursor: pointer;
+    transition: border-color 150ms ease-out, background 150ms ease-out;
+  }
+  .mode:hover:not(:disabled) { border-color: color-mix(in oklab, var(--accent) 40%, transparent); }
+  .mode[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); }
+  .mode:disabled { cursor: progress; }
+  .mode:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  .mode-top { display: flex; align-items: center; gap: 10px; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--text-3); flex: none; box-sizing: border-box; }
+  .mode[aria-checked="true"] .dot { border-color: var(--accent); background: radial-gradient(var(--accent) 45%, transparent 50%); }
+  .mode-help { color: var(--text-2); font-size: 0.84rem; line-height: 1.7; padding-inline-start: 24px; }
   .fan { display: grid; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .fan:last-of-type { border-bottom: 0; }
   .fan-top { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }

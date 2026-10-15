@@ -156,7 +156,7 @@ export interface GpuTuneState {
   crashed: GpuTune;
 }
 
-export interface FanInfo { id: string; label: string; rpm: number; pct: number | null; temp_c: number | null; mode: "auto" | "curve"; curve: [number, number][] }
+export interface FanInfo { id: string; label: string; rpm: number; pct: number | null; temp_c: number | null; mode: "auto" | "curve" | "firmware"; curve: [number, number][] }
 export interface CoolingState { fans: FanInfo[]; fan_mode: number; fan_modes: [number, string][]; notes: string[]; simulated: boolean }
 
 export interface AutoTuneStatus { running: boolean; step: number; steps: number; message: string; summary: string; ok: boolean }

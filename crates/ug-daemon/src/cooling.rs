@@ -4,6 +4,13 @@
 //! the daemon's clean stop, the next start after a crash (the fans it had
 //! switched are listed in `fans-restore.json` *before* they are switched),
 //! and the loop itself when a fan's temperature can no longer be read.
+//!
+//! A write the kernel accepts is not proof the hardware obeyed: on the
+//! development laptop (Lenovo 83GS) `ideapad_laptop` takes every `fan_mode`
+//! write and the embedded controller keeps the old value, so the window
+//! offered three fan modes that did nothing. Every firmware switch is read
+//! back; one that does not stick is recorded (`firmware.json`) and reported
+//! as unsupported instead of offered.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -33,8 +40,24 @@ struct Restore {
     fans: BTreeMap<String, (PathBuf, u32, u32)>,
 }
 
+/// What the firmware was found to ignore, kept across restarts.
+#[derive(Serialize, Deserialize, Default)]
+struct Verdicts {
+    /// `fan_mode` writes are accepted and ignored.
+    #[serde(default)]
+    fan_mode_ignored: bool,
+    /// Fans whose `pwmN_enable` would not leave automatic control.
+    #[serde(default)]
+    fans_locked: Vec<String>,
+}
+
 pub struct Cooling {
     root: SysRoot,
+    verdicts_path: PathBuf,
+    verdicts: Verdicts,
+    /// Tests: behave like an embedded controller that ignores writes.
+    #[cfg(test)]
+    firmware_ignores: bool,
     /// A development daemon on the real `/`: shows, never writes.
     simulated: bool,
     saved_path: PathBuf,
@@ -56,6 +79,11 @@ fn write(p: &Path, v: &str) -> Result<(), String> {
 impl Cooling {
     pub fn new(root: SysRoot, simulated: bool, state_dir: &Path) -> Cooling {
         let saved_path = state_dir.join("fan-curves.json");
+        let verdicts_path = state_dir.join("firmware.json");
+        let verdicts: Verdicts = std::fs::read_to_string(&verdicts_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
         let restore_path = state_dir.join("fans-restore.json");
         let saved: Saved = std::fs::read_to_string(&saved_path)
             .ok()
@@ -67,6 +95,10 @@ impl Cooling {
             .unwrap_or_default();
         let mut c = Cooling {
             root,
+            verdicts_path,
+            verdicts,
+            #[cfg(test)]
+            firmware_ignores: false,
             simulated,
             saved_path,
             restore_path,
@@ -76,6 +108,7 @@ impl Cooling {
             pct: BTreeMap::new(),
             misses: BTreeMap::new(),
         };
+        c.probe_fan_mode();
         // A crash left fans in manual mode: give them back first.
         if !c.restore.fans.is_empty() {
             tracing::warn!(
@@ -97,6 +130,62 @@ impl Cooling {
                 .expect("serialize")
                 .as_bytes(),
         );
+    }
+
+    fn save_verdicts(&self) {
+        let _ = ug_core::paths::write_atomic(
+            &self.verdicts_path,
+            serde_json::to_string_pretty(&self.verdicts)
+                .expect("serialize")
+                .as_bytes(),
+        );
+    }
+
+    /// Writes a firmware switch and returns what it reads back afterwards.
+    fn write_checked(&self, p: &Path, v: &str) -> Result<String, String> {
+        let before = std::fs::read_to_string(p).unwrap_or_default();
+        write(p, v)?;
+        #[cfg(test)]
+        if self.firmware_ignores {
+            let _ = std::fs::write(p, &before);
+        }
+        let _ = before;
+        Ok(std::fs::read_to_string(p)
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default())
+    }
+
+    /// Once per machine, before the fan modes are first offered: switch to
+    /// another mode and straight back, and see whether the switch stuck.
+    fn probe_fan_mode(&mut self) {
+        let p = self.root.join(IDEAPAD_FAN_MODE);
+        let probed = self.verdicts_path.exists();
+        if self.simulated || probed || !p.exists() {
+            return;
+        }
+        let Some(cur) = std::fs::read_to_string(&p)
+            .ok()
+            .and_then(|v| v.trim().parse::<i32>().ok())
+        else {
+            return;
+        };
+        let other = IDEAPAD_MODES
+            .iter()
+            .map(|(v, _)| *v)
+            .find(|v| *v != cur)
+            .unwrap_or(cur);
+        match self.write_checked(&p, &other.to_string()) {
+            Ok(back) => {
+                self.verdicts.fan_mode_ignored = back != other.to_string();
+                let _ = write(&p, &cur.to_string());
+                tracing::info!(
+                    ignored = self.verdicts.fan_mode_ignored,
+                    "probed the firmware fan mode"
+                );
+                self.save_verdicts();
+            }
+            Err(e) => tracing::warn!(error = %e, "could not probe the firmware fan mode"),
+        }
     }
 
     fn save_restore(&self) -> Result<(), String> {
@@ -144,7 +233,9 @@ impl Cooling {
                 rpm: f.rpm.unwrap_or(0),
                 pct: f.pwm.map(|p| p as f64 * 100.0 / 255.0).unwrap_or(f64::NAN),
                 temp_c: fans::source_temp(&self.root, &f).unwrap_or(f64::NAN),
-                mode: if curve.is_empty() {
+                mode: if self.verdicts.fans_locked.contains(&f.id) {
+                    "firmware".into()
+                } else if curve.is_empty() {
                     "auto".into()
                 } else {
                     "curve".into()
@@ -153,14 +244,22 @@ impl Cooling {
                 id: f.id,
             });
         }
-        if let Ok(v) = std::fs::read_to_string(self.root.join(IDEAPAD_FAN_MODE)) {
+        let fan_mode = std::fs::read_to_string(self.root.join(IDEAPAD_FAN_MODE));
+        if let (Ok(v), false) = (&fan_mode, self.verdicts.fan_mode_ignored) {
             st.fan_mode = v.trim().parse().unwrap_or(-1);
             st.fan_modes = IDEAPAD_MODES
                 .iter()
                 .map(|(v, n)| (*v, n.to_string()))
                 .collect();
         }
-        if st.fans.is_empty() {
+        if fan_mode.is_ok() && self.verdicts.fan_mode_ignored {
+            st.notes.push(
+                "Fan speed is not supported by this laptop's firmware: it accepts fan-mode \
+                 requests but keeps its own setting (checked by switching and reading it back). \
+                 Its fans follow the power profile instead; performance runs them faster."
+                    .into(),
+            );
+        } else if st.fans.is_empty() {
             st.notes.push(if st.fan_mode >= 0 {
                 "The fans are run by the laptop's firmware; it offers the fan modes below.".into()
             } else {
@@ -191,7 +290,18 @@ impl Cooling {
                 (fan.dir.clone(), fan.n, fan.enable.unwrap_or(2)),
             );
             self.save_restore()?;
-            write(&fan.dir.join(format!("pwm{}_enable", fan.n)), "1")?;
+            let back = self.write_checked(&fan.dir.join(format!("pwm{}_enable", fan.n)), "1")?;
+            if back != "1" {
+                self.release(id);
+                if !self.verdicts.fans_locked.iter().any(|f| f == id) {
+                    self.verdicts.fans_locked.push(id.to_string());
+                    self.save_verdicts();
+                }
+                return Err(format!(
+                    "{id}: fan speed is not supported by the firmware here; it keeps the fan \
+                     under its own control."
+                ));
+            }
         }
         self.curves.insert(id.to_string(), points);
         self.save();
@@ -217,7 +327,17 @@ impl Cooling {
         if self.simulated {
             return Err("development service: nothing is changed".into());
         }
-        write(&p, &mode.to_string())
+        let before = std::fs::read_to_string(&p).unwrap_or_default();
+        let back = self.write_checked(&p, &mode.to_string())?;
+        if back != mode.to_string() {
+            let _ = write(&p, before.trim());
+            self.verdicts.fan_mode_ignored = true;
+            self.save_verdicts();
+            return Err("Fan speed is not supported by this laptop's firmware: it accepted the \
+                        request and kept its own fan mode."
+                .into());
+        }
+        Ok(())
     }
 
     /// Once a second while a curve is set.
@@ -448,5 +568,55 @@ mod tests {
             "4"
         );
         assert!(c.set_fan_mode(2).is_err(), "dust cleaning is not offered");
+    }
+
+    #[test]
+    fn a_firmware_that_ignores_fan_modes_is_reported_not_offered() {
+        let fs = TestFs::new();
+        fs.write(IDEAPAD_FAN_MODE, "0");
+        let d = tempfile::tempdir().unwrap();
+        // Probed at start: the switch did not stick.
+        std::fs::write(d.path().join("firmware.json"), "{}").unwrap();
+        let mut c = Cooling::new(SysRoot::at(fs.root()), false, d.path());
+        c.firmware_ignores = true;
+        let e = c.set_fan_mode(4).unwrap_err();
+        assert!(e.contains("not supported"), "{e}");
+        let st = c.state();
+        assert_eq!(st.fan_mode, -1, "no dead control");
+        assert!(st.fan_modes.is_empty());
+        assert!(st.notes[0].contains("not supported"), "{:?}", st.notes);
+        let again = Cooling::new(SysRoot::at(fs.root()), false, d.path());
+        assert_eq!(again.state().fan_mode, -1, "remembered across restarts");
+    }
+
+    #[test]
+    fn the_first_start_probes_the_fan_mode_and_puts_it_back() {
+        let fs = TestFs::new();
+        fs.write(IDEAPAD_FAN_MODE, "1");
+        let d = tempfile::tempdir().unwrap();
+        let c = Cooling::new(SysRoot::at(fs.root()), false, d.path());
+        assert_eq!(
+            std::fs::read_to_string(fs.root().join(IDEAPAD_FAN_MODE)).unwrap(),
+            "1",
+            "restored after the probe"
+        );
+        assert_eq!(c.state().fan_mode, 1, "it stuck, so it is offered");
+        assert!(d.path().join("firmware.json").exists());
+    }
+
+    #[test]
+    fn a_fan_the_firmware_keeps_is_shown_as_firmware_controlled() {
+        let fs = TestFs::new();
+        card(&fs, 60_000);
+        let d = tempfile::tempdir().unwrap();
+        let mut c = Cooling::new(SysRoot::at(fs.root()), false, d.path());
+        c.firmware_ignores = true;
+        let e = c
+            .set_curve("amdgpu/pwm1", vec![(40.0, 30.0), (80.0, 100.0)])
+            .unwrap_err();
+        assert!(e.contains("not supported"), "{e}");
+        assert_eq!(get(&fs, "pwm1_enable"), "2");
+        assert!(!c.busy());
+        assert_eq!(c.state().fans[0].mode, "firmware");
     }
 }

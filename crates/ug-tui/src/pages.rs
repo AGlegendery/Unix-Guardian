@@ -2198,7 +2198,9 @@ fn cooling(app: &mut App, f: &mut Frame, r: Rect) {
         if y >= r.bottom() {
             break;
         }
-        let mode = if fan.mode == "curve" {
+        let mode = if fan.mode == "firmware" {
+            "not supported by firmware".to_string()
+        } else if fan.mode == "curve" {
             FAN_CURVES
                 .iter()
                 .find(|(_, c)| fan.curve == c.to_vec())
@@ -2272,6 +2274,13 @@ fn step_cooling(app: &mut App, d: i32) {
         } else {
             let fi = if st.fan_mode >= 0 { row - 1 } else { row };
             let Some(fan) = st.fans.get(fi) else { return };
+            if fan.mode == "firmware" {
+                report(
+                    app,
+                    Err(format!("{}: fan speed is not supported by the firmware.", fan.label)),
+                );
+                return;
+            }
             // automatic → quiet → balanced → cool → automatic
             let cur = if fan.mode == "curve" {
                 FAN_CURVES
@@ -2339,12 +2348,24 @@ fn battery(app: &mut App, f: &mut Frame, r: Rect) {
         return;
     }
     let modes = [
-        ("off", "Off (charge to 100 %)"),
-        ("protect", "Protect"),
-        ("full-once", "Full charge once, then protect"),
+        (
+            "off",
+            "Off (charge to 100 %)",
+            "Full runtime every day; a battery kept full and warm while plugged in loses capacity fastest.",
+        ),
+        (
+            "protect",
+            "Protect",
+            "Charging stops at the limit and the laptop runs from the adapter: a little less runtime, a much longer life.",
+        ),
+        (
+            "full-once",
+            "Full charge once, then protect",
+            "100 % this one time for a trip; protection comes back by itself once the battery has been used.",
+        ),
     ];
     let mut y = r.y + 6;
-    for (i, (id, label)) in modes.iter().enumerate() {
+    for (i, (id, label, help)) in modes.iter().enumerate() {
         let on = b.mode == *id;
         let line = Line::from(vec![
             Span::styled(
@@ -2369,10 +2390,18 @@ fn battery(app: &mut App, f: &mut Frame, r: Rect) {
             i,
             line,
         );
-        y += 1;
+        f.render_widget(
+            Paragraph::new(Span::styled(*help, app.theme.faint())).wrap(Wrap { trim: true }),
+            Rect {
+                x: r.x + 4,
+                y: y + 1,
+                width: r.width.saturating_sub(4),
+                height: 2.min(r.bottom().saturating_sub(y + 1)),
+            },
+        );
+        y += 3;
     }
     app.rows = modes.len();
-    y += 1;
     if b.adjustable {
         let limits: Vec<String> = (50..=100).step_by(5).map(|l| format!("{l}%")).collect();
         let chosen = app.choice.min(limits.len() - 1);
