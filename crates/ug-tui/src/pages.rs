@@ -2527,7 +2527,7 @@ fn battery(app: &mut App, f: &mut Frame, r: Rect) {
         (
             "full-once",
             "Full charge once, then protect",
-            "100 % this one time for a trip; protection comes back by itself once the battery has been used.",
+            "100 % this one time for a trip; the limit comes back by itself as soon as the battery is full.",
         ),
     ];
     let mut y = r.y + 6;

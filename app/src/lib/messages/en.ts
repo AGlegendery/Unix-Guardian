@@ -337,11 +337,11 @@ export const en = {
       modes: { off: "Off (charge to 100 %)", protect: "Protect", "full-once": "Full charge once" } as Record<string, string>,
       limit: "Stop charging at",
       vendor: "This laptop uses the manufacturer's conservation mode; the firmware sets the limit (usually 60–80 %).",
-      onceHint: "For a trip: charges to 100 % once, then turns protection back on by itself.",
+      onceHint: "For a trip: charges to 100 % once; the limit comes back by itself as soon as the battery is full.",
       modeHelp: {
         off: "Charges to 100 % every time. Best when you need the full runtime every day, but a battery kept full and warm while plugged in loses capacity fastest.",
         protect: "Charging stops at the limit and the laptop then runs straight from the adapter. The battery wears much more slowly; you trade some runtime for a longer life. Best when the laptop is plugged in most of the time.",
-        "full-once": "Charges to 100 % this one time, for a trip or a long day away from power, then turns protection back on by itself once the battery has been used.",
+        "full-once": "Charges to 100 % this one time, for a trip or a long day away from power. As soon as the battery is full, protection turns back on by itself with the same limit: if you stay plugged in, the laptop runs from the adapter and the battery is not topped up again, and the next charge stops at the limit.",
       } as Record<string, string>,
       status: { Charging: "charging", Discharging: "on battery", Full: "full", "Not charging": "not charging (protected)" } as Record<string, string>,
       noBattery: "This computer has no battery.",
