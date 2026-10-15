@@ -32,6 +32,7 @@ mod power;
 mod rtc;
 mod sampler;
 mod schedule;
+mod sleep;
 mod update;
 
 use anyhow::{Context, Result};
@@ -271,6 +272,12 @@ async fn main() -> Result<()> {
                 watches_changed: Arc::clone(&watches_changed),
                 energy: Arc::clone(&energy),
                 battery: Arc::clone(&battery),
+                // Like the clock: a --session run on the real / only reads.
+                sleep: Arc::new(sleep::Sleep::new(
+                    root.clone(),
+                    args.session && args.sysroot.is_none(),
+                    development,
+                )),
             },
         )
         .await

@@ -50,6 +50,18 @@
     </defaults>
   </action>
 
+  <action id="org.unixguardian.power.settings">
+    <description>Change how the computer sleeps and what the lid and power button do</description>
+    <description xml:lang="fa">تغییر نحوه‌ی خواب کامپیوتر و کاری که درِ لپ‌تاپ و دکمه‌ی پاور انجام می‌دهند</description>
+    <message>Authentication is required to change the computer's sleep settings.</message>
+    <message xml:lang="fa">برای تغییر تنظیمات خواب کامپیوتر احراز هویت لازم است.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
   <action id="org.unixguardian.net.control">
     <description>Block an app's internet access, or limit its upload or download speed</description>
     <description xml:lang="fa">بستن اینترنت یک برنامه، یا محدود کردن سرعت آپلود یا دانلودش</description>

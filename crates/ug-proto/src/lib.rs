@@ -245,6 +245,17 @@ pub mod daemon {
         #[zbus(property)]
         fn wake_alarm_supported(&self) -> zbus::Result<bool>;
 
+        /// Sleep variant and the lid and power-button actions.
+        fn sleep_settings(&self) -> zbus::Result<SleepSettings>;
+
+        /// Sleeps the `s2idle` or `deep` way from now on; `keep` applies it
+        /// again at every boot.
+        fn set_sleep_mode(&self, mode: &str, keep: bool) -> zbus::Result<()>;
+
+        /// What logind does for `lid-battery`, `lid-ac`, `lid-docked` or
+        /// `power-key`: `ignore`, `lock`, `suspend`, `hibernate` or `poweroff`.
+        fn set_button_action(&self, which: &str, action: &str) -> zbus::Result<()>;
+
         /// Development runs only: what would have been done, in order.
         #[zbus(property)]
         fn simulated(&self) -> zbus::Result<Vec<String>>;

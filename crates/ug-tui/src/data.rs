@@ -952,6 +952,32 @@ impl Bus {
             .map_err(|e| msg(e, "service"))
     }
 
+    pub fn sleep_settings(&self) -> Result<ug_proto::SleepSettings, String> {
+        let c = self.daemon()?;
+        self.rt
+            .block_on(async { PowerProxy::new(c).await?.sleep_settings().await })
+            .map_err(|e| msg(e, "service"))
+    }
+
+    pub fn set_sleep_mode(&self, mode: &str, keep: bool) -> Result<(), String> {
+        let c = self.daemon()?;
+        self.rt
+            .block_on(async { PowerProxy::new(c).await?.set_sleep_mode(mode, keep).await })
+            .map_err(|e| msg(e, "service"))
+    }
+
+    pub fn set_button_action(&self, which: &str, action: &str) -> Result<(), String> {
+        let c = self.daemon()?;
+        self.rt
+            .block_on(async {
+                PowerProxy::new(c)
+                    .await?
+                    .set_button_action(which, action)
+                    .await
+            })
+            .map_err(|e| msg(e, "service"))
+    }
+
     pub fn set_battery(&self, mode: &str, limit: u8) -> Result<(), String> {
         let c = self.daemon()?;
         self.rt

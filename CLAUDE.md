@@ -19,6 +19,7 @@ cargo test --workspace
 ./scripts/test-bus.sh ./scripts/agent-e2e.sh
 ./scripts/test-bus.sh ./scripts/gamemode-e2e.sh
 ./scripts/test-bus.sh ./scripts/power-e2e.sh
+./scripts/test-bus.sh ./scripts/sleep-e2e.sh
 ./scripts/test-bus.sh ./scripts/shortcuts-e2e.sh
 ./scripts/test-bus.sh ./scripts/recorder-e2e.sh
 ./scripts/test-bus.sh ./scripts/testlab-e2e.sh

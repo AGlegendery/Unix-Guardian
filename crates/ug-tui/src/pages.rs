@@ -1759,7 +1759,7 @@ fn system(app: &mut App, f: &mut Frame, r: Rect) {
         app,
         f,
         Rect { height: 1, ..r },
-        &["Power command", "Queue", "Battery", "Cooling"],
+        &["Power command", "Queue", "Battery", "Cooling", "Sleep"],
     );
     let body = Rect {
         y: r.y + 2,
@@ -1770,8 +1770,143 @@ fn system(app: &mut App, f: &mut Frame, r: Rect) {
         0 => power(app, f, body),
         1 => queue(app, f, body),
         2 => battery(app, f, body),
-        _ => cooling(app, f, body),
+        3 => cooling(app, f, body),
+        _ => sleep(app, f, body),
     }
+}
+
+const SLEEP_ACTIONS: [&str; 5] = ["ignore", "lock", "suspend", "hibernate", "poweroff"];
+
+/// The rows of the Sleep tab: (id, label); ids are the daemon's.
+fn sleep_rows(s: &ug_proto::SleepSettings) -> Vec<(&'static str, &'static str)> {
+    let mut rows = Vec::new();
+    if s.sleep_modes.len() > 1 {
+        rows.push(("mode", "Sleep variant"));
+        rows.push(("keep", "Keep after restart"));
+    }
+    if s.buttons_note.is_empty() {
+        if s.has_lid {
+            rows.push(("lid-battery", "Lid closed, on battery"));
+            rows.push(("lid-ac", "Lid closed, charging"));
+            rows.push(("lid-docked", "Lid closed, docked"));
+        }
+        rows.push(("power-key", "Power button"));
+    }
+    rows
+}
+
+fn sleep_value(s: &ug_proto::SleepSettings, id: &str) -> String {
+    match id {
+        "mode" => s.sleep_mode.clone(),
+        "keep" => (if s.sleep_mode_kept { "yes" } else { "no" }).into(),
+        "lid-battery" => s.lid_battery.clone(),
+        "lid-ac" => s.lid_ac.clone(),
+        "lid-docked" => s.lid_docked.clone(),
+        _ => s.power_key.clone(),
+    }
+}
+
+fn sleep(app: &mut App, f: &mut Frame, r: Rect) {
+    let t = app.theme;
+    let Some(s) = app.sleep.value.clone() else {
+        let msg = app.sleep.error.clone().unwrap_or_else(|| "Reading…".into());
+        f.render_widget(Paragraph::new(Span::styled(msg, t.muted())), r);
+        return;
+    };
+    let rows = sleep_rows(&s);
+    let mut y = r.y;
+    for (i, (id, label)) in rows.iter().enumerate() {
+        if y >= r.bottom() {
+            break;
+        }
+        row(
+            app,
+            f,
+            Rect { y, height: 1, ..r },
+            i,
+            Line::from(vec![
+                Span::styled(format!(" {label:<26}"), t.text()),
+                Span::styled(format!("‹ {} ›", sleep_value(&s, id)), t.accent()),
+            ]),
+        );
+        y += 1;
+    }
+    app.rows = rows.len();
+    let mut notes = Vec::new();
+    if s.sleep_modes.len() <= 1 {
+        notes.push(format!(
+            "Sleep variant: not supported by firmware; it offers only {}.",
+            if s.sleep_mode.is_empty() { "s2idle" } else { &s.sleep_mode }
+        ));
+    } else {
+        notes.push("s2idle wakes at once and drains more; deep (S3) takes a second longer and uses far less battery.".into());
+    }
+    if !s.buttons_note.is_empty() {
+        notes.push(s.buttons_note.clone());
+    }
+    for h in &s.lid_handled_by {
+        notes.push(format!("The lid is handled by {h}; these apply whenever it is not running."));
+    }
+    for h in &s.power_key_handled_by {
+        notes.push(format!("The power button is handled by {h}."));
+    }
+    notes.push("←→ changes a row. Set for the whole system (logind), so every desktop behaves the same. Wake alarm: ug power wake --at 07:00.".into());
+    if y + 1 < r.bottom() {
+        let lines: Vec<Line> = notes
+            .into_iter()
+            .map(|n| Line::from(Span::styled(n, t.faint())))
+            .collect();
+        f.render_widget(
+            Paragraph::new(lines).wrap(Wrap { trim: true }),
+            Rect {
+                y: y + 1,
+                height: r.bottom() - y - 1,
+                ..r
+            },
+        );
+    }
+}
+
+/// ←→ (or Enter) on a Sleep row.
+fn step_sleep(app: &mut App, d: i32) {
+    let Some(s) = app.sleep.value.clone() else {
+        return;
+    };
+    let rows = sleep_rows(&s);
+    let Some((id, label)) = rows.get(app.row).copied() else {
+        return;
+    };
+    let cycle = |list: &[String], cur: &str| -> String {
+        let i = list.iter().position(|v| v == cur).unwrap_or(0) as i32;
+        list[((i + d).rem_euclid(list.len() as i32)) as usize].clone()
+    };
+    let r = match id {
+        "mode" => {
+            let next = cycle(&s.sleep_modes, &s.sleep_mode);
+            app.bus
+                .set_sleep_mode(&next, s.sleep_mode_kept)
+                .map(|_| format!("Sleep variant: {next}."))
+        }
+        "keep" => app
+            .bus
+            .set_sleep_mode(&s.sleep_mode, !s.sleep_mode_kept)
+            .map(|_| {
+                if s.sleep_mode_kept {
+                    "No longer kept after restart.".to_string()
+                } else {
+                    "Kept after restart.".to_string()
+                }
+            }),
+        _ => {
+            let all: Vec<String> = SLEEP_ACTIONS.iter().map(|a| a.to_string()).collect();
+            let next = cycle(&all, &sleep_value(&s, id));
+            app.bus
+                .set_button_action(id, &next)
+                .map(|_| format!("{label}: {next}."))
+        }
+    };
+    report(app, r);
+    app.sleep.invalidate();
 }
 
 fn power(app: &mut App, f: &mut Frame, r: Rect) {
@@ -5499,6 +5634,10 @@ pub fn step_choice(app: &mut App, d: i32) {
         step_cooling(app, d);
         return;
     }
+    if (app.page, app.tab) == (2, 4) {
+        step_sleep(app, d);
+        return;
+    }
     let max = match (app.page, app.tab) {
         (1, _) => app.profiles.value.as_ref().map(|p| p.len()).unwrap_or(1),
         (2, 0) => WHEN.len(),
@@ -5546,6 +5685,10 @@ pub fn activate(app: &mut App, i: usize) {
         (2, 3) => {
             let _ = i;
             step_cooling(app, 1);
+        }
+        (2, 4) => {
+            let _ = i;
+            step_sleep(app, 1);
         }
         (5, _) => {
             let Some(st) = app.overlay.value.clone() else {

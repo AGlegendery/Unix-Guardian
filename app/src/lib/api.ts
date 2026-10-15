@@ -156,6 +156,21 @@ export interface GpuTuneState {
   crashed: GpuTune;
 }
 
+export type ButtonId = "lid-battery" | "lid-ac" | "lid-docked" | "power-key";
+export interface SleepSettings {
+  sleep_modes: string[];
+  sleep_mode: string;
+  sleep_mode_kept: boolean;
+  has_lid: boolean;
+  lid_battery: string;
+  lid_ac: string;
+  lid_docked: string;
+  power_key: string;
+  lid_handled_by: string[];
+  power_key_handled_by: string[];
+  buttons_note: string;
+}
+
 export interface FanInfo { id: string; label: string; rpm: number; pct: number | null; temp_c: number | null; mode: "auto" | "curve" | "firmware"; curve: [number, number][] }
 export interface CoolingState { fans: FanInfo[]; fan_mode: number; fan_modes: [number, string][]; notes: string[]; simulated: boolean }
 
@@ -620,6 +635,9 @@ const tauriApi = {
   updateInstall: () => invoke<void>("update_install"),
   updateRollback: () => invoke<string>("update_rollback"),
   reportBug: (context: string) => invoke<void>("report_bug", { context }),
+  sleepSettings: () => invoke<SleepSettings>("sleep_settings"),
+  setSleepMode: (mode: string, keep: boolean) => invoke<void>("set_sleep_mode", { mode, keep }),
+  setButtonAction: (which: ButtonId, action: string) => invoke<void>("set_button_action", { which, action }),
   battery: () => invoke<BatteryCare>("battery"),
   setBatteryCare: (mode: string, limit: number) => invoke<void>("set_battery_care", { mode, limit }),
   wakeAlarm: () => invoke<[number, boolean]>("wake_alarm"),

@@ -37,6 +37,16 @@ trait Login1 {
     fn hibernate(&self, interactive: bool) -> zbus::Result<()>;
     fn hybrid_sleep(&self, interactive: bool) -> zbus::Result<()>;
     fn suspend_then_hibernate(&self, interactive: bool) -> zbus::Result<()>;
+    /// (what, who, why, mode, uid, pid) of every inhibitor.
+    fn list_inhibitors(&self) -> zbus::Result<Vec<(String, String, String, String, u32, u32)>>;
+    #[zbus(property)]
+    fn handle_lid_switch(&self) -> zbus::Result<String>;
+    #[zbus(property)]
+    fn handle_lid_switch_external_power(&self) -> zbus::Result<String>;
+    #[zbus(property)]
+    fn handle_lid_switch_docked(&self) -> zbus::Result<String>;
+    #[zbus(property)]
+    fn handle_power_key(&self) -> zbus::Result<String>;
 }
 
 /// Who carries power actions out.
@@ -126,6 +136,44 @@ impl Backend {
     }
 }
 
+impl Backend {
+    /// logind's lid and power-button settings and its block inhibitors;
+    /// `None` without logind (and in development, where our drop-in is read).
+    async fn logind_live(&self) -> Option<crate::sleep::Live> {
+        let Backend::Logind(conn) = self else {
+            return None;
+        };
+        // Properties are cached by default; these change on reload.
+        let p = Login1Proxy::builder(conn)
+            .cache_properties(zbus::proxy::CacheProperties::No)
+            .build()
+            .await
+            .ok()?;
+        let mut live = crate::sleep::Live::default();
+        let pairs = [
+            ("HandleLidSwitch", p.handle_lid_switch().await),
+            (
+                "HandleLidSwitchExternalPower",
+                p.handle_lid_switch_external_power().await,
+            ),
+            ("HandleLidSwitchDocked", p.handle_lid_switch_docked().await),
+            ("HandlePowerKey", p.handle_power_key().await),
+        ];
+        for (k, v) in pairs {
+            live.values.insert(k.to_string(), v.ok()?);
+        }
+        live.blocks = p
+            .list_inhibitors()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|i| i.3 == "block")
+            .map(|i| (i.0, i.1, i.2))
+            .collect();
+        Some(live)
+    }
+}
+
 fn not_supported(a: Action) -> String {
     match a {
         Action::Hibernate | Action::HybridSleep | Action::SuspendThenHibernate => {
@@ -177,6 +225,7 @@ pub struct PowerIface {
     pub watches_changed: Arc<Notify>,
     pub energy: Arc<Mutex<crate::energy::EnergyMeter>>,
     pub battery: SharedBattery,
+    pub sleep: Arc<crate::sleep::Sleep>,
 }
 
 pub type SharedBattery = Arc<Mutex<crate::battery::Battery>>;
@@ -563,6 +612,52 @@ impl PowerIface {
                     .unwrap_or_else(|e| e.into_inner()) = None
             }
         }
+        Ok(())
+    }
+
+    async fn sleep_settings(&self) -> ug_proto::SleepSettings {
+        let live = self.backend.logind_live().await;
+        self.sleep.settings(live.as_ref())
+    }
+
+    async fn set_sleep_mode(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        mode: &str,
+        keep: bool,
+    ) -> zbus::fdo::Result<()> {
+        self.gate.authorize(&hdr, action::POWER_SETTINGS).await?;
+        let sleep = Arc::clone(&self.sleep);
+        let m = mode.to_string();
+        tokio::task::spawn_blocking(move || sleep.set_mode(&m, keep))
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+            .map_err(zbus::fdo::Error::Failed)?;
+        tracing::info!(mode, keep, "sleep variant set");
+        Ok(())
+    }
+
+    async fn set_button_action(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        which: &str,
+        action: &str,
+    ) -> zbus::fdo::Result<()> {
+        self.gate.authorize(&hdr, action::POWER_SETTINGS).await?;
+        let sleep = Arc::clone(&self.sleep);
+        let (w, a) = (which.to_string(), action.to_string());
+        let reload = matches!(&*self.backend, Backend::Logind(_));
+        tokio::task::spawn_blocking(move || {
+            sleep.set_button(&w, &a)?;
+            if reload {
+                crate::sleep::reload_logind(sleep.uses_elogind())?;
+            }
+            Ok::<_, String>(())
+        })
+        .await
+        .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+        .map_err(zbus::fdo::Error::Failed)?;
+        tracing::info!(which, action, "lid or power button action set");
         Ok(())
     }
 

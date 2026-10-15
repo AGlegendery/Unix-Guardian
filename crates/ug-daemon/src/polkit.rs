@@ -27,6 +27,8 @@ pub mod action {
     pub const GAMEMODE: &str = "org.unixguardian.gamemode";
     /// Shut down, restart or sleep, now or on a schedule.
     pub const POWER: &str = "org.unixguardian.power.control";
+    /// How the computer sleeps, and what the lid and power button do.
+    pub const POWER_SETTINGS: &str = "org.unixguardian.power.settings";
     /// Block an app's internet, or cap its upload or download.
     pub const NET: &str = "org.unixguardian.net.control";
     /// Change a GPU's power limit or clock offsets.
@@ -45,6 +47,7 @@ pub mod action {
         DAEMON_DEBUG,
         GAMEMODE,
         POWER,
+        POWER_SETTINGS,
         NET,
         GPU_TUNE,
         COOLING,

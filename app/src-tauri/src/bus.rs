@@ -16,7 +16,8 @@ use ug_proto::agent::{
 use ug_proto::daemon::{CoolingProxy, DaemonProxy, GameModeProxy, GpuProxy, NetProxy, PowerProxy};
 use ug_proto::{
     BatteryCare, DayTraffic, HistoryPoint, InstalledGameInfo, Inventory, PlaytimeEntry,
-    PowerCapability, PowerJob, PowerUsage, PowerWatch, ProfileInfo, RunningGameInfo, Snapshot,
+    PowerCapability, PowerJob, PowerUsage, PowerWatch, ProfileInfo, RunningGameInfo, SleepSettings,
+    Snapshot,
 };
 
 pub struct Bus {
@@ -606,6 +607,30 @@ pub async fn set_battery_care(bus: State<'_, Bus>, mode: String, limit: u8) -> R
         .await
         .map_err(daemon_err)?;
     p.set_battery_care(&mode, limit).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn sleep_settings(bus: State<'_, Bus>) -> Res<SleepSettings> {
+    let p = PowerProxy::new(bus.daemon().await?)
+        .await
+        .map_err(daemon_err)?;
+    p.sleep_settings().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn set_sleep_mode(bus: State<'_, Bus>, mode: String, keep: bool) -> Res<()> {
+    let p = PowerProxy::new(bus.daemon().await?)
+        .await
+        .map_err(daemon_err)?;
+    p.set_sleep_mode(&mode, keep).await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn set_button_action(bus: State<'_, Bus>, which: String, action: String) -> Res<()> {
+    let p = PowerProxy::new(bus.daemon().await?)
+        .await
+        .map_err(daemon_err)?;
+    p.set_button_action(&which, &action).await.map_err(daemon_err)
 }
 
 #[tauri::command]

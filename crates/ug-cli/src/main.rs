@@ -540,6 +540,28 @@ enum PowerCommand {
         #[arg(long)]
         clear: bool,
     },
+    /// How the computer sleeps and what the lid and power button do:
+    /// `ug power sleep`, `--mode deep --keep`, `--lid ignore`, `--power-key suspend`.
+    Sleep {
+        /// The kernel's sleep variant: s2idle or deep (as the firmware offers).
+        #[arg(long)]
+        mode: Option<String>,
+        /// With --mode: apply it again at every boot (--keep=false stops that).
+        #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+        keep: Option<bool>,
+        /// Lid closed on battery: ignore, lock, suspend, hibernate or poweroff.
+        #[arg(long)]
+        lid: Option<String>,
+        /// Lid closed while charging.
+        #[arg(long)]
+        lid_ac: Option<String>,
+        /// Lid closed with an external screen attached.
+        #[arg(long)]
+        lid_docked: Option<String>,
+        /// Power button pressed.
+        #[arg(long)]
+        power_key: Option<String>,
+    },
     /// Do it once a condition holds: `ug power when power-off --download-done`,
     /// `--cpu-idle`, `--process blender`, or `--game-over`.
     When {
@@ -3048,6 +3070,65 @@ async fn power(conn: &zbus::Connection, command: PowerCommand, json: bool) -> Re
                 };
                 p.set_wake_alarm(when).await.map_err(daemon_error)?;
                 println!("The computer will wake at {}.", local_time(when));
+            }
+        }
+        PowerCommand::Sleep {
+            mode,
+            keep,
+            lid,
+            lid_ac,
+            lid_docked,
+            power_key,
+        } => {
+            let before = p.sleep_settings().await.map_err(daemon_error)?;
+            if mode.is_some() || keep.is_some() {
+                let m = mode.unwrap_or_else(|| before.sleep_mode.clone());
+                let k = keep.unwrap_or(before.sleep_mode_kept);
+                p.set_sleep_mode(&m, k).await.map_err(daemon_error)?;
+            }
+            for (which, v) in [
+                ("lid-battery", lid),
+                ("lid-ac", lid_ac),
+                ("lid-docked", lid_docked),
+                ("power-key", power_key),
+            ] {
+                if let Some(a) = v {
+                    p.set_button_action(which, &a).await.map_err(daemon_error)?;
+                }
+            }
+            let s = p.sleep_settings().await.map_err(daemon_error)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&s)?);
+                return Ok(());
+            }
+            if s.sleep_modes.is_empty() {
+                println!(
+                    "Sleep: {} (the firmware offers no other way)",
+                    if s.sleep_mode.is_empty() { "s2idle" } else { &s.sleep_mode }
+                );
+            } else {
+                println!(
+                    "Sleep: {}{}   (choices: {})",
+                    s.sleep_mode,
+                    if s.sleep_mode_kept { ", kept after restart" } else { "" },
+                    s.sleep_modes.join(", ")
+                );
+            }
+            if !s.buttons_note.is_empty() {
+                println!("{}", s.buttons_note);
+            } else {
+                if s.has_lid {
+                    println!("Lid closed on battery:   {}", s.lid_battery);
+                    println!("Lid closed charging:     {}", s.lid_ac);
+                    println!("Lid closed docked:       {}", s.lid_docked);
+                    for h in &s.lid_handled_by {
+                        println!("  The lid is handled by {h}; this applies when it is not running.");
+                    }
+                }
+                println!("Power button:            {}", s.power_key);
+                for h in &s.power_key_handled_by {
+                    println!("  The power button is handled by {h}.");
+                }
             }
         }
         PowerCommand::When {

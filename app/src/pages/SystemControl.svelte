@@ -2,14 +2,17 @@
   import Problem from "../lib/ui/Problem.svelte";
   import { AlarmClock, Cpu, Moon, Power, RotateCcw, Snowflake, Trash2 } from "@lucide/svelte";
   import type { Component } from "svelte";
-  import { api, errorText, type BatteryCare, type CoolingState, type PowerUsage, type PowerAction, type PowerCapability, type PowerJob, type PowerWatch, type WatchKind } from "../lib/api";
+  import { api, errorText, type ButtonId, type SleepSettings, type BatteryCare, type CoolingState, type PowerUsage, type PowerAction, type PowerCapability, type PowerJob, type PowerWatch, type WatchKind } from "../lib/api";
   import { num } from "../lib/format";
   import { locale, t } from "../lib/i18n.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
+  import Switch from "../lib/ui/Switch.svelte";
+  import TimePicker from "../lib/ui/TimePicker.svelte";
 
-  type Tab = "command" | "conditional" | "usage" | "battery" | "cooling" | "sleep" | "alarm";
-  const tabs: Tab[] = ["command", "conditional", "usage", "battery", "cooling", "sleep", "alarm"];
-  const hashTab = location.hash.split("/")[1] as Tab;
+  type Tab = "command" | "conditional" | "usage" | "battery" | "cooling" | "sleep";
+  const tabs: Tab[] = ["command", "conditional", "usage", "battery", "cooling", "sleep"];
+  // The wake alarm had a tab of its own; it is part of Sleep and wake now.
+  const hashTab = (location.hash.split("/")[1] === "alarm" ? "sleep" : location.hash.split("/")[1]) as Tab;
   let tab = $state<Tab>(tabs.includes(hashTab) ? hashTab : "command");
   let caps = $state<PowerCapability[]>([]);
   let jobs = $state<PowerJob[]>([]);
@@ -33,6 +36,27 @@
   let condMinutes = $state(5);
   let condName = $state("");
   let usage = $state<PowerUsage | null>(null);
+  let slp = $state<SleepSettings | null>(null);
+  $effect(() => {
+    if (tab !== "sleep") return;
+    api.sleepSettings().then((v) => (slp = v)).catch((e) => (error = errorText(e)));
+  });
+  const slpRun = (f: () => Promise<void>) => run(async () => { await f(); slp = await api.sleepSettings(); }, t().sys.slp.saved);
+  // A clock that ticks only while an alarm is shown, once a minute.
+  let nowMs = $state(Date.now());
+  $effect(() => {
+    if (tab !== "sleep" || !alarm) return;
+    const id = setInterval(() => (nowMs = Date.now()), 30_000);
+    return () => clearInterval(id);
+  });
+  function inTime(at: number): string {
+    const mins = Math.max(0, Math.round((at - nowMs) / 60_000));
+    return t().sys.slp.inTime.replace("{h}", num(Math.floor(mins / 60))).replace("{m}", num(mins % 60));
+  }
+  function quickAlarm(mins: number) {
+    const d = new Date(Date.now() + mins * 60_000);
+    alarmClock = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
   let bat = $state<BatteryCare | null>(null);
   let batLimit = $state(80);
   $effect(() => {
@@ -309,8 +333,12 @@
           options={Object.keys(presets).map((k) => ({ value: k, label: t().sys.presets[k] }))}
           onchange={(v) => { preset = v; clock = ""; }}
         />
-        <label class="muted" for="clock">{t().sys.or}</label>
-        <input id="clock" type="time" bind:value={clock} />
+        <span class="muted">{t().sys.or}</span>
+        {#if clock}
+          <TimePicker bind:value={clock} label={t().sys.atTime} />
+        {:else}
+          <button class="chip-btn" onclick={() => { const d = new Date(Date.now() + 3_600_000); clock = `${String(d.getHours()).padStart(2, "0")}:00`; }}>{t().sys.atTime}…</button>
+        {/if}
       </div>
       <div class="line">
         <span class="muted">{t().sys.repeatLabel}</span>
@@ -560,29 +588,93 @@
     {/if}
     <p class="small">{t().sys.use.honest}</p>
   </section>
-{:else if tab === "sleep" || tab === "alarm"}
+{:else if tab === "sleep"}
   <section class="card">
-    <h2><AlarmClock size={18} aria-hidden="true" /> {tab === "sleep" ? t().sys.sleepWake : t().sys.alarmTitle}</h2>
+    <h2><AlarmClock size={18} aria-hidden="true" /> {t().sys.slp.alarm}</h2>
     {#if alarmSupported}
-      <div class="line">
-        <input type="time" bind:value={alarmClock} aria-label={t().sys.atTime} />
-        {#if tab === "sleep"}
-          <button class="secondary" disabled={busy || !capOf("suspend")?.available} onclick={sleepUntil}>{t().sys.sleepWakeGo}</button>
-        {:else}
-          <button class="secondary" disabled={busy} onclick={setAlarm}>{t().sys.alarmSet}</button>
-        {/if}
+      <p class="small intro">{t().sys.slp.alarmIntro}</p>
+      <div class="alarm-row">
+        <TimePicker bind:value={alarmClock} label={t().sys.atTime} />
+        <div class="alarm-side">
+          <div class="quick">
+            {#each Object.keys(t().sys.slp.quick) as q}
+              <button class="chip-btn" onclick={() => quickAlarm(Number(q))}>{t().sys.slp.quick[q]}</button>
+            {/each}
+          </div>
+          <div class="line">
+            <button class="primary" disabled={busy} onclick={setAlarm}>{t().sys.alarmSet}</button>
+            <button class="secondary" disabled={busy || !capOf("suspend")?.available} onclick={sleepUntil}><Moon size={15} aria-hidden="true" /> {t().sys.sleepWakeGo}</button>
+          </div>
+        </div>
       </div>
-      <p class="muted">
+      <div class="armed-box" class:on={!!alarm}>
         {#if alarm}
-          {t().sys.alarmNow} <b>{fmt(alarm)}</b>
+          <span class="pulse-dot" aria-hidden="true"></span>
+          <span>{t().sys.alarmNow} <b>{fmt(alarm)}</b> <span class="muted">· {inTime(alarm)}</span></span>
           <button class="cancel" onclick={() => run(() => api.clearWakeAlarm())}><Trash2 size={15} aria-hidden="true" />{t().sys.alarmClear}</button>
         {:else}
-          {t().sys.alarmNone}
+          <span class="muted">{t().sys.alarmNone}</span>
         {/if}
-      </p>
+      </div>
       <p class="small">{t().sys.alarmHint}</p>
     {:else}
-      <p class="muted">{t().sys.alarmUnsupported}</p>
+      <p class="muted"><span class="chip warn">{t().sys.cool.unsupported}</span></p>
+      <p class="small">{t().sys.alarmUnsupported}</p>
+    {/if}
+  </section>
+
+  <section class="card">
+    <h2><Moon size={18} aria-hidden="true" /> {t().sys.slp.modeTitle}</h2>
+    {#if slp && slp.sleep_modes.length > 1}
+      <div class="modes" role="radiogroup" aria-label={t().sys.slp.modeTitle}>
+        {#each slp.sleep_modes as m}
+          <button class="mode" role="radio" aria-checked={slp.sleep_mode === m} disabled={busy} onclick={() => slp?.sleep_mode !== m && slpRun(() => api.setSleepMode(m, slp?.sleep_mode_kept ?? false))}>
+            <span class="mode-top"><span class="dot" aria-hidden="true"></span><b>{t().sys.slp.modes[m] ?? m}</b></span>
+            {#if t().sys.slp.modeHelp[m]}<span class="mode-help">{t().sys.slp.modeHelp[m]}</span>{/if}
+          </button>
+        {/each}
+      </div>
+      <div class="line keep">
+        <Switch checked={slp.sleep_mode_kept} disabled={busy} label={t().sys.slp.keep} onchange={(v) => slpRun(() => api.setSleepMode(slp!.sleep_mode, v))} />
+        <div><p class="row-title">{t().sys.slp.keep}</p><p class="small tight">{t().sys.slp.keepHint}</p></div>
+      </div>
+    {:else if slp}
+      <p class="muted"><span class="chip warn">{t().sys.cool.unsupported}</span></p>
+      <p class="small">{t().sys.slp.onlyOne.replace("{m}", slp.sleep_mode || "s2idle")}</p>
+    {/if}
+  </section>
+
+  <section class="card">
+    <h2><Power size={18} aria-hidden="true" /> {t().sys.slp.buttons}</h2>
+    <p class="small intro">{t().sys.slp.buttonsIntro}</p>
+    {#if slp?.buttons_note}
+      <p class="muted"><span class="chip warn">{t().sys.cool.unsupported}</span> {slp.buttons_note}</p>
+    {:else if slp}
+      {#if !slp.has_lid}<p class="small">{t().sys.slp.noLid}</p>{/if}
+      {#if slp.has_lid && slp.lid_handled_by.length}
+        <p class="held-box">{t().sys.slp.handled.replace("{who}", slp.lid_handled_by.map((h) => h.split(":")[0]).join(", "))}</p>
+      {/if}
+      {#each (slp.has_lid ? ["lid-battery", "lid-ac", "lid-docked", "power-key"] : ["power-key"]) as ButtonId[] as b}
+        {@const cur = { "lid-battery": slp.lid_battery, "lid-ac": slp.lid_ac, "lid-docked": slp.lid_docked, "power-key": slp.power_key }[b]}
+        {@const held = b === "power-key" ? slp.power_key_handled_by : slp.lid_handled_by}
+        <div class="btn-row">
+          <span class="row-title">{t().sys.slp.rows[b]}</span>
+          <div><Segmented
+            label={t().sys.slp.rows[b]}
+            value={cur}
+            options={["ignore", "lock", "suspend", "hibernate", "poweroff"].map((a) => ({
+              value: a,
+              label: t().sys.slp.acts[a],
+              disabled: busy || (a === "hibernate" && !capOf("hibernate")?.available),
+              why: a === "hibernate" ? t().sys.noHibernate : undefined,
+            }))}
+            onchange={(a) => slpRun(() => api.setButtonAction(b, a))}
+          /></div>
+          {#if b === "power-key" && held.length}
+            <p class="held-box">{t().sys.slp.handled.replace("{who}", held.map((h) => h.split(":")[0]).join(", "))}</p>
+          {/if}
+        </div>
+      {/each}
     {/if}
   </section>
 {:else}
@@ -650,15 +742,6 @@
   .card { background: var(--card); border-radius: var(--radius); padding: 20px 22px; margin-top: 16px; }
   .line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
   .muted { color: var(--text-3); font-size: 0.86rem; margin: 0; }
-  input[type="time"] {
-    font: inherit;
-    color: var(--text);
-    background: var(--card-2);
-    border: 1px solid var(--line);
-    border-radius: 9px;
-    padding: 5px 10px;
-    color-scheme: dark;
-  }
   .go {
     all: unset;
     box-sizing: border-box;
@@ -763,6 +846,60 @@
   .secondary.armed { border-color: var(--danger); color: var(--danger); }
   .secondary:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .small { margin: 12px 0 0; color: var(--text-3); font-size: 0.8rem; max-width: 80ch; }
+  .alarm-row { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; margin: 6px 0 14px; }
+  .alarm-side { display: grid; gap: 12px; }
+  .alarm-side .line { margin: 0; }
+  .quick { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip-btn {
+    all: unset;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: var(--card-2);
+    color: var(--text-2);
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: color 150ms ease-out, background 150ms ease-out;
+  }
+  .chip-btn:hover { color: var(--text); background: color-mix(in oklab, var(--accent) 16%, var(--card-2)); }
+  .chip-btn:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  .primary {
+    all: unset;
+    padding: 8px 18px;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: filter 150ms ease-out;
+  }
+  .primary:hover:not(:disabled) { filter: brightness(1.1); }
+  .primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .primary:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  .secondary { display: inline-flex; align-items: center; gap: 6px; }
+  .armed-box {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    background: var(--card-2);
+  }
+  .armed-box.on { background: color-mix(in oklab, var(--accent) 12%, var(--card-2)); }
+  .armed-box > span:nth-child(2) { flex: 1; }
+  .pulse-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent-text); flex: none; }
+  .keep { margin: 16px 0 0; align-items: flex-start; flex-wrap: nowrap; }
+  .tight { margin-top: 2px; }
+  .btn-row { display: grid; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .btn-row:last-child { border-bottom: 0; }
+  .held-box {
+    margin: 8px 0 4px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 0.84rem;
+    color: var(--warn);
+    background: color-mix(in oklab, var(--warn) 10%, var(--card));
+  }
   .chip.warn { background: color-mix(in oklab, var(--warn) 16%, var(--card)); color: var(--warn); font-weight: 600; }
   .modes { display: grid; gap: 10px; margin-top: 16px; }
   .mode {

@@ -21,6 +21,8 @@
 <style>
   .seg {
     display: inline-flex;
+    flex-wrap: wrap;
+    max-width: 100%;
     padding: 3px;
     gap: 2px;
     border-radius: 12px;

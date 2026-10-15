@@ -16,6 +16,19 @@ for (let i = 0; i < Number(new URLSearchParams(location.search).get("profiles") 
   profiles.push({ ...structuredClone(profiles[1]), id: `my-long-profile-name-${i + 1}`, builtin: false });
 const jobs: PowerJob[] = [];
 let alarm = 0;
+const sleepCfg = {
+  sleep_modes: ["s2idle", "deep"],
+  sleep_mode: "s2idle",
+  sleep_mode_kept: false,
+  has_lid: true,
+  lid_battery: "suspend",
+  lid_ac: "suspend",
+  lid_docked: "ignore",
+  power_key: "poweroff",
+  lid_handled_by: ["ryoku-clamshell: route lid close through the secure Ryoku policy"],
+  power_key_handled_by: [] as string[],
+  buttons_note: "",
+};
 const bat: BatteryCare = { supported: true, method: "vendor-long-life", adjustable: false, mode: "off", limit: 80, capacity: 100, status: "Full", reason: "" };
 const watches: PowerWatch[] = [];
 let t = 0;
@@ -744,6 +757,15 @@ export const mockApi = {
   },
   openTerminal: async () => {
     throw "The preview cannot open a terminal. In the app this opens ug tui.";
+  },
+  sleepSettings: async () => ({ ...sleepCfg, lid_handled_by: [...sleepCfg.lid_handled_by] }),
+  setSleepMode: async (mode: string, keep: boolean) => {
+    sleepCfg.sleep_mode = mode;
+    sleepCfg.sleep_mode_kept = keep;
+  },
+  setButtonAction: async (which: string, action: string) => {
+    const key = { "lid-battery": "lid_battery", "lid-ac": "lid_ac", "lid-docked": "lid_docked", "power-key": "power_key" }[which] as "lid_battery";
+    sleepCfg[key] = action;
   },
   battery: async () => ({ ...bat }),
   setBatteryCare: async (mode: string, limit: number) => {

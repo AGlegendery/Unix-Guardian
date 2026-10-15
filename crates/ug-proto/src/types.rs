@@ -567,6 +567,32 @@ pub struct GameModeReport {
     pub skipped: Vec<String>,
 }
 
+/// How the computer sleeps, and what the lid and power button do.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct SleepSettings {
+    /// The kernel's sleep variants (`/sys/power/mem_sleep`), e.g. `s2idle`,
+    /// `deep`; empty when the kernel offers no choice.
+    pub sleep_modes: Vec<String>,
+    pub sleep_mode: String,
+    /// The choice is applied again at every boot (our tmpfiles.d entry).
+    pub sleep_mode_kept: bool,
+    pub has_lid: bool,
+    /// logind's actions (`ignore`, `lock`, `suspend`, `hibernate`,
+    /// `poweroff`…): lid closed on battery, on the charger, docked, and the
+    /// power button.
+    pub lid_battery: String,
+    pub lid_ac: String,
+    pub lid_docked: String,
+    pub power_key: String,
+    /// Programs that take the lid or the power button over from logind
+    /// (block inhibitors), as `who: why`; while one runs, logind's setting is
+    /// not what happens.
+    pub lid_handled_by: Vec<String>,
+    pub power_key_handled_by: Vec<String>,
+    /// Why the lid and button cannot be changed here; empty when they can.
+    pub buttons_note: String,
+}
+
 /// Whether this machine can do one power action, and if not, why not.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct PowerCapability {

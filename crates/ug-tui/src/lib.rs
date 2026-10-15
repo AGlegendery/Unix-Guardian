@@ -91,6 +91,7 @@ pub struct App {
     pub caps: Cached<Vec<PowerCapability>>,
     pub jobs: Cached<(Vec<PowerJob>, Vec<PowerWatch>)>,
     pub battery: Cached<BatteryCare>,
+    pub sleep: Cached<ug_proto::SleepSettings>,
     pub history: Cached<Vec<HistoryPoint>>,
     /// The last 30 days, and (down, up) for the last hour and today.
     pub traffic: Cached<data::TrafficView>,
@@ -186,6 +187,7 @@ impl App {
             caps: Cached::new(RARE),
             jobs: Cached::new(SLOW),
             battery: Cached::new(Duration::from_secs(15)),
+            sleep: Cached::new(Duration::from_secs(10)),
             history: Cached::new(RARE),
             traffic: Cached::new(RARE),
             live: VecDeque::new(),
@@ -290,6 +292,10 @@ impl App {
                 if self.battery.due() {
                     let r = self.bus.battery();
                     self.battery.store(r);
+                }
+                if self.tab == 4 && self.sleep.due() {
+                    let r = self.bus.sleep_settings();
+                    self.sleep.store(r);
                 }
                 if self.tab == 3 && self.cooling.due() {
                     let r = self.bus.cooling().map(|c| (c, self.bus.power_profile()));
@@ -557,7 +563,7 @@ impl App {
     fn tabs(&self) -> usize {
         match self.page {
             1 => 3,
-            2 => 4,
+            2 => 5,
             3 => 3,
             4 => 2,
             5 => 2,
