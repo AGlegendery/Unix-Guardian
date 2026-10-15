@@ -2097,6 +2097,20 @@ fn gpu_tune_page(app: &mut App, f: &mut Frame, r: Rect) {
     let h = lines.len() as u16 + 1;
     f.render_widget(Paragraph::new(lines), Rect { height: h, ..r });
     let mut y = r.y + h;
+    if !(st.power_limit || st.core_offset || st.mem_offset) {
+        // Nothing this card allows: the reasons, and no rows to press.
+        app.rows = 0;
+        let mut lines = vec![Line::from(Span::styled(
+            "Not supported: this card and driver allow no power limit or clock offset from software.",
+            t.warn_style(),
+        ))];
+        lines.extend(st.notes.iter().map(|n| Line::from(Span::styled(n.clone(), t.faint()))));
+        f.render_widget(
+            Paragraph::new(lines).wrap(Wrap { trim: true }),
+            Rect { y, height: r.bottom().saturating_sub(y), ..r },
+        );
+        return;
+    }
     let mut rows: Vec<Line> = Vec::new();
     if st.power_limit {
         rows.push(Line::from(vec![

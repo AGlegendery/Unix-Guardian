@@ -166,6 +166,8 @@
         draft.core_offset_mhz !== st.applied.core_offset_mhz ||
         draft.mem_offset_mhz !== st.applied.mem_offset_mhz),
   );
+  // A card that allows none of the three gets no dead buttons: the reason.
+  const tunable = $derived(!!st && (st.power_limit || st.core_offset || st.mem_offset));
   const sign = (v: number) => (v > 0 ? `+${v}` : `${v}`);
 </script>
 
@@ -187,6 +189,9 @@
       </p>
     {/if}
 
+    {#if !tunable}
+      <p class="unsupported"><span class="chip-warn">{t().sys.cool.unsupported}</span> {t().tune.none}</p>
+    {:else}
     <div class="presets">
       {#each ["cooler", "efficient", "stronger"] as const as p}
         <button class="chip-btn" onclick={() => preset(p)} disabled={busy || left !== null}>{t().tune.presets[p]}</button>
@@ -235,9 +240,10 @@
         <button class="btn" disabled={busy} onclick={() => autoTune("cooler")}>{t().tune.autoCooler}</button>
       </div>
     {/if}
+    {/if}
     {#if auto && !auto.running && auto.summary}<p class="verdict" class:bad={!auto.ok}>{auto.summary}</p>{/if}
     {#if verdict}<p class="verdict" class:bad={!verdict.stable}>{verdict.text}</p>{/if}
-    <p class="row-hint">{t().tune.safety}</p>
+    {#if tunable}<p class="row-hint">{t().tune.safety}</p>{/if}
     {#each st.notes as n}<p class="row-hint">{n}</p>{/each}
   {/if}
 </div>
@@ -246,6 +252,8 @@
   .tuner { display: grid; gap: 10px; padding: 12px; border-radius: var(--radius-sm); background: color-mix(in oklab, var(--card-2) 60%, var(--card)); }
   .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   .row-title { margin: 0; }
+  .unsupported { margin: 0; font-size: 0.86rem; color: var(--text-2); }
+  .chip-warn { display: inline-block; padding: 1px 10px; border-radius: 999px; font-weight: 600; color: var(--warn); background: color-mix(in oklab, var(--warn) 14%, var(--card)); margin-inline-end: 6px; }
   .row-hint { margin: 0; color: var(--text-3); font-size: 0.8rem; }
   .verdict { margin: 0; font-size: 0.86rem; color: var(--ok, #34d399); }
   .verdict.bad { color: var(--danger); }

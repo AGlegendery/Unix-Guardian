@@ -752,6 +752,7 @@ export const en = {
     setUpDone: (d: string) => `Written into ${d}'s keyboard settings.`,
   },
   tune: {
+    none: "This card and driver allow no power limit or clock offset from software; the reasons are below.",
     title: "Power and clocks",
     show: "Show tuning",
     wakeNote: "Reading these wakes the graphics card for a moment, so they are read only when you ask.",
