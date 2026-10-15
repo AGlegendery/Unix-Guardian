@@ -1,8 +1,6 @@
 <script lang="ts">
   import Problem from "../lib/ui/Problem.svelte";
-  import { Cpu, Moon, Power, RotateCcw, Snowflake } from "@lucide/svelte";
   import HugeIcon from "../lib/icons/HugeIcon.svelte";
-  import type { Component } from "svelte";
   import BatteryChart from "../lib/BatteryChart.svelte";
   import { api, errorText, type BatteryReport, type ButtonId, type SleepSettings, type BatteryCare, type CoolingState, type PowerUsage, type PowerAction, type PowerCapability, type PowerJob, type PowerWatch, type WatchKind } from "../lib/api";
   import { num } from "../lib/format";
@@ -151,11 +149,11 @@
   }
 
   // The four cards of the Windows app; the rarer logind actions stay in the CLI.
-  const cards: [PowerAction, Component][] = [
-    ["suspend", Moon],
-    ["hibernate", Snowflake],
-    ["power-off", Power],
-    ["reboot", RotateCcw],
+  const cards: [PowerAction, string][] = [
+    ["suspend", "moon-02"],
+    ["hibernate", "snow"],
+    ["power-off", "shut-down"],
+    ["reboot", "refresh"],
   ];
   const presets: Record<string, number> = { "15m": 15, "30m": 30, "1h": 60, "2h": 120 };
 
@@ -337,7 +335,7 @@
         disabled={c ? !c.available : false}
         onclick={() => (chosen = a)}
       >
-        <span class="ico"><Icon size={26} aria-hidden="true" /></span>
+        <span class="ico"><HugeIcon name={Icon} size={26} /></span>
         <span class="name">{t().sys.actions[a]}</span>
         {#if c && !c.available}<span class="why">{a === "hibernate" ? t().sys.noHibernate : c.reason}</span>{/if}
       </button>
@@ -393,7 +391,7 @@
 
   {@const fw = capOf("reboot-firmware")}
   <section class="card row">
-    <span class="row-ico"><Cpu size={20} aria-hidden="true" /></span>
+    <span class="row-ico"><HugeIcon name="cpu" size={20} /></span>
     <div class="grow">
       <p class="row-title">{t().sys.firmware}</p>
       <p class="small">{fw && !fw.available ? fw.reason : t().sys.firmwareHint}</p>
@@ -713,7 +711,7 @@
           </div>
           <div class="line">
             <button class="primary" disabled={busy} onclick={setAlarm}>{t().sys.alarmSet}</button>
-            <button class="secondary" disabled={busy || !capOf("suspend")?.available} onclick={sleepUntil}><Moon size={15} aria-hidden="true" /> {t().sys.sleepWakeGo}</button>
+            <button class="secondary" disabled={busy || !capOf("suspend")?.available} onclick={sleepUntil}><HugeIcon name="moon-02" size={15} /> {t().sys.sleepWakeGo}</button>
           </div>
         </div>
       </div>
@@ -734,7 +732,7 @@
   </section>
 
   <section class="card">
-    <h2><Moon size={18} aria-hidden="true" /> {t().sys.slp.modeTitle}</h2>
+    <h2><HugeIcon name="moon-02" size={18} /> {t().sys.slp.modeTitle}</h2>
     {#if slp && slp.sleep_modes.length > 1}
       <div class="modes" role="radiogroup" aria-label={t().sys.slp.modeTitle}>
         {#each slp.sleep_modes as m}
@@ -755,7 +753,7 @@
   </section>
 
   <section class="card">
-    <h2><Power size={18} aria-hidden="true" /> {t().sys.slp.buttons}</h2>
+    <h2><HugeIcon name="shut-down" size={18} /> {t().sys.slp.buttons}</h2>
     <p class="small intro">{t().sys.slp.buttonsIntro}</p>
     {#if slp?.buttons_note}
       <p class="muted"><span class="chip warn">{t().sys.cool.unsupported}</span> {slp.buttons_note}</p>

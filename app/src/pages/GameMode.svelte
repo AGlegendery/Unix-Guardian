@@ -1,8 +1,8 @@
 <script lang="ts">
+  import HugeIcon from "../lib/icons/HugeIcon.svelte";
   import GpuTuner from "../lib/GpuTuner.svelte";
   import LaunchOptions from "../lib/LaunchOptions.svelte";
   import Problem from "../lib/ui/Problem.svelte";
-  import { Cpu, Gamepad2, MonitorSmartphone, Settings2 } from "@lucide/svelte";
   import { api, errorText, type GpuOffload, type InstalledGame, type Overview, type Profile, type RunningGame } from "../lib/api";
   import { duration } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
@@ -174,7 +174,7 @@
 
 <!-- What is happening now. -->
 <article class="card now" class:on={!!game}>
-  <span class="ico"><Gamepad2 size={20} aria-hidden="true" /></span>
+  <span class="ico"><HugeIcon name="game-controller-03" size={20} /></span>
   {#if game}
     <div>
       <p class="eyebrowless">{t().gmp.nowPlaying}</p>
@@ -248,9 +248,9 @@
     </div>
 
     <div class="tabs" role="tablist">
-      {#each [["cpu", Cpu], ["system", Settings2], ["graphics", MonitorSmartphone]] as const as [id, Icon]}
+      {#each [["cpu", "cpu"], ["system", "sliders-horizontal"], ["graphics", "gpu"]] as const as [id, Icon]}
         <button role="tab" aria-selected={tab === id} class:active={tab === id} onclick={() => (tab = id)}>
-          <Icon size={16} aria-hidden="true" />{t().gmp.tabs[id]}
+          <HugeIcon name={Icon} size={16} />{t().gmp.tabs[id]}
         </button>
       {/each}
     </div>

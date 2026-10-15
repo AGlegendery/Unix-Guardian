@@ -5,7 +5,6 @@
   // A day picked on the week or month chart lists that day's apps; each app
   // can be limited or blocked from the list. "Used so far" is the total
   // since the counts were last reset in Settings.
-  import { ChevronLeft, ChevronRight } from "@lucide/svelte";
   import HugeIcon from "./icons/HugeIcon.svelte";
   import { api, errorText, type AppUsage } from "./api";
   import AppRuleActions from "./AppRuleActions.svelte";
@@ -209,8 +208,8 @@
   function size(b: number): string {
     return b >= 1e9 ? `${num(b / 1e9, b >= 1e11 ? 0 : b >= 1e10 ? 1 : 2)} ${t().mon.gb}` : b >= 1e6 ? `${num(b / 1e6, b >= 1e8 ? 0 : 1)} ${t().mon.mb}` : `${num(b / 1e3)} KB`;
   }
-  const Prev = $derived(locale.current === "fa" ? ChevronRight : ChevronLeft);
-  const Next = $derived(locale.current === "fa" ? ChevronLeft : ChevronRight);
+  const Prev = $derived(locale.current === "fa" ? "chevron-right" : "chevron-left");
+  const Next = $derived(locale.current === "fa" ? "chevron-left" : "chevron-right");
 </script>
 
 {#if error}<p class="problem">{error}</p>{/if}
@@ -234,12 +233,12 @@
   </div>
 
   <div class="nav-row">
-    <button class="nav" onclick={() => move(-1)} aria-label={t().mon.tu.prev[span]} title={t().mon.tu.prev[span]}><Prev size={16} /></button>
+    <button class="nav" onclick={() => move(-1)} aria-label={t().mon.tu.prev[span]} title={t().mon.tu.prev[span]}><HugeIcon name={Prev} size={16} /></button>
     <div class="what">
       <b>{title}</b>
       <span class="sub"><bdi>{size(total.rx + total.tx)}</bdi> · ↓ <bdi>{size(total.rx)}</bdi> · ↑ <bdi>{size(total.tx)}</bdi></span>
     </div>
-    <button class="nav" disabled={isCurrent} onclick={() => move(1)} aria-label={t().mon.tu.next[span]} title={t().mon.tu.next[span]}><Next size={16} /></button>
+    <button class="nav" disabled={isCurrent} onclick={() => move(1)} aria-label={t().mon.tu.next[span]} title={t().mon.tu.next[span]}><HugeIcon name={Next} size={16} /></button>
   </div>
 
   <ul class="legend">

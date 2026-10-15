@@ -1,8 +1,8 @@
 <script lang="ts">
+  import HugeIcon from "./icons/HugeIcon.svelte";
   // Limit / Block for one app (or its state and Allow when it has a rule),
   // and the limit form under it when open. Used by every app list on
   // Monitoring's Traffic and Ping tabs.
-  import { Ban, Gauge } from "@lucide/svelte";
   import { num } from "./format";
   import { t } from "./i18n.svelte";
   import type { NetControl } from "./netcontrol.svelte";
@@ -24,8 +24,8 @@
       <span class="state {state}">{state === "blocked" ? t().ping.blocked : t().ping.limited}</span>
       <button class="btn" disabled={ctl.busy} onclick={() => ctl.allow(name)}>{t().ping.allow}</button>
     {:else}
-      <button class="btn" disabled={ctl.busy || offline} onclick={() => ctl.openLimit(name)}><Gauge size={15} aria-hidden="true" /> {t().ping.limit}</button>
-      <button class="btn danger" disabled={ctl.busy || offline} onclick={() => ctl.block(name)}><Ban size={15} aria-hidden="true" /> {t().ping.block}</button>
+      <button class="btn" disabled={ctl.busy || offline} onclick={() => ctl.openLimit(name)}><HugeIcon name="dashboard-speed-01" size={15} /> {t().ping.limit}</button>
+      <button class="btn danger" disabled={ctl.busy || offline} onclick={() => ctl.block(name)}><HugeIcon name="unavailable" size={15} /> {t().ping.block}</button>
     {/if}
   </div>
 {:else if ctl.editing?.app.toLowerCase() === name.toLowerCase()}

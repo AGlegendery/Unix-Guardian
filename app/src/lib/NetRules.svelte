@@ -1,7 +1,7 @@
 <script lang="ts">
+  import HugeIcon from "./icons/HugeIcon.svelte";
   // The block and limit rules in force (or waiting for a game), each with
   // Remove; and the VPN line when one carries the other apps' traffic.
-  import { ShieldCheck } from "@lucide/svelte";
   import { api } from "./api";
   import { num, rate } from "./format";
   import { t } from "./i18n.svelte";
@@ -13,7 +13,7 @@
 </script>
 
 <section class="card">
-  <h2><ShieldCheck size={17} aria-hidden="true" /> {t().ping.rules}</h2>
+  <h2><HugeIcon name="security-check" size={17} /> {t().ping.rules}</h2>
   {#if ctl.rules.length === 0}
     <p class="muted">{t().ping.noRules}</p>
   {:else}

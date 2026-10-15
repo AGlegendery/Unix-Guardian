@@ -5,7 +5,8 @@ React components of **hugeicons-animated** (https://hugeicons-animated.com,
 https://github.com/enesgules/hugeicons-animated). Their SVG shapes come from
 **Hugeicons free icons** (`@hugeicons/core-free-icons`, MIT, https://hugeicons.com).
 The animations are re-implemented in `player.ts`; no React or motion code is
-shipped.
+shipped. Icons the set lacks (`scripts/hugeicons-custom.cjs`) use Hugeicons'
+free shapes with animations written for Unix Guardian.
 
 ## hugeicons-animated
 
@@ -33,6 +34,5 @@ SOFTWARE.
 
 ## Hugeicons free icons
 
-Licensed under the MIT License (as declared by `@hugeicons/core-free-icons`),
-copyright Hugeicons. The permission notice above applies with that copyright
-holder.
+MIT License, Copyright (c) 2025 Hugeicons (`@hugeicons/core-free-icons`).
+The permission notice above applies with that copyright holder.

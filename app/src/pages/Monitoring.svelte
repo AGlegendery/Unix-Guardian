@@ -1,6 +1,6 @@
 <script lang="ts">
+  import HugeIcon from "../lib/icons/HugeIcon.svelte";
   import Problem from "../lib/ui/Problem.svelte";
-  import { ArrowDown, ArrowUp } from "@lucide/svelte";
   import { api, errorText, type ExtraSample, type FpsReading, type FpsSession, type HistoryPoint, type Snapshot } from "../lib/api";
   import { num, rate } from "../lib/format";
   import { locale, t } from "../lib/i18n.svelte";
@@ -420,8 +420,8 @@
       {@const d = rate(live.net.rx_bps)}
       {@const u = rate(live.net.tx_bps)}
       <div class="speeds">
-        <span><ArrowDown size={18} aria-hidden="true" /> {t().mon.down} <b dir="ltr">{d.value} {d.unit}</b></span>
-        <span><ArrowUp size={18} aria-hidden="true" /> {t().mon.up} <b dir="ltr">{u.value} {u.unit}</b></span>
+        <span><HugeIcon name="arrow-down-02" size={18} /> {t().mon.down} <b dir="ltr">{d.value} {d.unit}</b></span>
+        <span><HugeIcon name="arrow-up-02" size={18} /> {t().mon.up} <b dir="ltr">{u.value} {u.unit}</b></span>
         <span class="muted" dir="ltr">{live.net.iface}</span>
       </div>
     {/if}

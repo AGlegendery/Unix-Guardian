@@ -21,6 +21,14 @@ Last updated: 2026-10-15 (seven UI/behaviour asks; work is on `main`).
   battery/history headers, notifications row, copy (plays on copied),
   updates, delete/add, chevrons, alarm. Credit in Settings → About;
   `app/src/lib/icons/LICENSE-hugeicons.md`.
+- User rule (2026-10-15): every icon in the window is an animated Hugeicon;
+  none from another family. Icons the set lacks (24: nav game/system/
+  monitoring/overlay/recorder/fix/lab/update, terminal, cpu, ram, gpu,
+  network, moon, snow, save, export, sliders, shield, ban, gauge, swap,
+  sidebar chevrons) are in `scripts/hugeicons-custom.cjs`: Hugeicons' own
+  free shapes (`npm pack @hugeicons/core-free-icons`) + motion in the set's
+  style. Regenerate: `node scripts/port-hugeicons.cjs <registry dir>
+  <core-free-icons package dir>`. @lucide/svelte is gone.
 - Battery "full charge once": the daemon restores the limit as soon as the
   battery reads 100 % or Full (checked every 5 min); wording fixed in en/fa/TUI.
 **Waiting on the user:** rebuild + reinstall, try Lively hover on icons.

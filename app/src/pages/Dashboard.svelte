@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowDown, ArrowLeftRight, ArrowUp, Check, Cpu, Gamepad2, MemoryStick, MonitorSmartphone, Network, Power } from "@lucide/svelte";
+  import HugeIcon from "../lib/icons/HugeIcon.svelte";
   import { api, type GpuDefault, type GpuInfo, type Overview, type PlaytimeEntry, type Profile, type RunningGame, type Snapshot } from "../lib/api";
   import { duration, gib, num, rate } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
@@ -191,7 +191,7 @@
        state; a sleeping GPU is never woken to fill this in. -->
   <article class="tile">
     <div class="tile-head">
-      <span class="ico"><MonitorSmartphone size={18} aria-hidden="true" /></span>
+      <span class="ico"><HugeIcon name="gpu" size={18} /></span>
       <h2>{t().parts.gpu}</h2>
       <!-- The card switch: which GPU the programs Unix Guardian starts use.
            Only with two cards; never session-wide, so the desktop stays on
@@ -208,7 +208,7 @@
             title={t().gpu.switchLabel}
             disabled={gpuBusy || !gpuDef}
             onclick={() => (gpuMenu = !gpuMenu)}
-          ><ArrowLeftRight size={14} aria-hidden="true" /></button>
+          ><HugeIcon name="arrow-data-transfer-horizontal" size={14} /></button>
           {#if gpuMenu}
             <div class="gpu-menu" role="radiogroup" aria-label={t().gpu.switchLabel}>
               <p class="gpu-menu-title">{t().gpu.switchLabel}</p>
@@ -220,7 +220,7 @@
                   class:on={activeGpu === g}
                   onclick={() => chooseGpu(g.pci)}
                 >
-                  <span class="tick" aria-hidden="true">{#if activeGpu === g}<Check size={14} />{/if}</span>
+                  <span class="tick" aria-hidden="true">{#if activeGpu === g}<HugeIcon name="tick-02" size={14} />{/if}</span>
                   <span class="gpu-name">
                     <b>{shortName(g)}</b>
                     <small class="ltr-inline">{g.name}</small>
@@ -268,7 +268,7 @@
 
   <article class="tile">
     <div class="tile-head">
-      <span class="ico"><Cpu size={18} aria-hidden="true" /></span>
+      <span class="ico"><HugeIcon name="cpu" size={18} /></span>
       <h2>{t().parts.cpu}</h2>
     </div>
     <p class="value">
@@ -281,7 +281,7 @@
 
   <article class="tile">
     <div class="tile-head">
-      <span class="ico"><MemoryStick size={18} aria-hidden="true" /></span>
+      <span class="ico"><HugeIcon name="ram-memory" size={18} /></span>
       <h2>{t().parts.mem}</h2>
     </div>
     <p class="value">
@@ -294,15 +294,15 @@
 
   <article class="tile">
     <div class="tile-head">
-      <span class="ico"><Network size={18} aria-hidden="true" /></span>
+      <span class="ico"><HugeIcon name="network" size={18} /></span>
       <h2>{t().parts.net}</h2>
     </div>
     {#if snap}
       {@const d = rate(snap.net.rx_bps)}
       {@const u = rate(snap.net.tx_bps)}
       <p class="value net">
-        <span><ArrowDown size={16} aria-label={t().net.down} /><bdi>{d.value} {d.unit}</bdi></span>
-        <span class="pct"><ArrowUp size={16} aria-label={t().net.up} /><bdi>{u.value} {u.unit}</bdi></span>
+        <span><HugeIcon name="arrow-down-02" size={16} label={t().net.down} /><bdi>{d.value} {d.unit}</bdi></span>
+        <span class="pct"><HugeIcon name="arrow-up-02" size={16} label={t().net.up} /><bdi>{u.value} {u.unit}</bdi></span>
       </p>
       <p class="hw ltr">{snap.net.iface}</p>
     {:else}
@@ -315,7 +315,7 @@
   <!-- Game mode at a glance: state, the profile, and what it will change. -->
   <article class="card gm" class:on={gmOn}>
     <div class="card-head">
-      <span class="ico"><Gamepad2 size={18} aria-hidden="true" /></span>
+      <span class="ico"><HugeIcon name="game-controller-03" size={18} /></span>
       <h2>{t().parts.gamemode}</h2>
       <span class="state-pill" class:on={gmOn}>{gmOn ? t().gm.on : t().gm.off}</span>
     </div>
@@ -328,9 +328,9 @@
     </p>
     <div class="gm-actions">
       {#if gmOn}
-        <button class="gm-btn" disabled={gmBusy} onclick={() => setGameMode(false)}><Power size={15} aria-hidden="true" /> {t().gm.turnOff}</button>
+        <button class="gm-btn" disabled={gmBusy} onclick={() => setGameMode(false)}><HugeIcon name="shut-down" size={15} /> {t().gm.turnOff}</button>
       {:else}
-        <button class="gm-btn primary" disabled={gmBusy} onclick={() => setGameMode(true, hand[1])}><Power size={15} aria-hidden="true" /> {t().gm.turnOn}</button>
+        <button class="gm-btn primary" disabled={gmBusy} onclick={() => setGameMode(true, hand[1])}><HugeIcon name="shut-down" size={15} /> {t().gm.turnOn}</button>
       {/if}
       <ProfilePicker
         quiet

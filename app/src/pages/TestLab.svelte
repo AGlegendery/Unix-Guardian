@@ -3,7 +3,6 @@
   // on for a moment, the G gauge and a bar while it runs, then the report
   // to copy or save and email. The engine is ug-testlab (also `ug testlab`
   // and the terminal UI); this page only shows it.
-  import { FlaskConical, Save } from "@lucide/svelte";
   import HugeIcon from "../lib/icons/HugeIcon.svelte";
   import { api, errorText, type TestlabProgress, type TestlabReport } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
@@ -77,7 +76,7 @@
 {/if}
 
 <section class="card intro">
-  <FlaskConical size={28} aria-hidden="true" />
+  <HugeIcon name="flask-conical" size={28} />
   <p>{t().testlab.why}</p>
   {#if phase === "idle" || phase === "done"}
     <div class="buttons">
@@ -141,7 +140,7 @@
     <p class="email" dir="ltr">{t().bug.email}</p>
     <div class="buttons">
       <button class="btn primary" onclick={copy}><HugeIcon name="copy-01" size={16} trigger={copied} /> {copied ? t().testlab.copied : t().testlab.copy}</button>
-      <button class="btn" onclick={save}><Save size={16} aria-hidden="true" /> {t().testlab.save}</button>
+      <button class="btn" onclick={save}><HugeIcon name="floppy-disk" size={16} /> {t().testlab.save}</button>
     </div>
     {#if saved}<p class="muted" dir="auto">{fill(t().testlab.saved, { p: saved })}</p>{/if}
   </section>

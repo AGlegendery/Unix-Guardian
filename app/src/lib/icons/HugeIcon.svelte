@@ -38,6 +38,7 @@
     class: cls = "",
     trigger = undefined,
     hover = true,
+    label = undefined,
   }: {
     name: string;
     size?: number;
@@ -46,6 +47,8 @@
     trigger?: unknown;
     /** Plays on pointer enter of the surrounding control. */
     hover?: boolean;
+    /** Names the icon for screen readers when no text says what it is. */
+    label?: string;
   } = $props();
 
   const icon = $derived(byName.get(name));
@@ -99,7 +102,14 @@
   });
 </script>
 
-<span class="hugeicon {cls}" style:width="{size}px" style:height="{size}px" aria-hidden="true">
+<span
+  class="hugeicon {cls}"
+  style:width="{size}px"
+  style:height="{size}px"
+  role={label ? "img" : undefined}
+  aria-label={label}
+  aria-hidden={label ? undefined : "true"}
+>
   {#if icon}
     <svg
       bind:this={svg}

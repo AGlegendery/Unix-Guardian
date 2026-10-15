@@ -1,5 +1,5 @@
 /*! Animated icons from hugeicons-animated (MIT, (c) 2026 Abdullah Enes Gules)
- * and Hugeicons free icons (MIT, (c) Hugeicons). Full notice:
+ * and Hugeicons free icons (MIT, (c) 2025 Hugeicons). Full notice:
  * app/src/lib/icons/LICENSE-hugeicons.md */
 // Plays the animated Hugeicons' motion data (hugeicons.json, made by
 // scripts/port-hugeicons.cjs from the React + motion originals) with no

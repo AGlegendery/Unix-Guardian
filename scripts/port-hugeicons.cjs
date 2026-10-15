@@ -2,7 +2,11 @@
 // Ports animated Hugeicons (hugeicons-animated.com, MIT) from their React +
 // motion source into plain data for app/src/lib/icons/HugeIcon.svelte.
 //
-//   node scripts/port-hugeicons.cjs <dir with the registry .json files>
+//   node scripts/port-hugeicons.cjs <registry dir> <core-free-icons dir>
+//
+// <registry dir> holds https://hugeicons-animated.com/r/<name>.json files;
+// <core-free-icons dir> is the unpacked `npm pack @hugeicons/core-free-icons`
+// (its package/ folder), the shapes for the icons in hugeicons-custom.cjs.
 //
 // Each registry item (https://hugeicons-animated.com/r/<name>.json) is a
 // React component. Rather than parse it, this runs it: the TSX is compiled
@@ -19,8 +23,9 @@ const path = require("path");
 const ts = require(path.join(__dirname, "../app/node_modules/typescript"));
 
 const src = process.argv[2];
-if (!src) {
-  console.error("usage: port-hugeicons.cjs <dir with registry json files>");
+const free = process.argv[3];
+if (!src || !free) {
+  console.error("usage: port-hugeicons.cjs <registry dir> <core-free-icons package dir>");
   process.exit(2);
 }
 const out = path.join(__dirname, "../app/src/lib/icons/hugeicons.json");
@@ -240,12 +245,42 @@ for (const f of fs.readdirSync(src).filter((f) => f.endsWith(".json")).sort()) {
   icon.loops = /loops:\s*true/.test(file.content);
   icons.push(icon);
 }
+// ---- icons drawn for Unix Guardian from Hugeicons' free shapes -------------
+// A free icon file is `const X = [["path", { d: "…", … }], …]; export …`:
+// read as data (keys quoted, then JSON), never run.
+function freeShape(name) {
+  const text = fs.readFileSync(path.join(free, "dist/esm", `${name}.js`), "utf8");
+  const body = text.slice(text.indexOf("["), text.lastIndexOf("]") + 1);
+  return JSON.parse(body.replace(/([{,]\s*)(\w+):/g, '$1"$2":'));
+}
+for (const c of require("./hugeicons-custom.cjs")) {
+  if (icons.some((i) => i.name === c.name)) throw new Error(`${c.name}: already in the set`);
+  const nodes = [];
+  const markup = freeShape(c.shape)
+    .map(([tag, attrs], i) => {
+      let a = "";
+      if (c.nodes && c.nodes[i]) {
+        a += ` data-ug-a="${nodes.length}"`;
+        nodes.push(c.nodes[i]);
+      }
+      for (const [k, v] of Object.entries(attrs)) {
+        if (k === "key") continue;
+        a += ` ${CAMEL_ATTRS.has(k) ? k : kebab(k)}="${esc(v)}"`;
+      }
+      return `<${tag}${a}></${tag}>`;
+    })
+    .join("");
+  if (c.nodes && Object.keys(c.nodes).length !== nodes.length) throw new Error(`${c.name}: a node index is past the shape`);
+  icons.push({ name: c.name, markup, root: c.root ?? null, nodes, loops: false });
+}
+icons.sort((a, b) => a.name.localeCompare(b.name));
+
 fs.mkdirSync(path.dirname(out), { recursive: true });
 // JSON has no Infinity: an endless repeat is written as -1.
 // The MIT notice travels inside the data, so it is in every built copy.
 const notice =
   "Animated icons: hugeicons-animated, MIT License, Copyright (c) 2026 Abdullah Enes Gules. " +
-  "Icon shapes: Hugeicons free icons, MIT License, Copyright (c) Hugeicons. " +
+  "Icon shapes: Hugeicons free icons, MIT License, Copyright (c) 2025 Hugeicons. " +
   "Permission is hereby granted, free of charge, to any person obtaining a copy of this software " +
   "and associated documentation files (the \"Software\"), to deal in the Software without restriction, " +
   "including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, " +

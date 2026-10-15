@@ -3,7 +3,6 @@
   // the user asked to have timed. The agent does the counting; this page
   // reads, corrects ("not a game"), imports Steam's own count, deletes and
   // exports.
-  import { Download } from "@lucide/svelte";
   import HugeIcon from "../lib/icons/HugeIcon.svelte";
   import Problem from "../lib/ui/Problem.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
@@ -180,7 +179,7 @@
       onchange={(r) => { range = r; notice = null; savedTo = null; }}
     />
     <button class="btn" onclick={exportCsv} disabled={busy || !entries?.length}>
-      <Download size={15} aria-hidden="true" />{t().play.export}
+      <HugeIcon name="download-04" size={15} />{t().play.export}
     </button>
   </div>
 </header>

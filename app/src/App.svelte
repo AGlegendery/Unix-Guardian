@@ -2,11 +2,7 @@
   import Problem from "./lib/ui/Problem.svelte";
   import GaugeLoader from "./lib/ui/GaugeLoader.svelte";
   import Mark from "./lib/ui/Mark.svelte";
-  import {
-    Activity, ChevronsLeft, ChevronsRight, Gamepad2, Layers, Power, FlaskConical, SquareTerminal, Video, Wrench,
-  } from "@lucide/svelte";
   import HugeIcon from "./lib/icons/HugeIcon.svelte";
-  import type { Component } from "svelte";
   import { api, errorText, type Overview } from "./lib/api";
   import { locale, setLocale, t } from "./lib/i18n.svelte";
   import Dashboard from "./pages/Dashboard.svelte";
@@ -24,19 +20,19 @@
 
   type Page = keyof ReturnType<typeof t>["nav"];
   // Phoenix Guardian's order, with the Linux-only driver troubleshooter added.
-  // A string is an animated Hugeicon (it plays on hover in Lively motion).
-  const pages: [Page, Component | string][] = [
+  // Animated Hugeicons by name; they play on hover in Lively motion.
+  const pages: [Page, string][] = [
     ["dashboard", "dashboard-square-01"],
-    ["gamemode", Gamepad2],
-    ["system", Power],
-    ["monitoring", Activity],
-    ["overlay", Layers],
+    ["gamemode", "game-controller-03"],
+    ["system", "shut-down"],
+    ["monitoring", "pulse-rectangle-01"],
+    ["overlay", "layers-01"],
     ["playtime", "clock-01"],
-    ["recorder", Video],
-    ["drivers", Wrench],
+    ["recorder", "video-01"],
+    ["drivers", "wrench-01"],
     ["bugreport", "bug-01"],
-    ["testlab", FlaskConical],
-    ["updates", "refresh"],
+    ["testlab", "flask-conical"],
+    ["updates", "system-update-01"],
     ["settings", "settings-01"],
   ];
   // Built so far; every other page says plainly that it is not.
@@ -139,7 +135,7 @@
         aria-label={collapsed ? t().side.expand : t().side.collapse}
         title={collapsed ? t().side.expand : t().side.collapse}
       >
-        {#if pointRight}<ChevronsRight size={16} aria-hidden="true" />{:else}<ChevronsLeft size={16} aria-hidden="true" />{/if}
+        <HugeIcon name={pointRight ? "arrow-right-double" : "arrow-left-double"} size={16} />
       </button>{/if}
     </div>
     <ul>
@@ -154,7 +150,7 @@
             title={collapsed ? t().nav[p] : undefined}
             aria-label={collapsed ? t().nav[p] : undefined}
           >
-            {#if typeof Icon === "string"}<HugeIcon name={Icon} size={18} />{:else}<Icon size={18} strokeWidth={1.8} aria-hidden="true" />{/if}
+            <HugeIcon name={Icon} size={18} />
             {#if !collapsed}<span>{t().nav[p]}</span>{/if}
           </button>
         </li>
@@ -169,7 +165,7 @@
         title={collapsed ? t().terminal : undefined}
         aria-label={collapsed ? t().terminal : undefined}
       >
-        <SquareTerminal size={14} aria-hidden="true" />{#if !collapsed}{" "}{t().terminal}{/if}
+        <HugeIcon name="command-line" size={14} />{#if !collapsed}{" "}{t().terminal}{/if}
       </button>
       {#if trayHidden}
         <button
