@@ -8,7 +8,24 @@ Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 
 Last updated: 2026-10-15 (seven UI/behaviour asks; work is on `main`).
 
-## Now (2026-10-15): Hyprland, sleep, fans, battery, Driver Fix, motion ✅
+## Now (2026-10-15, later): animated Hugeicons + full-charge wording ✅
+
+- The user's 85 `@hugeicons-animated` icons (a shadcn registry of React +
+  motion components) are ported, not React-in-Svelte:
+  `scripts/port-hugeicons.cjs <dir of registry json>` runs each TSX against
+  stand-ins and writes `app/src/lib/icons/hugeicons.json` (SVG markup +
+  resolved variants + the MIT notice). `HugeIcon.svelte` + `player.ts`
+  replay them (keyframes, times, easing, springs, pathLength). Plays only in
+  Lively, never under reduced motion; endless repeats play twice and stop.
+  Used in the sidebar (dashboard, playtime, bug report, updates, settings),
+  battery/history headers, notifications row, copy (plays on copied),
+  updates, delete/add, chevrons, alarm. Credit in Settings → About;
+  `app/src/lib/icons/LICENSE-hugeicons.md`.
+- Battery "full charge once": the daemon restores the limit as soon as the
+  battery reads 100 % or Full (checked every 5 min); wording fixed in en/fa/TUI.
+**Waiting on the user:** rebuild + reinstall, try Lively hover on icons.
+
+## Before (2026-10-15): Hyprland, sleep, fans, battery, Driver Fix, motion ✅
 
 Seven asks from the user, all on `main` (`2b17bb6` … `dc28602`), release
 binaries and the window rebuilt; CI was red on fmt only, fixed in `dc28602`.

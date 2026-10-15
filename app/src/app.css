@@ -112,5 +112,5 @@ body {
   background: var(--accent-text);
   animation: ug-bar-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
-[data-motion="lively"] nav .item:hover:not(.active) :is(svg) { transform: translateX(calc(2px * var(--flow, 1))); transition: transform 160ms ease-out; }
+[data-motion="lively"] nav .item:hover:not(.active) > :is(svg, .hugeicon) { transform: translateX(calc(2px * var(--flow, 1))); transition: transform 160ms ease-out; }
 :root[dir="rtl"] { --flow: -1; }

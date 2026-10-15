@@ -3,7 +3,8 @@
   // the user asked to have timed. The agent does the counting; this page
   // reads, corrects ("not a game"), imports Steam's own count, deletes and
   // exports.
-  import { Download, Plus, Trash2 } from "@lucide/svelte";
+  import { Download } from "@lucide/svelte";
+  import HugeIcon from "../lib/icons/HugeIcon.svelte";
   import Problem from "../lib/ui/Problem.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
   import { api, errorText, type PlaytimeEntry, type PlaytimeSession, type TrackedApp } from "../lib/api";
@@ -238,7 +239,7 @@
                   <button class="del move" onclick={() => notAGame(e)} disabled={busy} title={t().play.notGameWhy}>{t().play.notGame}</button>
                 {/if}
                 <button class="del" class:armed={armed === e.key} onclick={() => remove(e)} disabled={busy} title={t().play.removeWhy}>
-                  <Trash2 size={13} aria-hidden="true" />{armed === e.key ? t().play.confirm : t().play.remove}
+                  <HugeIcon name="delete-02" size={13} />{armed === e.key ? t().play.confirm : t().play.remove}
                 </button>
               </div>
             </li>
@@ -273,7 +274,7 @@
       <h2>{t().play.appsList}</h2>
       <div class="picker" bind:this={pickerEl}>
         <button class="btn primary" onclick={() => (picker = !picker)} aria-haspopup="true" aria-expanded={picker} disabled={busy}>
-          <Plus size={15} aria-hidden="true" />{t().play.addApp}
+          <HugeIcon name="plus-sign" size={15} />{t().play.addApp}
         </button>
         {#if picker}
           <div class="menu" role="dialog" aria-label={t().play.addApp}>
@@ -324,7 +325,7 @@
               {/if}
               {#if a.sessions}
                 <button class="del" class:armed={armed === a.key} onclick={() => remove(a)} disabled={busy} title={t().play.removeWhy}>
-                  <Trash2 size={13} aria-hidden="true" />{armed === a.key ? t().play.confirm : t().play.remove}
+                  <HugeIcon name="delete-02" size={13} />{armed === a.key ? t().play.confirm : t().play.remove}
                 </button>
               {/if}
             </div>

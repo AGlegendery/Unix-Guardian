@@ -705,6 +705,8 @@ export const en = {
     service: "System service",
     agent: "Agent",
     files: "Settings and data",
+    icons: "Icons",
+    iconsCredit: "Animated icons by hugeicons-animated, shapes by Hugeicons (MIT licence)",
     licence: "Free software under the GNU GPL, version 3 or later.",
     traffic: "Internet use",
     trafficNote: "Starts the internet-use counts again from now: the total used so far, the day, week and month charts and the per-app list. The speed charts are kept.",

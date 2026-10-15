@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Bug, Copy, Mail } from "@lucide/svelte";
+  import HugeIcon from "../lib/icons/HugeIcon.svelte";
   import { api, errorText } from "../lib/api";
   import { t } from "../lib/i18n.svelte";
   let copied = $state(false);
@@ -17,14 +17,14 @@
 
 <header class="head"><h1>{t().bug.title}</h1></header>
 <section class="card">
-  <Bug size={28} aria-hidden="true" />
+  <HugeIcon name="bug-01" size={28} />
   <p>{t().bug.body}</p>
   <p class="email" dir="ltr">{t().bug.email}</p>
   <div class="buttons">
     <button class="btn primary" onclick={() => api.reportBug("From the Bug report page.").catch((e) => (error = errorText(e)))}>
-      <Mail size={16} aria-hidden="true" /> {t().bug.open}
+      <HugeIcon name="mail-01" size={16} /> {t().bug.open}
     </button>
-    <button class="btn" onclick={copy}><Copy size={16} aria-hidden="true" /> {copied ? t().bug.copied : t().bug.copy}</button>
+    <button class="btn" onclick={copy}><HugeIcon name="copy-01" size={16} trigger={copied} /> {copied ? t().bug.copied : t().bug.copy}</button>
   </div>
   {#if error}<p class="muted">{error}</p>{/if}
   <p class="muted">{t().bug.include}</p>

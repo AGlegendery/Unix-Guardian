@@ -1,6 +1,7 @@
 <script lang="ts">
   import Problem from "../lib/ui/Problem.svelte";
-  import { AlarmClock, Cpu, Moon, Power, RotateCcw, Snowflake, Trash2 } from "@lucide/svelte";
+  import { Cpu, Moon, Power, RotateCcw, Snowflake } from "@lucide/svelte";
+  import HugeIcon from "../lib/icons/HugeIcon.svelte";
   import type { Component } from "svelte";
   import BatteryChart from "../lib/BatteryChart.svelte";
   import { api, errorText, type BatteryReport, type ButtonId, type SleepSettings, type BatteryCare, type CoolingState, type PowerUsage, type PowerAction, type PowerCapability, type PowerJob, type PowerWatch, type WatchKind } from "../lib/api";
@@ -410,7 +411,7 @@
           <li>
             <span><b>{t().sys.actions[j.action] ?? j.action}</b> {fmt(j.at_unix_ms)}</span>
             <span class="chip">{t().sys.repeat[j.repeat]}</span>
-            <button class="cancel" onclick={() => cancel(j.id)}><Trash2 size={15} aria-hidden="true" />{t().sys.cancel}</button>
+            <button class="cancel" onclick={() => cancel(j.id)}><HugeIcon name="delete-02" size={15} />{t().sys.cancel}</button>
           </li>
         {/each}
       </ul>
@@ -463,7 +464,7 @@
         {#each watches as w (w.id)}
           <li>
             <span><b>{t().sys.actions[w.action] ?? w.action}</b> {describe(w)}</span>
-            <button class="cancel" onclick={() => run(() => api.powerUnwatch(w.id))}><Trash2 size={15} aria-hidden="true" />{t().sys.cond.remove}</button>
+            <button class="cancel" onclick={() => run(() => api.powerUnwatch(w.id))}><HugeIcon name="delete-02" size={15} />{t().sys.cond.remove}</button>
           </li>
         {/each}
       </ul>
@@ -475,7 +476,7 @@
   {#if rep && rep.has_battery}
     <section class="card">
       <div class="card-head">
-        <h2>{t().sys.hist.title}</h2>
+        <h2><HugeIcon name="history" size={18} /> {t().sys.hist.title}</h2>
         <Segmented
           label={t().sys.hist.title}
           value={histRange}
@@ -552,7 +553,7 @@
     </section>
   {/if}
   <section class="card">
-    <h2>{t().sys.bat.title}</h2>
+    <h2><HugeIcon name="battery-charging-01" size={18} trigger={bat?.mode} /> {t().sys.bat.title}</h2>
     <p class="small intro">{t().sys.bat.intro}</p>
     {#if bat && bat.capacity > 100}
       <p class="muted">{t().sys.bat.noBattery}</p>
@@ -699,7 +700,7 @@
   </section>
 {:else if tab === "sleep"}
   <section class="card">
-    <h2><AlarmClock size={18} aria-hidden="true" /> {t().sys.slp.alarm}</h2>
+    <h2><HugeIcon name="alarm-clock" size={18} /> {t().sys.slp.alarm}</h2>
     {#if alarmSupported}
       <p class="small intro">{t().sys.slp.alarmIntro}</p>
       <div class="alarm-row">
@@ -720,7 +721,7 @@
         {#if alarm}
           <span class="pulse-dot" aria-hidden="true"></span>
           <span>{t().sys.alarmNow} <b>{fmt(alarm)}</b> <span class="muted">· {inTime(alarm)}</span></span>
-          <button class="cancel" onclick={() => run(() => api.clearWakeAlarm())}><Trash2 size={15} aria-hidden="true" />{t().sys.alarmClear}</button>
+          <button class="cancel" onclick={() => run(() => api.clearWakeAlarm())}><HugeIcon name="delete-02" size={15} />{t().sys.alarmClear}</button>
         {:else}
           <span class="muted">{t().sys.alarmNone}</span>
         {/if}

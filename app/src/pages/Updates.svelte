@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Download, ExternalLink, RefreshCw, Undo2 } from "@lucide/svelte";
+  import HugeIcon from "../lib/icons/HugeIcon.svelte";
   import { api, errorText, type UpdateState } from "../lib/api";
   import { locale, t } from "../lib/i18n.svelte";
   import GaugeLoader from "../lib/ui/GaugeLoader.svelte";
@@ -127,12 +127,12 @@
     </dl>
     <div class="buttons">
       <button class="btn" onclick={check} disabled={checking || !!st.step}>
-        {#if checking}<GaugeLoader size={16} label={t().upd.checking} />{:else}<RefreshCw size={16} aria-hidden="true" />{/if}
+        {#if checking}<GaugeLoader size={16} label={t().upd.checking} />{:else}<HugeIcon name="refresh" size={16} />{/if}
         {checking ? t().upd.checking : t().upd.check}
       </button>
       {#if st.previous && !st.step}
         <button class="btn" onclick={rollback} disabled={busy}>
-          {#if busy}<GaugeLoader size={16} label={t().upd.rollback} />{:else}<Undo2 size={16} aria-hidden="true" />{/if} {t().upd.rollback}
+          {#if busy}<GaugeLoader size={16} label={t().upd.rollback} />{:else}<HugeIcon name="undo" size={16} />{/if} {t().upd.rollback}
         </button>
       {/if}
     </div>
@@ -165,7 +165,7 @@
         </p>
       {:else if st.can_install}
         <div class="buttons">
-          <button class="btn primary" onclick={install}><Download size={16} aria-hidden="true" /> {t().upd.install}</button>
+          <button class="btn primary" onclick={install}><HugeIcon name="cloud-download" size={16} /> {t().upd.install}</button>
         </div>
         <p class="small">{t().upd.installNote}</p>
       {:else if st.kind === "package" || st.kind === "development"}
@@ -176,7 +176,7 @@
       {/if}
 
       {#if st.url}
-        <p class="small"><ExternalLink size={13} aria-hidden="true" /> {t().upd.page}: <span dir="ltr" class="url">{st.url}</span></p>
+        <p class="small"><HugeIcon name="external-link" size={13} /> {t().upd.page}: <span dir="ltr" class="url">{st.url}</span></p>
       {/if}
     </section>
   {/if}

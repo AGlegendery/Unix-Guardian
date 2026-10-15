@@ -3,9 +3,9 @@
   import GaugeLoader from "./lib/ui/GaugeLoader.svelte";
   import Mark from "./lib/ui/Mark.svelte";
   import {
-    Activity, Bug, ChevronsLeft, ChevronsRight, Clock, Gamepad2, Layers, LayoutDashboard, Power,
-    Eye, FlaskConical, RefreshCw, Settings, SquareTerminal, Video, Wrench,
+    Activity, ChevronsLeft, ChevronsRight, Gamepad2, Layers, Power, FlaskConical, SquareTerminal, Video, Wrench,
   } from "@lucide/svelte";
+  import HugeIcon from "./lib/icons/HugeIcon.svelte";
   import type { Component } from "svelte";
   import { api, errorText, type Overview } from "./lib/api";
   import { locale, setLocale, t } from "./lib/i18n.svelte";
@@ -24,19 +24,20 @@
 
   type Page = keyof ReturnType<typeof t>["nav"];
   // Phoenix Guardian's order, with the Linux-only driver troubleshooter added.
-  const pages: [Page, Component][] = [
-    ["dashboard", LayoutDashboard],
+  // A string is an animated Hugeicon (it plays on hover in Lively motion).
+  const pages: [Page, Component | string][] = [
+    ["dashboard", "dashboard-square-01"],
     ["gamemode", Gamepad2],
     ["system", Power],
     ["monitoring", Activity],
     ["overlay", Layers],
-    ["playtime", Clock],
+    ["playtime", "clock-01"],
     ["recorder", Video],
     ["drivers", Wrench],
-    ["bugreport", Bug],
+    ["bugreport", "bug-01"],
     ["testlab", FlaskConical],
-    ["updates", RefreshCw],
-    ["settings", Settings],
+    ["updates", "refresh"],
+    ["settings", "settings-01"],
   ];
   // Built so far; every other page says plainly that it is not.
   const built = new Set<Page>(["dashboard", "gamemode", "system", "monitoring", "overlay", "playtime", "bugreport", "settings", "drivers", "recorder", "updates", "testlab"]);
@@ -153,7 +154,7 @@
             title={collapsed ? t().nav[p] : undefined}
             aria-label={collapsed ? t().nav[p] : undefined}
           >
-            <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
+            {#if typeof Icon === "string"}<HugeIcon name={Icon} size={18} />{:else}<Icon size={18} strokeWidth={1.8} aria-hidden="true" />{/if}
             {#if !collapsed}<span>{t().nav[p]}</span>{/if}
           </button>
         </li>
@@ -177,7 +178,7 @@
           title={collapsed ? t().showTray : undefined}
           aria-label={collapsed ? t().showTray : undefined}
         >
-          <Eye size={14} aria-hidden="true" />{#if !collapsed}{" "}{t().showTray}{/if}
+          <HugeIcon name="eye" size={14} />{#if !collapsed}{" "}{t().showTray}{/if}
         </button>
       {/if}
       <button class="lang" onclick={() => setLocale(locale.current === "fa" ? "en" : "fa")}>

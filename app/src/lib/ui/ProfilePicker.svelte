@@ -4,7 +4,7 @@
   // sideways inside it, a fade and an arrow button sit on each side that has
   // hidden items (the arrow brings the next one into view), and a thin
   // scrollbar shows under it. Works the same in left-to-right and Persian.
-  import { ChevronLeft, ChevronRight } from "@lucide/svelte";
+  import HugeIcon from "../icons/HugeIcon.svelte";
   import { t } from "../i18n.svelte";
 
   type Option = { value: string; label: string; builtin?: boolean };
@@ -157,10 +157,10 @@
     {/each}
   </div>
   {#if hiddenLeft}
-    <button type="button" class="arrow l" tabindex="-1" aria-label={t().gm.moreProfiles} onclick={() => step("left")}><ChevronLeft size={15} aria-hidden="true" /></button>
+    <button type="button" class="arrow l" tabindex="-1" aria-label={t().gm.moreProfiles} onclick={() => step("left")}><HugeIcon name="chevron-left" size={15} /></button>
   {/if}
   {#if hiddenRight}
-    <button type="button" class="arrow r" tabindex="-1" aria-label={t().gm.moreProfiles} onclick={() => step("right")}><ChevronRight size={15} aria-hidden="true" /></button>
+    <button type="button" class="arrow r" tabindex="-1" aria-label={t().gm.moreProfiles} onclick={() => step("right")}><HugeIcon name="chevron-right" size={15} /></button>
   {/if}
   {#if hiddenLeft || hiddenRight}
     <div class="bar" aria-hidden="true">

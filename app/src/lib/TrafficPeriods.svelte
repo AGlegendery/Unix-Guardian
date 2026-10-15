@@ -5,7 +5,8 @@
   // A day picked on the week or month chart lists that day's apps; each app
   // can be limited or blocked from the list. "Used so far" is the total
   // since the counts were last reset in Settings.
-  import { ChevronLeft, ChevronRight, X } from "@lucide/svelte";
+  import { ChevronLeft, ChevronRight } from "@lucide/svelte";
+  import HugeIcon from "./icons/HugeIcon.svelte";
   import { api, errorText, type AppUsage } from "./api";
   import AppRuleActions from "./AppRuleActions.svelte";
   import { num, rate } from "./format";
@@ -296,7 +297,7 @@
     </h2>
     {#if picked}
       <button class="chip-btn" onclick={() => picked && hourByHour(picked)}>{t().mon.tu.hourByHour}</button>
-      <button class="chip-btn" onclick={() => (picked = null)}><X size={13} aria-hidden="true" /> {t().mon.tu.wholePeriod}</button>
+      <button class="chip-btn" onclick={() => (picked = null)}><HugeIcon name="cancel-01" size={13} /> {t().mon.tu.wholePeriod}</button>
     {/if}
     <Segmented
       label={t().mon.tu.sortBy}

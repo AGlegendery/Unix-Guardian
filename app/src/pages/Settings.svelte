@@ -6,6 +6,7 @@
   import Segmented from "../lib/ui/Segmented.svelte";
   import Switch from "../lib/ui/Switch.svelte";
   import { motion, setMotion, type Motion } from "../lib/motion.svelte";
+  import HugeIcon from "../lib/icons/HugeIcon.svelte";
 
   let { overview }: { overview: Overview | null } = $props();
 
@@ -120,7 +121,10 @@
   {#if st}
     <div class="field">
       <div class="row">
-        <span>{t().settings.notifications}</span>
+        <span class="with-icon">
+          <HugeIcon name={st.settings.notifications ? "notification-03" : "notification-off-01"} size={17} hover={false} trigger={st.settings.notifications ? "on" : "off"} />
+          {t().settings.notifications}
+        </span>
         <Switch checked={st.settings.notifications} label={t().settings.notifications} onchange={(v) => change({ notifications: v })} />
       </div>
       <p class="small">{t().settings.notificationsNote}</p>
@@ -182,6 +186,8 @@
       <dt>{t().settings.files}</dt>
       <dd dir="ltr"><code>{st.config_dir}</code> <code>{st.data_dir}</code></dd>
     {/if}
+    <dt>{t().settings.icons}</dt>
+    <dd>{t().settings.iconsCredit}</dd>
   </dl>
   <p class="small">{t().settings.licence} <span dir="ltr">{t().bug.email}</span></p>
 </section>
@@ -197,6 +203,7 @@
   @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
   .field { display: grid; gap: 8px; font-size: 0.9rem; }
   .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 0.9rem; }
+  .with-icon { display: inline-flex; align-items: center; gap: 8px; }
   p { margin: 0; }
   .small { color: var(--text-3); font-size: 0.8rem; }
   .reset { all: unset; flex: none; padding: 7px 14px; border-radius: 9px; background: var(--card-2); font-size: 0.86rem; cursor: pointer; }

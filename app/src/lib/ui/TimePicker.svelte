@@ -3,7 +3,7 @@
   // text box with no picker, which the user read as a fake setting; this one
   // has steppers, the arrow keys and the wheel, and digits in the page's
   // language. Always laid out left to right, as clocks are.
-  import { ChevronDown, ChevronUp } from "@lucide/svelte";
+  import HugeIcon from "../icons/HugeIcon.svelte";
   import { locale } from "../i18n.svelte";
 
   let { value = $bindable("07:00"), label, step = 5 }: { value?: string; label: string; step?: number } = $props();
@@ -43,7 +43,7 @@
     {#if i === 1}<span class="colon" aria-hidden="true">:</span>{/if}
     <div class="col">
       <button type="button" class="step" tabindex="-1" aria-hidden="true" onclick={() => (unit === "h" ? set(h + 1, m) : addMinutes(1))}>
-        <ChevronUp size={18} />
+        <HugeIcon name="chevron-up" size={18} />
       </button>
       <span
         class="digits"
@@ -57,7 +57,7 @@
         onwheel={(e) => wheel(e, unit)}
       >{fmt.format(unit === "h" ? h : m)}</span>
       <button type="button" class="step" tabindex="-1" aria-hidden="true" onclick={() => (unit === "h" ? set(h - 1, m) : addMinutes(-1))}>
-        <ChevronDown size={18} />
+        <HugeIcon name="chevron-down" size={18} />
       </button>
     </div>
   {/each}
