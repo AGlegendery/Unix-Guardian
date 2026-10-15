@@ -2560,6 +2560,76 @@ fn battery(app: &mut App, f: &mut Frame, r: Rect) {
             Rect { x: r.x, y, width: r.width, height: 2 },
         );
     }
+    let y = y + 3;
+    if y + 2 < r.bottom() {
+        battery_today(app, f, Rect { y, height: r.bottom() - y, ..r });
+    }
+}
+
+/// Today on battery and on the charger, and the health estimates.
+fn battery_today(app: &mut App, f: &mut Frame, r: Rect) {
+    let t = app.theme;
+    let Some(rep) = app.bat_report.value.clone() else {
+        return;
+    };
+    let hm = |m: u32| format!("{}:{:02}", m / 60, m % 60);
+    // local_time is "Thu 10:14"; the clock is its last five characters.
+    let hhmm = |ms: u64| {
+        let s = data::local_time(ms);
+        s.get(s.len().saturating_sub(5)..).unwrap_or_default().to_string()
+    };
+    let mut lines = vec![
+        Line::from(Span::styled("Today", t.title())),
+        Line::from(vec![
+            Span::styled("On battery ", t.muted()),
+            Span::styled(hm(rep.on_battery_min), t.text()),
+            Span::styled("   charger ", t.muted()),
+            Span::styled(hm(rep.on_ac_min), t.text()),
+            Span::styled("   screen on (battery) ", t.muted()),
+            Span::styled(hm(rep.screen_on_battery_min), t.text()),
+        ]),
+    ];
+    if rep.avg_battery_w.is_finite() {
+        let mut l = format!(
+            "Average draw {:.1} W, {:.1} Wh used ({:.0} points)",
+            rep.avg_battery_w, rep.used_wh, rep.used_pct
+        );
+        if rep.full_runtime_min > 0 {
+            l += &format!("; a full charge lasts about {} at that draw", hm(rep.full_runtime_min));
+        }
+        lines.push(Line::from(Span::styled(l, t.muted())));
+    }
+    for p in rep.periods.iter().rev().filter(|p| p.end_unix_ms - p.start_unix_ms >= 60_000).take(4) {
+        let what = match p.kind.as_str() {
+            "battery" => "battery",
+            "ac" => "charger",
+            _ => "off",
+        };
+        let mut l = format!(
+            "  {}-{}  {:<8}",
+            hhmm(p.start_unix_ms),
+            hhmm(p.end_unix_ms),
+            what
+        );
+        if p.kind != "off" && p.start_pct.is_finite() {
+            l += &format!(" {:.0}% → {:.0}%", p.start_pct, p.end_pct);
+        }
+        if p.kind == "battery" && p.avg_w.is_finite() {
+            l += &format!("  {:.1} W", p.avg_w);
+        }
+        lines.push(Line::from(Span::styled(l, t.faint())));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("Battery health", t.title())));
+    for h in &rep.health {
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {:<12}", h.method), t.text()),
+            Span::styled(format!("{:>4.0} %  ", h.pct), t.accent()),
+            Span::styled(format!("({} confidence) ", h.confidence), t.muted()),
+            Span::styled(h.basis.clone(), t.faint()),
+        ]));
+    }
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), r);
 }
 
 fn monitoring(app: &mut App, f: &mut Frame, r: Rect) {

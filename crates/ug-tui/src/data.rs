@@ -748,6 +748,16 @@ impl Bus {
             .map_err(|e| msg(e, "agent"))
     }
 
+    /// Today's charge and use and the health estimates.
+    pub fn battery_report(&self) -> Result<ug_proto::BatteryReport, String> {
+        let c = self.agent()?;
+        let now = now_ms();
+        let since = ug_core::playtime::local_midnight_offset(now, 0);
+        self.rt
+            .block_on(async { MonitorProxy::new(c).await?.battery_report(since, now).await })
+            .map_err(|e| msg(e, "agent"))
+    }
+
     pub fn traffic(&self, since_ms: u64) -> Result<Vec<DayTraffic>, String> {
         let c = self.agent()?;
         self.rt

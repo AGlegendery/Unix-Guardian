@@ -634,6 +634,20 @@ pub async fn set_button_action(bus: State<'_, Bus>, which: String, action: Strin
 }
 
 #[tauri::command]
+pub async fn battery_report(
+    bus: State<'_, Bus>,
+    since_unix_ms: u64,
+    until_unix_ms: u64,
+) -> Res<ug_proto::BatteryReport> {
+    let m = MonitorProxy::new(bus.agent().await?)
+        .await
+        .map_err(agent_err)?;
+    m.battery_report(since_unix_ms, until_unix_ms)
+        .await
+        .map_err(agent_err)
+}
+
+#[tauri::command]
 pub async fn history(
     bus: State<'_, Bus>,
     since_unix_ms: u64,

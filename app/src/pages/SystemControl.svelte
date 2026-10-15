@@ -2,7 +2,8 @@
   import Problem from "../lib/ui/Problem.svelte";
   import { AlarmClock, Cpu, Moon, Power, RotateCcw, Snowflake, Trash2 } from "@lucide/svelte";
   import type { Component } from "svelte";
-  import { api, errorText, type ButtonId, type SleepSettings, type BatteryCare, type CoolingState, type PowerUsage, type PowerAction, type PowerCapability, type PowerJob, type PowerWatch, type WatchKind } from "../lib/api";
+  import BatteryChart from "../lib/BatteryChart.svelte";
+  import { api, errorText, type BatteryReport, type ButtonId, type SleepSettings, type BatteryCare, type CoolingState, type PowerUsage, type PowerAction, type PowerCapability, type PowerJob, type PowerWatch, type WatchKind } from "../lib/api";
   import { num } from "../lib/format";
   import { locale, t } from "../lib/i18n.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
@@ -59,6 +60,35 @@
   }
   let bat = $state<BatteryCare | null>(null);
   let batLimit = $state(80);
+  // Charge and use: the agent's once-a-minute record, refreshed each minute.
+  let histRange = $state<"today" | "day" | "week">("today");
+  let rep = $state<BatteryReport | null>(null);
+  let span = $state<[number, number]>([0, 0]);
+  $effect(() => {
+    if (tab !== "battery") return;
+    const r = histRange;
+    const load = () => {
+      if (document.hidden) return;
+      const until = Date.now();
+      const midnight = new Date();
+      midnight.setHours(0, 0, 0, 0);
+      const since = r === "today" ? midnight.getTime() : until - (r === "day" ? 1 : 7) * 86_400_000;
+      api.batteryReport(since, until).then((v) => { rep = v; span = [since, until]; }).catch((e) => (error = errorText(e)));
+    };
+    load();
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
+  });
+  const two = $derived(new Intl.NumberFormat(locale.current === "fa" ? "fa-IR" : "en-GB", { minimumIntegerDigits: 2 }));
+  const hm = (min: number) => `${num(Math.floor(min / 60))}:${two.format(min % 60)}`;
+  const fmtClock = $derived(new Intl.DateTimeFormat(locale.current === "fa" ? "fa-IR" : "en-GB", { hour: "2-digit", minute: "2-digit" }));
+  const fmtDayClock = $derived(new Intl.DateTimeFormat(locale.current === "fa" ? "fa-IR" : "en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" }));
+  // The headline figure: the gauge when it is sane, else the measurement.
+  const headline = $derived(rep?.health.find((h) => h.method === "fuel-gauge" && h.confidence === "high") ?? rep?.health.find((h) => h.method === "measured") ?? rep?.health[0] ?? null);
+  function verdict(pct: number): string {
+    const v = t().sys.hist.verdict;
+    return pct >= 85 ? v.good : pct >= 70 ? v.fair : pct >= 55 ? v.poor : v.bad;
+  }
   $effect(() => {
     if (tab !== "battery") return;
     const load = () => !document.hidden && api.battery().then((b) => { bat = b; if (b.mode !== "off") batLimit = b.limit; }).catch((e) => (error = errorText(e)));
@@ -442,6 +472,85 @@
     {/if}
   </section>
 {:else if tab === "battery"}
+  {#if rep && rep.has_battery}
+    <section class="card">
+      <div class="card-head">
+        <h2>{t().sys.hist.title}</h2>
+        <Segmented
+          label={t().sys.hist.title}
+          value={histRange}
+          options={(["today", "day", "week"] as const).map((r) => ({ value: r, label: t().sys.hist.ranges[r] }))}
+          onchange={(r) => (histRange = r)}
+        />
+      </div>
+      {#if rep.points.length < 2}
+        <p class="muted">{t().sys.hist.none}</p>
+      {:else}
+        <BatteryChart report={rep} since={span[0]} until={span[1]} />
+        <div class="tiles">
+          <div class="tile"><span class="muted">{t().sys.hist.onBattery}</span><span class="big">{hm(rep.on_battery_min)}</span></div>
+          <div class="tile"><span class="muted">{t().sys.hist.onAc}</span><span class="big">{hm(rep.on_ac_min)}</span></div>
+          <div class="tile"><span class="muted">{t().sys.hist.screen}</span><span class="big">{hm(rep.screen_on_battery_min)}</span></div>
+          <div class="tile"><span class="muted">{t().sys.hist.avgW}</span><span class="big">{num(rep.avg_battery_w, 1)} <small>{t().unit.w}</small></span></div>
+          <div class="tile"><span class="muted">{t().sys.hist.used}</span><span class="big">{num(rep.used_wh, 1)} <small>Wh · {num(rep.used_pct)}{t().unit.pct}</small></span></div>
+          {#if rep.full_runtime_min > 0}
+            <div class="tile"><span class="muted">{t().sys.hist.runtime}</span><span class="big">{hm(rep.full_runtime_min)}</span><span class="small tight">{t().sys.hist.runtimeHint}</span></div>
+          {/if}
+        </div>
+        <ul class="periods" aria-label={t().sys.hist.periods}>
+          {#each rep.periods.filter((p) => p.end_unix_ms - p.start_unix_ms >= 60_000).slice().reverse() as p}
+            <li class={p.kind}>
+              <span class="swatch" aria-hidden="true"></span>
+              <span class="when" dir="ltr">{(histRange === "week" ? fmtDayClock : fmtClock).format(new Date(p.start_unix_ms))} – {fmtClock.format(new Date(p.end_unix_ms))}</span>
+              <b>{t().sys.hist[p.kind === "battery" ? "battery" : p.kind === "ac" ? "ac" : "off"]}</b>
+              {#if p.kind !== "off" && p.start_pct != null && p.end_pct != null}
+                <span class="muted">{num(p.start_pct)}{t().unit.pct} {locale.current === "fa" ? "←" : "→"} {num(p.end_pct)}{t().unit.pct}</span>
+              {/if}
+              {#if p.kind === "battery" && p.avg_w != null}<span class="muted">{num(p.avg_w, 1)} {t().unit.w}</span>{/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
+
+    <section class="card">
+      <h2>{t().sys.hist.health}</h2>
+      {#if headline && headline.pct != null}
+        <div class="health-top">
+          <div class="ring" style:--p={Math.min(100, headline.pct)}>
+            <span>{num(Math.round(headline.pct))}<small>{t().unit.pct}</small></span>
+          </div>
+          <div>
+            <p class="verdict">{verdict(headline.pct)}</p>
+            {#if rep.full_wh != null && rep.design_wh != null}
+              <p class="muted">{t().sys.hist.capacity}: <b dir="ltr">{num(rep.full_wh, 1)} Wh</b> · {t().sys.hist.design} <span dir="ltr">{num(rep.design_wh, 1)} Wh</span></p>
+            {/if}
+            {#if rep.cycles > 0}<p class="muted">{t().sys.hist.cycles}: <b>{num(rep.cycles)}</b></p>{/if}
+          </div>
+        </div>
+      {/if}
+      <p class="small intro">{t().sys.hist.healthIntro}</p>
+      <div class="methods">
+        {#each rep.health as h}
+          <div class="method">
+            <div class="method-top">
+              <b>{t().sys.hist.methods[h.method]}</b>
+              <span class="chip conf {h.confidence}">{t().sys.hist.conf[h.confidence]}</span>
+              <span class="big">{h.pct == null ? "—" : `${num(Math.round(h.pct))}${t().unit.pct}`}</span>
+            </div>
+            <div class="meter" aria-hidden="true"><span style:--w={Math.min(100, h.pct ?? 0)}></span></div>
+            <p class="small tight" dir="auto">{h.basis}</p>
+          </div>
+        {/each}
+        {#if !rep.health.some((h) => h.method === "measured")}
+          <div class="method">
+            <div class="method-top"><b>{t().sys.hist.methods.measured}</b></div>
+            <p class="small tight">{t().sys.hist.noMeasure}</p>
+          </div>
+        {/if}
+      </div>
+    </section>
+  {/if}
   <section class="card">
     <h2>{t().sys.bat.title}</h2>
     <p class="small intro">{t().sys.bat.intro}</p>
@@ -900,6 +1009,43 @@
     color: var(--warn);
     background: color-mix(in oklab, var(--warn) 10%, var(--card));
   }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .card-head h2 { margin: 0; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 14px; }
+  .tile { display: grid; gap: 2px; padding: 12px 14px; border-radius: 12px; background: var(--card-2); }
+  .tile .big { font-size: 1.35rem; }
+  .periods { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 6px; max-height: 260px; overflow: auto; }
+  .periods li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-radius: 10px; background: var(--card-2); font-size: 0.88rem; }
+  .periods .when { font-variant-numeric: tabular-nums; color: var(--text-2); min-width: 9em; }
+  .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .periods .battery .swatch { background: var(--warn); }
+  .periods .ac .swatch { background: var(--ok); }
+  .periods .off .swatch { background: var(--line); }
+  .health-top { display: flex; align-items: center; gap: 22px; margin: 4px 0 8px; flex-wrap: wrap; }
+  .ring {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background:
+      radial-gradient(closest-side, var(--card) 79%, transparent 80%),
+      conic-gradient(var(--accent-text) calc(var(--p) * 1%), var(--card-2) 0);
+    flex: none;
+  }
+  .ring span { font-size: 1.6rem; font-weight: 800; }
+  .ring small { font-size: 0.6em; color: var(--text-2); }
+  .verdict { margin: 0 0 4px; font-weight: 700; font-size: 1.1rem; }
+  .health-top .muted { margin: 2px 0; }
+  .methods { display: grid; gap: 10px; margin-top: 12px; }
+  .method { padding: 12px 14px; border-radius: 12px; background: var(--card-2); display: grid; gap: 6px; }
+  .method-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .method-top .big { margin-inline-start: auto; font-size: 1.25rem; }
+  .meter { height: 6px; border-radius: 999px; background: var(--card); overflow: hidden; }
+  .meter span { display: block; height: 100%; width: calc(var(--w) * 1%); background: var(--accent); border-radius: 999px; }
+  .conf.high { color: var(--ok); background: color-mix(in oklab, var(--ok) 14%, var(--card)); }
+  .conf.medium { color: var(--accent-text); background: var(--accent-soft); }
+  .conf.low { color: var(--text-2); background: var(--card); }
   .chip.warn { background: color-mix(in oklab, var(--warn) 16%, var(--card)); color: var(--warn); font-weight: 600; }
   .modes { display: grid; gap: 10px; margin-top: 16px; }
   .mode {

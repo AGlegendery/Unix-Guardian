@@ -156,6 +156,40 @@ export interface GpuTuneState {
   crashed: GpuTune;
 }
 
+export interface PowerPeriod {
+  start_unix_ms: number;
+  end_unix_ms: number;
+  kind: "battery" | "ac" | "off";
+  start_pct: number | null;
+  end_pct: number | null;
+  avg_w: number | null;
+  screen_on_min: number;
+}
+export interface HealthEstimate {
+  method: "fuel-gauge" | "measured" | "cycles";
+  pct: number | null;
+  capacity_wh: number | null;
+  confidence: "high" | "medium" | "low";
+  basis: string;
+}
+export interface BatteryReport {
+  has_battery: boolean;
+  periods: PowerPeriod[];
+  /** (time, charge %, watts + draining / − charging, on the charger, screen on) */
+  points: [number, number | null, number | null, boolean, boolean][];
+  on_battery_min: number;
+  on_ac_min: number;
+  screen_on_battery_min: number;
+  avg_battery_w: number | null;
+  used_wh: number;
+  used_pct: number;
+  full_runtime_min: number;
+  design_wh: number | null;
+  full_wh: number | null;
+  cycles: number;
+  health: HealthEstimate[];
+}
+
 export type ButtonId = "lid-battery" | "lid-ac" | "lid-docked" | "power-key";
 export interface SleepSettings {
   sleep_modes: string[];
@@ -638,6 +672,7 @@ const tauriApi = {
   sleepSettings: () => invoke<SleepSettings>("sleep_settings"),
   setSleepMode: (mode: string, keep: boolean) => invoke<void>("set_sleep_mode", { mode, keep }),
   setButtonAction: (which: ButtonId, action: string) => invoke<void>("set_button_action", { which, action }),
+  batteryReport: (sinceUnixMs: number, untilUnixMs: number) => invoke<BatteryReport>("battery_report", { sinceUnixMs, untilUnixMs }),
   battery: () => invoke<BatteryCare>("battery"),
   setBatteryCare: (mode: string, limit: number) => invoke<void>("set_battery_care", { mode, limit }),
   wakeAlarm: () => invoke<[number, boolean]>("wake_alarm"),

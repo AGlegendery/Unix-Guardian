@@ -125,6 +125,7 @@ fn main() {
             bus::battery,
             bus::set_battery_care,
             bus::sleep_settings,
+            bus::battery_report,
             bus::set_sleep_mode,
             bus::set_button_action,
             bus::history,

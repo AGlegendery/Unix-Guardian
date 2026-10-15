@@ -92,6 +92,7 @@ pub struct App {
     pub jobs: Cached<(Vec<PowerJob>, Vec<PowerWatch>)>,
     pub battery: Cached<BatteryCare>,
     pub sleep: Cached<ug_proto::SleepSettings>,
+    pub bat_report: Cached<ug_proto::BatteryReport>,
     pub history: Cached<Vec<HistoryPoint>>,
     /// The last 30 days, and (down, up) for the last hour and today.
     pub traffic: Cached<data::TrafficView>,
@@ -188,6 +189,7 @@ impl App {
             jobs: Cached::new(SLOW),
             battery: Cached::new(Duration::from_secs(15)),
             sleep: Cached::new(Duration::from_secs(10)),
+            bat_report: Cached::new(Duration::from_secs(60)),
             history: Cached::new(RARE),
             traffic: Cached::new(RARE),
             live: VecDeque::new(),
@@ -292,6 +294,10 @@ impl App {
                 if self.battery.due() {
                     let r = self.bus.battery();
                     self.battery.store(r);
+                }
+                if self.tab == 2 && self.bat_report.due() {
+                    let r = self.bus.battery_report();
+                    self.bat_report.store(r);
                 }
                 if self.tab == 4 && self.sleep.due() {
                     let r = self.bus.sleep_settings();

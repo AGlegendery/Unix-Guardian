@@ -521,6 +521,14 @@ pub mod agent {
         default_path = "/org/unixguardian/Agent1"
     )]
     pub trait Monitor {
+        /// Time on battery and on the charger, average draw, screen-on time
+        /// and battery health estimates between two times.
+        fn battery_report(
+            &self,
+            since_unix_ms: u64,
+            until_unix_ms: u64,
+        ) -> zbus::Result<BatteryReport>;
+
         /// Readings between two times, averaged into at most `points` buckets.
         fn history(
             &self,

@@ -15,6 +15,7 @@
 //! callers turn that into the sentinel convention at the D-Bus boundary. No
 //! reader fails because a file is absent — absence is information, not an error.
 
+pub mod battery;
 pub mod cpu;
 pub mod extra;
 pub mod fans;

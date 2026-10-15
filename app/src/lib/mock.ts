@@ -5,7 +5,7 @@
 
 import data from "./preview-data.json";
 import driverReport from "./preview-driver.json";
-import type { AppUsage, TestlabProgress, TestlabReport, RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, UpdateState, TrafficBucket, DriverReport, DriverPlan, DriverOp, ShortcutsState, DesktopKeys, AgentSettings, AppTraffic, BatteryCare, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { AppUsage, TestlabProgress, TestlabReport, RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, UpdateState, TrafficBucket, DriverReport, DriverPlan, DriverOp, ShortcutsState, DesktopKeys, AgentSettings, AppTraffic, BatteryCare, BatteryReport, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 // The captured profiles predate the screen and notification settings.
@@ -766,6 +766,47 @@ export const mockApi = {
   setButtonAction: async (which: string, action: string) => {
     const key = { "lid-battery": "lid_battery", "lid-ac": "lid_ac", "lid-docked": "lid_docked", "power-key": "power_key" }[which] as "lid_battery";
     sleepCfg[key] = action;
+  },
+  batteryReport: async (since: number, until: number): Promise<BatteryReport> => {
+    // A day like the development laptop's: on the charger, a heavy
+    // stretch on battery mid-morning, charging back, a gap overnight.
+    const pts: BatteryReport["points"] = [];
+    const day = new Date(until);
+    day.setHours(0, 0, 0, 0);
+    const at = (h: number, m = 0) => day.getTime() + (h * 60 + m) * 60_000;
+    let pct = 100;
+    for (let t = Math.max(since, at(7, 40)); t <= until; t += 60_000) {
+      if (t > at(1, 30) && t < at(7, 40)) continue;
+      const bat = t >= at(10, 14) && t < at(10, 31);
+      const chg = !bat && t >= at(10, 31) && pct < 100;
+      if (bat) pct = Math.max(5, pct - 2);
+      if (chg) pct = Math.min(100, pct + 0.8);
+      pts.push([t, Math.round(pct), bat ? 57 : chg ? -30 : 0, !bat, true]);
+    }
+    return {
+      has_battery: true,
+      points: pts,
+      periods: [
+        { start_unix_ms: at(7, 40), end_unix_ms: at(10, 14), kind: "ac", start_pct: 100, end_pct: 100, avg_w: 0, screen_on_min: 154 },
+        { start_unix_ms: at(10, 14), end_unix_ms: at(10, 31), kind: "battery", start_pct: 98, end_pct: 65, avg_w: 57.5, screen_on_min: 16 },
+        { start_unix_ms: at(10, 31), end_unix_ms: Math.max(at(10, 31), until), kind: "ac", start_pct: 65, end_pct: 100, avg_w: -20.3, screen_on_min: 90 },
+      ],
+      on_battery_min: 17,
+      on_ac_min: 629,
+      screen_on_battery_min: 16,
+      avg_battery_w: 54.3,
+      used_wh: 15.4,
+      used_pct: 33,
+      full_runtime_min: 58,
+      design_wh: 60,
+      full_wh: 53.31,
+      cycles: 646,
+      health: [
+        { method: "fuel-gauge", pct: 88.85, capacity_wh: 53.31, confidence: "high", basis: "The battery's own gauge: 53.3 Wh at the last full charge, 60.0 Wh when new." },
+        { method: "measured", pct: 77.8, capacity_wh: 46.7, confidence: "medium", basis: "Measured over 1 discharge: 15.4 Wh used for 33 points of charge, so a full charge holds about 46.7 Wh. Heavy use gets a little less out of a battery than light use." },
+        { method: "cycles", pct: 80.6, capacity_wh: null, confidence: "low", basis: "646 charge cycles. Typical laptop cells keep about 80 % after 500 to 1000 cycles, which puts this one between 74 and 87 %." },
+      ],
+    };
   },
   battery: async () => ({ ...bat }),
   setBatteryCare: async (mode: string, limit: number) => {

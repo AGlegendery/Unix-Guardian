@@ -567,6 +567,66 @@ pub struct GameModeReport {
     pub skipped: Vec<String>,
 }
 
+/// One stretch of time the computer spent on battery, on the charger, or
+/// off/asleep (no readings).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct PowerPeriod {
+    pub start_unix_ms: u64,
+    pub end_unix_ms: u64,
+    /// `battery`, `ac` or `off`.
+    pub kind: String,
+    /// Charge at the start and the end, NaN when unknown.
+    pub start_pct: f64,
+    pub end_pct: f64,
+    /// Average draw while on battery (positive) or charge rate on the
+    /// charger (negative), watts; NaN when unknown.
+    pub avg_w: f64,
+    /// Minutes of it with the screen on.
+    pub screen_on_min: u32,
+}
+
+/// One way of judging battery health, with where the number came from.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct HealthEstimate {
+    /// `fuel-gauge` (the battery's own full vs design capacity),
+    /// `measured` (energy we saw it give, scaled to a full charge) or
+    /// `cycles` (what the cycle count suggests for a typical cell).
+    pub method: String,
+    /// Health 0–100 (% of design capacity).
+    pub pct: f64,
+    /// The capacity it implies, Wh; NaN when not one figure.
+    pub capacity_wh: f64,
+    /// `high`, `medium` or `low`.
+    pub confidence: String,
+    /// What it rests on, in a sentence.
+    pub basis: String,
+}
+
+/// Charge and use over a span, and what the battery's health looks like.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct BatteryReport {
+    pub has_battery: bool,
+    pub periods: Vec<PowerPeriod>,
+    /// (time, charge %, watts: + draining / − charging, on the charger,
+    /// screen on) once a minute where recorded; NaN where unknown.
+    pub points: Vec<(u64, f64, f64, bool, bool)>,
+    pub on_battery_min: u32,
+    pub on_ac_min: u32,
+    pub screen_on_battery_min: u32,
+    /// Average draw on battery over the span, W; NaN when never on battery.
+    pub avg_battery_w: f64,
+    /// Energy taken from the battery, Wh, and the charge it cost (points).
+    pub used_wh: f64,
+    pub used_pct: f64,
+    /// Minutes a full battery lasts at this span's average draw; 0 unknown.
+    pub full_runtime_min: u32,
+    pub design_wh: f64,
+    pub full_wh: f64,
+    /// 0 when the battery does not count.
+    pub cycles: u32,
+    pub health: Vec<HealthEstimate>,
+}
+
 /// How the computer sleeps, and what the lid and power button do.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
 pub struct SleepSettings {

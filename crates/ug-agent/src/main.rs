@@ -9,6 +9,7 @@
 mod affinity;
 mod apps;
 mod background;
+mod battery_report;
 mod choices;
 mod core;
 mod deskkeys;
@@ -218,6 +219,12 @@ impl DaemonLink {
         let h = Arc::clone(history);
         let _ = tokio::task::spawn_blocking(move || {
             h.record(&s, gpu.as_deref(), extra.as_ref());
+            let root = ug_hw::SysRoot::real();
+            h.record_power(
+                s.ts_unix_ms,
+                extra.as_ref().map(|x| x.on_ac),
+                ug_hw::battery::screen_on(&root),
+            );
             h.record_apps(s.ts_unix_ms, &apps);
             if s.ts_unix_ms % (24 * 3_600_000) < 60_000 {
                 h.prune(s.ts_unix_ms);

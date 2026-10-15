@@ -302,6 +302,21 @@ impl MonitorIface {
             .unwrap_or_default()
     }
 
+    async fn battery_report(&self, since_unix_ms: u64, until_unix_ms: u64) -> ug_proto::BatteryReport {
+        let h = Arc::clone(&self.history);
+        tokio::task::spawn_blocking(move || {
+            let rows = h.battery_rows(since_unix_ms, until_unix_ms);
+            // Health looks at the last 30 days whatever span is shown: one
+            // morning holds too little discharge to measure.
+            let month = until_unix_ms.saturating_sub(30 * 24 * 3_600_000);
+            let health_rows = h.battery_rows(month, until_unix_ms);
+            let info = ug_hw::battery::battery_info(&ug_hw::SysRoot::real());
+            crate::battery_report::report(&rows, info.as_ref(), &health_rows)
+        })
+        .await
+        .unwrap_or_default()
+    }
+
     async fn traffic(&self, since_unix_ms: u64) -> Vec<DayTraffic> {
         let h = Arc::clone(&self.history);
         tokio::task::spawn_blocking(move || h.traffic(since_unix_ms, local_date))

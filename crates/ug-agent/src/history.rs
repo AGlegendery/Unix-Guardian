@@ -100,6 +100,8 @@ impl History {
             "procs",
             "bat_pct",
             "bat_w",
+            "on_ac",
+            "screen_on",
         ] {
             let has = conn
                 .prepare("SELECT 1 FROM pragma_table_info('samples') WHERE name = ?1")?
@@ -211,6 +213,41 @@ impl History {
         if let Err(e) = r {
             tracing::warn!(error = %e, "could not record a history sample");
         }
+    }
+
+    /// Adds the charger and screen state to the reading at `ts_ms` (kept
+    /// apart from [`History::record`] so its many callers stay as they are).
+    pub fn record_power(&self, ts_ms: u64, on_ac: Option<bool>, screen_on: Option<bool>) {
+        let b = |v: Option<bool>| v.map(|v| if v { 1.0 } else { 0.0 });
+        let _ = self.conn().execute(
+            "UPDATE samples SET on_ac = ?2, screen_on = ?3 WHERE ts_ms = ?1",
+            params![ts_ms as i64, b(on_ac), b(screen_on)],
+        );
+    }
+
+    /// The battery columns of every reading between two times, oldest first.
+    pub fn battery_rows(&self, since_ms: u64, until_ms: u64) -> Vec<crate::battery_report::Row> {
+        let c = self.conn();
+        let Ok(mut stmt) = c.prepare(
+            "SELECT ts_ms, bat_pct, bat_w, on_ac, screen_on FROM samples
+              WHERE ts_ms >= ?1 AND ts_ms <= ?2 ORDER BY ts_ms",
+        ) else {
+            return Vec::new();
+        };
+        stmt.query_map(
+            params![since_ms as i64, until_ms.min(i64::MAX as u64) as i64],
+            |r| {
+                Ok(crate::battery_report::Row {
+                    ts_ms: r.get::<_, i64>(0)? as u64,
+                    pct: r.get(1)?,
+                    w: r.get(2)?,
+                    on_ac: r.get::<_, Option<f64>>(3)?.map(|v| v > 0.5),
+                    screen: r.get::<_, Option<f64>>(4)?.map(|v| v > 0.5),
+                })
+            },
+        )
+        .map(|rows| rows.flatten().collect())
+        .unwrap_or_default()
     }
 
     /// Deletes readings older than 90 days.
@@ -612,6 +649,10 @@ mod tests {
             "no extra reading: missing, not zero"
         );
         assert!(pts[0].battery_pct.is_nan(), "no battery");
+        h.record_power(0, Some(true), Some(false));
+        let rows = h.battery_rows(0, 0);
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].on_ac, rows[0].screen), (Some(true), Some(false)));
         // The first bucket's speed uses the reading just before the range.
         assert_eq!(h.range(MIN, 3 * MIN, 2)[0].net_rx_bps, 100_000.0);
     }

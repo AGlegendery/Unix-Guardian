@@ -501,6 +501,12 @@ enum BatteryCommand {
     },
     /// Charge to 100 % always (the laptop's own behaviour).
     Off,
+    /// Time on battery and on the charger, average draw, screen-on time and
+    /// battery health (three methods), for today or the last --days.
+    Report {
+        #[arg(long)]
+        days: Option<u32>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2902,6 +2908,77 @@ fn local_time(unix_ms: u64) -> String {
     )
 }
 
+async fn battery_report(days: Option<u32>, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let m = MonitorProxy::new(&conn).await?;
+    let now = now_ms();
+    let since = match days {
+        Some(d) => now.saturating_sub(d.max(1) as u64 * 86_400_000),
+        None => local_midnight_ms(),
+    };
+    let r = m.battery_report(since, now).await.map_err(agent_error)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&r)?);
+        return Ok(());
+    }
+    if !r.has_battery {
+        println!("This computer has no battery.");
+        return Ok(());
+    }
+    let hm = |min: u32| format!("{}h {:02}m", min / 60, min % 60);
+    let clock = |ms: u64| local_time(ms)[11..16].to_string();
+    println!(
+        "On battery {}   on the charger {}   screen on (battery) {}",
+        hm(r.on_battery_min),
+        hm(r.on_ac_min),
+        hm(r.screen_on_battery_min)
+    );
+    if !r.avg_battery_w.is_nan() {
+        print!(
+            "Average draw on battery {:.1} W, {:.1} Wh used ({:.0} points)",
+            r.avg_battery_w, r.used_wh, r.used_pct
+        );
+        if r.full_runtime_min > 0 {
+            print!("; a full charge lasts about {} at that draw", hm(r.full_runtime_min));
+        }
+        println!();
+    }
+    println!();
+    for p in &r.periods {
+        let what = match p.kind.as_str() {
+            "battery" => "on battery",
+            "ac" => "on the charger",
+            _ => "off or asleep",
+        };
+        let mut line = format!("{}-{}  {:<15}", clock(p.start_unix_ms), clock(p.end_unix_ms), what);
+        if !p.start_pct.is_nan() && p.kind != "off" {
+            line += &format!(" {:>3.0} % -> {:>3.0} %", p.start_pct, p.end_pct);
+        }
+        if !p.avg_w.is_nan() && p.kind == "battery" {
+            line += &format!("  {:.1} W", p.avg_w);
+        }
+        if p.screen_on_min > 0 && p.kind == "battery" {
+            line += &format!("  screen on {}", hm(p.screen_on_min));
+        }
+        println!("{line}");
+    }
+    println!();
+    if r.design_wh.is_finite() {
+        print!("Capacity: {:.1} Wh now, {:.1} Wh when new", r.full_wh, r.design_wh);
+        if r.cycles > 0 {
+            print!(", {} cycles", r.cycles);
+        }
+        println!();
+    }
+    for h in &r.health {
+        println!(
+            "Health ({}, {} confidence): {:.0} %\n  {}",
+            h.method, h.confidence, h.pct, h.basis
+        );
+    }
+    Ok(())
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -3602,6 +3679,7 @@ async fn net(
 async fn battery(conn: &zbus::Connection, command: BatteryCommand, json: bool) -> Result<()> {
     let p = PowerProxy::new(conn).await?;
     match command {
+        BatteryCommand::Report { days } => return battery_report(days, json).await,
         BatteryCommand::Status => {}
         BatteryCommand::Protect { limit } => p
             .set_battery_care("protect", limit)
