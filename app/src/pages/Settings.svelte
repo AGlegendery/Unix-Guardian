@@ -5,6 +5,7 @@
   import Problem from "../lib/ui/Problem.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
   import Switch from "../lib/ui/Switch.svelte";
+  import { motion, setMotion, type Motion } from "../lib/motion.svelte";
 
   let { overview }: { overview: Overview | null } = $props();
 
@@ -100,6 +101,17 @@
       </div>
     {/if}
     <p class="small">{t().settings.trayNote}</p>
+  </section>
+
+  <section class="card">
+    <h2>{t().settings.motion}</h2>
+    <Segmented
+      label={t().settings.motion}
+      value={motion.current}
+      options={[{ value: "classic" as Motion, label: t().settings.motions.classic }, { value: "lively" as Motion, label: t().settings.motions.lively }]}
+      onchange={(v) => setMotion(v)}
+    />
+    <p class="small">{t().settings.motionNote}</p>
   </section>
 </div>
 

@@ -190,6 +190,7 @@
     {#if loadError}
       <Problem text={loadError} />
     {/if}
+    {#key page}<div class="page-enter">
     {#if page === "dashboard"}
       <Dashboard {overview} />
     {:else if page === "gamemode"}
@@ -223,6 +224,7 @@
         </div>
       </section>
     {/if}
+    </div>{/key}
   </main>
 </div>
 

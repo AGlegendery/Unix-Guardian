@@ -42,3 +42,75 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0ms !important; animation: none !important; }
 }
+
+/* Lively motion (Settings → Animations). Classic is everything above, so
+   choosing Classic removes all of this at once. Every animation here runs
+   once and stops: an endless one keeps WebKitGTK repainting at 60 fps. */
+@keyframes ug-page-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes ug-rise {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes ug-bar-in {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+@keyframes ug-pop {
+  0% { transform: scale(0.96); }
+  60% { transform: scale(1.03); }
+  100% { transform: scale(1); }
+}
+[data-motion="lively"] .page-enter { animation: ug-page-in 340ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+/* Cards rise one after another: the first eight, 50 ms apart. */
+[data-motion="lively"] .page-enter section { animation: ug-rise 460ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+[data-motion="lively"] .page-enter section:nth-of-type(2) { animation-delay: 50ms; }
+[data-motion="lively"] .page-enter section:nth-of-type(3) { animation-delay: 100ms; }
+[data-motion="lively"] .page-enter section:nth-of-type(4) { animation-delay: 150ms; }
+[data-motion="lively"] .page-enter section:nth-of-type(5) { animation-delay: 200ms; }
+[data-motion="lively"] .page-enter section:nth-of-type(6) { animation-delay: 250ms; }
+[data-motion="lively"] .page-enter section:nth-of-type(n + 7) { animation-delay: 300ms; }
+/* Cards answer the pointer with a soft accent glow; small tiles lift. */
+[data-motion="lively"] section.card,
+[data-motion="lively"] .page-enter > section,
+[data-motion="lively"] .tile {
+  transition: box-shadow 220ms ease-out, transform 220ms ease-out, background 220ms ease-out;
+}
+[data-motion="lively"] section.card:hover,
+[data-motion="lively"] .page-enter > section:hover {
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 30%, transparent), 0 14px 34px -18px color-mix(in oklab, var(--accent) 55%, transparent);
+}
+[data-motion="lively"] .tile:hover,
+[data-motion="lively"] .action:hover:not(:disabled),
+[data-motion="lively"] .kind:hover,
+[data-motion="lively"] .mode:hover:not(:disabled),
+[data-motion="lively"] .method:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 26px -16px color-mix(in oklab, var(--accent) 60%, transparent);
+}
+[data-motion="lively"] .action,
+[data-motion="lively"] .kind,
+[data-motion="lively"] .mode,
+[data-motion="lively"] .method { transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 200ms ease-out, border-color 150ms ease-out, background 150ms ease-out; }
+/* Buttons give a little when pressed, and a chosen option pops. */
+[data-motion="lively"] button:not(:disabled) { transition-property: background, color, border-color, filter, transform, box-shadow; }
+[data-motion="lively"] :is(.go, .primary, .btn, .secondary, .chip-btn, .action, .kind, .mode):active:not(:disabled) { transform: scale(0.97); }
+[data-motion="lively"] [role="radio"][aria-checked="true"],
+[data-motion="lively"] [role="switch"][aria-checked="true"] .knob { animation: ug-pop 260ms ease-out; }
+/* The sidebar's current page gets an accent bar that grows in. */
+[data-motion="lively"] nav .item { position: relative; }
+[data-motion="lively"] nav .item.active::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: -2px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent-text);
+  animation: ug-bar-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+[data-motion="lively"] nav .item:hover:not(.active) :is(svg) { transform: translateX(calc(2px * var(--flow, 1))); transition: transform 160ms ease-out; }
+:root[dir="rtl"] { --flow: -1; }
