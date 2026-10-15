@@ -181,7 +181,7 @@
   .btn:focus-visible, .keybox:focus-visible, .corner:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; }
   .grid .card { margin: 0; }
-  @media (max-width: 1050px) { .grid { grid-template-columns: 1fr; } }
+  @media (max-width: 1050px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 
   /* A dim "game" behind the overlay, so contrast reads as it will in game. */
   .scene {

@@ -397,7 +397,7 @@
   .idle { margin: 0; color: var(--text-2); font-size: 0.9rem; max-width: 70ch; align-self: center; }
 
   .grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; margin-top: 16px; }
-  @media (max-width: 1050px) { .grid { grid-template-columns: 1fr; } }
+  @media (max-width: 1050px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 
   .when { display: flex; align-items: center; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
   .tabs { display: flex; gap: 4px; margin-top: 18px; border-bottom: 1px solid var(--line); }

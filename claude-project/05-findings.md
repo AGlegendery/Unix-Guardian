@@ -295,3 +295,22 @@ when idle (the test's recover uses that).
 - **"battery none"** in power use: `battery_w` is the discharge draw, only
   measurable on battery. **"via a other interface"**: VPN apps name their
   TUN devices anything (`xray_tun`); the kind is now read from sysfs.
+
+## Window resizing on Hyprland (2026-10-15)
+
+Reproduced on the laptop (Hyprland 0.56, 1.25 scale) with a copy of the
+window on a private bus, parked on a headless output (`hyprctl output
+create headless`; ryoku-monitor writes it into `monitors.lua` until it is
+removed again) and captured with `grim -T <stableId>`:
+- **Cropped content**: tiling compositors ignore the minimum size. A tile
+  of 760×479 under the old 860×560 minimum left GTK drawing at 860×560 and
+  Hyprland cutting off the left (RTL) and bottom. Floating windows are
+  clamped, tiles are not. The minimum is 480×400 now and the layout folds
+  the sidebar to icons below 820 px; every page and tab was checked for
+  overflow at 480 px (`.chart` and one-column grids need `minmax(0, 1fr)`
+  or a fixed-width canvas holds the column open).
+- **White edges while resizing**: WebKit catches up a few frames behind
+  the GTK window, whose own background is Adwaita's light grey. The
+  window's `backgroundColor` and dark theme now match `--bg`.
+- A hidden window (other workspace) paints nothing until shown; captures
+  of a hidden window show stale or stretched frames. Not a bug.

@@ -453,7 +453,7 @@
   .card { background: var(--card); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 16px; min-width: 0; }
   .charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
   .charts .card { margin: 0; }
-  @media (max-width: 1150px) { .charts { grid-template-columns: 1fr; } }
+  @media (max-width: 1150px) { .charts { grid-template-columns: minmax(0, 1fr); } }
   .muted { color: var(--text-2); margin: 0; font-size: 0.9rem; }
   .small { color: var(--text-3); font-size: 0.8rem; margin: 10px 0 0; }
   .sess-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }

@@ -182,7 +182,7 @@
   .card { background: var(--card); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 16px; min-width: 0; display: grid; gap: 14px; align-content: start; }
   .card h2 { margin: 0; }
   .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
   .field { display: grid; gap: 8px; font-size: 0.9rem; }
   .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 0.9rem; }
   p { margin: 0; }

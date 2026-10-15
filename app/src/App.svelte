@@ -60,7 +60,20 @@
   let overview = $state<Overview | null>(null);
 
   // A narrow sidebar with icons only; remembered on this computer.
-  let collapsed = $state(readCollapsed());
+  let chosenCollapsed = $state(readCollapsed());
+  // Tiling compositors (Hyprland, Sway, i3) ignore the window's minimum size
+  // and hand it whatever tile is free, so the layout has to work at any
+  // width: below 820 px the sidebar folds to icons by itself, without
+  // changing the remembered choice.
+  let narrow = $state(false);
+  $effect(() => {
+    const q = matchMedia("(max-width: 820px)");
+    const on = () => (narrow = q.matches);
+    on();
+    q.addEventListener("change", on);
+    return () => q.removeEventListener("change", on);
+  });
+  const collapsed = $derived(chosenCollapsed || narrow);
   function readCollapsed() {
     try {
       return localStorage.getItem("ug.sidebar") === "collapsed";
@@ -69,9 +82,9 @@
     }
   }
   function toggleSide() {
-    collapsed = !collapsed;
+    chosenCollapsed = !chosenCollapsed;
     try {
-      localStorage.setItem("ug.sidebar", collapsed ? "collapsed" : "open");
+      localStorage.setItem("ug.sidebar", chosenCollapsed ? "collapsed" : "open");
     } catch {}
   }
   // The arrow points the way the sidebar will move, mirrored in Persian.
@@ -118,7 +131,7 @@
     <div class="brand">
       <span class="mark"><Mark size={collapsed ? 30 : 28} /></span>
       {#if !collapsed}<span>{t().app}</span>{/if}
-      <button
+      {#if !narrow}<button
         class="fold"
         onclick={toggleSide}
         aria-expanded={!collapsed}
@@ -126,7 +139,7 @@
         title={collapsed ? t().side.expand : t().side.collapse}
       >
         {#if pointRight}<ChevronsRight size={16} aria-hidden="true" />{:else}<ChevronsLeft size={16} aria-hidden="true" />{/if}
-      </button>
+      </button>{/if}
     </div>
     <ul>
       {#each pages as [p, Icon]}
@@ -346,6 +359,14 @@
     overflow: auto;
     padding: 26px 30px 32px;
     min-width: 0;
+  }
+  @media (max-width: 640px) {
+    .content { padding: 18px 14px 24px; }
+  }
+  @media (max-height: 560px) {
+    .side { padding-block: 12px 10px; }
+    .brand { margin-bottom: 10px; }
+    .item { padding-block: 6px; }
   }
 
   .unbuilt-page h1 { font-size: 1.5rem; font-weight: 800; margin: 0 0 18px; }

@@ -143,7 +143,9 @@
 </div>
 
 <style>
-  .chart { position: relative; }
+  /* min-width 0 + clip: the canvas has a fixed width until the next rebuild,
+     and must not hold a grid column open when the window narrows. */
+  .chart { position: relative; min-width: 0; overflow: hidden; }
   .legend { list-style: none; margin: 0 0 6px; padding: 0; display: flex; gap: 16px; font-size: 0.82rem; color: var(--text-2); }
   .legend li { display: flex; align-items: center; gap: 6px; }
   .key { width: 14px; height: 3px; border-radius: 2px; }

@@ -17,9 +17,11 @@
         "title": "Unix Guardian",
         "width": 1180,
         "height": 900,
-        "minWidth": 860,
-        "minHeight": 560,
-        "resizable": true
+        "minWidth": 480,
+        "minHeight": 400,
+        "resizable": true,
+        "theme": "Dark",
+        "backgroundColor": "#0f0e17"
       }
     ],
     "security": {
