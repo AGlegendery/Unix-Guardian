@@ -6,9 +6,23 @@ in minutes. **Update this file after every finished item and commit it.**
 Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 `05-findings.md`, `07-conventions.md`, `03-architecture.md`.
 
-Last updated: 2026-10-15 (seven UI/behaviour asks; work is on `main`).
+Last updated: 2026-10-16 (hibernate swap warning back; work is on `main`).
 
-## Now (2026-10-15, later): animated Hugeicons + full-charge wording ✅
+## Now (2026-10-16): hibernate swap warning restored ✅
+
+- The user wants Driver Fix to warn when swap is too small for hibernation
+  (laptop: 16 GB swap, 27 GB RAM). `c1137ca` had dropped it as a false
+  positive (image_size rule); back to swap >= 60 % of RAM (`hardware.rs`
+  `hibernate.swap_enough`, `sleep.toml` text, test with the laptop numbers).
+  image_size is a target, not a promise. Do not lower it again unasked.
+- The project folder moved to `/home/aglegend/IMPORTANT/ProgramingTable/
+  unix-guardian`; the copy flipped ~819 files to mode 755, renamed the
+  fixture paths with `:` to `_` and dropped the fixture symlinks under
+  `crates/ug-testfs/fixtures/dev-laptop-rtx3050/sys` (ug-gpu replay test
+  fails there). Not repaired yet: commit with `git -c core.fileMode=false`.
+**Waiting on the user:** repair the checkout, rebuild + reinstall.
+
+## Before (2026-10-15, later): animated Hugeicons + full-charge wording ✅
 
 - The user's 85 `@hugeicons-animated` icons (a shadcn registry of React +
   motion components) are ported, not React-in-Svelte:

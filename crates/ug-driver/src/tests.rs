@@ -596,9 +596,10 @@ fn sleep_firmware_and_debian_s_firmware_component() {
         "Filename Type Size Used Priority\n/dev/zram0 partition 4000000 0 100\n",
     );
     assert!(has(&fs, &Env::default(), "hibernate-swap-too-small"));
-    // The laptop (2026-10-15): 27 GB of memory and a 16 GB swap file. The
-    // kernel shrinks the image to image_size (2/5 of memory by default), so
-    // 16 GB is plenty; the old 60 % rule called it too small.
+    // The laptop: 27 GB of memory and a 16 GB swap file. image_size is only
+    // the size the kernel aims for; when it cannot free enough the image is
+    // bigger and hibernation fails, so the user wants this warned about
+    // (2026-10-16; 2026-10-15 had dropped it as a false positive).
     fs.write(
         "proc/meminfo",
         "MemTotal:       28429964 kB
@@ -615,7 +616,7 @@ fn sleep_firmware_and_debian_s_firmware_component() {
 /swap/swapfile file 16777212 0 -1
 ",
     );
-    assert!(!has(&fs, &Env::default(), "hibernate-swap-too-small"));
+    assert!(has(&fs, &Env::default(), "hibernate-swap-too-small"));
     fs.write(
         "proc/swaps",
         "Filename Type Size Used Priority
@@ -623,6 +624,11 @@ fn sleep_firmware_and_debian_s_firmware_component() {
 ",
     );
     assert!(has(&fs, &Env::default(), "hibernate-swap-too-small"));
+    fs.write(
+        "proc/swaps",
+        "Filename Type Size Used Priority\n/swap/swapfile file 20971516 0 -1\n",
+    );
+    assert!(!has(&fs, &Env::default(), "hibernate-swap-too-small"));
 
     let fs = plain();
     let log = Env { kernel_log: "iwlwifi 0000:00:14.3: Direct firmware load for iwlwifi-so-a0-gf-a0-86.ucode failed with error -2\n".into(), ..Default::default() };

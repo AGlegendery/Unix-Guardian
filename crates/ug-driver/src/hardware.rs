@@ -653,18 +653,12 @@ pub fn facts(root: &SysRoot, env: &Env, modules: &[String], f: &mut Facts) {
     );
     put("hibernate.swap_mb", Value::Num((swap / 1024.0).round()));
     put("hibernate.mem_mb", Value::Num((mem / 1024.0).round()));
-    // The kernel frees caches and shrinks the image to image_size (2/5 of
-    // memory by default) before writing it, so swap needs to hold that, not
-    // all of memory. Half of memory, or image_size and a tenth to spare if
-    // that is more, is enough in practice; the old 60 % rule called the
-    // laptop's 16 GB swap for 27 GB of memory too small.
-    let image_kb = read(&root.join("sys/power/image_size"))
-        .trim()
-        .parse::<f64>()
-        .map(|b| b / 1024.0)
-        .unwrap_or(mem * 0.4);
-    let needed = (mem * 0.5).max(image_kb * 1.1);
-    put("hibernate.swap_enough", b(mem > 0.0 && swap >= needed));
+    // The image is compressed and the kernel frees caches first, aiming
+    // for image_size (2/5 of memory); but that is a target, not a promise:
+    // when memory in use cannot be freed the image is bigger and hibernation
+    // fails. 60 % of memory is the usual working minimum (and the smallest
+    // file the hibernate-swap fix makes).
+    put("hibernate.swap_enough", b(mem > 0.0 && swap >= mem * 0.6));
     // Where a hibernation swap file would go, for the fix and its guide.
     let plan = crate::swap::plan(root, mem as u64, |d| {
         crate::swap::free_bytes(&root.join(d.trim_start_matches('/')))
