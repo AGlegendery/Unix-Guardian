@@ -12,7 +12,7 @@ const nudge = (prop, by, delay = 0, duration = 0.5) => ({
   origin: "50% 50%",
   box: "fill-box",
   n: { [prop]: 0 },
-  a: { [prop]: [0, by, 0], transition: { duration, delay, ease: "easeInOut" } },
+  a: { [prop]: [0, by, -by * 0.2, 0], transition: { duration, delay, times: [0, 0.45, 0.75, 1], ease: "easeInOut" } },
 });
 const pop = (to, delay = 0, duration = 0.45, origin = "50% 50%") => ({
   origin,
@@ -92,9 +92,9 @@ module.exports = [
     name: "layers-01",
     shape: "Layers01Icon",
     nodes: {
-      0: lift(-3, 0),
-      1: lift(-1.8, 0.06),
-      2: lift(-0.8, 0.12),
+      0: lift(-4, 0),
+      1: lift(-2.5, 0.06),
+      2: lift(-1.2, 0.12),
     },
   },
   {
@@ -179,19 +179,19 @@ module.exports = [
     // Sidebar fold: both chevrons step the way the sidebar will go.
     name: "arrow-left-double",
     shape: "ArrowLeftDoubleIcon",
-    nodes: { 0: nudge("translateX", -2.5, 0), 1: nudge("translateX", -2.5, 0.08) },
+    nodes: { 0: nudge("translateX", -3.5, 0, 0.55), 1: nudge("translateX", -3.5, 0.08, 0.55) },
   },
   {
     name: "arrow-right-double",
     shape: "ArrowRightDoubleIcon",
-    nodes: { 0: nudge("translateX", 2.5, 0.08), 1: nudge("translateX", 2.5, 0) },
+    nodes: { 0: nudge("translateX", 3.5, 0.08, 0.55), 1: nudge("translateX", 3.5, 0, 0.55) },
   },
   {
     // Terminal: the prompt steps forward, the cursor blinks twice.
     name: "command-line",
     shape: "CommandLineIcon",
     nodes: {
-      1: nudge("translateX", 1.5, 0, 0.45),
+      1: nudge("translateX", 2.5, 0, 0.5),
       2: {
         origin: "50% 50%",
         box: "fill-box",
@@ -211,8 +211,8 @@ module.exports = [
     // Block: the bar is struck through again and the sign shakes.
     name: "unavailable",
     shape: "UnavailableIcon",
-    root: { origin: "50% 50%", n: { rotate: 0 }, a: { rotate: [0, -8, 6, -3, 0], transition: { duration: 0.5, ease: "easeInOut" } } },
-    nodes: { 0: draw(0, 0.45) },
+    root: { origin: "50% 50%", n: { rotate: 0 }, a: { rotate: [0, -14, 10, -5, 0], transition: { duration: 0.6, ease: "easeInOut" } } },
+    nodes: { 0: draw(0, 0.5) },
   },
   {
     // Limit: the needle swings back, overshoots and settles.
@@ -223,7 +223,7 @@ module.exports = [
         origin: "12px 15px",
         box: "view-box",
         n: { rotate: 0 },
-        a: { rotate: [0, -70, 25, 0], transition: { duration: 0.9, times: [0, 0.35, 0.7, 1], ease: [IN_OUT, OUT, "easeOut"] } },
+        a: { rotate: [0, -95, 30, 0], transition: { duration: 0.9, times: [0, 0.35, 0.7, 1], ease: [IN_OUT, OUT, "easeOut"] } },
       },
     },
   },
@@ -231,56 +231,57 @@ module.exports = [
     // Swap: the two arrows pass each other.
     name: "arrow-data-transfer-horizontal",
     shape: "ArrowDataTransferHorizontalIcon",
-    nodes: { 0: nudge("translateX", -2, 0), 1: nudge("translateX", 2, 0.06) },
+    nodes: { 0: nudge("translateX", -3.5, 0, 0.6), 1: nudge("translateX", 3.5, 0.08, 0.6) },
   },
   {
-    // CPU: the pins reach out in turn, the die marks are drawn.
+    // CPU: the chip is pressed into its socket, the pins spring out in
+    // turn and the die marks are drawn again.
     name: "cpu",
     shape: "CpuIcon",
+    root: { origin: "50% 50%", n: { scale: 1 }, a: { scale: [1, 0.88, 1.04, 1], transition: { duration: 0.6, times: [0, 0.3, 0.7, 1], ease: "easeInOut" } } },
     nodes: {
-      1: nudge("translateY", -1, 0, 0.4),
-      2: nudge("translateY", -1, 0.05, 0.4),
-      3: nudge("translateY", 1, 0.1, 0.4),
-      4: nudge("translateY", 1, 0.15, 0.4),
-      5: draw(0.05, 0.4),
-      6: draw(0.2, 0.4),
-      7: nudge("translateX", 1, 0.2, 0.4),
-      8: nudge("translateX", -1, 0.25, 0.4),
-      9: nudge("translateX", -1, 0.3, 0.4),
-      10: nudge("translateX", 1, 0.35, 0.4),
+      1: nudge("translateY", -1.8, 0.1, 0.45),
+      2: nudge("translateY", -1.8, 0.15, 0.45),
+      3: nudge("translateY", 1.8, 0.2, 0.45),
+      4: nudge("translateY", 1.8, 0.25, 0.45),
+      5: draw(0.05, 0.45),
+      6: draw(0.25, 0.4),
+      7: nudge("translateX", 1.8, 0.3, 0.45),
+      8: nudge("translateX", -1.8, 0.35, 0.45),
+      9: nudge("translateX", -1.8, 0.4, 0.45),
+      10: nudge("translateX", 1.8, 0.45, 0.45),
     },
   },
   {
     // Memory: the stick lifts and its cells flicker down and up.
     name: "ram-memory",
     shape: "RamMemoryIcon",
-    root: { origin: "50% 50%", n: { translateY: 0 }, a: { translateY: [0, -1, 0], transition: { duration: 0.5, ease: "easeInOut" } } },
+    root: { origin: "50% 50%", n: { translateY: 0 }, a: { translateY: [0, -2, 0.4, 0], transition: { duration: 0.6, times: [0, 0.4, 0.75, 1], ease: "easeInOut" } } },
     nodes: {
+      1: nudge("translateY", 1.2, 0.05, 0.5),
+      2: nudge("translateY", 1.2, 0.1, 0.5),
       3: {
-        origin: "50% 100%",
+        origin: "50% 50%",
         box: "fill-box",
-        n: { scaleY: 1 },
-        a: { scaleY: [1, 0.3, 1], transition: { duration: 0.5, ease: "easeInOut" } },
+        n: { pathLength: 1, scaleY: 1 },
+        a: { pathLength: [0, 1], scaleY: [0.2, 1.15, 1], transition: { duration: 0.6, delay: 0.1, ease: OUT } },
       },
     },
   },
   {
-    // Graphics: the fan spins up, the vents flicker.
+    // Graphics: the card is pushed into its slot, the fan winds up and
+    // the vents are drawn one after another.
     name: "gpu",
     shape: "GpuIcon",
+    root: { origin: "15% 50%", n: { translateX: 0 }, a: { translateX: [0, 1.5, -0.3, 0], transition: { duration: 0.6, times: [0, 0.35, 0.7, 1], ease: "easeInOut" } } },
     nodes: {
       2: {
         origin: "50% 50%",
         box: "fill-box",
         n: { scale: 1 },
-        a: { scale: [1, 0.6, 1.15, 1], transition: { duration: 0.7, times: [0, 0.35, 0.7, 1], ease: "easeInOut" } },
+        a: { scale: [1, 0.35, 1.2, 1], transition: { duration: 0.75, times: [0, 0.35, 0.7, 1], ease: "easeInOut" } },
       },
-      3: {
-        origin: "50% 50%",
-        box: "fill-box",
-        n: { opacity: 1 },
-        a: { opacity: [1, 0.3, 1, 0.3, 1], transition: { duration: 0.8, ease: "linear" } },
-      },
+      3: draw(0.15, 0.5),
     },
   },
   {
@@ -301,8 +302,8 @@ module.exports = [
     shape: "Moon02Icon",
     root: {
       origin: "50% 50%",
-      n: { rotate: 0 },
-      a: { rotate: [0, -18, 8, 0], transition: { duration: 0.8, times: [0, 0.4, 0.75, 1], ease: "easeInOut" } },
+      n: { rotate: 0, scale: 1 },
+      a: { rotate: [0, -28, 14, -5, 0], scale: [1, 0.9, 1.05, 1, 1], transition: { duration: 0.9, times: [0, 0.35, 0.65, 0.85, 1], ease: "easeInOut" } },
     },
   },
   {
@@ -312,7 +313,7 @@ module.exports = [
     root: {
       origin: "50% 50%",
       n: { rotate: 0, scale: 1 },
-      a: { rotate: [0, 60], scale: [1, 0.9, 1], transition: { duration: 0.8, ease: OUT } },
+      a: { rotate: [0, 100, 90], scale: [1, 0.8, 1], transition: { duration: 0.8, ease: OUT } },
     },
   },
   {
@@ -342,13 +343,14 @@ module.exports = [
     },
   },
   {
-    // Tuning: the three sliders' knobs dip one after another.
+    // Tuning: the three knobs slide along their tracks one after another
+    // and come back.
     name: "sliders-horizontal",
     shape: "SlidersHorizontalIcon",
     nodes: {
-      3: squeeze(0),
-      2: squeeze(0.1),
-      4: squeeze(0.2),
+      3: slide(5, 0),
+      2: slide(-6, 0.08),
+      4: slide(4, 0.16),
     },
   },
 ];
@@ -365,11 +367,14 @@ function lift(by, delay) {
   };
 }
 
-function squeeze(delay) {
+function slide(by, delay) {
   return {
     origin: "50% 50%",
     box: "fill-box",
-    n: { scaleY: 1 },
-    a: { scaleY: [1, 0.55, 1], transition: { duration: 0.45, delay, ease: "easeInOut" } },
+    n: { translateX: 0 },
+    a: {
+      translateX: [0, by, -by * 0.12, 0],
+      transition: { duration: 0.8, delay, times: [0, 0.45, 0.8, 1], ease: [IN_OUT, "easeInOut", "easeOut"] },
+    },
   };
 }

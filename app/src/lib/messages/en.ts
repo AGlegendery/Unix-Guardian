@@ -686,7 +686,7 @@ export const en = {
     languageNote: "The window's language. The terminal interface and the ug command are in English.",
     motion: "Animations",
     motions: { classic: "Classic", lively: "Lively" },
-    motionNote: "Lively slides pages and cards in, lifts what is under the pointer and gives buttons a press. Every animation is short and ends; Classic goes back to the calm original. Off entirely when the system asks for reduced motion.",
+    motionNote: "Lively slides pages and cards in, lifts what is under the pointer and gives buttons a press. Every animation is short and ends; Classic goes back to the calm original. Icons move when the pointer is on them in both. Off entirely when the system asks for reduced motion.",
     general: "Unix Guardian in the background",
     notifications: "Notifications",
     notificationsNote: "When a game is found, when a background download could be limited, and when a shortcut is used.",

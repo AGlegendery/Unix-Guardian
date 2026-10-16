@@ -6,9 +6,28 @@ in minutes. **Update this file after every finished item and commit it.**
 Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 `05-findings.md`, `07-conventions.md`, `03-architecture.md`.
 
-Last updated: 2026-10-16 (hibernate swap warning back; work is on `main`).
+Last updated: 2026-10-16 (icon motion fix, hibernate swap warning; on `main`).
 
-## Now (2026-10-16): hibernate swap warning restored ✅
+## Now (2026-10-16): icons really move, in Classic too ✅
+
+- User: icons didn't animate (nothing after reinstall; later only a small
+  zoom). Causes: HugeIcon played only in Lively, and Classic is the default;
+  the installed `ug-app` (2026-10-15 14:51) predates `ac44814`. The port
+  itself was right: regenerating from fresh registry files gave a
+  byte-identical hugeicons.json, and the frames in WebKitGTK move per path.
+- Now icons play on hover and click in both motion styles (only reduced
+  motion stops them); Classic still keeps pages/cards calm (Settings note
+  says so). Default stays Classic.
+- Weak custom motions made clearer (sliders slide, cpu/gpu/ram/moon/snow/
+  layers/swap/chevrons/terminal/speed/ban bigger).
+- `scripts/icon-motion-check.py` (needs `npm run dev`, page
+  `app/dev/icons.html`): hovers every icon in WebKitGTK offscreen, fails an
+  icon that barely changes; `--strip out.png` shows the frames. It failed on
+  every icon before the fix (Classic).
+**Waiting on the user:** `sudo ./scripts/dev-install.sh` (release window
+built 2026-10-16 18:39), then hover the sidebar icons.
+
+## Also (2026-10-16): hibernate swap warning restored ✅
 
 - The user wants Driver Fix to warn when swap is too small for hibernation
   (laptop: 16 GB swap, 27 GB RAM). `c1137ca` had dropped it as a false
@@ -29,8 +48,8 @@ Last updated: 2026-10-16 (hibernate swap warning back; work is on `main`).
   `scripts/port-hugeicons.cjs <dir of registry json>` runs each TSX against
   stand-ins and writes `app/src/lib/icons/hugeicons.json` (SVG markup +
   resolved variants + the MIT notice). `HugeIcon.svelte` + `player.ts`
-  replay them (keyframes, times, easing, springs, pathLength). Plays only in
-  Lively, never under reduced motion; endless repeats play twice and stop.
+  replay them (keyframes, times, easing, springs, pathLength). Plays in both
+  motion styles since 2026-10-16, never under reduced motion; endless repeats play twice and stop.
   Used in the sidebar (dashboard, playtime, bug report, updates, settings),
   battery/history headers, notifications row, copy (plays on copied),
   updates, delete/add, chevrons, alarm. Credit in Settings → About;

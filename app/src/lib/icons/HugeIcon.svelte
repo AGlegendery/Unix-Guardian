@@ -1,9 +1,10 @@
 <!--
   An animated Hugeicon (hugeicons-animated.com, MIT; see LICENSE-hugeicons.md
-  next to this file). It is a plain SVG in Classic motion; in Lively it plays
-  once when the pointer enters the button, link or nav item around it (or the
-  icon itself), and whenever `trigger` changes, e.g. after a copy. The
-  system's reduced-motion setting keeps it still.
+  next to this file). It plays once when the pointer enters the button, link
+  or nav item around it (or the icon itself), when that is clicked, and
+  whenever `trigger` changes, e.g. after a copy. It moves in both motion
+  styles: Classic only keeps pages and cards calm. The system's
+  reduced-motion setting keeps it still.
 -->
 <script lang="ts" module>
   import data from "./hugeicons.json";
@@ -23,8 +24,7 @@
   export const hugeIconNames = [...byName.keys()];
   let uid = 0;
 
-  function lively() {
-    if (document.documentElement.dataset.motion !== "lively") return false;
+  function allowed() {
     return !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   }
 </script>
@@ -45,7 +45,7 @@
     class?: string;
     /** Plays the icon when this changes to a truthy value (not on the first render). */
     trigger?: unknown;
-    /** Plays on pointer enter of the surrounding control. */
+    /** Plays on pointer enter and click of the surrounding control. */
     hover?: boolean;
     /** Names the icon for screen readers when no text says what it is. */
     label?: string;
@@ -59,7 +59,7 @@
   let player: IconPlayer | null = null;
 
   export function play() {
-    if (!player || !lively() || player.playing) return;
+    if (!player || !allowed() || player.playing) return;
     player.set("n");
     player.to("a");
   }
@@ -81,7 +81,10 @@
     };
     host.addEventListener("pointerenter", enter);
     host.addEventListener("pointerleave", leave);
+    // A click plays it too (touch has no hover; a run in progress goes on).
+    host.addEventListener("click", enter);
     return () => {
+      host.removeEventListener("click", enter);
       host.removeEventListener("pointerenter", enter);
       host.removeEventListener("pointerleave", leave);
       p.cancel();
