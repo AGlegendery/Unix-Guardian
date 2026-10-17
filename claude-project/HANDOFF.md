@@ -28,6 +28,11 @@ Last updated: 2026-10-17 (visual fixes, Settings regrouped; on `main`).
   GTK 3 does not have: glib panics, the window aborted at start (user:
   "doesn't open"). Lesson: after any change in app/src-tauri, start the
   release `ug-app` for ~10 s before asking the user to install.
+- 2026-10-18, second: the rebuild of that fix was a plain `cargo build
+  --release`, which leaves custom-protocol off: installed, the window
+  showed "Could not connect to localhost". main.rs now refuses to compile
+  a release build without it. Only `npx tauri build --no-bundle`. Check
+  the page renders with the vite server stopped (grim the window).
 - Settings: Appearance | Window and tray (+ new icons-only sidebar switch,
   `lib/sidebar.svelte.ts`), Notifications and updates | Finding games,
   Internet use, shortcuts, About. TUI Settings grouped the same, with a

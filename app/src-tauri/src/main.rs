@@ -13,6 +13,13 @@
 mod bus;
 mod testlab;
 
+// A plain `cargo build --release` leaves Tauri's custom-protocol feature
+// off, and such a window loads the dev server instead of its own page:
+// installed, it showed "Could not connect to localhost" (2026-10-18).
+// Release builds go through `npx tauri build --no-bundle` (in app/).
+#[cfg(all(dev, not(debug_assertions)))]
+compile_error!("release build without the bundled page: build the window with `cd app && npx tauri build --no-bundle`");
+
 /// The page never zooms (the user, 2026-10-17): a layout built for the
 /// window's own size breaks when it is scaled. WebKitGTK zooms on a touchpad
 /// pinch by itself, before the page sees it, so pinches (and Ctrl + scroll)
