@@ -6,9 +6,35 @@ in minutes. **Update this file after every finished item and commit it.**
 Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 `05-findings.md`, `07-conventions.md`, `03-architecture.md`.
 
-Last updated: 2026-10-16 (icon motion fix, hibernate swap warning; on `main`).
+Last updated: 2026-10-17 (visual fixes, Settings regrouped; on `main`).
 
-## Now (2026-10-16): icons really move, in Classic too ✅
+## Now (2026-10-17): visual fixes + Settings regrouped ✅
+
+- Scrollbars hide when idle: `lib/viewport.ts` `watchScrolling` sets
+  `data-scrolling` on a box for 900 ms after it scrolls; app.css shows the
+  thumb only then (`::-webkit-scrollbar` for WebKitGTK, checked offscreen).
+- Lively hover glow was on wrapper sections (`.row`, `.tiles`): one square
+  box around two rounded cards. Now only `section.card`/`article.card`.
+- Sidebar icons no longer slide 2 px on hover (Lively); their Hugeicons
+  motion is unchanged.
+- Sidebar stuck scrolled after the window grows: `clampScroll` action
+  rebuilds the box's scroll layer on resize (offscreen WebKit never showed
+  the bug: layout reads were right, only the real window painted stale).
+- No page zoom: Ctrl+wheel/keys/gesture events blocked in JS, viewport
+  `user-scalable=no`, and the GTK window swallows touchpad pinch and
+  Ctrl+scroll in `captured-event` (`no_page_zoom`, main.rs; `gtk` dep).
+  Pinch not verifiable offscreen: ask the user.
+- Settings: Appearance | Window and tray (+ new icons-only sidebar switch,
+  `lib/sidebar.svelte.ts`), Notifications and updates | Finding games,
+  Internet use, shortcuts, About. TUI Settings grouped the same, with a
+  "Reset the internet-use counts" row (Enter twice).
+- Working tree repaired from git (modes, `:` fixture paths, symlinks); the
+  renamed copies were moved out, not deleted.
+- Game vs heavy app detection: proposal sent to the user, nothing built.
+**Waiting on the user:** `sudo ./scripts/dev-install.sh`, check pinch zoom
+and the sidebar after resizing; pick an option for game detection.
+
+## Before (2026-10-16): icons really move, in Classic too ✅
 
 - User: icons didn't animate (nothing after reinstall; later only a small
   zoom). Causes: HugeIcon played only in Lively, and Classic is the default;
@@ -37,9 +63,7 @@ built 2026-10-16 18:39), then hover the sidebar icons.
 - The project folder moved to `/home/aglegend/IMPORTANT/ProgramingTable/
   unix-guardian`; the copy flipped ~819 files to mode 755, renamed the
   fixture paths with `:` to `_` and dropped the fixture symlinks under
-  `crates/ug-testfs/fixtures/dev-laptop-rtx3050/sys` (ug-gpu replay test
-  fails there). Not repaired yet: commit with `git -c core.fileMode=false`.
-**Waiting on the user:** repair the checkout, rebuild + reinstall.
+  `crates/ug-testfs/fixtures/dev-laptop-rtx3050/sys`. Repaired 2026-10-17.
 
 ## Before (2026-10-15, later): animated Hugeicons + full-charge wording ✅
 

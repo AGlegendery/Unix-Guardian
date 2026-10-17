@@ -4085,6 +4085,7 @@ name = "ug-app"
 version = "0.1.0-beta.2"
 dependencies = [
  "futures-lite",
+ "gtk",
  "serde",
  "serde_json",
  "tauri",

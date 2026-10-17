@@ -29,6 +29,10 @@ zbus = { version = "5", default-features = false, features = ["tokio"] }
 tokio = { version = "1", features = ["sync", "time"] }
 futures-lite = "2"
 
+# Already in the tree through Tauri; used to keep the touchpad from zooming the page.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
 [profile.release]
 opt-level = "s"
 lto = true

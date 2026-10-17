@@ -1425,10 +1425,20 @@ mod tests {
             "0.1.0",
             ".config/unix-guardian",
             "GNU GPL",
+            // Grouped as on the window's Settings page.
+            "Window and tray",
+            "Notifications and updates",
+            "Finding games",
+            "Internet use",
+            "Reset the internet-use counts",
         ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
         assert!(!screen.contains("Not built yet"));
+        let at = |s: &str| screen.find(s).unwrap();
+        assert!(at("Window and tray") < at("Tray icon"));
+        assert!(at("Tray icon") < at("Notifications and updates"));
+        assert!(at("Notifications and updates") < at("Look for updates daily"));
     }
 
     #[test]

@@ -37,7 +37,17 @@ body {
 
 ::selection { background: var(--accent); color: #fff; }
 :focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 6px; }
-* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+/* Scrollbars show while a box scrolls (and while the pointer is on one)
+   and fade out when idle; scrollwatch.ts sets data-scrolling. WebKitGTK
+   draws ::-webkit-scrollbar; the standard properties are for the browser
+   preview. No endless animation: the thumb only changes on events. */
+* { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+[data-scrolling] { scrollbar-color: var(--line) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb { background: transparent; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+[data-scrolling]::-webkit-scrollbar-thumb { background-color: var(--line); }
+::-webkit-scrollbar-thumb:hover, ::-webkit-scrollbar-thumb:active { background-color: var(--text-3); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0ms !important; animation: none !important; }
@@ -73,13 +83,14 @@ body {
 [data-motion="lively"] .page-enter section:nth-of-type(6) { animation-delay: 250ms; }
 [data-motion="lively"] .page-enter section:nth-of-type(n + 7) { animation-delay: 300ms; }
 /* Cards answer the pointer with a soft accent glow; small tiles lift. */
-[data-motion="lively"] section.card,
-[data-motion="lively"] .page-enter > section,
+/* Only the cards themselves: a row or a tile strip is a wrapper with no
+   background or corners, and its glow showed as one square box around two
+   rounded cards (2026-10-17). */
+[data-motion="lively"] .card,
 [data-motion="lively"] .tile {
   transition: box-shadow 220ms ease-out, transform 220ms ease-out, background 220ms ease-out;
 }
-[data-motion="lively"] section.card:hover,
-[data-motion="lively"] .page-enter > section:hover {
+[data-motion="lively"] :is(section, article).card:hover {
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 30%, transparent), 0 14px 34px -18px color-mix(in oklab, var(--accent) 55%, transparent);
 }
 [data-motion="lively"] .tile:hover,
@@ -112,5 +123,5 @@ body {
   background: var(--accent-text);
   animation: ug-bar-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
-[data-motion="lively"] nav .item:hover:not(.active) > :is(svg, .hugeicon) { transform: translateX(calc(2px * var(--flow, 1))); transition: transform 160ms ease-out; }
-:root[dir="rtl"] { --flow: -1; }
+/* The sidebar's icons stay where they are on hover: only their own
+   Hugeicons motion plays (the user, 2026-10-17). */

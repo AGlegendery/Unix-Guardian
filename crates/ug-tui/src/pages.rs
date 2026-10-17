@@ -4429,16 +4429,42 @@ fn activate_driver_op(app: &mut App, i: usize) {
     }
 }
 
-/// The agent's settings, the tray icon and global shortcuts, one row each,
-/// then what this installation is.
-const SETTINGS_ROWS: [&str; 6] = [
-    "Notifications",
-    "Close the window when a game starts",
-    "Look for games every",
-    "Look for updates daily",
-    "Tray icon",
-    "Global shortcuts",
+/// The settings rows, grouped under headings in the order of the window's
+/// Settings page; then what this installation is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SettingsRow {
+    Tray,
+    CloseWindow,
+    Notifications,
+    CheckUpdates,
+    ScanInterval,
+    Shortcuts,
+    ResetTraffic,
+}
+const SETTINGS_GROUPS: [(&str, &[SettingsRow]); 5] = [
+    ("Window and tray", &[SettingsRow::Tray, SettingsRow::CloseWindow]),
+    ("Notifications and updates", &[SettingsRow::Notifications, SettingsRow::CheckUpdates]),
+    ("Finding games", &[SettingsRow::ScanInterval]),
+    ("Global shortcuts", &[SettingsRow::Shortcuts]),
+    ("Internet use", &[SettingsRow::ResetTraffic]),
 ];
+
+/// The selectable rows, in order (what `app.row` counts).
+fn settings_rows() -> impl Iterator<Item = SettingsRow> {
+    SETTINGS_GROUPS.iter().flat_map(|(_, rows)| rows.iter().copied())
+}
+
+fn settings_row_name(r: SettingsRow) -> &'static str {
+    match r {
+        SettingsRow::Tray => "Tray icon",
+        SettingsRow::CloseWindow => "Close the window when a game starts",
+        SettingsRow::Notifications => "Notifications",
+        SettingsRow::CheckUpdates => "Look for updates daily",
+        SettingsRow::ScanInterval => "Look for games every",
+        SettingsRow::Shortcuts => "Global shortcuts",
+        SettingsRow::ResetTraffic => "Reset the internet-use counts",
+    }
+}
 const SCAN_STEPS: [u32; 4] = [1, 2, 5, 10];
 
 fn settings_page(app: &mut App, f: &mut Frame, r: Rect) {
@@ -4471,47 +4497,62 @@ fn settings_page(app: &mut App, f: &mut Frame, r: Rect) {
         Some(_) => "off".to_string(),
         None => "—".to_string(),
     };
-    let values = [
-        yes(s.notifications).to_string(),
-        yes(s.close_window_on_game).to_string(),
-        if st.scan_interval_fixed {
-            format!("{} s (set by ug-agent --scan-interval)", s.scan_interval_s)
-        } else {
-            format!("{} s", s.scan_interval_s)
-        },
-        yes(s.check_updates).to_string(),
-        match app.tray.value {
-            Some(true) => "shown".into(),
-            Some(false) => "hidden".into(),
-            None => "—".into(),
-        },
-        shortcuts,
-    ];
-    app.rows = SETTINGS_ROWS.len();
-    let top = r.y + 2;
-    for (i, (name, v)) in SETTINGS_ROWS.iter().zip(values).enumerate() {
-        let line = Line::from(vec![
-            Span::styled(format!(" {name:<38}"), t.text()),
-            Span::styled(format!("‹ {v} ›"), t.muted()),
-        ]);
-        row(
-            app,
-            f,
-            Rect {
-                y: top + i as u16,
-                height: 1,
-                ..r
+    let traffic_armed = app
+        .armed
+        .as_ref()
+        .is_some_and(|(a, _)| a == "reset the internet-use counts");
+    let tray = app.tray.value;
+    let value = |r: SettingsRow| -> String {
+        match r {
+            SettingsRow::Tray => match tray {
+                Some(true) => "shown".into(),
+                Some(false) => "hidden".into(),
+                None => "—".into(),
             },
-            i,
-            line,
+            SettingsRow::CloseWindow => yes(s.close_window_on_game).into(),
+            SettingsRow::Notifications => yes(s.notifications).into(),
+            SettingsRow::CheckUpdates => yes(s.check_updates).into(),
+            SettingsRow::ScanInterval if st.scan_interval_fixed => {
+                format!("{} s (set by ug-agent --scan-interval)", s.scan_interval_s)
+            }
+            SettingsRow::ScanInterval => format!("{} s", s.scan_interval_s),
+            SettingsRow::Shortcuts => shortcuts.clone(),
+            SettingsRow::ResetTraffic if traffic_armed => "Enter again to reset".into(),
+            SettingsRow::ResetTraffic => "Enter twice".into(),
+        }
+    };
+    app.rows = settings_rows().count();
+    let mut y = r.y + 2;
+    let mut i = 0;
+    for (heading, rows) in SETTINGS_GROUPS {
+        if y >= r.bottom() {
+            break;
+        }
+        f.render_widget(
+            Paragraph::new(Span::styled(heading, t.muted())),
+            Rect { y, height: 1, ..r },
         );
+        y += 1;
+        for &sr in rows {
+            if y >= r.bottom() {
+                break;
+            }
+            let line = Line::from(vec![
+                Span::styled(format!("   {:<38}", settings_row_name(sr)), t.text()),
+                Span::styled(format!("‹ {} ›", value(sr)), t.muted()),
+            ]);
+            row(app, f, Rect { y, height: 1, ..r }, i, line);
+            y += 1;
+            i += 1;
+        }
     }
-    let note = match app.row {
-        0 => "When a game is found, when a background download could be limited, and when a shortcut is used.",
-        1 => "The window's web view gives its memory back to the game; this terminal interface stays open.",
-        2 => "Sooner means game mode starts sooner, for a little more CPU time.",
-        3 => "Once a day Unix Guardian asks GitHub for a newer version and tells you once. It never installs anything by itself.",
-        4 => "Hidden, it comes back from here or with `ug tray`; Unix Guardian keeps running either way.",
+    let note = match settings_rows().nth(app.row) {
+        Some(SettingsRow::Notifications) => "When a game is found, when a background download could be limited, and when a shortcut is used.",
+        Some(SettingsRow::CloseWindow) => "The window's web view gives its memory back to the game; this terminal interface stays open.",
+        Some(SettingsRow::ScanInterval) => "Sooner means game mode starts sooner, for a little more CPU time.",
+        Some(SettingsRow::CheckUpdates) => "Once a day Unix Guardian asks GitHub for a newer version and tells you once. It never installs anything by itself.",
+        Some(SettingsRow::Tray) => "Hidden, it comes back from here or with `ug tray`; Unix Guardian keeps running either way.",
+        Some(SettingsRow::ResetTraffic) => "Starts the internet-use counts again from now: the total so far, the day, week and month charts and the per-app list. The speed charts are kept.",
         _ => "Keys that work anywhere; the desktop asks to confirm them. Overlay → Global shortcuts shows and changes the keys.",
     };
     let service = app
@@ -4531,7 +4572,7 @@ fn settings_page(app: &mut App, f: &mut Frame, r: Rect) {
             t.faint(),
         )),
     ];
-    let y = top + SETTINGS_ROWS.len() as u16 + 1;
+    let y = y + 1;
     if y < r.bottom() {
         f.render_widget(
             Paragraph::new(about).wrap(Wrap { trim: true }),
@@ -4802,8 +4843,11 @@ fn step_settings(app: &mut App, d: i32) {
         return;
     };
     let mut s = st.settings.clone();
-    let r = match app.row {
-        0 => {
+    let Some(which) = settings_rows().nth(app.row) else {
+        return;
+    };
+    let r = match which {
+        SettingsRow::Notifications => {
             s.notifications = !s.notifications;
             app.bus.settings_set(&s).map(|_| {
                 format!(
@@ -4812,14 +4856,14 @@ fn step_settings(app: &mut App, d: i32) {
                 )
             })
         }
-        1 => {
+        SettingsRow::CloseWindow => {
             s.close_window_on_game = !s.close_window_on_game;
             app.bus.settings_set(&s).map(|_| "Saved.".to_string())
         }
-        2 if st.scan_interval_fixed => {
+        SettingsRow::ScanInterval if st.scan_interval_fixed => {
             Err("Set by ug-agent --scan-interval in the service; change it there.".to_string())
         }
-        2 => {
+        SettingsRow::ScanInterval => {
             let i = SCAN_STEPS
                 .iter()
                 .position(|v| *v >= s.scan_interval_s)
@@ -4829,7 +4873,7 @@ fn step_settings(app: &mut App, d: i32) {
                 .settings_set(&s)
                 .map(|_| format!("Looking for games every {} s.", s.scan_interval_s))
         }
-        3 => {
+        SettingsRow::CheckUpdates => {
             s.check_updates = !s.check_updates;
             app.bus.settings_set(&s).map(|_| {
                 format!(
@@ -4838,7 +4882,7 @@ fn step_settings(app: &mut App, d: i32) {
                 )
             })
         }
-        4 => {
+        SettingsRow::Tray => {
             let on = app.tray.value != Some(true);
             let r = app.bus.tray_set(on).map(|_| {
                 if on {
@@ -4851,7 +4895,7 @@ fn step_settings(app: &mut App, d: i32) {
             app.tray.invalidate();
             r
         }
-        _ => {
+        SettingsRow::Shortcuts => {
             let on = !app.shortcuts.value.as_ref().is_some_and(|k| k.enabled);
             let r = app.bus.shortcuts_set_enabled(on).map(|_| {
                 if on {
@@ -4863,6 +4907,11 @@ fn step_settings(app: &mut App, d: i32) {
             });
             app.shortcuts.invalidate();
             r
+        }
+        // Asks twice, like r on Monitoring → Internet traffic.
+        SettingsRow::ResetTraffic => {
+            reset_traffic(app);
+            return;
         }
     };
     report(app, r);

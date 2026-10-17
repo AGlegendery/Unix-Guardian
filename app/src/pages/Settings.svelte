@@ -7,6 +7,7 @@
   import Switch from "../lib/ui/Switch.svelte";
   import { motion, setMotion, type Motion } from "../lib/motion.svelte";
   import HugeIcon from "../lib/icons/HugeIcon.svelte";
+  import { setSidebarCollapsed, sidebar } from "../lib/sidebar.svelte";
 
   let { overview }: { overview: Overview | null } = $props();
 
@@ -81,88 +82,108 @@
 
 {#if error}<Problem text={error} />{/if}
 
+<!-- Grouped by what each setting is about (2026-10-17): how the window
+     looks, the window and tray, what Unix Guardian tells you, how it finds
+     games, then shortcuts, internet-use data and what this installation is. -->
 <div class="grid">
   <section class="card">
-    <h2>{t().settings.language}</h2>
-    <Segmented
-      label={t().settings.language}
-      value={locale.current}
-      options={[{ value: "fa" as Locale, label: "فارسی" }, { value: "en" as Locale, label: "English" }]}
-      onchange={(v) => setLocale(v)}
-    />
-    <p class="small">{t().settings.languageNote}</p>
+    <h2>{t().settings.appearance}</h2>
+    <div class="field">
+      <span>{t().settings.language}</span>
+      <Segmented
+        label={t().settings.language}
+        value={locale.current}
+        options={[{ value: "fa" as Locale, label: "فارسی" }, { value: "en" as Locale, label: "English" }]}
+        onchange={(v) => setLocale(v)}
+      />
+      <p class="small">{t().settings.languageNote}</p>
+    </div>
+    <div class="field">
+      <span>{t().settings.motion}</span>
+      <Segmented
+        label={t().settings.motion}
+        value={motion.current}
+        options={[{ value: "classic" as Motion, label: t().settings.motions.classic }, { value: "lively" as Motion, label: t().settings.motions.lively }]}
+        onchange={(v) => setMotion(v)}
+      />
+      <p class="small">{t().settings.motionNote}</p>
+    </div>
   </section>
 
   <section class="card">
-    <h2>{t().settings.tray}</h2>
-    {#if tray != null}
+    <h2>{t().settings.windowTray}</h2>
+    <div class="field">
       <div class="row">
         <span>{t().settings.tray}</span>
-        <Switch checked={tray} label={t().settings.tray} onchange={setTray} />
+        {#if tray != null}<Switch checked={tray} label={t().settings.tray} onchange={setTray} />{/if}
+      </div>
+      <p class="small">{t().settings.trayNote}</p>
+    </div>
+    {#if st}
+      <div class="field">
+        <div class="row">
+          <span>{t().settings.closeWindow}</span>
+          <Switch checked={st.settings.close_window_on_game} label={t().settings.closeWindow} onchange={(v) => change({ close_window_on_game: v })} />
+        </div>
+        <p class="small">{t().settings.closeWindowNote}</p>
       </div>
     {/if}
-    <p class="small">{t().settings.trayNote}</p>
-  </section>
-
-  <section class="card">
-    <h2>{t().settings.motion}</h2>
-    <Segmented
-      label={t().settings.motion}
-      value={motion.current}
-      options={[{ value: "classic" as Motion, label: t().settings.motions.classic }, { value: "lively" as Motion, label: t().settings.motions.lively }]}
-      onchange={(v) => setMotion(v)}
-    />
-    <p class="small">{t().settings.motionNote}</p>
+    <div class="field">
+      <div class="row">
+        <span>{t().settings.compactSidebar}</span>
+        <Switch checked={sidebar.collapsed} label={t().settings.compactSidebar} onchange={setSidebarCollapsed} />
+      </div>
+      <p class="small">{t().settings.compactSidebarNote}</p>
+    </div>
   </section>
 </div>
 
-<section class="card">
-  <h2>{t().settings.general}</h2>
-  {#if st}
-    <div class="field">
-      <div class="row">
-        <span class="with-icon">
-          <HugeIcon name={st.settings.notifications ? "notification-03" : "notification-off-01"} size={17} hover={false} trigger={st.settings.notifications ? "on" : "off"} />
-          {t().settings.notifications}
-        </span>
-        <Switch checked={st.settings.notifications} label={t().settings.notifications} onchange={(v) => change({ notifications: v })} />
+{#if st}
+  <div class="grid">
+    <section class="card">
+      <h2>{t().settings.notifyUpdates}</h2>
+      <div class="field">
+        <div class="row">
+          <span class="with-icon">
+            <HugeIcon name={st.settings.notifications ? "notification-03" : "notification-off-01"} size={17} hover={false} trigger={st.settings.notifications ? "on" : "off"} />
+            {t().settings.notifications}
+          </span>
+          <Switch checked={st.settings.notifications} label={t().settings.notifications} onchange={(v) => change({ notifications: v })} />
+        </div>
+        <p class="small">{t().settings.notificationsNote}</p>
       </div>
-      <p class="small">{t().settings.notificationsNote}</p>
-    </div>
-    <div class="field">
-      <div class="row">
-        <span>{t().settings.closeWindow}</span>
-        <Switch checked={st.settings.close_window_on_game} label={t().settings.closeWindow} onchange={(v) => change({ close_window_on_game: v })} />
+      <div class="field">
+        <div class="row">
+          <span>{t().settings.checkUpdates}</span>
+          <Switch checked={st.settings.check_updates} label={t().settings.checkUpdates} onchange={(v) => change({ check_updates: v })} />
+        </div>
+        <p class="small">{t().settings.checkUpdatesNote}</p>
       </div>
-      <p class="small">{t().settings.closeWindowNote}</p>
-    </div>
-    <div class="field">
-      <div class="row">
-        <span>{t().settings.checkUpdates}</span>
-        <Switch checked={st.settings.check_updates} label={t().settings.checkUpdates} onchange={(v) => change({ check_updates: v })} />
+    </section>
+
+    <section class="card">
+      <h2>{t().settings.games}</h2>
+      <div class="field">
+        <span>{t().settings.scan}</span>
+        {#if st.scan_interval_fixed}
+          <p><b>{st.settings.scan_interval_s} {t().settings.seconds}</b></p>
+          <p class="small">{t().settings.scanFixed}</p>
+        {:else}
+          <Segmented
+            label={t().settings.scan}
+            value={String(st.settings.scan_interval_s)}
+            options={intervals.map((s) => ({ value: String(s), label: `${s.toLocaleString(locale.current)} ${t().settings.seconds}` }))}
+            onchange={(v) => change({ scan_interval_s: Number(v) })}
+          />
+          <p class="small">{t().settings.scanNote}</p>
+        {/if}
       </div>
-      <p class="small">{t().settings.checkUpdatesNote}</p>
-    </div>
-    <div class="field">
-      <span>{t().settings.scan}</span>
-      {#if st.scan_interval_fixed}
-        <p><b>{st.settings.scan_interval_s} {t().settings.seconds}</b></p>
-        <p class="small">{t().settings.scanFixed}</p>
-      {:else}
-        <Segmented
-          label={t().settings.scan}
-          value={String(st.settings.scan_interval_s)}
-          options={intervals.map((s) => ({ value: String(s), label: `${s.toLocaleString(locale.current)} ${t().settings.seconds}` }))}
-          onchange={(v) => change({ scan_interval_s: Number(v) })}
-        />
-        <p class="small">{t().settings.scanNote}</p>
-      {/if}
-    </div>
-    {#if saved}<p class="saved" role="status">{t().settings.saved}</p>{/if}
-  {:else if error}
-    <p class="small">{t().settings.agentDown}</p>
-  {/if}
-</section>
+    </section>
+  </div>
+{:else if error}
+  <section class="card"><p class="small">{t().settings.agentDown}</p></section>
+{/if}
+{#if saved}<p class="saved" role="status">{t().settings.saved}</p>{/if}
 
 <section class="card">
   <h2>{t().settings.traffic}</h2>
@@ -210,7 +231,8 @@
   .reset:hover { color: var(--text); }
   .reset.armed { background: var(--danger); color: #fff; font-weight: 600; }
   .reset:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
-  .saved { color: var(--accent-text); font-size: 0.85rem; }
+  .saved { color: var(--accent-text); font-size: 0.85rem; margin: -6px 0 12px; }
+  .card .saved { margin: 0; }
   dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 18px; margin: 0; font-size: 0.88rem; }
   dt { color: var(--text-2); }
   dd { margin: 0; justify-self: start; }

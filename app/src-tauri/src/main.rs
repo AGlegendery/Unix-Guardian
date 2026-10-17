@@ -13,6 +13,25 @@
 mod bus;
 mod testlab;
 
+/// The page never zooms (the user, 2026-10-17): a layout built for the
+/// window's own size breaks when it is scaled. WebKitGTK zooms on a touchpad
+/// pinch by itself, before the page sees it, so the window swallows pinches
+/// (and Ctrl + scroll) in the capture phase. The page blocks the keys and
+/// Ctrl + wheel too (main.ts), for the browser preview.
+#[cfg(target_os = "linux")]
+fn no_page_zoom(w: &tauri::WebviewWindow) {
+    use gtk::prelude::*;
+    let Ok(win) = w.gtk_window() else { return };
+    // gtk-rs has no wrapper for GtkWidget::captured-event.
+    win.connect_local("captured-event", false, |args| {
+        let ev = args.get(1)?.get::<gtk::gdk::Event>().ok()?;
+        let ctrl_scroll = ev.event_type() == gtk::gdk::EventType::Scroll
+            && ev.state().is_some_and(|s| s.contains(gtk::gdk::ModifierType::CONTROL_MASK));
+        let stop = ev.event_type() == gtk::gdk::EventType::TouchpadPinch || ctrl_scroll;
+        Some(stop.to_value())
+    });
+}
+
 /// Sets an environment variable unless the user already chose a value.
 fn default_env(key: &str, value: &str) {
     if std::env::var_os(key).is_none() {
@@ -69,6 +88,10 @@ fn main() {
                         let _ = w.set_size(tauri::PhysicalSize::new(size.width, room));
                     }
                 }
+            }
+            #[cfg(target_os = "linux")]
+            if let Some(w) = app.get_webview_window("main") {
+                no_page_zoom(&w);
             }
             testlab::recover_in_background();
             if let (Some(path), Some(w)) = (open, app.get_webview_window("main")) {

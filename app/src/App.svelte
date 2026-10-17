@@ -4,6 +4,8 @@
   import Mark from "./lib/ui/Mark.svelte";
   import HugeIcon from "./lib/icons/HugeIcon.svelte";
   import { api, errorText, type Overview } from "./lib/api";
+  import { clampScroll } from "./lib/viewport";
+  import { setSidebarCollapsed, sidebar } from "./lib/sidebar.svelte";
   import { locale, setLocale, t } from "./lib/i18n.svelte";
   import Dashboard from "./pages/Dashboard.svelte";
   import GameMode from "./pages/GameMode.svelte";
@@ -56,8 +58,6 @@
   });
   let overview = $state<Overview | null>(null);
 
-  // A narrow sidebar with icons only; remembered on this computer.
-  let chosenCollapsed = $state(readCollapsed());
   // Tiling compositors (Hyprland, Sway, i3) ignore the window's minimum size
   // and hand it whatever tile is free, so the layout has to work at any
   // width: below 820 px the sidebar folds to icons by itself, without
@@ -70,20 +70,8 @@
     q.addEventListener("change", on);
     return () => q.removeEventListener("change", on);
   });
-  const collapsed = $derived(chosenCollapsed || narrow);
-  function readCollapsed() {
-    try {
-      return localStorage.getItem("ug.sidebar") === "collapsed";
-    } catch {
-      return false;
-    }
-  }
-  function toggleSide() {
-    chosenCollapsed = !chosenCollapsed;
-    try {
-      localStorage.setItem("ug.sidebar", chosenCollapsed ? "collapsed" : "open");
-    } catch {}
-  }
+  const collapsed = $derived(sidebar.collapsed || narrow);
+  const toggleSide = () => setSidebarCollapsed(!sidebar.collapsed);
   // The arrow points the way the sidebar will move, mirrored in Persian.
   const pointRight = $derived(collapsed !== (locale.current === "fa"));
   let loadError = $state<string | null>(null);
@@ -138,7 +126,7 @@
         <HugeIcon name={pointRight ? "arrow-right-double" : "arrow-left-double"} size={16} />
       </button>{/if}
     </div>
-    <ul>
+    <ul use:clampScroll>
       {#each pages as [p, Icon]}
         <li>
           <button
@@ -183,7 +171,7 @@
     </div>
   </nav>
 
-  <main class="content" bind:this={content}>
+  <main class="content" bind:this={content} use:clampScroll>
     {#if loadError}
       <Problem text={loadError} />
     {/if}
