@@ -15,21 +15,24 @@ mod testlab;
 
 /// The page never zooms (the user, 2026-10-17): a layout built for the
 /// window's own size breaks when it is scaled. WebKitGTK zooms on a touchpad
-/// pinch by itself, before the page sees it, so the window swallows pinches
-/// (and Ctrl + scroll) in the capture phase. The page blocks the keys and
-/// Ctrl + wheel too (main.ts), for the browser preview.
+/// pinch by itself, before the page sees it, so pinches (and Ctrl + scroll)
+/// are dropped before GTK hands them to any widget. The page blocks the
+/// keys and Ctrl + wheel too (main.ts), for the browser preview.
+///
+/// GDK's event handler, not a widget signal: GtkWidget::captured-event is
+/// not there in this GTK 3 and connecting to it aborted the window at
+/// start (2026-10-18). Every other event goes on to GTK as before.
 #[cfg(target_os = "linux")]
-fn no_page_zoom(w: &tauri::WebviewWindow) {
-    use gtk::prelude::*;
-    let Ok(win) = w.gtk_window() else { return };
-    // gtk-rs has no wrapper for GtkWidget::captured-event.
-    win.connect_local("captured-event", false, |args| {
-        let ev = args.get(1)?.get::<gtk::gdk::Event>().ok()?;
-        let ctrl_scroll = ev.event_type() == gtk::gdk::EventType::Scroll
-            && ev.state().is_some_and(|s| s.contains(gtk::gdk::ModifierType::CONTROL_MASK));
-        let stop = ev.event_type() == gtk::gdk::EventType::TouchpadPinch || ctrl_scroll;
-        Some(stop.to_value())
-    });
+fn no_page_zoom() {
+    use gtk::gdk::{Event, EventType, ModifierType};
+    Event::set_handler(Some(|ev: &mut Event| {
+        let ctrl_scroll = ev.event_type() == EventType::Scroll
+            && ev.state().is_some_and(|s| s.contains(ModifierType::CONTROL_MASK));
+        if ev.event_type() == EventType::TouchpadPinch || ctrl_scroll {
+            return;
+        }
+        gtk::main_do_event(ev);
+    }));
 }
 
 /// Sets an environment variable unless the user already chose a value.
@@ -90,9 +93,7 @@ fn main() {
                 }
             }
             #[cfg(target_os = "linux")]
-            if let Some(w) = app.get_webview_window("main") {
-                no_page_zoom(&w);
-            }
+            no_page_zoom();
             testlab::recover_in_background();
             if let (Some(path), Some(w)) = (open, app.get_webview_window("main")) {
                 let path: String = path.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '/' || *c == '-').collect();

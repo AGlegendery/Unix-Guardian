@@ -22,8 +22,12 @@ Last updated: 2026-10-17 (visual fixes, Settings regrouped; on `main`).
   the bug: layout reads were right, only the real window painted stale).
 - No page zoom: Ctrl+wheel/keys/gesture events blocked in JS, viewport
   `user-scalable=no`, and the GTK window swallows touchpad pinch and
-  Ctrl+scroll in `captured-event` (`no_page_zoom`, main.rs; `gtk` dep).
+  Ctrl+scroll in GDK's event handler (`no_page_zoom`, main.rs; `gtk` dep).
   Pinch not verifiable offscreen: ask the user.
+- 2026-10-18: the first version connected to `captured-event`, which this
+  GTK 3 does not have: glib panics, the window aborted at start (user:
+  "doesn't open"). Lesson: after any change in app/src-tauri, start the
+  release `ug-app` for ~10 s before asking the user to install.
 - Settings: Appearance | Window and tray (+ new icons-only sidebar switch,
   `lib/sidebar.svelte.ts`), Notifications and updates | Finding games,
   Internet use, shortcuts, About. TUI Settings grouped the same, with a
