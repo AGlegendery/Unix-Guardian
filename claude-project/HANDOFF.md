@@ -8,7 +8,17 @@ Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 
 Last updated: 2026-10-18 (threshold alerts; on `main`).
 
-## Now (2026-10-19): four asks from the user ✅
+## Now (2026-10-19, later): game mode fixes ✅
+
+`25a62b0` Game mode page switch stuck on after "off" (it read the
+window's start-up copy of the service state). `bfb47ce` game-mode
+internet notifications open Monitoring → Internet traffic (`ug-app
+--open`, also into an open window). `043a265` "Internet while you play"
+card + Net.GamingLimits (off: no "while gaming" rules/background caps,
+no offers), TUI `i`, `ug net gaming-limits`. agent-e2e failed once (3)
+then passed 3×: watch for flakiness.
+
+## Before (2026-10-19): four asks from the user ✅
 
 1. "Test alert does nothing": Ryoku's own DND was on (flags.json
    dnd:true) — popups hidden, only the bell list fills. Agent now detects
