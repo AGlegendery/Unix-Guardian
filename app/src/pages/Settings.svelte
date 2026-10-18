@@ -6,6 +6,7 @@
   import Segmented from "../lib/ui/Segmented.svelte";
   import Switch from "../lib/ui/Switch.svelte";
   import { motion, setMotion, type Motion } from "../lib/motion.svelte";
+  import { setSurface, surface, type Surface } from "../lib/surface.svelte";
   import HugeIcon from "../lib/icons/HugeIcon.svelte";
   import { setSidebarCollapsed, sidebar } from "../lib/sidebar.svelte";
 
@@ -108,6 +109,16 @@
       />
       <p class="small">{t().settings.motionNote}</p>
     </div>
+    <div class="field">
+      <span>{t().settings.surface}</span>
+      <Segmented
+        label={t().settings.surface}
+        value={surface.current}
+        options={[{ value: "dark" as Surface, label: t().settings.surfaces.dark }, { value: "oled" as Surface, label: t().settings.surfaces.oled }]}
+        onchange={(v) => setSurface(v)}
+      />
+      <p class="small">{t().settings.surfaceNote}</p>
+    </div>
   </section>
 
   <section class="card">
@@ -158,6 +169,13 @@
           <Switch checked={st.settings.check_updates} label={t().settings.checkUpdates} onchange={(v) => change({ check_updates: v })} />
         </div>
         <p class="small">{t().settings.checkUpdatesNote}</p>
+      </div>
+      <div class="field">
+        <div class="row">
+          <span class="with-icon"><HugeIcon name="alert-circle" size={17} /> {t().settings.alertsLink}</span>
+          <a class="open-link" href="#monitoring/alerts" onclick={() => history.replaceState(null, "", "#settings")}>{t().settings.alertsOpen}</a>
+        </div>
+        <p class="small">{t().settings.alertsLinkNote}</p>
       </div>
     </section>
 
@@ -237,4 +255,6 @@
   dt { color: var(--text-2); }
   dd { margin: 0; justify-self: start; }
   code { font-size: 0.82rem; padding: 2px 6px; border-radius: 6px; background: var(--card-2); user-select: all; overflow-wrap: anywhere; }
+  .open-link { padding: 6px 14px; border-radius: 10px; background: var(--accent); color: #fff; font-size: 0.86rem; font-weight: 600; text-decoration: none; flex: none; }
+  .open-link:hover { filter: brightness(1.12); }
 </style>

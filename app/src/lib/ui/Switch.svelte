@@ -29,8 +29,10 @@
     height: 24px;
     flex: none;
     border-radius: 999px;
-    background: var(--card-2);
-    border: 1px solid var(--line);
+    /* Off reads as off, not as a missing control: a visible outline and
+       a light knob (the user found grey on dark grey hard to see). */
+    background: #2c2c36;
+    border: 1px solid #5a5a6a;
     padding: 2px;
     cursor: pointer;
     display: flex;
@@ -40,7 +42,7 @@
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: var(--text-3);
+    background: #c9c7d6;
     transition: translate 180ms ease-out, background 180ms ease-out;
   }
   .switch[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }

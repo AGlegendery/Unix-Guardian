@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ModeSwitch from "../lib/ui/ModeSwitch.svelte";
   import { api, errorText, type OverlaySettings, type OverlayState, type Snapshot } from "../lib/api";
   import { num } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
@@ -84,7 +85,14 @@
 
 {#if error}<Problem text={error} />{/if}
 
-<section class="card intro">
+<section class="card intro mode-card" class:is-on={!!s && ov?.set_up && s.show !== "off"}>
+  {#if s && ov?.set_up}
+    <div class="mode-row">
+      <b>{t().overlay.title}</b>
+      <ModeSwitch checked={s.show !== "off"} label={t().overlay.title} onchange={(v) => change({ show: v ? "gaming" : "off" })} />
+    </div>
+    {#if s.show === "off"}<p class="mode-off">{t().modeOff}</p>{/if}
+  {/if}
   <p class="muted">{t().overlay.explain}</p>
   {#if ov && !ov.installed}
     <p>{t().overlay.notInstalled}</p>
@@ -96,7 +104,7 @@
 </section>
 
 {#if s && ov?.set_up}
-  <div class="grid">
+  <div class="grid" class:dim={s.show === "off"}>
     <section class="card">
       <h2>{t().overlay.preview}</h2>
       <div class="scene" aria-label={t().overlay.previewNote}>
@@ -211,8 +219,8 @@
   .hud.bottom-right { bottom: 10px; right: 10px; }
   .hud.compact { display: flex; gap: calc(10px * var(--k)); white-space: nowrap; }
   .hud .row { display: grid; grid-template-columns: 4.5em 3.2em 3.6em 3em; }
-  .hud .cpu { color: #8f6af2; font-weight: 700; }
-  .hud .gpu { color: #c98500; font-weight: 700; }
+  .hud .cpu { color: var(--c-cpu); font-weight: 700; }
+  .hud .gpu { color: var(--c-gpu); font-weight: 700; }
   .hud .accent { color: #a78bfa; font-weight: 700; }
   .ft { width: 100%; height: calc(18px * var(--k)); display: block; margin-top: 3px; }
   .ft polyline { fill: none; stroke: #8b5cf6; stroke-width: 1.4; }
@@ -231,4 +239,7 @@
   .keybox.capturing { outline: 2px solid var(--accent); }
   .switchrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--text); }
   .saved { color: var(--accent-text); font-size: 0.85rem; margin: 0; }
+  .mode-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; font-size: 1.02rem; }
+  .mode-off { margin: 0 0 10px; padding: 7px 12px; border-radius: 10px; font-size: 0.84rem; color: var(--text-2); background: var(--card-2); border-inline-start: 3px solid var(--text-3); }
+  .grid.dim .card:first-child { opacity: 0.5; }
 </style>

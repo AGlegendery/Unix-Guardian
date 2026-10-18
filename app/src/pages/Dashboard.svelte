@@ -5,6 +5,8 @@
   import { locale, t } from "../lib/i18n.svelte";
   import LineChart from "../lib/LineChart.svelte";
   import ProfilePicker from "../lib/ui/ProfilePicker.svelte";
+  import ModeSwitch from "../lib/ui/ModeSwitch.svelte";
+  import { CAT } from "../lib/category";
 
   let { overview }: { overview: Overview | null } = $props();
 
@@ -125,6 +127,19 @@
   const game = $derived(running[0] ?? null);
   // By hand wins; otherwise it follows the games.
   const gmOn = $derived(hand[0] === "on" || (hand[0] !== "off" && !!game));
+  // The card pulses once at the moment game mode turns on.
+  let justOn = $state(false);
+  let wasOn = false;
+  $effect(() => {
+    const on = gmOn;
+    if (on && !wasOn) {
+      justOn = true;
+      const id = setTimeout(() => (justOn = false), 800);
+      wasOn = on;
+      return () => clearTimeout(id);
+    }
+    wasOn = on;
+  });
   const profileId = $derived(game && hand[0] !== "on" ? game.profile : hand[1]);
   async function setGameMode(on: boolean, profile = "") {
     gmBusy = true;
@@ -184,8 +199,8 @@
   ].filter((g) => g.list.length));
 
   const chartSeries = $derived([
-    { label: t().chart.cpu, color: "#8f6af2", values: cpuTemps },
-    ...(gpuTemps.some((v) => v != null) ? [{ label: t().chart.gpu, color: "#c98500", values: gpuTemps }] : []),
+    { label: t().chart.cpu, color: CAT.cpu, values: cpuTemps },
+    ...(gpuTemps.some((v) => v != null) ? [{ label: t().chart.gpu, color: CAT.gpu, values: gpuTemps }] : []),
   ]);
 
   function heat(c: number | null | undefined): "ok" | "warm" | "hot" | "none" {
@@ -208,7 +223,7 @@
   <!-- The GPU doing the work now: on a hybrid laptop the integrated one
        unless the discrete one is awake. The other sits underneath with its
        state; a sleeping GPU is never woken to fill this in. -->
-  <article class="tile">
+  <article class="tile" data-cat="gpu">
     <div class="tile-head">
       <span class="ico"><HugeIcon name="gpu" size={18} /></span>
       <h2>{t().parts.gpu}</h2>
@@ -285,7 +300,7 @@
     {/if}
   </article>
 
-  <article class="tile">
+  <article class="tile" data-cat="cpu">
     <div class="tile-head">
       <span class="ico"><HugeIcon name="cpu" size={18} /></span>
       <h2>{t().parts.cpu}</h2>
@@ -298,7 +313,7 @@
     {@render bar(snap?.cpu.load_pct ?? 0)}
   </article>
 
-  <article class="tile">
+  <article class="tile" data-cat="mem">
     <div class="tile-head">
       <span class="ico"><HugeIcon name="ram-memory" size={18} /></span>
       <h2>{t().parts.mem}</h2>
@@ -311,7 +326,7 @@
     {@render bar(memPct ?? 0)}
   </article>
 
-  <article class="tile">
+  <article class="tile" data-cat="net">
     <div class="tile-head">
       <span class="ico"><HugeIcon name="network" size={18} /></span>
       <h2>{t().parts.net}</h2>
@@ -332,11 +347,19 @@
 
 <section class="row">
   <!-- Game mode at a glance: state, the profile, and what it will change. -->
-  <article class="card gm" class:on={gmOn}>
+  <article class="card gm mode-card" class:is-on={gmOn} class:just-on={justOn} class:rainbow={gmOn}>
     <div class="card-head">
       <span class="ico"><HugeIcon name="game-controller-03" size={18} /></span>
       <h2>{t().parts.gamemode}</h2>
-      <span class="state-pill" class:on={gmOn}>{gmOn ? t().gm.on : t().gm.off}</span>
+      <span class="mode-at">
+        <ModeSwitch
+          checked={gmOn}
+          waiting={!gmOn && hand[0] === ""}
+          disabled={gmBusy}
+          label={t().parts.gamemode}
+          onchange={(v) => (v ? setGameMode(true, hand[1]) : setGameMode(false))}
+        />
+      </span>
     </div>
     <p class="gm-line">
       {#if game}
@@ -345,12 +368,8 @@
         {t().gm.waiting}
       {/if}
     </p>
+    {#if !gmOn}<p class="mode-off">{t().modeOff}</p>{/if}
     <div class="gm-actions">
-      {#if gmOn}
-        <button class="gm-btn" disabled={gmBusy} onclick={() => setGameMode(false)}><HugeIcon name="shut-down" size={15} /> {t().gm.turnOff}</button>
-      {:else}
-        <button class="gm-btn primary" disabled={gmBusy} onclick={() => setGameMode(true, hand[1])}><HugeIcon name="shut-down" size={15} /> {t().gm.turnOn}</button>
-      {/if}
       <ProfilePicker
         quiet
         label={t().gm.activeProfile}
@@ -366,7 +385,7 @@
       <span class="chip">{gmOn ? t().gm.activeProfile : t().gm.defaultProfile}: <b>{t().gm.profiles[profileId] ?? profileId}</b></span>
     </div>
     <p class="sub-title">{t().gm.changes}</p>
-    <ul class="changes">
+    <ul class="changes depends">
       {#each switches as k}
         {@const set = profile?.[k] ?? false}
         <li class:set>
@@ -386,7 +405,7 @@
 </section>
 
 <section class="row">
-  <article class="card">
+  <article class="card" data-cat="cpu">
     <div class="card-head">
       <h2>{t().cpu.cores}</h2>
       <span class="muted">{t().cpu.coresHint}</span>
@@ -431,7 +450,7 @@
 
 {#if lastAlert !== undefined}
   <section class="row one">
-    <article class="card">
+    <article class="card" data-cat={lastAlert ? "danger" : undefined}>
       <div class="card-head">
         <HugeIcon name={lastAlert ? "alert-circle" : "circle-check"} size={20} />
         <h2>{t().mon.alerts.last}</h2>
@@ -495,8 +514,8 @@
     border-radius: 10px;
     display: grid;
     place-items: center;
-    background: var(--accent-soft);
-    color: var(--accent-text);
+    background: var(--cat-soft);
+    color: var(--cat);
     flex: none;
   }
   .value {
@@ -569,28 +588,16 @@
     bottom: 0;
     inset-inline: 0;
     border-radius: 999px;
-    background: var(--accent);
+    background: var(--cat);
     transform-origin: right;
     transform: scaleX(var(--v));
   }
   :global([dir="ltr"]) .bar > span { transform-origin: left; }
 
-  .state-pill {
-    margin-inline-start: auto;
-    padding: 2px 12px;
-    border-radius: 999px;
-    font-size: 0.8rem;
-    background: var(--card-2);
-    color: var(--text-2);
-  }
-  .state-pill.on { background: var(--accent); color: #fff; }
   .gm-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 4px 0 10px; }
-  .gm-btn { all: unset; display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 10px; background: var(--card-2); font-size: 0.88rem; font-weight: 600; cursor: pointer; }
-  .gm-btn.primary { background: var(--accent); color: white; }
-  .gm-btn:disabled { opacity: 0.55; cursor: default; }
-  .gm-btn:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .gm-err { margin: 0 0 8px; color: var(--danger); font-size: 0.82rem; }
-  .gm.on { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 55%, transparent); }
+  .mode-at { margin-inline-start: auto; }
+  .mode-off { margin: 0 0 10px; padding: 7px 12px; border-radius: 10px; font-size: 0.84rem; color: var(--text-2); background: var(--card-2); border-inline-start: 3px solid var(--text-3); }
   .gm-line { margin: 0 0 12px; color: var(--text-2); font-size: 0.9rem; }
   .gm-line strong { color: var(--text); }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -627,7 +634,7 @@
   .core-fill {
     position: absolute;
     inset: 0;
-    background: var(--accent);
+    background: var(--cat);
     transform-origin: bottom;
     transform: scaleY(var(--v));
   }

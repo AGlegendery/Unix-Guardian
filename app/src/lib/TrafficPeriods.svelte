@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { CAT } from "./category";
   // Monitoring → Traffic: internet use for a day (hours 1–24), a week
   // (Saturday to Friday) or a month (a calendar month: the Persian calendar
   // in Persian), with a volume scale on the left that grows with the use.
@@ -18,8 +19,8 @@
   type Span = "day" | "week" | "month";
   type Sort = "total" | "down" | "up" | "name";
   type Bar = { label: string; title: string; rx: number; tx: number; day: Date | null };
-  const DOWN = "#8f6af2";
-  const UP = "#c98500";
+  const DOWN = CAT.net;
+  const UP = "#8b5cf6";
   const HOUR = 3_600_000;
 
   let span = $state<Span>("day");
@@ -382,8 +383,8 @@
   .bar:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
   .stack { width: 78%; max-width: 26px; display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; }
   .part { display: block; height: calc(var(--h) * 100%); min-height: 0; }
-  .part.up { background: #c98500; border-radius: 3px 3px 0 0; }
-  .part.down { background: #8f6af2; }
+  .part.up { background: #8b5cf6; border-radius: 3px 3px 0 0; }
+  .part.down { background: var(--c-net); }
   .labels { display: flex; gap: 4px; }
   .labels span { flex: 1; min-width: 0; text-align: center; font-size: 0.66rem; color: var(--text-3); white-space: nowrap; overflow: hidden; }
   .chip-btn { all: unset; display: inline-flex; align-items: center; gap: 4px; padding: 5px 11px; border-radius: 999px; background: var(--card-2); font-size: 0.8rem; color: var(--text-2); cursor: pointer; }
@@ -399,8 +400,8 @@
   .warn { color: var(--warn, #fbbf24); cursor: help; }
   .meter { display: flex; height: 8px; border-radius: 4px; background: var(--card-2); overflow: hidden; }
   .meter span { display: block; width: calc(var(--w) * 100%); }
-  .meter .down { background: #8f6af2; }
-  .meter .up { background: #c98500; }
+  .meter .down { background: var(--c-net); }
+  .meter .up { background: #8b5cf6; }
   .nums { display: grid; justify-items: end; gap: 1px; white-space: nowrap; }
   .nums small { color: var(--text-2); font-size: 0.76rem; }
   .nums .speed { color: var(--accent-text); }

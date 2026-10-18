@@ -16,6 +16,9 @@ pub struct Theme {
     pub danger: Color,
     pub cpu: Color,
     pub gpu: Color,
+    pub mem: Color,
+    pub net: Color,
+    pub power: Color,
     pub selected_bg: Color,
 }
 
@@ -33,9 +36,13 @@ impl Theme {
                 ok: Color::Rgb(52, 211, 153),
                 warn: Color::Rgb(251, 191, 36),
                 danger: Color::Rgb(248, 113, 113),
-                // The window's chart colours, checked for colour-blind separation.
-                cpu: Color::Rgb(143, 106, 242),
-                gpu: Color::Rgb(201, 133, 0),
+                // The window's category colours: processor blue, graphics
+                // green, memory teal, network light violet, power yellow.
+                cpu: Color::Rgb(96, 165, 250),
+                gpu: Color::Rgb(52, 211, 153),
+                mem: Color::Rgb(45, 212, 191),
+                net: Color::Rgb(196, 181, 253),
+                power: Color::Rgb(250, 204, 21),
                 selected_bg: Color::Rgb(44, 36, 74),
             }
         } else {
@@ -48,8 +55,11 @@ impl Theme {
                 ok: Color::Green,
                 warn: Color::Yellow,
                 danger: Color::Red,
-                cpu: Color::Magenta,
-                gpu: Color::Yellow,
+                cpu: Color::Blue,
+                gpu: Color::Green,
+                mem: Color::Cyan,
+                net: Color::LightMagenta,
+                power: Color::Yellow,
                 selected_bg: Color::DarkGray,
             }
         }

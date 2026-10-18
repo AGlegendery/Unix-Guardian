@@ -1,3 +1,4 @@
+import { applySurface } from "./lib/surface.svelte";
 import "@fontsource-variable/vazirmatn";
 import "./app.css";
 import { mount } from "svelte";
@@ -8,6 +9,7 @@ import { blockZoom, watchScrolling } from "./lib/viewport";
 
 applyDocumentLocale();
 applyMotion();
+applySurface();
 watchScrolling();
 blockZoom();
 mount(App, { target: document.getElementById("app")! });

@@ -3,7 +3,7 @@
 use crate::{data, App, Hit, PAGES};
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols::Marker;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
@@ -87,6 +87,19 @@ fn card<'a>(app: &App, title: &'a str) -> Block<'a> {
         .border_type(BorderType::Rounded)
         .border_style(app.theme.border())
         .title(Span::styled(format!(" {title} "), app.theme.title()))
+        .padding(ratatui::widgets::Padding::horizontal(1))
+}
+
+/// A card in its category's colour (border and title), as in the window.
+fn cat_card<'a>(title: &'a str, color: Color) -> Block<'a> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(color))
+        .title(Span::styled(
+            format!(" {title} "),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ))
         .padding(ratatui::widgets::Padding::horizontal(1))
 }
 
@@ -959,7 +972,7 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         ]),
         Line::from(Span::styled(
             bar(16, s.cpu.load_pct.max(0.0) / 100.0),
-            Style::default().fg(t.accent),
+            Style::default().fg(t.cpu),
         )),
         Line::from(Span::styled(
             inv.as_ref()
@@ -980,10 +993,7 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
                 t.muted(),
             ),
         ]),
-        Line::from(Span::styled(
-            bar(16, mem_frac),
-            Style::default().fg(t.accent),
-        )),
+        Line::from(Span::styled(bar(16, mem_frac), Style::default().fg(t.mem))),
     ];
     let net_lines = vec![
         Line::from(vec![
@@ -997,18 +1007,18 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         Line::from(Span::styled(s.net.iface.clone(), t.faint())),
     ];
     let tiles = [
-        ("Graphics card", gpu_lines),
-        ("Processor", cpu_lines),
-        ("Memory", mem_lines),
-        ("Network", net_lines),
+        ("Graphics card", gpu_lines, t.gpu),
+        ("Processor", cpu_lines, t.cpu),
+        ("Memory", mem_lines, t.mem),
+        ("Network", net_lines, t.net),
     ];
     if wide {
         let cols = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Ratio(1, 4); 4])
             .split(rows[0]);
-        for (i, (title, lines)) in tiles.into_iter().enumerate() {
-            f.render_widget(Paragraph::new(lines).block(card(app, title)), cols[i]);
+        for (i, (title, lines, color)) in tiles.into_iter().enumerate() {
+            f.render_widget(Paragraph::new(lines).block(cat_card(title, color)), cols[i]);
         }
         // The switch sits in the tile's top border, like the window's
         // icon: "⇄ Intel"; a click (or ←/→) switches to the other card.
@@ -1041,8 +1051,11 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         }
     } else {
         let mut lines = Vec::new();
-        for (title, l) in tiles {
-            let mut first = vec![Span::styled(format!("{title:<14}"), t.muted())];
+        for (title, l, color) in tiles {
+            let mut first = vec![Span::styled(
+                format!("{title:<14}"),
+                Style::default().fg(color),
+            )];
             first.extend(l[0].spans.clone());
             lines.push(Line::from(first));
         }
@@ -1071,11 +1084,20 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         .value
         .as_ref()
         .and_then(|p| p.iter().find(|p| p.id == profile_id).cloned());
+    // The state in words, as the window's badge: On, Off, Waiting for a game.
+    let (badge, badge_style) = if on {
+        (" On ", Style::default().fg(Color::Black).bg(t.ok))
+    } else if hand.is_empty() {
+        (
+            " Waiting for a game ",
+            Style::default().fg(Color::White).bg(t.accent),
+        )
+    } else {
+        (" Off ", Style::default().fg(t.text).bg(t.line))
+    };
     let mut gm = vec![Line::from(vec![
-        Span::styled(
-            if on { "On " } else { "Off " },
-            if on { t.accent() } else { t.muted() },
-        ),
+        Span::styled(badge, badge_style.add_modifier(Modifier::BOLD)),
+        Span::raw(" "),
         Span::styled(
             match &game {
                 _ if hand == "on" => format!("— on by hand ({profile_id} profile); g turns it off"),
@@ -1109,9 +1131,11 @@ fn dashboard(app: &mut App, f: &mut Frame, r: Rect, wide: bool) {
         }
     }
     f.render_widget(
-        Paragraph::new(gm)
-            .wrap(Wrap { trim: true })
-            .block(card(app, "Game mode")),
+        Paragraph::new(gm).wrap(Wrap { trim: true }).block(if on {
+            cat_card("Game mode", t.accent)
+        } else {
+            card(app, "Game mode")
+        }),
         mid[0],
     );
     temp_chart(app, f, mid[1]);

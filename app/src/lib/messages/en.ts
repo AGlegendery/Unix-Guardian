@@ -3,6 +3,8 @@ export const en = {
   preview: "Preview: recorded readings, not live",
   terminal: "Terminal interface",
   showTray: "Show tray icon",
+  modeState: { on: "On", off: "Off", waiting: "Waiting for a game" } as Record<string, string>,
+  modeOff: "Off: the settings below do not apply until it is turned on.",
   side: { collapse: "Collapse the sidebar", expand: "Expand the sidebar" },
   outdatedPeer: "Unix Guardian was updated, but an agent or service from before the update is still running. Restart it: systemctl --user restart ug-agent (and for the service: sudo systemctl restart unix-guardiand), or log out and in again.",
   bug: {
@@ -737,6 +739,12 @@ export const en = {
   },
   settings: {
     title: "Settings",
+    surface: "Background",
+    surfaces: { dark: "Dark", oled: "Pure black (OLED)" },
+    surfaceNote: "Pure black turns the pixels of an OLED screen off behind the page.",
+    alertsLink: "Threshold alerts",
+    alertsLinkNote: "Notifications when the CPU or graphics card runs hot, memory fills up or a disk is nearly full: Monitoring, Alerts.",
+    alertsOpen: "Open alerts",
     appearance: "Appearance",
     windowTray: "Window and tray",
     notifyUpdates: "Notifications and updates",

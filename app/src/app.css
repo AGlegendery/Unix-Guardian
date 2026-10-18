@@ -4,14 +4,16 @@
    ground, one purple accent, rounded cards, the navigation on the right. */
 :root {
   color-scheme: dark;
-  --bg: #0f0e17;
-  --side: #14131f;
-  --card: #1b1a29;
-  --card-2: #242338;     /* wells inside a card: bars, segmented controls */
-  --line: #2d2b45;
+  /* Three fixed surface levels, a step darker than before (the user,
+     2026-10-18): the page, a card, and a well inside a card. */
+  --bg: #0a0a0d;
+  --side: #0e0e12;
+  --card: #141418;
+  --card-2: #1f1f26;     /* wells inside a card: bars, segmented controls */
+  --line: #2a2a34;
   --text: #eceaf6;
   --text-2: #b1aecb;
-  --text-3: #817e9e;
+  --text-3: #8a87a6;
   --accent: #8b5cf6;
   --accent-text: #b49cff; /* accent used as text on dark: brighter for contrast */
   --accent-soft: color-mix(in oklab, var(--accent) 18%, transparent);
@@ -20,12 +22,41 @@
   --ok: #34d399;
   --warn: #fbbf24;
   --danger: #f87171;
+  /* One colour per kind of thing, the same on every page: the icon tile,
+     bars, chart lines and the card's hover all take it. The violet accent
+     stays for primary actions. */
+  --c-cpu: #60a5fa;
+  --c-gpu: #34d399;
+  --c-mem: #2dd4bf;
+  --c-net: #c4b5fd;
+  --c-power: #facc15;
+  --c-danger: #f87171;
+  --cat: var(--accent);
+  --cat-soft: color-mix(in oklab, var(--cat) 18%, transparent);
   --radius: 16px;
   --radius-sm: 10px;
   font-family: "Vazirmatn Variable", "Vazirmatn", system-ui, sans-serif;
   font-size: 15px;
   line-height: 1.6;
 }
+
+/* Pure black (Settings → Appearance), for OLED screens. */
+:root[data-surface="oled"] {
+  --bg: #000;
+  --side: #000;
+  --card: #0c0c0f;
+  --card-2: #18181d;
+  --line: #24242c;
+}
+
+/* A card or tile says what it is about with data-cat. */
+[data-cat="cpu"] { --cat: var(--c-cpu); }
+[data-cat="gpu"] { --cat: var(--c-gpu); }
+[data-cat="mem"] { --cat: var(--c-mem); }
+[data-cat="net"] { --cat: var(--c-net); }
+[data-cat="power"] { --cat: var(--c-power); }
+[data-cat="danger"] { --cat: var(--c-danger); }
+[data-cat] { --cat-soft: color-mix(in oklab, var(--cat) 18%, transparent); }
 
 html, body, #app { height: 100%; }
 body {
@@ -90,8 +121,11 @@ body {
 [data-motion="lively"] .tile {
   transition: box-shadow 220ms ease-out, transform 220ms ease-out, background 220ms ease-out;
 }
-[data-motion="lively"] :is(section, article).card:hover {
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 30%, transparent), 0 14px 34px -18px color-mix(in oklab, var(--accent) 55%, transparent);
+/* Cards answer the pointer in their own colour (both motion styles: a
+   hover is not motion; Lively only adds the easing). */
+:is(section, article).card:hover,
+:is(section, article).tile:hover {
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--cat) 55%, transparent), 0 14px 34px -18px color-mix(in oklab, var(--cat) 70%, transparent);
 }
 [data-motion="lively"] .tile:hover,
 [data-motion="lively"] .action:hover:not(:disabled),
@@ -99,7 +133,7 @@ body {
 [data-motion="lively"] .mode:hover:not(:disabled),
 [data-motion="lively"] .method:hover {
   transform: translateY(-3px);
-  box-shadow: 0 12px 26px -16px color-mix(in oklab, var(--accent) 60%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--cat) 55%, transparent), 0 12px 26px -16px color-mix(in oklab, var(--cat) 70%, transparent);
 }
 [data-motion="lively"] .action,
 [data-motion="lively"] .kind,
@@ -125,3 +159,41 @@ body {
 }
 /* The sidebar's icons stay where they are on hover: only their own
    Hugeicons motion plays (the user, 2026-10-17). */
+
+/* Mode cards (game mode, replay buffer, overlay, slowing background apps):
+   a card that is on takes its colour and pulses once as it turns on. */
+@keyframes ug-turn-on {
+  0% { box-shadow: 0 0 0 1px color-mix(in oklab, var(--cat) 70%, transparent), 0 0 0 0 color-mix(in oklab, var(--cat) 55%, transparent); }
+  60% { box-shadow: 0 0 0 1px color-mix(in oklab, var(--cat) 70%, transparent), 0 0 0 12px transparent; }
+  100% { box-shadow: 0 0 0 1px color-mix(in oklab, var(--cat) 70%, transparent), 0 0 0 0 transparent; }
+}
+.mode-card.is-on {
+  background: color-mix(in oklab, var(--cat) 9%, var(--card));
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--cat) 70%, transparent);
+}
+.mode-card.just-on { animation: ug-turn-on 700ms ease-out 1; }
+/* What depends on a mode that is off is dimmed and says so. */
+.mode-card .depends { transition: opacity 180ms ease-out; }
+.mode-card:not(.is-on) .depends { opacity: 0.5; }
+
+/* "Rainbow": only in special places (game mode on, a replay saved). The
+   sweep runs twice and stops on a still rainbow: an endless one would keep
+   WebKitGTK repainting at 60 fps. Classic and reduced motion: still. */
+@keyframes ug-rainbow {
+  from { background-position: 0% 50%; }
+  to { background-position: 200% 50%; }
+}
+.rainbow { position: relative; }
+.rainbow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  background: linear-gradient(90deg, #f87171, #fbbf24, #34d399, #60a5fa, #a78bfa, #f472b6, #f87171) 0% 50% / 200% 100%;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+[data-motion="lively"] .rainbow::after { animation: ug-rainbow 1.6s linear 2; }

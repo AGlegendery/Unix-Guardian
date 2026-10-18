@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ModeSwitch from "../lib/ui/ModeSwitch.svelte";
   import HugeIcon from "../lib/icons/HugeIcon.svelte";
   import GpuTuner from "../lib/GpuTuner.svelte";
   import LaunchOptions from "../lib/LaunchOptions.svelte";
@@ -158,11 +159,14 @@
 
 <header class="head">
   <h1>{t().gmp.title}</h1>
-  <span class="state-pill" class:on={gmOn}>{gmOn ? t().gm.on : t().gm.off}</span>
+  <ModeSwitch
+    checked={gmOn}
+    waiting={!gmOn && hand[0] === ""}
+    disabled={busy}
+    label={t().gmp.title}
+    onchange={(v) => (v ? turnOn(hand[1] || selected) : turnOff())}
+  />
   <span class="chip">{t().gm.selection}: <b>{hand[0] === "on" ? t().gmp.onByHand(label(hand[1])) : hand[0] === "off" ? t().gm.offByHand : t().gm.automatic}</b></span>
-  {#if gmOn}
-    <button class="act" disabled={busy} onclick={turnOff}>{t().gm.turnOff}</button>
-  {/if}
   {#if savedAt && now - savedAt < 4000}
     <span class="saved" role="status">{t().gmp.saved}</span>
   {/if}
@@ -173,7 +177,7 @@
 {/if}
 
 <!-- What is happening now. -->
-<article class="card now" class:on={!!game}>
+<article class="card now mode-card" class:on={!!game} class:is-on={gmOn} class:rainbow={gmOn}>
   <span class="ico"><HugeIcon name="game-controller-03" size={20} /></span>
   {#if game}
     <div>
@@ -365,8 +369,6 @@
   .head { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
   h1 { margin: 0; font-size: 1.55rem; font-weight: 800; }
   h2 { margin: 0; font-size: 1rem; font-weight: 700; }
-  .state-pill { padding: 3px 14px; border-radius: 999px; font-size: 0.82rem; background: var(--card-2); color: var(--text-2); }
-  .state-pill.on { background: var(--accent); color: #fff; }
   .chip { padding: 4px 12px; border-radius: 999px; background: var(--card-2); color: var(--text-2); font-size: 0.82rem; }
   .chip b { color: var(--text); font-weight: 600; }
   .saved { margin-inline-start: auto; color: var(--ok); font-size: 0.85rem; }

@@ -8,6 +8,7 @@
   import Problem from "../lib/ui/Problem.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
   import Switch from "../lib/ui/Switch.svelte";
+  import ModeSwitch from "../lib/ui/ModeSwitch.svelte";
 
   let st = $state<RecorderState | null>(null);
   let error = $state<string | null>(null);
@@ -30,11 +31,17 @@
     return () => clearInterval(id);
   });
 
+  let savedFlash = $state(false);
   async function act(what: RecorderAction) {
     busy = true;
     try {
       const file = await api.recorderDo(what);
       error = null;
+      // The replay saved: the card's border runs a rainbow, once.
+      if (what === "save") {
+        savedFlash = true;
+        setTimeout(() => (savedFlash = false), 3400);
+      }
       said = file ? t().recorder.saved + " " + file : null;
       await load();
     } catch (e) {
@@ -104,7 +111,16 @@
       {#if st.problem}<p class="small" dir="ltr">{st.problem}</p>{/if}
     </section>
   {:else}
-    <section class="card now">
+    <section class="card now mode-card" class:is-on={st.mode !== "idle"} class:rainbow={savedFlash}>
+      <div class="replay-switch">
+        <span>{t().recorder.replay}</span>
+        <ModeSwitch
+          checked={st.mode === "replay"}
+          disabled={busy || st.mode === "recording"}
+          label={t().recorder.replay}
+          onchange={(v) => act(v ? "replay" : "stop")}
+        />
+      </div>
       <div class="top">
         {#if st.mode === "recording"}
           <span class="rec" aria-hidden="true"></span><b>{t().recorder.recording}</b> <span dir="ltr">{elapsed}</span>
@@ -117,12 +133,10 @@
       <div class="actions">
         {#if st.mode === "idle"}
           <button class="btn primary" onclick={() => act("start")} disabled={busy}>{t().recorder.start}</button>
-          <button class="btn" onclick={() => act("replay")} disabled={busy}>{t().recorder.startReplay}</button>
         {:else if st.mode === "recording"}
           <button class="btn primary" onclick={() => act("stop")} disabled={busy}>{t().recorder.stop}</button>
         {:else if st.mode === "replay"}
           <button class="btn primary" onclick={() => act("save")} disabled={busy}>{t().recorder.save}</button>
-          <button class="btn" onclick={() => act("stop")} disabled={busy}>{t().recorder.stopReplay}</button>
         {/if}
       </div>
       {#if st.mode === "recording"}<p class="small" dir="ltr">{st.file}</p>{/if}
@@ -215,4 +229,5 @@
   .btn.primary { background: var(--accent); color: white; font-weight: 700; }
   .btn:disabled { opacity: 0.5; cursor: default; }
   .btn:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  .replay-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); font-weight: 700; }
 </style>

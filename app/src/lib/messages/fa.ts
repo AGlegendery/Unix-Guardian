@@ -4,6 +4,8 @@ export const fa: typeof en = {
   app: "Unix Guardian",
   preview: "پیش‌نمایش: عددهای ضبط‌شده، نه زنده",
   outdatedPeer: "یونیکس گاردین به‌روز شده، ولی agent یا سرویسِ نسخه‌ی قبل هنوز در حال اجراست. آن را دوباره راه‌اندازی کنید: systemctl --user restart ug-agent (و برای سرویس: sudo systemctl restart unix-guardiand)، یا یک بار از حساب خارج و دوباره وارد شوید.",
+  modeState: { on: "روشن", off: "خاموش", waiting: "منتظر بازی" } as Record<string, string>,
+  modeOff: "خاموش است: تنظیم‌های زیر تا روشن شدنش اثری ندارند.",
   side: { collapse: "جمع کردن نوار کناری", expand: "باز کردن نوار کناری" },
   bug: {
     email: "unixguardian@atomicmail.io",
@@ -739,6 +741,12 @@ export const fa: typeof en = {
   },
   settings: {
     title: "تنظیمات",
+    surface: "پس‌زمینه",
+    surfaces: { dark: "تیره", oled: "سیاهِ کامل (OLED)" },
+    surfaceNote: "سیاهِ کامل پیکسل‌های صفحهٔ OLED را پشت صفحه خاموش می‌کند.",
+    alertsLink: "هشدارهای آستانه‌ای",
+    alertsLinkNote: "اعلان وقتی پردازنده یا کارت گرافیک داغ می‌شود، حافظه پر می‌شود یا دیسک نزدیک به پر شدن است: مانیتورینگ، هشدارها.",
+    alertsOpen: "باز کردن هشدارها",
     appearance: "ظاهر",
     windowTray: "پنجره و سینی سیستم",
     notifyUpdates: "اعلان‌ها و به‌روزرسانی",

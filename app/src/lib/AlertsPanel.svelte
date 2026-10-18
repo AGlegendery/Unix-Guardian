@@ -129,7 +129,7 @@
       {@const no = unsupported(r.kind)}
       {@const on = !no && (s[r.on] as boolean)}
       {@const limit = s[r.limit] as number}
-      <div class="rule" class:sub={r.sub} class:off={!on}>
+      <div class="rule" class:sub={r.sub} class:off={!on} data-cat={r.kind === "cpu_temp" ? "cpu" : r.kind.startsWith("gpu") ? "gpu" : r.kind === "memory" ? "mem" : undefined}>
         <div class="rule-head">
           <span class="ico"><HugeIcon name={r.icon} size={20} /></span>
           <div class="names">
@@ -278,7 +278,7 @@
   .rule:last-child { border-bottom: 0; padding-bottom: 0; }
   .rule.sub { padding-inline-start: 34px; }
   .rule-head { display: flex; align-items: center; gap: 12px; }
-  .ico { color: var(--accent-text); display: inline-flex; }
+  .ico { color: var(--cat); background: var(--cat-soft); border-radius: 10px; width: 32px; height: 32px; display: grid; place-items: center; flex: none; }
   .rule.off .ico { color: var(--text-3); }
   .names { display: grid; gap: 2px; flex: 1; min-width: 0; }
   .hint { color: var(--text-3); font-size: 0.8rem; margin: 0; }
@@ -286,7 +286,7 @@
   .note { color: var(--text-3); font-size: 0.8rem; margin: 0; }
   .limit { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .lbl { color: var(--text-2); font-size: 0.84rem; min-width: 6em; }
-  .limit input[type="range"] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+  .limit input[type="range"] { flex: 1; min-width: 120px; accent-color: var(--cat); }
   .limit input:disabled { opacity: 0.45; }
   .value { min-width: 4.5em; text-align: end; }
   .step { all: unset; display: inline-flex; padding: 5px; border-radius: 8px; background: var(--card-2); color: var(--text); cursor: pointer; }
@@ -298,7 +298,7 @@
   .hot { color: var(--warn, #fbbf24); }
   .cells { display: inline-flex; gap: 2px; }
   .cells span { width: 7px; height: 12px; border-radius: 2px; background: var(--card-2); }
-  .cells span.on { background: var(--accent); }
+  .cells span.on { background: var(--cat); }
   .mounts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .chip { all: unset; padding: 4px 10px; border-radius: 999px; background: var(--card-2); font-size: 0.84rem; cursor: pointer; border: 1px solid transparent; }
   .chip small { color: var(--text-3); }

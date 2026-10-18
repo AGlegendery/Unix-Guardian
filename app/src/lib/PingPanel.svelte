@@ -10,7 +10,7 @@
   import type { NetControl } from "./netcontrol.svelte";
   import Problem from "./ui/Problem.svelte";
   import Segmented from "./ui/Segmented.svelte";
-  import Switch from "./ui/Switch.svelte";
+  import ModeSwitch from "./ui/ModeSwitch.svelte";
 
   let { ctl }: { ctl: NetControl } = $props();
   let report = $state<PingReport | null>(null);
@@ -99,20 +99,27 @@
 
 <!-- The most useful thing for ping while playing: every app that is not
      the game, a VPN or a DNS manager shares one small cap. -->
-<section class="card bg" class:on={ctl.background?.[0]}>
+<section class="card bg mode-card" data-cat="net" class:is-on={ctl.background?.[0]}>
   <div class="bg-head">
     <div>
       <h2>{t().ping.bg.title}</h2>
       <p class="muted">{t().ping.bg.explain}</p>
     </div>
     {#if ctl.background}
-      <Switch checked={ctl.background[0]} disabled={ctl.busy || !ctl.status?.available} label={t().ping.bg.title} onchange={(v) => setBg({ on: v })} />
+      <ModeSwitch
+        checked={ctl.background[0]}
+        waiting={ctl.background[0] && ctl.background[3] === "gaming" && slowed.length === 0}
+        disabled={ctl.busy || !ctl.status?.available}
+        label={t().ping.bg.title}
+        onchange={(v) => setBg({ on: v })}
+      />
     {/if}
   </div>
   {#if !ctl.background}
     <p class="muted">{t().ping.bg.oldService}</p>
   {:else}
-    <div class="bg-fields">
+    {#if !ctl.background[0]}<p class="mode-off">{t().modeOff}</p>{/if}
+    <div class="bg-fields depends">
       <div class="field">
         <span>{t().ping.upCap}</span>
         <Segmented label={t().ping.upCap} value={String(ctl.background[1])} options={UP.map((k) => ({ value: String(k), label: kb(k) }))} onchange={(v) => setBg({ up: Number(v) })} />
@@ -253,11 +260,10 @@
   .who { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
   .chip { padding: 2px 9px; border-radius: 999px; background: var(--card-2); color: var(--text-2); font-size: 0.75rem; }
   .bar { width: 120px; height: 6px; border-radius: 3px; background: var(--card-2); overflow: hidden; }
-  .bar span { display: block; height: 100%; width: calc(var(--w) * 100%); background: #8f6af2; }
+  .bar span { display: block; height: 100%; width: calc(var(--w) * 100%); background: var(--c-net); }
   .rates { color: var(--text-2); font-size: 0.82rem; }
   .small { color: var(--text-3); font-size: 0.8rem; margin: 10px 0 0; }
-  .bg { border: 1px solid transparent; }
-  .bg.on { border-color: color-mix(in oklab, var(--accent) 45%, transparent); }
+  .mode-off { margin: 12px 0 0; padding: 7px 12px; border-radius: 10px; font-size: 0.84rem; color: var(--text-2); background: var(--card-2); border-inline-start: 3px solid var(--text-3); }
   .bg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
   .bg-head h2 { margin-bottom: 4px; }
   .bg-fields { display: flex; flex-wrap: wrap; gap: 14px 22px; margin-top: 14px; }

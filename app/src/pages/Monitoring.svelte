@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { CAT } from "../lib/category";
   import HugeIcon from "../lib/icons/HugeIcon.svelte";
   import Problem from "../lib/ui/Problem.svelte";
   import { api, errorText, type ExtraSample, type FpsReading, type FpsSession, type HistoryPoint, type Snapshot } from "../lib/api";
@@ -40,8 +41,8 @@
   let fpsBusy = $state(false);
 
   // Colours checked with the dataviz validator (see LineChart).
-  const CPU = "#8f6af2";
-  const GPU = "#c98500";
+  const CPU = CAT.cpu;
+  const GPU = CAT.gpu;
 
   function since(r: Range): number {
     if (r === "hour") return Date.now() - 3_600_000;
@@ -317,8 +318,8 @@
       <section class="card">
         <h2>{t().mon.live.memory} <small class="muted">{t().unit.gb}</small></h2>
         <LineChart times={liveTimes} series={[
-          { label: t().mon.live.ram, color: CPU, values: snaps.map((s) => (s.mem.total_kb - s.mem.available_kb) / 1_048_576) },
-          { label: t().mon.live.swap, color: GPU, values: snaps.map((s) => s.mem.swap_used_kb / 1_048_576) },
+          { label: t().mon.live.ram, color: CAT.mem, values: snaps.map((s) => (s.mem.total_kb - s.mem.available_kb) / 1_048_576) },
+          { label: t().mon.live.swap, color: "#5eead4", values: snaps.map((s) => s.mem.swap_used_kb / 1_048_576) },
         ]} waiting={t().mon.live.waiting} unit="" digits={1} range={[0, Math.ceil((lastSnap?.mem.total_kb ?? 0) / 1_048_576)]} height={150} />
       </section>
       <section class="card">
@@ -331,14 +332,14 @@
       <section class="card">
         <h2>{t().mon.live.network} <small class="muted">MB/s</small></h2>
         <LineChart times={liveTimes} series={[
-          { label: t().mon.down, color: CPU, values: snaps.map((s) => s.net.rx_bps / 1e6) },
-          { label: t().mon.up, color: GPU, values: snaps.map((s) => s.net.tx_bps / 1e6) },
+          { label: t().mon.down, color: CAT.net, values: snaps.map((s) => s.net.rx_bps / 1e6) },
+          { label: t().mon.up, color: "#8b5cf6", values: snaps.map((s) => s.net.tx_bps / 1e6) },
         ]} waiting={t().mon.live.waiting} unit="" digits={2} range={[0, 1]} height={150} />
       </section>
       {#if hasBattery}
         <section class="card">
           <h2>{t().mon.live.battery}</h2>
-          <LineChart times={liveTimes} series={[{ label: t().mon.live.battery, color: CPU, values: extras.map((e) => e.battery_w) }]} waiting={t().mon.live.waiting} unit={` ${t().unit.w}`} digits={1} range={[0, 20]} height={150} />
+          <LineChart times={liveTimes} series={[{ label: t().mon.live.battery, color: CAT.power, values: extras.map((e) => e.battery_w) }]} waiting={t().mon.live.waiting} unit={` ${t().unit.w}`} digits={1} range={[0, 20]} height={150} />
         </section>
       {/if}
       <section class="card">
@@ -384,12 +385,12 @@
       </section>
       <section class="card">
         <h2>{t().mon.live.memory} <small class="muted">{t().unit.gb}</small></h2>
-        <LineChart {times} series={series([t().mon.live.ram, CPU, (p) => p.mem_used_kb / 1_048_576], [t().mon.live.swap, GPU, (p) => (p.swap_used_kb == null ? null : p.swap_used_kb / 1_048_576)])} waiting="" unit="" digits={1} mode="history" height={160} {timeStyle} />
+        <LineChart {times} series={series([t().mon.live.ram, CAT.mem, (p) => p.mem_used_kb / 1_048_576], [t().mon.live.swap, "#5eead4", (p) => (p.swap_used_kb == null ? null : p.swap_used_kb / 1_048_576)])} waiting="" unit="" digits={1} mode="history" height={160} {timeStyle} />
         {@render stats([[t().mon.live.ram, (p) => p.mem_used_kb / 1_048_576, ` ${t().unit.gb}`, 1], [t().mon.live.swap, (p) => (p.swap_used_kb == null ? null : p.swap_used_kb / 1_048_576), ` ${t().unit.gb}`, 2]])}
       </section>
       <section class="card">
         <h2>{t().mon.live.network} <small class="muted">MB/s</small></h2>
-        <LineChart {times} series={series([t().mon.down, CPU, (p) => mb(p.net_rx_bps)], [t().mon.up, GPU, (p) => mb(p.net_tx_bps)])} waiting="" unit="" digits={2} range={[0, 1]} mode="history" height={160} {timeStyle} />
+        <LineChart {times} series={series([t().mon.down, CAT.net, (p) => mb(p.net_rx_bps)], [t().mon.up, "#8b5cf6", (p) => mb(p.net_tx_bps)])} waiting="" unit="" digits={2} range={[0, 1]} mode="history" height={160} {timeStyle} />
         {@render stats([[t().mon.down, (p) => mb(p.net_rx_bps), " MB/s", 2], [t().mon.up, (p) => mb(p.net_tx_bps), " MB/s", 2]])}
       </section>
       <section class="card">
@@ -405,7 +406,7 @@
       {#if points.some((p) => p.battery_w != null)}
         <section class="card">
           <h2>{t().mon.live.battery}</h2>
-          <LineChart {times} series={series([t().mon.live.battery, CPU, (p) => p.battery_w])} waiting="" unit={` ${t().unit.w}`} digits={1} range={[0, 20]} mode="history" height={160} {timeStyle} />
+          <LineChart {times} series={series([t().mon.live.battery, CAT.power, (p) => p.battery_w])} waiting="" unit={` ${t().unit.w}`} digits={1} range={[0, 20]} mode="history" height={160} {timeStyle} />
         {@render stats([[t().mon.live.battery, (p) => p.battery_w, ` ${t().unit.w}`, 1]])}
         </section>
       {/if}
@@ -470,7 +471,7 @@
   .meter { display: grid; grid-template-columns: 7em 1fr 3em; gap: 10px; align-items: center; font-size: 0.82rem; color: var(--text-2); }
   .meter b { color: var(--text); text-align: end; }
   .track { height: 8px; border-radius: 4px; background: var(--card-2); overflow: hidden; }
-  .track span { display: block; height: 100%; width: calc(var(--w) * 100%); background: #8f6af2; }
+  .track span { display: block; height: 100%; width: calc(var(--w) * 100%); background: var(--c-cpu); }
   .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
   .stats .card { margin: 0; }
   @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -488,7 +489,7 @@
   .cores { display: flex; gap: 6px; align-items: flex-end; height: 110px; }
   .core { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; min-width: 0; }
   .core-bar { flex: 1; width: 100%; max-width: 22px; background: var(--card-2); border-radius: 4px; display: flex; align-items: flex-end; overflow: hidden; }
-  .core-bar span { display: block; width: 100%; height: calc(var(--h) * 100%); background: #8f6af2; }
+  .core-bar span { display: block; width: 100%; height: calc(var(--h) * 100%); background: var(--c-cpu); }
   .core-mhz { font-size: 0.68rem; color: var(--text-3); }
   .speeds { display: flex; flex-wrap: wrap; gap: 12px 36px; align-items: center; font-size: 0.95rem; }
   .speeds span { display: inline-flex; align-items: center; gap: 8px; }
