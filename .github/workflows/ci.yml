@@ -78,6 +78,7 @@ jobs:
           ./scripts/test-bus.sh ./scripts/power-e2e.sh target/debug
           ./scripts/test-bus.sh ./scripts/sleep-e2e.sh target/debug
           ./scripts/test-bus.sh ./scripts/gpu-e2e.sh target/debug
+          ./scripts/test-bus.sh ./scripts/alerts-e2e.sh target/debug
 
   # Real nftables inside a private user + network namespace; the runner's own
   # firewall is never touched. The per-app part needs a delegated cgroup,

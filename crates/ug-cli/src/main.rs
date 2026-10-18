@@ -183,6 +183,13 @@ enum Command {
         #[arg(long)]
         check_updates: Option<String>,
     },
+    /// Threshold alerts: a desktop notification when the CPU or GPU runs
+    /// hot, memory fills up or a disk is nearly full. Without a command
+    /// lists them with their readings.
+    Alert {
+        #[command(subcommand)]
+        command: Option<AlertCommand>,
+    },
     /// Is there a newer Unix Guardian? Shows the last check; --check looks
     /// now. Installing always waits for you.
     Update {
@@ -245,6 +252,25 @@ enum Command {
         #[arg(long)]
         recover: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum AlertCommand {
+    /// Each alert, its limit, the reading now and the recent alerts.
+    List,
+    /// Change an alert: `cpu|gpu|hotspot|vram|memory|disk` followed by
+    /// `on`, `off` and/or a limit (°C or %), e.g. `ug alert set gpu on 80`;
+    /// `sensitivity <3-30 s>`; `cooldown <5|15|30|60|120 min>`;
+    /// `mounts <path>...` (the disks the disk alert watches).
+    Set {
+        what: String,
+        #[arg(required = true, num_args = 1..)]
+        values: Vec<String>,
+    },
+    /// Show a test alert (held like a real one during do not disturb).
+    Test,
+    /// Forget the recent alerts.
+    Clear,
 }
 
 #[derive(Subcommand)]
@@ -830,6 +856,7 @@ async fn run() -> Result<()> {
             return Ok(());
         }
         Command::Fps { week, forget } => return fps_sessions(week, forget, cli.json).await,
+        Command::Alert { command } => return alert(command, cli.json).await,
         _ => {}
     }
 
@@ -883,6 +910,7 @@ async fn run() -> Result<()> {
         | Command::Tray { .. }
         | Command::Quit
         | Command::Fps { .. }
+        | Command::Alert { .. }
         | Command::Run { .. }
         | Command::Tui
         | Command::Testlab { .. } => {
@@ -1941,6 +1969,178 @@ async fn settings(
     println!("Agent                  {}", st.agent_version);
     println!("Settings and data      {}  {}", st.config_dir, st.data_dir);
     Ok(())
+}
+
+/// Applies `ug alert set <what> <values>` to the settings.
+fn alert_set(s: &mut ug_proto::AlertSettings, what: &str, values: &[String]) -> Result<()> {
+    let number = |v: &str| -> Result<u32> {
+        v.trim_end_matches(['%', 's', 'C', '°', ' '])
+            .trim_end_matches("min")
+            .parse()
+            .with_context(|| format!("{v:?} is not a number"))
+    };
+    match what {
+        "sensitivity" | "sustain" => s.sustain_s = number(&values[0])?,
+        "cooldown" => s.cooldown_min = number(&values[0])?,
+        "mounts" | "mount" => s.disk_mounts = values.to_vec(),
+        _ => {
+            let (on, limit) = match what {
+                "cpu" => (&mut s.cpu_temp_on, &mut s.cpu_temp_c),
+                "gpu" => (&mut s.gpu_temp_on, &mut s.gpu_temp_c),
+                "hotspot" => (&mut s.gpu_hotspot_on, &mut s.gpu_hotspot_c),
+                "vram" => (&mut s.gpu_vram_on, &mut s.gpu_vram_c),
+                "memory" | "ram" => (&mut s.mem_on, &mut s.mem_pct),
+                "disk" => (&mut s.disk_on, &mut s.disk_pct),
+                _ => anyhow::bail!(
+                    "{what:?} is not an alert: cpu, gpu, hotspot, vram, memory, disk, \
+                     sensitivity, cooldown or mounts"
+                ),
+            };
+            for v in values {
+                match v.as_str() {
+                    "on" | "off" => *on = on_off(v)?,
+                    _ => *limit = number(v)?,
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// What an alert kind is called in the terminal.
+fn alert_name(kind: &str) -> &str {
+    match kind {
+        "cpu_temp" => "CPU temperature",
+        "gpu_temp" => "GPU temperature",
+        "gpu_hotspot" => "GPU hotspot",
+        "gpu_vram" => "GPU memory temp.",
+        "memory" => "Memory use",
+        "disk" => "Disk fill",
+        "test" => "Test alert",
+        _ => kind,
+    }
+}
+
+async fn alert(command: Option<AlertCommand>, json: bool) -> Result<()> {
+    let conn = agent_conn().await?;
+    let p = ug_proto::agent::AlertsProxy::new(&conn).await?;
+    match command.unwrap_or(AlertCommand::List) {
+        AlertCommand::Set { what, values } => {
+            let mut s = p.state().await.map_err(agent_hint)?.settings;
+            alert_set(&mut s, &what, &values)?;
+            p.set(&s).await.map_err(agent_hint)?;
+        }
+        AlertCommand::Test => {
+            let e = p.test().await.map_err(agent_hint)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&e)?);
+            } else {
+                println!("{}", alert_held(&e));
+            }
+            return Ok(());
+        }
+        AlertCommand::Clear => {
+            let n = p.clear().await.map_err(agent_hint)?;
+            println!("Forgot {n} recent alerts.");
+            return Ok(());
+        }
+        AlertCommand::List => {}
+    }
+    let st = p.state().await.map_err(agent_hint)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&st)?);
+        return Ok(());
+    }
+    let s = &st.settings;
+    let rows = [
+        ("cpu_temp", s.cpu_temp_on, s.cpu_temp_c, "°C"),
+        ("gpu_temp", s.gpu_temp_on, s.gpu_temp_c, "°C"),
+        ("gpu_hotspot", s.gpu_hotspot_on, s.gpu_hotspot_c, "°C"),
+        ("gpu_vram", s.gpu_vram_on, s.gpu_vram_c, "°C"),
+        ("memory", s.mem_on, s.mem_pct, "%"),
+        ("disk", s.disk_on, s.disk_pct, "%"),
+    ];
+    for (kind, on, limit, unit) in rows {
+        let sensors: Vec<&ug_proto::AlertSensor> =
+            st.sensors.iter().filter(|x| x.kind == kind).collect();
+        // Hotspot and memory sensors a card never showed are not offered.
+        if kind.starts_with("gpu_")
+            && kind != "gpu_temp"
+            && !on
+            && sensors
+                .iter()
+                .all(|x| x.status == "unsupported" || x.status == "unknown")
+        {
+            continue;
+        }
+        println!(
+            "{:<18} {:<3}  at {:>3} {:<3}",
+            alert_name(kind),
+            if on { "on" } else { "off" },
+            limit,
+            unit
+        );
+        for x in sensors {
+            let now = match (x.status.as_str(), x.reading()) {
+                ("ok", Some(v)) if x.above_s > 0 => {
+                    format!(
+                        "{v:.0} {unit}, above for {} of {} s",
+                        x.above_s, s.sustain_s
+                    )
+                }
+                ("ok", Some(v)) => format!("{v:.0} {unit}"),
+                ("asleep", _) => "the card is asleep; checked when it wakes".into(),
+                ("unsupported", _) => "not supported on this hardware".into(),
+                ("missing", _) => "not mounted".into(),
+                _ => "no reading yet".into(),
+            };
+            let who = if x.subject.is_empty() { "" } else { &x.subject };
+            println!("    {who:<24} {now}");
+        }
+    }
+    println!(
+        "Sensitivity {} s, cooldown {} min{}",
+        s.sustain_s,
+        s.cooldown_min,
+        if st.held {
+            "; do not disturb is holding notifications"
+        } else {
+            ""
+        }
+    );
+    if st.recent.is_empty() {
+        println!("\nNo alerts; everything normal.");
+    } else {
+        println!("\nRecent alerts:");
+        for e in st.recent.iter().take(10) {
+            let value = match e.kind.as_str() {
+                "test" => String::new(),
+                "memory" | "disk" => format!("{:.0} % (limit {} %)", e.value, e.threshold),
+                _ => format!("{:.0} °C (limit {} °C)", e.value, e.threshold),
+            };
+            println!(
+                "  {}  {:<18} {:<16} {value}{}",
+                local_time(e.ts_unix_ms),
+                alert_name(&e.kind),
+                e.subject,
+                if e.notified { "" } else { "  (held)" }
+            );
+        }
+        if st.recent.len() > 10 {
+            println!("  … {} more (--json shows all)", st.recent.len() - 10);
+        }
+    }
+    Ok(())
+}
+
+/// What happened to a test alert.
+fn alert_held(e: &ug_proto::AlertEvent) -> &'static str {
+    match e.held.as_str() {
+        "" => "Test alert shown.",
+        "dnd" => "Held: game mode's do not disturb is on. It is in the recent alerts.",
+        "off" => "Held: notifications are off (Settings, or ug-agent --quiet).",
+        _ => "No notification server answered (a bare window manager?).",
+    }
 }
 
 async fn update(check: bool, json: bool) -> Result<()> {
@@ -4171,6 +4371,23 @@ fn rate(bps: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::{parse_kbps, rate};
+
+    #[test]
+    fn alert_set_reads_switches_limits_and_lists() {
+        let mut s = ug_proto::AlertSettings::default();
+        let v = |a: &[&str]| a.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        super::alert_set(&mut s, "gpu", &v(&["off", "80"])).unwrap();
+        assert_eq!((s.gpu_temp_on, s.gpu_temp_c), (false, 80));
+        super::alert_set(&mut s, "memory", &v(&["on"])).unwrap();
+        assert!(s.mem_on);
+        super::alert_set(&mut s, "sensitivity", &v(&["15s"])).unwrap();
+        super::alert_set(&mut s, "cooldown", &v(&["60"])).unwrap();
+        super::alert_set(&mut s, "mounts", &v(&["/", "/home"])).unwrap();
+        assert_eq!((s.sustain_s, s.cooldown_min), (15, 60));
+        assert_eq!(s.disk_mounts, ["/", "/home"]);
+        assert!(super::alert_set(&mut s, "fan", &v(&["on"])).is_err());
+        assert!(super::alert_set(&mut s, "cpu", &v(&["hot"])).is_err());
+    }
 
     #[test]
     fn durations_read_naturally() {

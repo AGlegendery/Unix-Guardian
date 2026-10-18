@@ -4442,8 +4442,14 @@ enum SettingsRow {
     ResetTraffic,
 }
 const SETTINGS_GROUPS: [(&str, &[SettingsRow]); 5] = [
-    ("Window and tray", &[SettingsRow::Tray, SettingsRow::CloseWindow]),
-    ("Notifications and updates", &[SettingsRow::Notifications, SettingsRow::CheckUpdates]),
+    (
+        "Window and tray",
+        &[SettingsRow::Tray, SettingsRow::CloseWindow],
+    ),
+    (
+        "Notifications and updates",
+        &[SettingsRow::Notifications, SettingsRow::CheckUpdates],
+    ),
     ("Finding games", &[SettingsRow::ScanInterval]),
     ("Global shortcuts", &[SettingsRow::Shortcuts]),
     ("Internet use", &[SettingsRow::ResetTraffic]),
@@ -4451,7 +4457,9 @@ const SETTINGS_GROUPS: [(&str, &[SettingsRow]); 5] = [
 
 /// The selectable rows, in order (what `app.row` counts).
 fn settings_rows() -> impl Iterator<Item = SettingsRow> {
-    SETTINGS_GROUPS.iter().flat_map(|(_, rows)| rows.iter().copied())
+    SETTINGS_GROUPS
+        .iter()
+        .flat_map(|(_, rows)| rows.iter().copied())
 }
 
 fn settings_row_name(r: SettingsRow) -> &'static str {

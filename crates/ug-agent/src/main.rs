@@ -337,10 +337,15 @@ async fn main() -> Result<()> {
         &ug_core::paths::user_config(),
         args.scan_interval.map(|s| s.max(1)),
     ));
+    // A test run may give the alerts a scratch tree to read (fake heat).
+    let alerts_root = std::env::var_os("UG_ALERTS_SYSROOT")
+        .filter(|_| test_run_set())
+        .map(SysRoot::at)
+        .unwrap_or_else(SysRoot::real);
     let alerts = Arc::new(alerts::Alerts::new(
         &ug_core::paths::user_config(),
         &ug_core::paths::user_data(),
-        SysRoot::real(),
+        alerts_root,
         args.daemon_session,
         Arc::clone(&settings),
         args.quiet,
@@ -666,6 +671,11 @@ async fn main() -> Result<()> {
     }
     tracing::info!("agent stopped");
     Ok(())
+}
+
+/// `UG_TEST_RUN` is set: an end-to-end test's agent.
+fn test_run_set() -> bool {
+    std::env::var("UG_TEST_RUN").is_ok_and(|t| !t.is_empty())
 }
 
 /// While a game runs, keeps ping measured and aimed at its server, so the
