@@ -31,6 +31,10 @@ pub trait Notifications {
 
 /// Action key for "this is not a game".
 pub const NOT_A_GAME: &str = "not-a-game";
+/// The notification's default action (a click on its body on most
+/// desktops): for the internet-use notifications, open the window at
+/// Monitoring, Internet traffic, where the limits are listed.
+pub const SHOW_TRAFFIC: &str = "default";
 /// Action key for "cap this app while I play".
 pub const LIMIT_WHILE_GAMING: &str = "limit-while-gaming";
 

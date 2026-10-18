@@ -18,6 +18,16 @@
   type Range = "live" | "hour" | "day" | "week";
   const hashTab = location.hash.split("/")[1] as Tab;
   let tab = $state<Tab>(["fps", "thermal", "traffic", "ping", "alerts"].includes(hashTab) ? hashTab : "thermal");
+  // A link to a tab while this page is open (a notification's "show
+  // internet use") switches to it.
+  $effect(() => {
+    const on = () => {
+      const h = location.hash.split("/")[1] as Tab;
+      if (["fps", "thermal", "traffic", "ping", "alerts"].includes(h)) tab = h;
+    };
+    addEventListener("hashchange", on);
+    return () => removeEventListener("hashchange", on);
+  });
   // Internet control (apps, rules) for the Traffic and Ping tabs, read
   // every 2 s while one of them is open.
   const ctl = new NetControl();

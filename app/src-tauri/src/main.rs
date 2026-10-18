@@ -76,11 +76,16 @@ fn main() {
     let daemon_on_session = std::env::var_os("UG_SESSION").is_some_and(|v| v == "1");
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             use tauri::Manager;
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
                 let _ = w.set_focus();
+                // `ug-app --open <page/tab>` while open (a notification's
+                // "show internet use"): the window moves there.
+                if let Some(path) = open_arg(&args) {
+                    let _ = w.eval(format!("location.hash = '{path}';"));
+                }
             }
         }))
         // `ug-app --open monitoring/thermal/live` opens straight at a page,
@@ -88,7 +93,7 @@ fn main() {
         .setup(|app| {
             use tauri::Manager;
             let args: Vec<String> = std::env::args().collect();
-            let open = args.iter().position(|a| a == "--open").and_then(|i| args.get(i + 1)).cloned();
+            let open = open_arg(&args);
             // 900 px tall fits the whole dashboard at the default width;
             // on a shorter screen, open no taller than its work area (less
             // a title bar's worth). Wayland may not name the monitor yet;
@@ -105,8 +110,7 @@ fn main() {
             no_page_zoom();
             testlab::recover_in_background();
             if let (Some(path), Some(w)) = (open, app.get_webview_window("main")) {
-                let path: String = path.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '/' || *c == '-').collect();
-                let _ = w.eval(&format!("if (location.hash !== '#{path}') {{ location.hash = '{path}'; location.reload(); }}"));
+                let _ = w.eval(format!("if (location.hash !== '#{path}') {{ location.hash = '{path}'; location.reload(); }}"));
             }
             Ok(())
         })
@@ -345,4 +349,11 @@ fn nvidia_drives_display() -> bool {
             std::fs::read_to_string(dev.join("vendor")).is_ok_and(|s| s.trim() == "0x10de");
         boot && vendor
     })
+}
+
+/// The page path after `--open`, kept to letters, digits, `/` and `-` (it
+/// goes into a line of JavaScript).
+fn open_arg(args: &[String]) -> Option<String> {
+    let path = args.iter().position(|a| a == "--open").and_then(|i| args.get(i + 1))?;
+    Some(path.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '/' || *c == '-').collect())
 }

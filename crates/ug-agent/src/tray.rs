@@ -1124,6 +1124,14 @@ pub async fn open_window() -> Result<(), String> {
     launch("window", vec![app.into()]).await
 }
 
+/// Opens the window at a page and tab ("monitoring/traffic"); an open
+/// window is brought forward and moves there.
+pub async fn open_window_at(path: &str) -> Result<(), String> {
+    let app = find_program("ug-app")
+        .ok_or("The Unix Guardian window (ug-app) is not installed. Try `ug tui` in a terminal.")?;
+    launch("window", vec![app.into(), "--open".into(), path.into()]).await
+}
+
 /// Terminals to try, in order, with the flag that runs a command in them.
 pub fn terminal_candidates(env_terminal: Option<&str>) -> Vec<(String, &'static str)> {
     let mut c = Vec::new();

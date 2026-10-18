@@ -256,15 +256,15 @@ impl DaemonLink {
         };
         offered.insert(a.name.to_lowercase());
         tracing::info!(app = %a.name, rx = a.rx_bps, tx = a.tx_bps, "background network use during the game");
-        let actions = [(notify::LIMIT_WHILE_GAMING, "Limit while I play")];
-        if let Some(id) = notify::show(
-            conn,
-            "Background download",
-            &background::sentence(a),
-            &actions,
-        )
-        .await
-        {
+        let actions = [
+            (notify::LIMIT_WHILE_GAMING, "Limit while I play"),
+            (notify::SHOW_TRAFFIC, "Show internet use"),
+        ];
+        let body = format!(
+            "{} Limits are listed in Unix Guardian, Monitoring, Internet traffic.",
+            background::sentence(a)
+        );
+        if let Some(id) = notify::show(conn, "Background download", &body, &actions).await {
             pending
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -802,7 +802,9 @@ async fn announce(
     }
 }
 
-/// Turns a click on "Not a game" into a dismissal.
+/// Turns a click on "Not a game" into a dismissal, "Limit while I play"
+/// into a rule, and a click on an internet-use notification into the
+/// window at Monitoring, Internet traffic.
 async fn watch_dismissals(
     conn: zbus::Connection,
     core: Shared,
@@ -811,6 +813,8 @@ async fn watch_dismissals(
     daemon_session: bool,
     announce: tokio::sync::mpsc::UnboundedSender<Outcome>,
 ) {
+    // The "limited" notifications whose click opens internet traffic.
+    let traffic_notes: Mutex<std::collections::HashSet<u32>> = Mutex::default();
     let Ok(proxy) = notify::NotificationsProxy::new(&conn).await else {
         return;
     };
@@ -819,6 +823,24 @@ async fn watch_dismissals(
     };
     while let Some(sig) = clicks.next().await {
         let Ok(args) = sig.args() else { continue };
+        // A click on an internet-use notification: show where the limits
+        // are. Only ours: the offer (still pending) or a "limited" one.
+        if args.action_key == notify::SHOW_TRAFFIC {
+            let ours = limits
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(&args.id)
+                || traffic_notes
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&args.id);
+            if ours {
+                if let Err(e) = tray::open_window_at("monitoring/traffic").await {
+                    tracing::warn!(error = %e, "could not open the window at internet traffic");
+                }
+            }
+            continue;
+        }
         if args.action_key == notify::LIMIT_WHILE_GAMING {
             let app = limits
                 .lock()
@@ -847,10 +869,22 @@ async fn watch_dismissals(
                     Err(e) => Err(e),
                 };
                 let (title, body) = match result {
-                    Ok(()) => (format!("{app} is limited while you play"), "About 1 MB/s down and 125 kB/s up. Undo it in Unix Guardian or with `ug net allow`.".to_string()),
+                    Ok(()) => (format!("{app} is limited while you play"), "About 1 MB/s down and 125 kB/s up. See or undo it in Unix Guardian, Monitoring, Internet traffic (or: ug net allow).".to_string()),
                     Err(e) => (format!("Could not limit {app}"), e.to_string()),
                 };
-                notify::show(&conn, &title, &body, &[]).await;
+                if let Some(id) = notify::show(
+                    &conn,
+                    &title,
+                    &body,
+                    &[(notify::SHOW_TRAFFIC, "Show internet use")],
+                )
+                .await
+                {
+                    traffic_notes
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(id);
+                }
             }
             continue;
         }
