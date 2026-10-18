@@ -874,7 +874,7 @@ export const mockApi = {
   },
   // The test lab: walks the real step ids, a step every 250 ms.
   testlabRun: async (): Promise<TestlabReport> => {
-    const ids = ["recover", "env", "services", "sensors", "speed", "gpu", "cpu-bench", "gamemode", "profiles", "games", "playtime", "history", "ping", "power", "fans", "net", "overlay", "recorder", "misc", "drivers", "cleanup"];
+    const ids = ["recover", "env", "services", "sensors", "speed", "gpu", "cpu-bench", "gamemode", "profiles", "games", "playtime", "history", "alerts", "ping", "power", "fans", "net", "overlay", "recorder", "misc", "drivers", "cleanup"];
     for (let i = 0; i < ids.length; i++) {
       labListeners.forEach((f) => f({ done: i, total: ids.length, id: ids[i], label: ids[i] }));
       await new Promise((r) => setTimeout(r, 250));

@@ -258,6 +258,7 @@ impl Lab {
             "games" => self.games().await,
             "playtime" => self.playtime().await,
             "history" => self.history().await,
+            "alerts" => self.alerts().await,
             "ping" => self.ping().await,
             "power" => self.power().await,
             "fans" => self.fans().await,
@@ -1403,6 +1404,81 @@ impl Lab {
             ),
             Err(e) => self.add("fps", "game sessions this week", Status::Fail, e),
         }
+    }
+
+    /// What each alert can read on this machine. Nothing is changed: the
+    /// settings are saved back as they are, and no test notification is
+    /// sent (it would stay in the user's recent alerts).
+    async fn alerts(&mut self) {
+        let Some(c) = self.need_agent("alerts") else {
+            return;
+        };
+        let Ok(a) = ag::AlertsProxy::new(&c).await else {
+            return;
+        };
+        let st = match call(a.state()).await {
+            Ok(st) => st,
+            Err(e) => {
+                self.add("alerts", "state", Status::Fail, e);
+                return;
+            }
+        };
+        for kind in [
+            "cpu_temp",
+            "gpu_temp",
+            "gpu_hotspot",
+            "gpu_vram",
+            "memory",
+            "disk",
+        ] {
+            let sensors: Vec<&ug_proto::AlertSensor> =
+                st.sensors.iter().filter(|x| x.kind == kind).collect();
+            if sensors.is_empty() {
+                continue;
+            }
+            let status = if sensors.iter().any(|x| x.status == "ok") {
+                Status::Pass
+            } else {
+                Status::Info
+            };
+            let detail: Vec<String> = sensors
+                .iter()
+                .map(|x| {
+                    let who = if x.subject.is_empty() {
+                        "-"
+                    } else {
+                        &x.subject
+                    };
+                    match x.reading() {
+                        Some(v) => format!("{who}: {v:.0}"),
+                        None => format!("{who}: {}", x.status),
+                    }
+                })
+                .collect();
+            self.add("alerts", kind, status, detail.join(", "));
+        }
+        self.add(
+            "alerts",
+            "disks offered",
+            if st.mounts.is_empty() {
+                Status::Warn
+            } else {
+                Status::Pass
+            },
+            format!(
+                "{} ({} watched)",
+                st.mounts.len(),
+                st.settings.disk_mounts.len()
+            ),
+        );
+        match call(a.set(&st.settings)).await {
+            Ok(()) => self.add("alerts", "settings saved", Status::Pass, "unchanged"),
+            Err(e) => self.add("alerts", "settings saved", Status::Fail, e),
+        }
+        self.manual(
+            "Send a test alert (Monitoring, Alerts) and see it on the desktop",
+            "the lab does not show notifications by itself",
+        );
     }
 
     async fn ping(&mut self) {

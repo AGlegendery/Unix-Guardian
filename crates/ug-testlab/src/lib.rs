@@ -101,6 +101,7 @@ pub const STEPS: &[(&str, &str)] = &[
     ("games", "Games and launchers"),
     ("playtime", "Playtime and tracked apps"),
     ("history", "Monitoring history, internet use and FPS"),
+    ("alerts", "Threshold alerts"),
     ("ping", "Ping"),
     ("power", "Power, battery and wake alarm"),
     ("fans", "Fans"),
