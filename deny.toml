@@ -27,6 +27,13 @@ allow-wildcard-paths = true
 
 [advisories]
 yanked = "deny"
+ignore = [
+    # zvariant, zbus_names and zvariant_derive: unmaintained notice only:
+    # merged into zbus 6; revisit when migrating to zbus 6.
+    { id = "RUSTSEC-2026-0370", reason = "unmaintained notice only: merged into zbus 6; revisit when migrating to zbus 6" },
+    { id = "RUSTSEC-2026-0371", reason = "unmaintained notice only: merged into zbus 6; revisit when migrating to zbus 6" },
+    { id = "RUSTSEC-2026-0372", reason = "unmaintained notice only: merged into zbus 6; revisit when migrating to zbus 6" },
+]
 
 [sources]
 unknown-registry = "deny"

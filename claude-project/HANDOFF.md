@@ -22,6 +22,10 @@ background slowdown, one-shot rainbow border (2 sweeps, then still),
 brighter off switches, TUI tile colours + game-mode badge.
 **Waiting on the user:** reinstall, look at it, say what to change.
 
+Later: migrate to zbus 6 (zvariant / zbus_names / zvariant_derive merged
+into it; their unmaintained notices RUSTSEC-2026-0370..0372 are ignored
+in deny.toml until then). Not started; only on the user's word.
+
 ## Before (2026-10-18): threshold alerts ✅
 
 Phoenix Guardian parity list, item 1 (see 04-status "Threshold alerts").
