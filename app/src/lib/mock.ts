@@ -220,6 +220,7 @@ const alertsRecent: AlertEvent[] = [
   { ts_unix_ms: Date.now() - 26 * 3_600_000, kind: "disk", subject: "/", value: 95.4, threshold: 95, notified: false, held: "dnd" },
 ];
 
+let gamingLimits = true;
 export const mockApi = {
   preview: true as const,
   overview: async (): Promise<Overview> => ({
@@ -526,6 +527,10 @@ export const mockApi = {
     const i = netRules.findIndex((r) => r.app.toLowerCase() === app.toLowerCase());
     if (i >= 0) netRules.splice(i, 1);
     netRules.push({ app, block, up_kbps: up, down_kbps: down, when, active: when === "always" });
+  },
+  netGamingLimits: async () => gamingLimits,
+  netSetGamingLimits: async (on: boolean) => {
+    gamingLimits = on;
   },
   netBackground: async () => [...netBg] as typeof netBg,
   netSetBackground: async (on: boolean, up: number, down: number, when: "always" | "gaming") => {

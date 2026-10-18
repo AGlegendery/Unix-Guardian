@@ -834,6 +834,22 @@ pub async fn net_set_rule(
 
 /// "Slow down background apps": (on, up kbit/s, down kbit/s, when).
 #[tauri::command]
+pub async fn net_gaming_limits(bus: State<'_, Bus>) -> Res<bool> {
+    let n = NetProxy::new(bus.daemon().await?)
+        .await
+        .map_err(daemon_err)?;
+    n.gaming_limits().await.map_err(daemon_err)
+}
+
+#[tauri::command]
+pub async fn net_set_gaming_limits(bus: State<'_, Bus>, on: bool) -> Res<()> {
+    let n = NetProxy::new(bus.daemon().await?)
+        .await
+        .map_err(daemon_err)?;
+    n.set_gaming_limits(on).await.map_err(daemon_err)
+}
+
+#[tauri::command]
 pub async fn net_background(bus: State<'_, Bus>) -> Res<(bool, u32, u32, String)> {
     let n = NetProxy::new(bus.daemon().await?)
         .await

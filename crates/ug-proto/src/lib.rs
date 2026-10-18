@@ -402,6 +402,13 @@ pub mod daemon {
         /// caps (kbit/s) and `always` or `gaming`.
         fn background(&self) -> zbus::Result<(bool, u32, u32, String)>;
 
+        /// Whether game mode limits background internet automatically (the
+        /// "while I play" rules and slowing background apps while gaming).
+        fn gaming_limits(&self) -> zbus::Result<bool>;
+
+        /// Turns that on or off (polkit, as rules); the rules are kept.
+        fn set_gaming_limits(&self, on: bool) -> zbus::Result<()>;
+
         /// Turns "slow down background apps" on or off (polkit, as rules).
         fn set_background(
             &self,

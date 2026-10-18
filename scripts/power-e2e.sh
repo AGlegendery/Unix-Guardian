@@ -87,6 +87,9 @@ else
 fi
 check "a limit out of range is refused" "! ug battery protect --limit 10 >/dev/null 2>&1"
 check "the real battery settings were not touched" "[ \"\$(cat /sys/class/power_supply/*/charge_types 2>/dev/null; cat /sys/class/power_supply/*/charge_control_end_threshold 2>/dev/null)\" = \"\$real_types\" ]"
+check "game mode's automatic internet limits are on by default" "ug net gaming-limits | grep -q 'limits background internet automatically'"
+check "they can be turned off, and that is kept" "ug net gaming-limits off >/dev/null && grep -qx off '$W/state/net-gaming-limits' && ug net gaming-limits | grep -q 'does not limit'"
+check "and on again" "ug net gaming-limits on >/dev/null && ug net gaming-limits | grep -q 'limits background internet automatically'"
 check "nothing was ever done for real (only simulated)" "grep -q 'power actions are simulated' '$W/daemon.log'"
 
 echo; [ "$fails" -eq 0 ] && echo "power-e2e: OK" || { echo "power-e2e: $fails failed"; exit 1; }

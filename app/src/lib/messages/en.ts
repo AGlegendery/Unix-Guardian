@@ -160,6 +160,15 @@ export const en = {
     moreProfiles: "Show the next profile",
   },
   gmp: {
+    net: {
+      title: "Internet while you play",
+      explain: "When game mode is on, Unix Guardian limits apps that use the internet in the background, so the game keeps a steady ping: apps you limited “while I play”, “slow down background apps” when it is set to while playing, and an offer to limit a big download.",
+      auto: "Automatically limit background apps' internet in game mode",
+      autoOff: "Off: game mode leaves the internet alone. Your limits are kept and work again when this is on.",
+      where: "Where the limits are:",
+      perApp: "Internet traffic (each app)",
+      background: "Ping stability (background apps)",
+    },
     turnOnWith: (name: string) => `Turn on now with ${name}`,
     onByHand: (name: string) => `On by hand with ${name}`,
     newProfile: "New profile",

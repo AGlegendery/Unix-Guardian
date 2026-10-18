@@ -662,6 +662,9 @@ const tauriApi = {
   netSetRule: (app: string, block: boolean, upKbps: number, downKbps: number, when: "always" | "gaming") =>
     invoke<void>("net_set_rule", { app, block, upKbps, downKbps, when }),
   netRemoveRule: (app: string) => invoke<boolean>("net_remove_rule", { app }),
+  /** Game mode limits background internet automatically. */
+  netGamingLimits: () => invoke<boolean>("net_gaming_limits"),
+  netSetGamingLimits: (on: boolean) => invoke<void>("net_set_gaming_limits", { on }),
   netBackground: () => invoke<[boolean, number, number, "always" | "gaming"]>("net_background"),
   netSetBackground: (on: boolean, upKbps: number, downKbps: number, when: "always" | "gaming") =>
     invoke<void>("net_set_background", { on, upKbps, downKbps, when }),

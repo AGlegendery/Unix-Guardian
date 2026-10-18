@@ -565,6 +565,20 @@ fn forget_game(app: &mut App, i: usize) {
     }
 }
 
+/// Game mode page, i: game mode's automatic internet limits on or off.
+pub fn toggle_gaming_limits(app: &mut App) {
+    let on = !app.gaming_limits.value.unwrap_or(true);
+    let r = app.bus.set_net_gaming_limits(on).map(|_| {
+        if on {
+            "Game mode limits background apps' internet again.".to_string()
+        } else {
+            "Game mode no longer limits the internet; your limits are kept.".to_string()
+        }
+    });
+    report(app, r);
+    app.gaming_limits.invalidate();
+}
+
 /// Ping stability, s: "slow down background apps" on or off, keeping its caps.
 pub fn toggle_background(app: &mut App) {
     let Some((on, up, down, when)) = app.net_bg.clone() else {
@@ -1330,6 +1344,39 @@ fn game_mode(app: &mut App, f: &mut Frame, r: Rect) {
         ),
     ]);
     f.render_widget(Paragraph::new(head), Rect { height: 1, ..r });
+    // What game mode does to the internet, and the switch to stop it.
+    if let Some(limits) = app.gaming_limits.value {
+        let line = Line::from(vec![
+            Span::styled(
+                "Limits background apps' internet in game mode  ",
+                if limits {
+                    Style::default().fg(t.net).add_modifier(Modifier::BOLD)
+                } else {
+                    t.muted()
+                },
+            ),
+            Span::styled(
+                if limits { " On " } else { " Off " },
+                if limits {
+                    Style::default().fg(Color::Black).bg(t.ok)
+                } else {
+                    Style::default().fg(t.text).bg(t.line)
+                },
+            ),
+            Span::styled(
+                "  i turns it off/on · the limits: Monitoring (4) → Internet traffic, Ping stability",
+                t.faint(),
+            ),
+        ]);
+        f.render_widget(
+            Paragraph::new(line),
+            Rect {
+                y: r.y + 1,
+                height: 1,
+                ..r
+            },
+        );
+    }
     let names: Vec<String> = profiles
         .iter()
         .map(|p| {

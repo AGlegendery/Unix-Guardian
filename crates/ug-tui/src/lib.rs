@@ -81,6 +81,8 @@ pub struct App {
     pub inventory: Cached<Inventory>,
     pub snapshot: Cached<Snapshot>,
     pub gamemode: Cached<bool>,
+    /// Game mode limits background internet automatically (the service).
+    pub gaming_limits: Cached<bool>,
     /// Game mode set by hand ("on", "off", "") and the profile it uses.
     pub hand: Cached<(String, String)>,
     /// (seconds, CPU °C, working GPU °C) for the live temperature chart.
@@ -181,6 +183,7 @@ impl App {
             inventory: Cached::new(Duration::from_secs(600)),
             snapshot: Cached::new(LIVE),
             gamemode: Cached::new(SLOW),
+            gaming_limits: Cached::new(SLOW),
             hand: Cached::new(SLOW),
             temps: VecDeque::new(),
             running: Cached::new(SLOW),
@@ -558,6 +561,10 @@ impl App {
             let r = self.bus.game_mode_hand();
             self.hand.store(r);
         }
+        if self.page == 1 && self.gaming_limits.due() {
+            let r = self.bus.net_gaming_limits();
+            self.gaming_limits.store(r);
+        }
     }
 
     fn go(&mut self, page: usize) {
@@ -653,6 +660,9 @@ impl App {
                 KeyCode::Char('u') if (self.page, self.tab) == (1, 2) => pages::undo_launch(self),
                 KeyCode::Char('g') if self.page == 0 || (self.page, self.tab) == (1, 0) => {
                     pages::toggle_game_mode(self)
+                }
+                KeyCode::Char('i') if (self.page, self.tab) == (1, 0) => {
+                    pages::toggle_gaming_limits(self)
                 }
                 KeyCode::Char('n') if self.page == 6 => pages::not_a_game(self, self.row),
                 KeyCode::Char('i') if self.page == 6 => pages::import_steam(self, false),

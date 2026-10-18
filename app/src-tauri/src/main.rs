@@ -183,6 +183,8 @@ fn main() {
             bus::net_rules,
             bus::net_set_rule,
             bus::net_background,
+            bus::net_gaming_limits,
+            bus::net_set_gaming_limits,
             bus::net_set_background,
             bus::net_remove_rule,
             bus::overlay_state,

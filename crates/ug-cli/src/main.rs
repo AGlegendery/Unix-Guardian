@@ -424,6 +424,10 @@ enum NetCommand {
         #[arg(long, conflicts_with = "gaming")]
         always: bool,
     },
+    /// Game mode limits background internet automatically: the "only while
+    /// game mode is on" rules and slowing background apps while gaming.
+    /// `on`, `off`, or nothing to show it. Off keeps the rules for later.
+    GamingLimits { state: Option<String> },
 }
 
 /// `500k`, `2m`, `2.5m` or plain kilobits → kbit/s.
@@ -3844,6 +3848,21 @@ async fn net(
                     println!("Note: {problem}");
                 }
             }
+            return Ok(());
+        }
+        Some(NetCommand::GamingLimits { state }) => {
+            if let Some(v) = state.as_deref() {
+                p.set_gaming_limits(on_off(v)?)
+                    .await
+                    .map_err(daemon_error)?;
+            }
+            let on = p.gaming_limits().await.map_err(daemon_error)?;
+            if on {
+                println!("Game mode limits background internet automatically (rules marked \"while gaming\", and slowing background apps while gaming).");
+            } else {
+                println!("Game mode does not limit background internet automatically; the rules are kept for when this is on again.");
+            }
+            println!("The limits are listed in Unix Guardian, Monitoring, Internet traffic (per app) and Ping stability (background apps), or: ug net rules, ug net background.");
             return Ok(());
         }
         Some(NetCommand::Rules) => {

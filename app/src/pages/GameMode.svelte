@@ -33,6 +33,18 @@
   let newApp = $state("");
   let armedDelete = $state(false);
 
+  // Game mode's automatic internet limits (the service's setting); null
+  // until read or with an older service.
+  let gamingLimits = $state<boolean | null>(null);
+  $effect(() => {
+    api.netGamingLimits().then((v) => (gamingLimits = v)).catch(() => (gamingLimits = null));
+  });
+  const setGamingLimits = (on: boolean) =>
+    act(async () => {
+      await api.netSetGamingLimits(on);
+      gamingLimits = await api.netGamingLimits();
+    });
+
   const load = () => {
     if (document.hidden) return;
     api.gamesRunning().then((r) => (running = r)).catch((e) => (error = errorText(e)));
@@ -214,6 +226,24 @@
   {:else}
     <p class="idle">{t().gmp.noGame}</p>
   {/if}
+</article>
+
+<!-- What game mode does to the internet, and the switch to stop it. -->
+<article class="card netcard mode-card" data-cat="net" class:is-on={gamingLimits === true}>
+  <h2><HugeIcon name="network" size={18} /> {t().gmp.net.title}</h2>
+  <p class="hint">{t().gmp.net.explain}</p>
+  {#if gamingLimits != null}
+    <div class="auto-row">
+      <span class="row-title">{t().gmp.net.auto}</span>
+      <Switch checked={gamingLimits} disabled={busy} label={t().gmp.net.auto} onchange={setGamingLimits} />
+    </div>
+  {/if}
+  {#if gamingLimits === false}<p class="hint">{t().gmp.net.autoOff}</p>{/if}
+  <p class="where">
+    {t().gmp.net.where}
+    <a href="#monitoring/traffic" onclick={() => history.replaceState(null, "", "#gamemode")}>{t().gmp.net.perApp}</a>
+    <a href="#monitoring/ping" onclick={() => history.replaceState(null, "", "#gamemode")}>{t().gmp.net.background}</a>
+  </p>
 </article>
 
 <div class="grid">
@@ -497,4 +527,10 @@
   .grow { flex: 1; min-width: 0; }
   .x { all: unset; margin-inline-start: 6px; cursor: pointer; color: var(--text-3); font-size: 0.75rem; }
   .x:hover { color: var(--danger); }
+  .netcard { margin-top: 16px; display: grid; gap: 8px; }
+  .netcard h2 { display: inline-flex; align-items: center; gap: 8px; margin: 0; }
+  .netcard .auto-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .netcard .where { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 0; font-size: 0.86rem; color: var(--text-2); }
+  .netcard .where a { color: var(--cat); text-decoration: none; font-weight: 600; }
+  .netcard .where a:hover { text-decoration: underline; }
 </style>

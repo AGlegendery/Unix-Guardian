@@ -246,6 +246,10 @@ impl DaemonLink {
         let Ok(net) = ug_proto::daemon::NetProxy::new(&c).await else {
             return;
         };
+        // Turned off on the Game mode page: no automatic limits, no offers.
+        if !net.gaming_limits().await.unwrap_or(true) {
+            return;
+        }
         let (Ok(apps), Ok(rules)) = (net.apps().await, net.rules().await) else {
             return;
         };

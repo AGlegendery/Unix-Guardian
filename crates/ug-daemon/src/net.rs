@@ -38,6 +38,12 @@ pub struct Net {
     /// "Slow down background apps" and where it is saved.
     background: Background,
     background_file: std::path::PathBuf,
+    /// Game mode limits background internet automatically: the "while I
+    /// play" rules and "slow down background apps while gaming" apply only
+    /// while game mode is on and this is on (the user can turn it off on
+    /// the Game mode page). The rules themselves are kept either way.
+    gaming_limits: bool,
+    gaming_limits_file: std::path::PathBuf,
     gaming: Arc<AtomicBool>,
     /// The running game's processes, as game mode last received them.
     game_pids: Arc<Mutex<Vec<i32>>>,
@@ -92,6 +98,11 @@ impl Net {
         let (rules, problem) = Rules::load(&state_dir.join("net.json"));
         let background_file = state_dir.join("net-background.json");
         let background = Background::load(&background_file);
+        let gaming_limits_file = state_dir.join("net-gaming-limits");
+        // Missing or unreadable: on, as before the setting existed.
+        let gaming_limits = std::fs::read_to_string(&gaming_limits_file)
+            .map(|t| t.trim() != "off")
+            .unwrap_or(true);
         if let Some(p) = problem {
             tracing::warn!(%p, "internet rules");
         }
@@ -170,6 +181,8 @@ impl Net {
             rules,
             background,
             background_file,
+            gaming_limits,
+            gaming_limits_file,
             gaming,
             game_pids,
             policy: Policy::default(),
@@ -206,9 +219,10 @@ impl Net {
         } else {
             Vec::new()
         };
-        self.policy = Policy::from_rules(&self.rules.list, gaming).with_background(
+        let limits_now = gaming && self.gaming_limits;
+        self.policy = Policy::from_rules(&self.rules.list, limits_now).with_background(
             &self.background,
-            gaming,
+            limits_now,
             &game_pids,
         );
         let watched = self.watched(now);
@@ -486,6 +500,39 @@ impl NetIface {
         .await
         .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
         .map_err(zbus::fdo::Error::InvalidArgs)
+    }
+
+    /// Whether game mode limits background internet automatically (the
+    /// "while I play" rules and "slow down background apps while gaming").
+    async fn gaming_limits(&self) -> bool {
+        lock(&self.net).gaming_limits
+    }
+
+    /// Turns game mode's automatic internet limits on or off; kept across
+    /// restarts. The rules stay and apply again once it is back on.
+    async fn set_gaming_limits(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        on: bool,
+    ) -> zbus::fdo::Result<()> {
+        self.gate.authorize(&hdr, action::NET).await?;
+        let net = Arc::clone(&self.net);
+        tokio::task::spawn_blocking(move || {
+            let mut n = lock(&net);
+            ug_core::paths::write_atomic(
+                &n.gaming_limits_file,
+                if on { b"on\n" } else { b"off\n" },
+            )
+            .map_err(|e| e.to_string())?;
+            n.gaming_limits = on;
+            n.last_read = None;
+            n.tick(Instant::now());
+            tracing::info!(on, "game mode's automatic internet limits");
+            Ok::<_, String>(())
+        })
+        .await
+        .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+        .map_err(zbus::fdo::Error::Failed)
     }
 
     async fn apps(&self) -> Vec<AppTraffic> {

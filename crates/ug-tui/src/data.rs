@@ -141,6 +141,20 @@ impl Bus {
     }
 
     /// "Slow down background apps": (on, up kbit/s, down kbit/s, when).
+    pub fn net_gaming_limits(&self) -> Result<bool, String> {
+        let c = self.daemon()?;
+        self.rt
+            .block_on(async { NetProxy::new(c).await?.gaming_limits().await })
+            .map_err(|e| msg(e, "service"))
+    }
+
+    pub fn set_net_gaming_limits(&self, on: bool) -> Result<(), String> {
+        let c = self.daemon()?;
+        self.rt
+            .block_on(async { NetProxy::new(c).await?.set_gaming_limits(on).await })
+            .map_err(|e| msg(e, "service"))
+    }
+
     pub fn net_background(&self) -> Result<(bool, u32, u32, String), String> {
         let c = self.daemon()?;
         self.rt
