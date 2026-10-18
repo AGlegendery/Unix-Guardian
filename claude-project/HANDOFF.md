@@ -8,7 +8,21 @@ Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 
 Last updated: 2026-10-18 (threshold alerts; on `main`).
 
-## Now (2026-10-18, evening): "sleep until" blocked by an inhibitor ✅
+## Now (2026-10-19): four asks from the user ✅
+
+1. "Test alert does nothing": Ryoku's own DND was on (flags.json
+   dnd:true) — popups hidden, only the bell list fills. Agent now detects
+   desktop DND (Ryoku/GNOME/mako/SwayNC/dunst) → held `desktop-dnd`,
+   said on test. Also the recent list never reloaded (NaN→null in JSON;
+   do not put serde attrs on D-Bus types: it broke decoding). `47989f7`.
+2. "On" boxes colourful: `:root .mode-card.is-on` gradient (scoped
+   `.card` backgrounds had hidden the old tint). `6edd397`.
+3. Traffic tab: Right now merged into Internet use (2 boxes) + reset in
+   the corner (asks twice). `8ab7dce`.
+4. Roadmap P4b Internet speed booster (not built). `4d8f136`.
+**User:** reinstall; turn Ryoku's Do not disturb off to see alerts.
+
+## Before (2026-10-18, evening): "sleep until" blocked by an inhibitor ✅
 
 User: timed sleep said "Operation denied due to active block inhibitor".
 Blockers on the laptop: Ryoku caffeine mode (sleep:idle, user-toggled)
