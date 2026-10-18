@@ -23,6 +23,11 @@
   let now = $state(Date.now());
   // Game mode by hand: "on" | "off" | "" and the profile it uses.
   let hand = $state<[string, string]>(["", "balanced"]);
+  // What the service is doing now, read with the rest every 3 s. Not the
+  // overview's copy: that is read once when the window opens, so after
+  // "off" (which goes back to following the games) the switch stayed on
+  // (the user, 2026-10-19).
+  let active = $state<boolean | null>(null);
   let busy = $state(false);
   let naming = $state<string | null>(null);
   let newApp = $state("");
@@ -33,6 +38,7 @@
     api.gamesRunning().then((r) => (running = r)).catch((e) => (error = errorText(e)));
     api.profiles().then((p) => (profiles = p)).catch((e) => (error = errorText(e)));
     api.gameModeHand().then((h) => (hand = h)).catch(() => {});
+    api.gamemodeActive().then((a) => (active = a)).catch(() => {});
     now = Date.now();
   };
   $effect(() => {
@@ -57,7 +63,13 @@
 
   const cpuOptions = ["cpu_performance", "cpu_no_idle_states", "cpu_preferred_cores", "cpu_priority", "memory_tuning"] as const;
   type Opt = (typeof cpuOptions)[number] | "pause_services" | "network_tuning" | "power_profile" | "keep_screen_on" | "do_not_disturb";
-  const gmOn = $derived(hand[0] === "on" || (hand[0] !== "off" && (!!game || !!overview?.gamemode_active)));
+  // Right after a change by hand, the service takes a scan or two to follow:
+  // until then the switch shows what was asked, not the old state.
+  let askedAt = $state(0);
+  const gmOn = $derived(
+    hand[0] === "on" ||
+      (hand[0] !== "off" && (!!game || (now - askedAt > 6000 && !!(active ?? overview?.gamemode_active)))),
+  );
 
   /** Runs a change, then reloads the profiles and the by-hand state. */
   async function act(f: () => Promise<unknown>) {
@@ -65,6 +77,9 @@
     try {
       await f();
       [profiles, hand] = await Promise.all([api.profiles(), api.gameModeHand()]);
+      // The service follows within a scan or two; read it again then.
+      active = await api.gamemodeActive().catch(() => active);
+      setTimeout(load, 2500);
       savedAt = Date.now();
       error = null;
     } catch (e) {
@@ -75,8 +90,8 @@
   }
   // The name field takes the keyboard as soon as it opens.
   const focus = (el: HTMLInputElement) => el.focus();
-  const turnOn = (id: string) => act(() => api.setGameMode(true, id));
-  const turnOff = () => act(() => api.setGameMode(false, ""));
+  const turnOn = (id: string) => ((askedAt = Date.now()), act(() => api.setGameMode(true, id)));
+  const turnOff = () => ((askedAt = Date.now()), act(() => api.setGameMode(false, "")));
   async function createProfile() {
     const name = naming?.trim() ?? "";
     if (!name) return;
