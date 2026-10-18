@@ -572,6 +572,8 @@ export const en = {
       slowedHint: "Slowed by \"Slow down background apps\" on the Ping stability tab.",
     },
     usage: {
+      downNow: "Download now",
+      upNow: "Upload now",
       title: "Internet use",
       hour: "Last hour",
       today: "Today",

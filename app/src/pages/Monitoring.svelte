@@ -418,19 +418,7 @@
 {:else if tab === "alerts"}
   <AlertsPanel />
 {:else}
-  <section class="card">
-    <h2>{t().mon.now}</h2>
-    {#if live}
-      {@const d = rate(live.net.rx_bps)}
-      {@const u = rate(live.net.tx_bps)}
-      <div class="speeds">
-        <span><HugeIcon name="arrow-down-02" size={18} /> {t().mon.down} <b dir="ltr">{d.value} {d.unit}</b></span>
-        <span><HugeIcon name="arrow-up-02" size={18} /> {t().mon.up} <b dir="ltr">{u.value} {u.unit}</b></span>
-        <span class="muted" dir="ltr">{live.net.iface}</span>
-      </div>
-    {/if}
-  </section>
-  <TrafficTiles />
+  <TrafficTiles {live} />
   <TrafficPeriods {ctl} />
   <NetRules {ctl} />
 {/if}
@@ -491,9 +479,6 @@
   .core-bar { flex: 1; width: 100%; max-width: 22px; background: var(--card-2); border-radius: 4px; display: flex; align-items: flex-end; overflow: hidden; }
   .core-bar span { display: block; width: 100%; height: calc(var(--h) * 100%); background: var(--c-cpu); }
   .core-mhz { font-size: 0.68rem; color: var(--text-3); }
-  .speeds { display: flex; flex-wrap: wrap; gap: 12px 36px; align-items: center; font-size: 0.95rem; }
-  .speeds span { display: inline-flex; align-items: center; gap: 8px; }
-  .speeds b { font-size: 1.3rem; }
   .figs { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0 0; font-size: 0.78rem; color: var(--text-3); }
   .figs b { color: var(--text-2); font-weight: 600; }
   .figs bdi { color: var(--text); }
