@@ -543,6 +543,32 @@ impl SettingsIface {
     }
 }
 
+/// `org.unixguardian.Agent1.Alerts`
+pub struct AlertsIface {
+    pub alerts: Arc<crate::alerts::Alerts>,
+}
+
+#[zbus::interface(name = "org.unixguardian.Agent1.Alerts")]
+impl AlertsIface {
+    async fn state(&self) -> ug_proto::AlertsState {
+        self.alerts.state().await
+    }
+
+    async fn set(&self, settings: ug_proto::AlertSettings) -> zbus::fdo::Result<()> {
+        self.alerts
+            .set(settings)
+            .map_err(zbus::fdo::Error::InvalidArgs)
+    }
+
+    async fn test(&self, #[zbus(connection)] conn: &zbus::Connection) -> ug_proto::AlertEvent {
+        self.alerts.test(conn).await
+    }
+
+    async fn clear(&self) -> u32 {
+        self.alerts.clear()
+    }
+}
+
 /// `org.unixguardian.Agent1.Update`
 pub struct UpdateIface {
     pub updater: Arc<crate::update::Updater>,

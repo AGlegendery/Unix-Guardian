@@ -670,6 +670,22 @@ pub mod agent {
         fn set(&self, settings: &AgentSettings) -> zbus::Result<()>;
     }
 
+    /// Threshold alerts: temperatures, memory and disk fill.
+    #[zbus::proxy(
+        interface = "org.unixguardian.Agent1.Alerts",
+        default_service = "org.unixguardian.Agent1",
+        default_path = "/org/unixguardian/Agent1"
+    )]
+    pub trait Alerts {
+        fn state(&self) -> zbus::Result<AlertsState>;
+        /// Saves them; refused with the reason when a value is out of range.
+        fn set(&self, settings: &AlertSettings) -> zbus::Result<()>;
+        /// Shows a test alert (held like a real one) and records it.
+        fn test(&self) -> zbus::Result<AlertEvent>;
+        /// Forgets the recent alerts; returns how many there were.
+        fn clear(&self) -> zbus::Result<u32>;
+    }
+
     /// The in-game overlay (MangoHud), set up and styled by Unix Guardian.
     #[zbus::proxy(
         interface = "org.unixguardian.Agent1.Overlay",

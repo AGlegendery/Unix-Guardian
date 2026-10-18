@@ -7,6 +7,7 @@
 //! privileged part of game mode.
 
 mod affinity;
+mod alerts;
 mod apps;
 mod background;
 mod battery_report;
@@ -336,6 +337,14 @@ async fn main() -> Result<()> {
         &ug_core::paths::user_config(),
         args.scan_interval.map(|s| s.max(1)),
     ));
+    let alerts = Arc::new(alerts::Alerts::new(
+        &ug_core::paths::user_config(),
+        &ug_core::paths::user_data(),
+        SysRoot::real(),
+        args.daemon_session,
+        Arc::clone(&settings),
+        args.quiet,
+    ));
     let (pressed_tx, mut pressed_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let shortcuts = shortcuts::Shortcuts::new(&ug_core::paths::user_config(), pressed_tx);
     let home = std::env::var_os("HOME")
@@ -410,6 +419,12 @@ async fn main() -> Result<()> {
         )?
         .serve_at(
             AGENT_OBJECT_PATH,
+            iface::AlertsIface {
+                alerts: Arc::clone(&alerts),
+            },
+        )?
+        .serve_at(
+            AGENT_OBJECT_PATH,
             iface::UpdateIface {
                 updater: Arc::clone(&updater),
                 daemon_session: args.daemon_session,
@@ -460,6 +475,7 @@ async fn main() -> Result<()> {
         .context("serving the tray control")?;
     // Only after the name is ours: a second agent must not bind them too.
     shortcuts.start();
+    tokio::spawn(Arc::clone(&alerts).run(conn.clone()));
     tracing::info!("agent ready");
 
     // Notification id → executable, for the "not a game" button, and
@@ -600,6 +616,7 @@ async fn main() -> Result<()> {
                 let (wanted, why) = lock(&core).flag_wanted(|p| p.do_not_disturb);
                 dnd.sync(&conn, wanted, &format!("Playing: {why}")).await;
                 quiet_now.store(dnd.held(), std::sync::atomic::Ordering::Relaxed);
+                alerts.dnd.store(dnd.held(), std::sync::atomic::Ordering::Relaxed);
             }
             Some(o) = announce_rx.recv() => announce(&conn, o, notify_on(), &pending_dismissals).await,
             Ok(()) = settings_changed.changed() => ticker = scan_ticker(&settings),

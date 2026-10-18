@@ -1282,3 +1282,122 @@ pub struct DriverOp {
     /// restarted yet), `check` (restarted: keep it or undo it) or `kept`.
     pub verify: String,
 }
+
+/// Threshold alerts (Monitoring → Alerts, `ug alert`). Each user has their
+/// own, in `alerts.json`; a value missing from an older file takes its
+/// default. Thresholds are whole degrees and percents.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default)]
+pub struct AlertSettings {
+    pub cpu_temp_on: bool,
+    pub cpu_temp_c: u32,
+    /// The GPU's core (edge) temperature.
+    pub gpu_temp_on: bool,
+    pub gpu_temp_c: u32,
+    /// Hotspot (junction) and memory temperatures, on cards that report
+    /// them. They run hotter than the core, so they have their own limits.
+    pub gpu_hotspot_on: bool,
+    pub gpu_hotspot_c: u32,
+    pub gpu_vram_on: bool,
+    pub gpu_vram_c: u32,
+    pub mem_on: bool,
+    pub mem_pct: u32,
+    pub disk_on: bool,
+    pub disk_pct: u32,
+    /// Mount points watched for the disk alert.
+    pub disk_mounts: Vec<String>,
+    /// A reading has to stay above its limit this long (3–30 s), so a
+    /// short spike never alerts.
+    pub sustain_s: u32,
+    /// Minutes between two alerts of the same kind on the same thing
+    /// (5, 15, 30, 60 or 120).
+    pub cooldown_min: u32,
+}
+
+impl Default for AlertSettings {
+    fn default() -> Self {
+        AlertSettings {
+            cpu_temp_on: true,
+            cpu_temp_c: 90,
+            gpu_temp_on: true,
+            gpu_temp_c: 85,
+            gpu_hotspot_on: false,
+            gpu_hotspot_c: 100,
+            gpu_vram_on: false,
+            gpu_vram_c: 95,
+            mem_on: false,
+            mem_pct: 90,
+            disk_on: true,
+            disk_pct: 95,
+            disk_mounts: vec!["/".into()],
+            sustain_s: 10,
+            cooldown_min: 30,
+        }
+    }
+}
+
+/// The cooldowns offered, in minutes.
+pub const ALERT_COOLDOWNS: [u32; 5] = [5, 15, 30, 60, 120];
+
+/// What one alert can see on this machine right now.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct AlertSensor {
+    /// `cpu_temp`, `gpu_temp`, `gpu_hotspot`, `gpu_vram`, `memory`, `disk`.
+    pub kind: String,
+    /// What is read: "CPU", the card's name, a mount point.
+    pub subject: String,
+    /// `ok`; `unsupported` (this hardware does not report it); `asleep` (a
+    /// discrete GPU sleeping: not woken, checked when it wakes);
+    /// `unknown` (not seen yet, e.g. a sleeping card never read awake);
+    /// `missing` (a chosen mount that is not mounted).
+    pub status: String,
+    /// The last reading, or `NaN`.
+    pub value: f64,
+    /// Seconds the reading has stayed above the limit so far (0 when
+    /// below), for the sensitivity cells.
+    pub above_s: u32,
+}
+
+impl AlertSensor {
+    pub fn reading(&self) -> Option<f64> {
+        opt_f64(self.value)
+    }
+}
+
+/// A mounted filesystem the disk alert can watch.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct AlertMount {
+    pub path: String,
+    pub fs: String,
+    /// Percent of the space in use, or `NaN`.
+    pub used_pct: f64,
+    pub size_bytes: u64,
+}
+
+/// One alert that fired (or a test).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct AlertEvent {
+    pub ts_unix_ms: u64,
+    /// As [`AlertSensor::kind`], or `test`.
+    pub kind: String,
+    pub subject: String,
+    pub value: f64,
+    pub threshold: u32,
+    /// Shown on the desktop. `false` when held: game mode's do not
+    /// disturb, notifications off in Settings, or no notification server.
+    pub notified: bool,
+    /// Why it was not shown ("" when it was): `dnd`, `off`, `no-server`.
+    pub held: String,
+}
+
+/// What the Alerts page shows.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+pub struct AlertsState {
+    pub settings: AlertSettings,
+    pub sensors: Vec<AlertSensor>,
+    pub mounts: Vec<AlertMount>,
+    /// Newest first; at most 50 are kept.
+    pub recent: Vec<AlertEvent>,
+    /// Game mode's do not disturb is holding desktop notifications now.
+    pub held: bool,
+}

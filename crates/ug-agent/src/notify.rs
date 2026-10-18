@@ -67,3 +67,28 @@ pub async fn show(
         }
     }
 }
+
+/// Shows a threshold alert: a warning icon and normal urgency (critical
+/// would stay on screen and ignore do not disturb on some desktops; the
+/// agent holds alerts itself while do not disturb is on).
+pub async fn show_alert(conn: &zbus::Connection, summary: &str, body: &str) -> Option<u32> {
+    let proxy = NotificationsProxy::new(conn).await.ok()?;
+    let mut hints = HashMap::new();
+    hints.insert("desktop-entry", Value::from("unix-guardian"));
+    hints.insert("urgency", Value::from(1u8));
+    hints.insert("category", Value::from("device"));
+    proxy
+        .notify(
+            "Unix Guardian",
+            0,
+            "dialog-warning",
+            summary,
+            body,
+            &[],
+            hints,
+            10000,
+        )
+        .await
+        .inspect_err(|e| tracing::debug!(error = %e, "no notification server"))
+        .ok()
+}

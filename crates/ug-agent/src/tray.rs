@@ -772,7 +772,7 @@ fn read_milli(p: &Path) -> Option<f64> {
 }
 
 /// The CPU package temperature sensor and its `_crit` value (TjMax on Intel).
-fn cpu_sensor(root: &SysRoot) -> Option<(PathBuf, Option<f64>)> {
+pub(crate) fn cpu_sensor(root: &SysRoot) -> Option<(PathBuf, Option<f64>)> {
     let chips = ug_hw::hwmon::enumerate(root);
     let chip = ug_hw::hwmon::cpu_chip(&chips)?;
     let sensor = ["Package id 0", "Tctl", "Tdie", "Composite"]
