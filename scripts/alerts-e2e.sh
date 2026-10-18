@@ -17,7 +17,7 @@ fails=0
 check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fails+1)); fi; }
 until_() { local d=$((SECONDS+$1)); shift; until eval "$@"; do (( SECONDS < d )) || return 1; sleep 0.3; done; }
 ug() { "$B/ug" --session "$@"; }
-export XDG_DATA_HOME="$W/data" XDG_CONFIG_HOME="$W/cfg" UG_TEST_RUN="alerts-$$" UG_ALERTS_SYSROOT="$R"
+export XDG_DATA_HOME="$W/data" XDG_CONFIG_HOME="$W/cfg" XDG_STATE_HOME="$W/xstate" UG_TEST_RUN="alerts-$$" UG_ALERTS_SYSROOT="$R"
 
 # A CPU at 95 °C and memory 97 % full.
 H="$R/sys/class/hwmon/hwmon0"
@@ -64,7 +64,10 @@ check "the cooldown keeps each alert to one" "[ \$(grep -c 'The CPU' '$W/shown')
 check "both are in the recent list, on disk" "ug alert | grep -q 'Recent alerts' && grep -q cpu_temp '$XDG_DATA_HOME/unix-guardian/alerts-recent.json'"
 check "a test alert is shown" "ug alert test | grep -q 'shown' && grep -q 'Test alert' '$W/shown'"
 check "settings are kept in alerts.json" "grep -q '\"sustain_s\": 3' '$XDG_CONFIG_HOME/unix-guardian/alerts.json'"
-check "clear forgets them" "ug alert clear | grep -q 'Forgot 3' && ug alert | grep -q 'No alerts; everything normal'"
+mkdir -p "$W/xstate/ryoku"; echo '{"dnd": true}' >"$W/xstate/ryoku/flags.json"
+check "the desktop's own do not disturb is reported, not hidden" "ug alert test | grep -q \"desktop's own Do not disturb\""
+rm "$W/xstate/ryoku/flags.json"
+check "clear forgets them" "ug alert clear | grep -q 'Forgot 4' && ug alert | grep -q 'No alerts; everything normal'"
 check "JSON has the sensors" "ug --json alert | grep -q '\"above_s\"'"
 
 [ $fails = 0 ] || cat "$W/first"

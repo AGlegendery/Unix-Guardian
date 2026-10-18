@@ -456,6 +456,7 @@ export const en = {
         "": "Test alert sent. Did it show on your desktop?",
         dnd: "Held: game mode's do not disturb is on. It is listed under Recent alerts.",
         off: "Held: notifications are off in Settings.",
+        "desktop-dnd": "Sent, but your desktop's own Do not disturb is on, so it went to the notification list instead of the screen. Turn Do not disturb off in the desktop's quick settings to see alerts pop up.",
         "no-server": "No notification service answered on this desktop.",
       } as Record<string, string>,
       held: "Game mode's do not disturb is on: alerts are recorded here but not shown on the desktop.",

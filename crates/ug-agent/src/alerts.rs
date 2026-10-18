@@ -335,6 +335,38 @@ pub fn disk_sensors(
         .collect()
 }
 
+/// An [`AlertEvent`] as read from `alerts-recent.json`: JSON has no NaN,
+/// so a test alert's missing reading is written as `null` (the D-Bus type
+/// itself must stay a plain f64).
+#[derive(serde::Deserialize)]
+struct StoredEvent {
+    ts_unix_ms: u64,
+    kind: String,
+    #[serde(default)]
+    subject: String,
+    value: Option<f64>,
+    #[serde(default)]
+    threshold: u32,
+    #[serde(default)]
+    notified: bool,
+    #[serde(default)]
+    held: String,
+}
+
+impl From<StoredEvent> for AlertEvent {
+    fn from(s: StoredEvent) -> Self {
+        AlertEvent {
+            ts_unix_ms: s.ts_unix_ms,
+            kind: s.kind,
+            subject: s.subject,
+            value: s.value.unwrap_or(f64::NAN),
+            threshold: s.threshold,
+            notified: s.notified,
+            held: s.held,
+        }
+    }
+}
+
 struct Inner {
     settings: AlertSettings,
     recent: Vec<AlertEvent>,
@@ -383,7 +415,11 @@ impl Alerts {
         let settings = read_json::<AlertSettings>(&settings_file)
             .filter(|s| validate(s).is_ok())
             .unwrap_or_default();
-        let mut recent: Vec<AlertEvent> = read_json(&recent_file).unwrap_or_default();
+        let mut recent: Vec<AlertEvent> = read_json::<Vec<StoredEvent>>(&recent_file)
+            .unwrap_or_default()
+            .into_iter()
+            .map(AlertEvent::from)
+            .collect();
         recent.truncate(KEEP);
         Alerts {
             settings_file,
@@ -476,6 +512,31 @@ impl Alerts {
                 .is_none()
         {
             held = "no-server".into();
+        }
+        // Delivered, but the desktop's own do not disturb keeps it off the
+        // screen (it only lands in the notification list): say so, or the
+        // alert looks broken (the user's Ryoku, 2026-10-19).
+        if held.is_empty() {
+            let home = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default();
+            let state = std::env::var_os("XDG_STATE_HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(".local/state"));
+            let run = |prog: &str, args: &[&str]| -> Option<String> {
+                let out = std::process::Command::new(prog).args(args).output().ok()?;
+                out.status
+                    .success()
+                    .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+            };
+            let dnd = tokio::task::spawn_blocking(move || desktop_dnd(&state, &run))
+                .await
+                .ok()
+                .flatten();
+            if let Some(desktop) = dnd {
+                tracing::info!(desktop, "the desktop's do not disturb is on");
+                held = "desktop-dnd".into();
+            }
         }
         tracing::info!(kind, subject, value, threshold, held, "alert");
         let e = AlertEvent {
@@ -749,6 +810,40 @@ impl Alerts {
             }
         }
     }
+}
+
+/// The desktop whose own do not disturb is on, when it can be read:
+/// Ryoku's flags file, GNOME's banners setting, mako, SwayNC or dunst.
+/// `state` is XDG_STATE_HOME; `run` runs a program and gives its output.
+pub fn desktop_dnd(
+    state: &Path,
+    run: &dyn Fn(&str, &[&str]) -> Option<String>,
+) -> Option<&'static str> {
+    if let Some(v) = read_json::<serde_json::Value>(&state.join("ryoku/flags.json")) {
+        if v.get("dnd").and_then(|d| d.as_bool()) == Some(true) {
+            return Some("Ryoku");
+        }
+    }
+    let said = |prog: &str, args: &[&str], on: &dyn Fn(&str) -> bool| {
+        run(prog, args).is_some_and(|o| on(o.trim()))
+    };
+    if said(
+        "gsettings",
+        &["get", "org.gnome.desktop.notifications", "show-banners"],
+        &|o| o == "false",
+    ) {
+        return Some("GNOME");
+    }
+    if said("makoctl", &["mode"], &|o| o.contains("do-not-disturb")) {
+        return Some("mako");
+    }
+    if said("swaync-client", &["-D", "-sw"], &|o| o == "true") {
+        return Some("SwayNC");
+    }
+    if said("dunstctl", &["is-paused"], &|o| o == "true") {
+        return Some("dunst");
+    }
+    None
 }
 
 /// What a kind is called in a notification.
@@ -1064,6 +1159,70 @@ mod tests {
         assert_eq!(again.clear(), 50);
         assert!(again.lock().recent.is_empty());
         assert!(!d.path().join("alerts-recent.json").exists());
+    }
+
+    #[test]
+    fn the_desktops_own_do_not_disturb_is_noticed() {
+        let d = tempfile::tempdir().unwrap();
+        let none = |_: &str, _: &[&str]| None;
+        assert_eq!(desktop_dnd(d.path(), &none), None);
+        // The user's Ryoku, as it was when the test alert "did nothing".
+        std::fs::create_dir_all(d.path().join("ryoku")).unwrap();
+        std::fs::write(
+            d.path().join("ryoku/flags.json"),
+            r#"{"dnd": true, "gameDndPrev": false, "gameMode": false, "keepAwake": true}"#,
+        )
+        .unwrap();
+        assert_eq!(desktop_dnd(d.path(), &none), Some("Ryoku"));
+        std::fs::write(d.path().join("ryoku/flags.json"), r#"{"dnd": false}"#).unwrap();
+        assert_eq!(desktop_dnd(d.path(), &none), None);
+        let gnome = |p: &str, _: &[&str]| (p == "gsettings").then(|| "false\n".to_string());
+        assert_eq!(desktop_dnd(d.path(), &gnome), Some("GNOME"));
+        let mako =
+            |p: &str, _: &[&str]| (p == "makoctl").then(|| "default\ndo-not-disturb\n".to_string());
+        assert_eq!(desktop_dnd(d.path(), &mako), Some("mako"));
+    }
+
+    #[test]
+    fn a_test_alert_without_a_value_survives_a_restart() {
+        // A test alert has no reading (NaN), which JSON writes as null; the
+        // list then failed to load and every alert and cooldown was lost.
+        let d = tempfile::tempdir().unwrap();
+        let agent = Arc::new(Settings::load(d.path(), None));
+        let a = Alerts::new(
+            d.path(),
+            d.path(),
+            SysRoot::at(d.path()),
+            true,
+            agent.clone(),
+            false,
+        );
+        a.record(AlertEvent {
+            ts_unix_ms: 5,
+            kind: "test".into(),
+            value: f64::NAN,
+            ..Default::default()
+        });
+        a.record(AlertEvent {
+            ts_unix_ms: 6,
+            kind: "cpu_temp".into(),
+            subject: "CPU".into(),
+            value: 93.0,
+            threshold: 90,
+            ..Default::default()
+        });
+        let again = Alerts::new(
+            d.path(),
+            d.path(),
+            SysRoot::at(d.path()),
+            true,
+            agent,
+            false,
+        );
+        let r = again.lock().recent.clone();
+        assert_eq!(r.len(), 2, "both kept");
+        assert!(r[1].value.is_nan());
+        assert_eq!(r[0].value, 93.0);
     }
 
     #[test]

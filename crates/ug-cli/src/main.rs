@@ -2145,6 +2145,11 @@ fn alert_held(e: &ug_proto::AlertEvent) -> &'static str {
     match e.held.as_str() {
         "" => "Test alert shown.",
         "dnd" => "Held: game mode's do not disturb is on. It is in the recent alerts.",
+        "desktop-dnd" => {
+            "Sent, but the desktop's own Do not disturb is on: it went to the \
+                          notification list instead of the screen. Turn Do not disturb off in \
+                          the desktop's quick settings to see alerts pop up."
+        }
         "off" => "Held: notifications are off (Settings, or ug-agent --quiet).",
         _ => "No notification server answered (a bare window manager?).",
     }

@@ -1392,7 +1392,9 @@ pub struct AlertEvent {
     /// Shown on the desktop. `false` when held: game mode's do not
     /// disturb, notifications off in Settings, or no notification server.
     pub notified: bool,
-    /// Why it was not shown ("" when it was): `dnd`, `off`, `no-server`.
+    /// Why it was not shown ("" when it was): `dnd` (game mode), `off`,
+    /// `no-server`, `desktop-dnd` (delivered, but the desktop's own do not
+    /// disturb keeps it in its list, off the screen).
     pub held: String,
 }
 

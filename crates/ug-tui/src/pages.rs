@@ -2175,6 +2175,7 @@ fn activate_alert(app: &mut App, i: usize) {
                 match e.held.as_str() {
                     "" => "Test alert sent. Did it show on the desktop?",
                     "dnd" => "Held: game mode's do not disturb is on (listed under Recent alerts).",
+                    "desktop-dnd" => "Sent, but the desktop's own Do not disturb is on: it is in the notification list, not on screen.",
                     "off" => "Held: notifications are off in Settings.",
                     _ => "No notification service answered.",
                 }

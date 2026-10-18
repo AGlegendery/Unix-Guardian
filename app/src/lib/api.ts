@@ -324,7 +324,7 @@ export interface AlertEvent {
   threshold: number;
   notified: boolean;
   /** Why it was not shown: "dnd", "off", "no-server"; "" when shown. */
-  held: "" | "dnd" | "off" | "no-server";
+  held: "" | "dnd" | "off" | "no-server" | "desktop-dnd";
 }
 export interface AlertsState {
   settings: AlertSettings;
