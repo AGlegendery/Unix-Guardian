@@ -1374,6 +1374,12 @@ pub struct AlertMount {
     pub size_bytes: u64,
 }
 
+impl AlertMount {
+    pub fn used(&self) -> Option<f64> {
+        opt_f64(self.used_pct)
+    }
+}
+
 /// One alert that fired (or a test).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
 pub struct AlertEvent {

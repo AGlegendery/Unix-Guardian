@@ -283,6 +283,34 @@ impl Bus {
             .map_err(|e| msg(e, "service"))
     }
 
+    pub fn alerts(&self) -> Result<ug_proto::AlertsState, String> {
+        let c = self.agent()?;
+        self.rt
+            .block_on(async { ug_proto::agent::AlertsProxy::new(c).await?.state().await })
+            .map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn set_alerts(&self, s: &ug_proto::AlertSettings) -> Result<(), String> {
+        let c = self.agent()?;
+        self.rt
+            .block_on(async { ug_proto::agent::AlertsProxy::new(c).await?.set(s).await })
+            .map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn test_alert(&self) -> Result<ug_proto::AlertEvent, String> {
+        let c = self.agent()?;
+        self.rt
+            .block_on(async { ug_proto::agent::AlertsProxy::new(c).await?.test().await })
+            .map_err(|e| msg(e, "agent"))
+    }
+
+    pub fn clear_alerts(&self) -> Result<u32, String> {
+        let c = self.agent()?;
+        self.rt
+            .block_on(async { ug_proto::agent::AlertsProxy::new(c).await?.clear().await })
+            .map_err(|e| msg(e, "agent"))
+    }
+
     pub fn settings(&self) -> Result<ug_proto::SettingsState, String> {
         let c = self.agent()?;
         self.rt

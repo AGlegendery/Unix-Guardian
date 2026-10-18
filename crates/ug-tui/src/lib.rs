@@ -116,6 +116,7 @@ pub struct App {
     /// hand (most terminals never see the Meta key itself).
     pub recording: Option<(String, bool)>,
     pub settings: Cached<ug_proto::SettingsState>,
+    pub alerts: Cached<ug_proto::AlertsState>,
     /// The last update check and a running install (no network here).
     pub update: Cached<ug_proto::UpdateState>,
     /// The driver check (files only, run here) and the service's changes.
@@ -206,6 +207,7 @@ impl App {
             recorder: Cached::new(Duration::from_secs(1)),
             recording: None,
             settings: Cached::new(SLOW),
+            alerts: Cached::new(Duration::from_secs(2)),
             update: Cached::new(Duration::from_secs(1)),
             driver: Cached::new(Duration::from_secs(3600)),
             driver_ops: Cached::new(Duration::from_secs(1)),
@@ -360,6 +362,10 @@ impl App {
                 if self.tab == 1 && self.traffic.due() {
                     let r = self.bus.traffic_view(data::now_ms());
                     self.traffic.store(r);
+                }
+                if self.tab == 3 && self.alerts.due() {
+                    let r = self.bus.alerts();
+                    self.alerts.store(r);
                 }
             }
             5 => {
@@ -570,7 +576,7 @@ impl App {
         match self.page {
             1 => 3,
             2 => 5,
-            3 => 3,
+            3 => 4,
             4 => 2,
             5 => 2,
             8 => 2,
@@ -1388,6 +1394,71 @@ mod tests {
         ] {
             assert!(screen.contains(want), "missing {want:?} in\n{screen}");
         }
+    }
+
+    #[test]
+    fn the_alerts_tab_shows_each_alert_its_reading_and_the_recent_ones() {
+        use ug_proto::{AlertEvent, AlertMount, AlertSensor, AlertsState};
+        let mut app = App::new(Bus::offline());
+        app.go(3);
+        app.tab = 3;
+        let sensor =
+            |kind: &str, subject: &str, status: &str, value: f64, above_s: u32| AlertSensor {
+                kind: kind.into(),
+                subject: subject.into(),
+                status: status.into(),
+                value,
+                above_s,
+            };
+        app.alerts.store(Ok(AlertsState {
+            settings: Default::default(),
+            sensors: vec![
+                sensor("cpu_temp", "CPU", "ok", 93.0, 4),
+                sensor("gpu_temp", "RTX 3050", "asleep", f64::NAN, 0),
+                sensor("gpu_hotspot", "RTX 3050", "unknown", f64::NAN, 0),
+                sensor("gpu_vram", "RTX 3050", "unknown", f64::NAN, 0),
+                sensor("memory", "RAM", "unsupported", f64::NAN, 0),
+                sensor("disk", "/", "ok", 71.0, 0),
+            ],
+            mounts: vec![AlertMount {
+                path: "/".into(),
+                fs: "btrfs".into(),
+                used_pct: 71.0,
+                size_bytes: 1,
+            }],
+            recent: vec![AlertEvent {
+                ts_unix_ms: 1_700_000_000_000,
+                kind: "disk".into(),
+                subject: "/home".into(),
+                value: 96.0,
+                threshold: 95,
+                notified: false,
+                held: "dnd".into(),
+            }],
+            held: true,
+        }));
+        let screen = render(&mut app, 130, 40);
+        for want in [
+            "Alerts",
+            "CPU temperature",
+            "‹  90 °C ›",
+            "CPU: 93 °C  ■■■■□□□□□□",
+            "RTX 3050: asleep; checked when it wakes",
+            "Memory use",
+            "not supported on this hardware",
+            "[x] /",
+            "btrfs · 71 % full",
+            "‹ 10 s ›",
+            "‹  30 min ›",
+            "Send a test alert",
+            "do not disturb is on",
+            "Recent alerts",
+            "96 % (limit 95 %)",
+        ] {
+            assert!(screen.contains(want), "missing {want:?} in\n{screen}");
+        }
+        assert!(!screen.contains("GPU hotspot"), "never seen: not offered");
+        assert!(screen.contains("held"));
     }
 
     #[test]

@@ -1778,6 +1778,399 @@ fn system(app: &mut App, f: &mut Frame, r: Rect) {
 const SLEEP_ACTIONS: [&str; 5] = ["ignore", "lock", "suspend", "hibernate", "poweroff"];
 
 /// The rows of the Sleep tab: (id, label); ids are the daemon's.
+/// One row of the Alerts tab.
+#[derive(Clone, Debug, PartialEq)]
+enum AlertRow {
+    /// An alert: kind, as in `AlertSensor::kind`.
+    Rule(&'static str),
+    Sensitivity,
+    Cooldown,
+    Mount(String),
+    Test,
+    Clear,
+}
+
+/// (kind, name, unit, lowest, highest) of each alert.
+const ALERT_RULES: [(&str, &str, &str, u32, u32); 6] = [
+    ("cpu_temp", "CPU temperature", "°C", 50, 110),
+    ("gpu_temp", "GPU temperature", "°C", 50, 110),
+    ("gpu_hotspot", "GPU hotspot", "°C", 60, 120),
+    ("gpu_vram", "GPU memory temp.", "°C", 60, 120),
+    ("memory", "Memory use", "%", 50, 99),
+    ("disk", "Disk fill", "%", 50, 99),
+];
+
+fn alert_rule<'a>(s: &'a mut ug_proto::AlertSettings, kind: &str) -> (&'a mut bool, &'a mut u32) {
+    match kind {
+        "cpu_temp" => (&mut s.cpu_temp_on, &mut s.cpu_temp_c),
+        "gpu_temp" => (&mut s.gpu_temp_on, &mut s.gpu_temp_c),
+        "gpu_hotspot" => (&mut s.gpu_hotspot_on, &mut s.gpu_hotspot_c),
+        "gpu_vram" => (&mut s.gpu_vram_on, &mut s.gpu_vram_c),
+        "memory" => (&mut s.mem_on, &mut s.mem_pct),
+        _ => (&mut s.disk_on, &mut s.disk_pct),
+    }
+}
+
+/// Every sensor of a kind reads `unsupported`: the alert cannot work here.
+fn alert_unsupported(st: &ug_proto::AlertsState, kind: &str) -> bool {
+    let mut it = st.sensors.iter().filter(|x| x.kind == kind).peekable();
+    it.peek().is_some() && it.all(|x| x.status == "unsupported")
+}
+
+/// The rows, in order. Hotspot and memory temperature appear only where a
+/// card was seen reporting them (or the alert is on).
+fn alert_rows(st: &ug_proto::AlertsState) -> Vec<AlertRow> {
+    let mut rows = Vec::new();
+    for (kind, ..) in ALERT_RULES {
+        if kind == "gpu_hotspot" || kind == "gpu_vram" {
+            let seen = st
+                .sensors
+                .iter()
+                .any(|x| x.kind == kind && (x.status == "ok" || x.status == "asleep"));
+            let mut s = st.settings.clone();
+            if !seen && !*alert_rule(&mut s, kind).0 {
+                continue;
+            }
+        }
+        rows.push(AlertRow::Rule(kind));
+    }
+    rows.push(AlertRow::Sensitivity);
+    rows.push(AlertRow::Cooldown);
+    let mut mounts: Vec<String> = st.mounts.iter().map(|m| m.path.clone()).collect();
+    for m in &st.settings.disk_mounts {
+        if !mounts.contains(m) {
+            mounts.push(m.clone());
+        }
+    }
+    rows.extend(mounts.into_iter().map(AlertRow::Mount));
+    rows.push(AlertRow::Test);
+    if !st.recent.is_empty() {
+        rows.push(AlertRow::Clear);
+    }
+    rows
+}
+
+/// What a sensor reads now, in words.
+fn alert_reading(x: &ug_proto::AlertSensor, unit: &str, on: bool, sustain: u32) -> String {
+    let who = if x.subject.is_empty() {
+        String::new()
+    } else {
+        format!("{}: ", x.subject)
+    };
+    match (x.status.as_str(), x.reading()) {
+        ("ok", Some(v)) if on => {
+            let filled = x.above_s.min(sustain) as usize;
+            format!(
+                "{who}{v:.0} {unit}  {}{}",
+                "■".repeat(filled),
+                "□".repeat(sustain as usize - filled)
+            )
+        }
+        ("ok", Some(v)) => format!("{who}{v:.0} {unit}"),
+        ("asleep", _) => format!("{who}asleep; checked when it wakes"),
+        ("unsupported", _) => format!("{who}not supported on this hardware"),
+        ("missing", _) => format!("{who}not mounted"),
+        ("unknown", _) if x.subject.is_empty() => "the service is not reachable".into(),
+        _ => format!("{who}no reading yet"),
+    }
+}
+
+fn alerts_page(app: &mut App, f: &mut Frame, r: Rect) {
+    let t = app.theme;
+    let Some(st) = app.alerts.value.clone() else {
+        let msg = app
+            .alerts
+            .error
+            .clone()
+            .unwrap_or_else(|| "Reading…".into());
+        f.render_widget(
+            Paragraph::new(Span::styled(msg, t.muted())).wrap(Wrap { trim: true }),
+            r,
+        );
+        return;
+    };
+    let s = &st.settings;
+    let rows = alert_rows(&st);
+    let mut y = r.y;
+    if st.held {
+        f.render_widget(
+            Paragraph::new(Span::styled(
+                " Game mode's do not disturb is on: alerts are recorded, not shown.",
+                t.warn_style(),
+            )),
+            Rect { y, height: 1, ..r },
+        );
+        y += 1;
+    }
+    let mut mounts_head = false;
+    for (i, row_kind) in rows.iter().enumerate() {
+        if y >= r.bottom() {
+            break;
+        }
+        let line = match row_kind {
+            AlertRow::Rule(kind) => {
+                let (_, name, unit, ..) = ALERT_RULES
+                    .iter()
+                    .find(|x| x.0 == *kind)
+                    .copied()
+                    .unwrap_or(ALERT_RULES[0]);
+                let mut c = s.clone();
+                let (on, limit) = alert_rule(&mut c, kind);
+                let (on, limit) = (*on, *limit);
+                let no = alert_unsupported(&st, kind);
+                let readings: Vec<String> = st
+                    .sensors
+                    .iter()
+                    .filter(|x| x.kind == *kind)
+                    .map(|x| alert_reading(x, unit, on, s.sustain_s))
+                    .collect();
+                let mut spans = vec![Span::styled(format!(" {name:<18}"), t.text())];
+                if no {
+                    spans.push(Span::styled("not supported on this hardware", t.muted()));
+                } else {
+                    spans.push(Span::styled(
+                        format!("{:<4}", if on { "on" } else { "off" }),
+                        if on { t.accent() } else { t.muted() },
+                    ));
+                    spans.push(Span::styled(format!("‹ {limit:>3} {unit} ›  "), t.accent()));
+                    spans.push(Span::styled(readings.join("  ·  "), t.muted()));
+                }
+                Line::from(spans)
+            }
+            AlertRow::Sensitivity => Line::from(vec![
+                Span::styled(format!(" {:<22}", "Sensitivity"), t.text()),
+                Span::styled(format!("‹ {:>2} s ›  ", s.sustain_s), t.accent()),
+                Span::styled("above the limit this long before an alert", t.faint()),
+            ]),
+            AlertRow::Cooldown => Line::from(vec![
+                Span::styled(format!(" {:<22}", "Quiet after an alert"), t.text()),
+                Span::styled(format!("‹ {:>3} min ›", s.cooldown_min), t.accent()),
+            ]),
+            AlertRow::Mount(m) => {
+                if !mounts_head {
+                    mounts_head = true;
+                    f.render_widget(
+                        Paragraph::new(Span::styled(" Disks the disk alert watches:", t.muted())),
+                        Rect { y, height: 1, ..r },
+                    );
+                    y += 1;
+                    if y >= r.bottom() {
+                        break;
+                    }
+                }
+                let picked = s.disk_mounts.contains(m);
+                let info = st
+                    .mounts
+                    .iter()
+                    .find(|x| &x.path == m)
+                    .map(|x| {
+                        format!(
+                            "{} · {}",
+                            x.fs,
+                            x.used().map_or("—".into(), |p| format!("{p:.0} % full"))
+                        )
+                    })
+                    .unwrap_or_else(|| "not in the list".into());
+                Line::from(vec![
+                    Span::styled(
+                        format!("   [{}] ", if picked { "x" } else { " " }),
+                        t.accent(),
+                    ),
+                    Span::styled(format!("{m:<20} "), t.text()),
+                    Span::styled(info, t.faint()),
+                ])
+            }
+            AlertRow::Test => Line::from(Span::styled(" [ Send a test alert ]", t.accent())),
+            AlertRow::Clear => Line::from(Span::styled(" [ Clear the recent alerts ]", t.accent())),
+        };
+        row(app, f, Rect { y, height: 1, ..r }, i, line);
+        y += 1;
+    }
+    app.rows = rows.len();
+    if y + 2 >= r.bottom() {
+        return;
+    }
+    y += 1;
+    f.render_widget(
+        Paragraph::new(Span::styled(" Recent alerts", t.title())),
+        Rect { y, height: 1, ..r },
+    );
+    y += 1;
+    if st.recent.is_empty() {
+        f.render_widget(
+            Paragraph::new(Span::styled(" No alerts; everything normal.", t.muted())),
+            Rect { y, height: 1, ..r },
+        );
+        return;
+    }
+    let lines: Vec<Line> = st
+        .recent
+        .iter()
+        .take(r.bottom().saturating_sub(y) as usize)
+        .map(|e| {
+            let name = ALERT_RULES
+                .iter()
+                .find(|x| x.0 == e.kind)
+                .map_or("Test alert", |x| x.1);
+            let unit = if e.kind == "memory" || e.kind == "disk" {
+                "%"
+            } else {
+                "°C"
+            };
+            let value = if e.kind == "test" {
+                String::new()
+            } else {
+                format!("{:.0} {unit} (limit {} {unit})", e.value, e.threshold)
+            };
+            Line::from(vec![
+                Span::styled(format!(" {}  ", clock_time(e.ts_unix_ms)), t.faint()),
+                Span::styled(format!("{name:<18} {:<14} ", e.subject), t.text()),
+                Span::styled(value, t.muted()),
+                Span::styled(if e.notified { "" } else { "  held" }, t.warn_style()),
+            ])
+        })
+        .collect();
+    f.render_widget(
+        Paragraph::new(lines),
+        Rect {
+            y,
+            height: r.bottom() - y,
+            ..r
+        },
+    );
+}
+
+/// "Sun 14:05" in local time.
+fn clock_time(unix_ms: u64) -> String {
+    // SAFETY: localtime_r writes only into the struct we pass.
+    let tm = unsafe {
+        let t = (unix_ms / 1000) as libc::time_t;
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&t, &mut tm);
+        tm
+    };
+    const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    format!(
+        "{} {:02}:{:02}",
+        DAYS[tm.tm_wday.clamp(0, 6) as usize],
+        tm.tm_hour,
+        tm.tm_min
+    )
+}
+
+/// Saves changed alert settings and says what changed.
+fn save_alerts(app: &mut App, s: ug_proto::AlertSettings, said: String) {
+    let r = app.bus.set_alerts(&s).map(|_| said);
+    if r.is_ok() {
+        if let Some(st) = app.alerts.value.as_mut() {
+            st.settings = s;
+        }
+    }
+    report(app, r);
+    app.alerts.invalidate();
+}
+
+/// ←→ on an Alerts row: the limit, the sensitivity or the cooldown.
+fn step_alert(app: &mut App, d: i32) {
+    let Some(st) = app.alerts.value.clone() else {
+        return;
+    };
+    let Some(which) = alert_rows(&st).get(app.row).cloned() else {
+        return;
+    };
+    let mut s = st.settings.clone();
+    let said = match which {
+        AlertRow::Rule(kind) => {
+            if alert_unsupported(&st, kind) {
+                app.say("Not supported on this hardware.", false);
+                return;
+            }
+            let (_, name, unit, lo, hi) = ALERT_RULES
+                .iter()
+                .find(|x| x.0 == kind)
+                .copied()
+                .unwrap_or(ALERT_RULES[0]);
+            let (_, limit) = alert_rule(&mut s, kind);
+            *limit = (*limit as i32 + d).clamp(lo as i32, hi as i32) as u32;
+            format!("{name}: alert at {} {unit}.", limit)
+        }
+        AlertRow::Sensitivity => {
+            s.sustain_s = (s.sustain_s as i32 + d).clamp(3, 30) as u32;
+            format!("Sensitivity: {} s.", s.sustain_s)
+        }
+        AlertRow::Cooldown => {
+            let list = ug_proto::ALERT_COOLDOWNS;
+            let i = list.iter().position(|m| *m == s.cooldown_min).unwrap_or(2) as i32;
+            s.cooldown_min = list[(i + d).clamp(0, list.len() as i32 - 1) as usize];
+            format!("Quiet for {} min after an alert.", s.cooldown_min)
+        }
+        _ => return,
+    };
+    save_alerts(app, s, said);
+}
+
+/// Enter on an Alerts row.
+fn activate_alert(app: &mut App, i: usize) {
+    let Some(st) = app.alerts.value.clone() else {
+        return;
+    };
+    let Some(which) = alert_rows(&st).get(i).cloned() else {
+        return;
+    };
+    let mut s = st.settings.clone();
+    match which {
+        AlertRow::Rule(kind) => {
+            if alert_unsupported(&st, kind) {
+                app.say("Not supported on this hardware.", false);
+                return;
+            }
+            let name = ALERT_RULES
+                .iter()
+                .find(|x| x.0 == kind)
+                .map_or(kind, |x| x.1);
+            let (on, _) = alert_rule(&mut s, kind);
+            *on = !*on;
+            let said = format!("{name} alert {}.", if *on { "on" } else { "off" });
+            save_alerts(app, s, said);
+        }
+        AlertRow::Mount(m) => {
+            if let Some(p) = s.disk_mounts.iter().position(|x| *x == m) {
+                s.disk_mounts.remove(p);
+            } else {
+                s.disk_mounts.push(m.clone());
+            }
+            let said = if s.disk_mounts.contains(&m) {
+                format!("{m} is watched.")
+            } else {
+                format!("{m} is no longer watched.")
+            };
+            save_alerts(app, s, said);
+        }
+        AlertRow::Test => {
+            let r = app.bus.test_alert().map(|e| {
+                match e.held.as_str() {
+                    "" => "Test alert sent. Did it show on the desktop?",
+                    "dnd" => "Held: game mode's do not disturb is on (listed under Recent alerts).",
+                    "off" => "Held: notifications are off in Settings.",
+                    _ => "No notification service answered.",
+                }
+                .to_string()
+            });
+            report(app, r);
+            app.alerts.invalidate();
+        }
+        AlertRow::Clear => {
+            let r = app
+                .bus
+                .clear_alerts()
+                .map(|n| format!("Forgot {n} recent alerts."));
+            report(app, r);
+            app.alerts.invalidate();
+        }
+        AlertRow::Sensitivity | AlertRow::Cooldown => step_alert(app, 1),
+    }
+}
+
 fn sleep_rows(s: &ug_proto::SleepSettings) -> Vec<(&'static str, &'static str)> {
     let mut rows = Vec::new();
     if s.sleep_modes.len() > 1 {
@@ -2687,13 +3080,17 @@ fn monitoring(app: &mut App, f: &mut Frame, r: Rect) {
         app,
         f,
         Rect { height: 1, ..r },
-        &["Temperature and power", "Internet traffic", "FPS"],
+        &["Temperature and power", "Internet traffic", "FPS", "Alerts"],
     );
     let body = Rect {
         y: r.y + 2,
         height: r.height.saturating_sub(2),
         ..r
     };
+    if app.tab == 3 {
+        alerts_page(app, f, body);
+        return;
+    }
     if app.tab == 2 {
         fps(app, f, body);
         return;
@@ -5673,6 +6070,13 @@ pub fn keys(app: &App) -> Vec<(&'static str, &'static str)> {
         (2, _) => vec![("Enter", "choose"), ("←→", "limit")],
         (3, 0) => vec![("Tab", "traffic"), ("←→", "range")],
         (3, 1) => vec![("Tab", "FPS"), ("←→", "period"), ("r r", "reset counts")],
+        (3, 2) => vec![("Tab", "alerts"), ("Enter", "set up / undo")],
+        (3, 3) => vec![
+            ("Tab", "temperature"),
+            ("↑↓", "row"),
+            ("←→", "limit"),
+            ("Enter", "on / off"),
+        ],
         (3, _) => vec![("Tab", "temperature"), ("Enter", "set up / undo")],
         (4, _) => vec![
             ("Tab", "next tab"),
@@ -5832,6 +6236,10 @@ pub fn step_choice(app: &mut App, d: i32) {
         step_sleep(app, d);
         return;
     }
+    if (app.page, app.tab) == (3, 3) {
+        step_alert(app, d);
+        return;
+    }
     let max = match (app.page, app.tab) {
         (1, _) => app.profiles.value.as_ref().map(|p| p.len()).unwrap_or(1),
         (2, 0) => WHEN.len(),
@@ -5884,6 +6292,7 @@ pub fn activate(app: &mut App, i: usize) {
             let _ = i;
             step_sleep(app, 1);
         }
+        (3, 3) => activate_alert(app, i),
         (5, _) => {
             let Some(st) = app.overlay.value.clone() else {
                 return;
