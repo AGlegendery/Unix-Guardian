@@ -8,7 +8,22 @@ Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 
 Last updated: 2026-10-18 (threshold alerts; on `main`).
 
-## Now (2026-10-18, later): the user's visual notes ✅
+## Now (2026-10-18, evening): "sleep until" blocked by an inhibitor ✅
+
+User: timed sleep said "Operation denied due to active block inhibitor".
+Blockers on the laptop: Ryoku caffeine mode (sleep:idle, user-toggled)
+and ryoku-shell ("route suspend through a compositor-secure session
+lock"; it also has a delay inhibitor + PrepareForSleep lock). Fixed in
+`adffa6f`: Power.Blocked error, Power.Blockers, Power.NowAnyway
+(SKIP_INHIBITORS, polkit power.ignore-inhibit = auth_admin_keep),
+`ug_core::sleepguard` (plain words; lock first: `ryoku-shell lock` +
+`ryoku-shell lock status`, else loginctl + LockedHint; unconfirmed →
+ask). Window/TUI/CLI flows; power-e2e with UG_SIMULATED_INHIBITORS.
+**Not tried for real** (never suspend from a session): the user tries
+"sleep until" → Sleep anyway; check the lock screen is up on wake and
+the alarm woke it. Needs the new polkit policy: reinstall.
+
+## Before (2026-10-18, later): the user's visual notes ✅
 
 User could not find the alerts (install was fine: they live in
 Monitoring → 5th tab; Settings → Notifications now links there) and
