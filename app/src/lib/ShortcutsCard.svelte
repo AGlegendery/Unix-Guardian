@@ -120,7 +120,7 @@
 
 <svelte:window onkeydowncapture={record} onkeyupcapture={release} />
 
-<section class="card">
+<section class="card mode-card" class:is-on={!!st?.enabled}>
   <div class="top">
     <h2>{t().shortcuts.title}</h2>
     {#if st}<Switch checked={st.enabled} label={t().shortcuts.enable} onchange={enable} />{/if}

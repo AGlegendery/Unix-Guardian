@@ -5688,15 +5688,30 @@ fn ping_page(app: &mut App, f: &mut Frame, r: Rect) {
             .as_ref()
             .map(|(a, _, _)| a.iter().filter(|x| x.state == "background").count())
             .unwrap_or(0);
+        // The same On / Waiting / Off badge as the window's mode switches.
+        let (badge, badge_style) = if on && when == "gaming" && slowed == 0 {
+            (
+                " Waiting for a game ",
+                Style::default().fg(Color::White).bg(t.accent),
+            )
+        } else if on {
+            (" On ", Style::default().fg(Color::Black).bg(t.ok))
+        } else {
+            (" Off ", Style::default().fg(t.text).bg(t.line))
+        };
         let line = Line::from(vec![
-            Span::styled("Slow down background apps  ", t.title()),
             Span::styled(
-                if on { "On" } else { "Off" },
-                if on { t.accent() } else { t.muted() },
+                "Slow down background apps ",
+                if on {
+                    Style::default().fg(t.net).add_modifier(Modifier::BOLD)
+                } else {
+                    t.title()
+                },
             ),
+            Span::styled(badge, badge_style.add_modifier(Modifier::BOLD)),
             Span::styled(
                 format!(
-                    "   up {}, down {} shared, {}{}   s turns it {}",
+                    "  up {}, down {} shared, {}{}  s turns it {}",
                     cap(up),
                     cap(down),
                     if when == "gaming" {

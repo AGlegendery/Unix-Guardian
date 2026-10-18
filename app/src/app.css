@@ -167,10 +167,19 @@ body {
   60% { box-shadow: 0 0 0 1px color-mix(in oklab, var(--cat) 70%, transparent), 0 0 0 12px transparent; }
   100% { box-shadow: 0 0 0 1px color-mix(in oklab, var(--cat) 70%, transparent), 0 0 0 0 transparent; }
 }
-.mode-card.is-on {
-  background: color-mix(in oklab, var(--cat) 9%, var(--card));
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--cat) 70%, transparent);
+/* "Colourful once on" (the user, 2026-10-19): a still gradient from the
+   card's colour through blue and green to pink, a stronger border and a
+   soft glow. Nothing moves: only the one pulse below as it turns on. */
+:root .mode-card.is-on {
+  background:
+    linear-gradient(120deg,
+      color-mix(in oklab, var(--cat) 30%, var(--card)) 0%,
+      color-mix(in oklab, #60a5fa 20%, var(--card)) 35%,
+      color-mix(in oklab, #34d399 16%, var(--card)) 65%,
+      color-mix(in oklab, #f472b6 20%, var(--card)) 100%);
+  box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--cat) 75%, transparent), 0 18px 40px -22px color-mix(in oklab, var(--cat) 80%, transparent);
 }
+:root .mode-card.is-on :is(h2, h3) { color: color-mix(in oklab, var(--cat) 35%, var(--text)); }
 .mode-card.just-on { animation: ug-turn-on 700ms ease-out 1; }
 /* What depends on a mode that is off is dimmed and says so. */
 .mode-card .depends { transition: opacity 180ms ease-out; }

@@ -277,6 +277,13 @@
   .rule:first-child { padding-top: 0; }
   .rule:last-child { border-bottom: 0; padding-bottom: 0; }
   .rule.sub { padding-inline-start: 34px; }
+  /* An alert that is on takes its colour, like the other "on" boxes. */
+  .rule:not(.off) {
+    background: linear-gradient(90deg, color-mix(in oklab, var(--cat) 12%, transparent), transparent 70%);
+    border-radius: 12px;
+    padding-inline: 12px;
+    margin-inline: -12px;
+  }
   .rule-head { display: flex; align-items: center; gap: 12px; }
   .ico { color: var(--cat); background: var(--cat-soft); border-radius: 10px; width: 32px; height: 32px; display: grid; place-items: center; flex: none; }
   .rule.off .ico { color: var(--text-3); }
