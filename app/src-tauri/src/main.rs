@@ -34,7 +34,9 @@ fn no_page_zoom() {
     use gtk::gdk::{Event, EventType, ModifierType};
     Event::set_handler(Some(|ev: &mut Event| {
         let ctrl_scroll = ev.event_type() == EventType::Scroll
-            && ev.state().is_some_and(|s| s.contains(ModifierType::CONTROL_MASK));
+            && ev
+                .state()
+                .is_some_and(|s| s.contains(ModifierType::CONTROL_MASK));
         if ev.event_type() == EventType::TouchpadPinch || ctrl_scroll {
             return;
         }
@@ -188,6 +190,10 @@ fn main() {
             bus::shortcuts_set_up_desktop_keys,
             bus::settings_state,
             bus::settings_set,
+            bus::alerts_state,
+            bus::alerts_set,
+            bus::alerts_test,
+            bus::alerts_clear,
             bus::update_state,
             bus::update_check,
             bus::update_install,

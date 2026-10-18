@@ -3,6 +3,11 @@
 // motion source into plain data for app/src/lib/icons/HugeIcon.svelte.
 //
 //   node scripts/port-hugeicons.cjs <registry dir> <core-free-icons dir>
+//   node scripts/port-hugeicons.cjs --custom-only <core-free-icons dir>
+//
+// --custom-only keeps the set's icons already in hugeicons.json and redraws
+// only the ones in hugeicons-custom.cjs (adding a drawn icon needs no
+// registry download).
 //
 // <registry dir> holds https://hugeicons-animated.com/r/<name>.json files;
 // <core-free-icons dir> is the unpacked `npm pack @hugeicons/core-free-icons`
@@ -216,8 +221,11 @@ function element(el, icon) {
 }
 
 // ---- main ------------------------------------------------------------------
-const icons = [];
-for (const f of fs.readdirSync(src).filter((f) => f.endsWith(".json")).sort()) {
+const customOnly = src === "--custom-only";
+const customNames = new Set(require("./hugeicons-custom.cjs").map((c) => c.name));
+const icons = customOnly ? JSON.parse(fs.readFileSync(out, "utf8")).icons.filter((i) => !customNames.has(i.name)) : [];
+// JSON has no Infinity: kept icons wrote an endless repeat as -1.
+for (const f of customOnly ? [] : fs.readdirSync(src).filter((f) => f.endsWith(".json")).sort()) {
   const item = JSON.parse(fs.readFileSync(path.join(src, f), "utf8"));
   if (!item.files || item.type !== "registry:ui") continue;
   const file = item.files.find((x) => x.path.startsWith("icons/"));

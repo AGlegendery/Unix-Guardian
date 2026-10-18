@@ -1,8 +1,8 @@
 <script lang="ts">
   import HugeIcon from "../lib/icons/HugeIcon.svelte";
-  import { api, type GpuDefault, type GpuInfo, type Overview, type PlaytimeEntry, type Profile, type RunningGame, type Snapshot } from "../lib/api";
+  import { api, type AlertEvent, type GpuDefault, type GpuInfo, type Overview, type PlaytimeEntry, type Profile, type RunningGame, type Snapshot } from "../lib/api";
   import { duration, gib, num, rate } from "../lib/format";
-  import { t } from "../lib/i18n.svelte";
+  import { locale, t } from "../lib/i18n.svelte";
   import LineChart from "../lib/LineChart.svelte";
   import ProfilePicker from "../lib/ui/ProfilePicker.svelte";
 
@@ -102,6 +102,25 @@
     const id = setInterval(load, 3000);
     return () => clearInterval(id);
   });
+
+  // The last alert, for its card: a slow poll while visible.
+  let lastAlert = $state<AlertEvent | null | undefined>(undefined);
+  $effect(() => {
+    const load = () => {
+      if (document.hidden) return;
+      api.alertsState().then((a) => (lastAlert = a.recent.find((e) => e.kind !== "test") ?? null)).catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 10000);
+    return () => clearInterval(id);
+  });
+  const alertTime = (ms: number) =>
+    new Intl.DateTimeFormat(locale.current === "fa" ? "fa-IR" : "en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).format(ms);
+  const alertValue = (e: AlertEvent) => {
+    const pct = e.kind === "memory" || e.kind === "disk";
+    const u = pct ? t().unit.pct : t().unit.c;
+    return `${num(e.value)}${u} · ${t().mon.alerts.limit} ${num(e.threshold)}${u}`;
+  };
 
   const game = $derived(running[0] ?? null);
   // By hand wins; otherwise it follows the games.
@@ -410,6 +429,28 @@
   </article>
 </section>
 
+{#if lastAlert !== undefined}
+  <section class="row one">
+    <article class="card">
+      <div class="card-head">
+        <HugeIcon name={lastAlert ? "alert-circle" : "circle-check"} size={20} />
+        <h2>{t().mon.alerts.last}</h2>
+        <a class="muted link" href="#monitoring/alerts" onclick={() => history.replaceState(null, "", "#dashboard")}>{t().mon.alerts.all}</a>
+      </div>
+      {#if lastAlert}
+        <p class="alert-line">
+          <b>{t().mon.alerts.kinds[lastAlert.kind]}</b>
+          {#if lastAlert.subject}<bdi>{lastAlert.subject}</bdi>{/if}
+          <span>{alertValue(lastAlert)}</span>
+          <span class="muted">{alertTime(lastAlert.ts_unix_ms)}</span>
+        </p>
+      {:else}
+        <p class="empty calm">{t().mon.alerts.empty}</p>
+      {/if}
+    </article>
+  </section>
+{/if}
+
 {#snippet bar(pct: number)}
   <span class="bar" aria-hidden="true"><span style:--v={Math.min(100, Math.max(0, pct)) / 100}></span></span>
 {/snippet}
@@ -573,6 +614,12 @@
 
   .muted { color: var(--text-3); font-size: 0.82rem; }
   .card-head .muted { margin-inline-start: auto; }
+  .row.one { grid-template-columns: minmax(0, 1fr); }
+  .link { text-decoration: none; }
+  .link:hover { color: var(--text); }
+  .alert-line { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; margin: 0; font-size: 0.92rem; }
+  .alert-line .muted { margin-inline-start: auto; }
+  .calm { color: var(--ok); }
   .small { margin: 14px 0 0; }
   .core-group { display: grid; grid-template-columns: 8.5rem 1fr; align-items: center; gap: 12px; margin-top: 10px; }
   .cores { display: flex; gap: 6px; height: 54px; }

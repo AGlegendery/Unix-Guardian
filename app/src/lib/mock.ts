@@ -5,7 +5,7 @@
 
 import data from "./preview-data.json";
 import driverReport from "./preview-driver.json";
-import type { AppUsage, TestlabProgress, TestlabReport, RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, UpdateState, TrafficBucket, DriverReport, DriverPlan, DriverOp, ShortcutsState, DesktopKeys, AgentSettings, AppTraffic, BatteryCare, BatteryReport, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
+import type { AlertEvent, AlertSettings, AlertsState, AppUsage, TestlabProgress, TestlabReport, RecorderAction, RecorderSettings, RecorderState, AutoTuneStatus, CoolingState, GpuDefault, GpuTune, GpuTuneState, FpsSession, OverlaySettings, OverlayState, SettingsState, UpdateState, TrafficBucket, DriverReport, DriverPlan, DriverOp, ShortcutsState, DesktopKeys, AgentSettings, AppTraffic, BatteryCare, BatteryReport, DayTraffic, ExtraSample, FpsReading, NetRule, PingReport, HistoryPoint, InstalledGame, Overview, PlaytimeEntry, PlaytimeSession, TrackedApp, LaunchInfo, PowerAction, PowerJob, PowerUsage, PowerWatch, WatchKind, Profile, RunningGame, Snapshot } from "./api";
 
 const base = data.snapshot as unknown as Snapshot;
 // The captured profiles predate the screen and notification settings.
@@ -208,6 +208,17 @@ function next(): Snapshot {
 
 let timer: ReturnType<typeof setInterval> | null = null;
 const listeners = new Set<(s: Snapshot) => void>();
+
+let alertSettings: AlertSettings = {
+  cpu_temp_on: true, cpu_temp_c: 90, gpu_temp_on: true, gpu_temp_c: 85,
+  gpu_hotspot_on: false, gpu_hotspot_c: 100, gpu_vram_on: false, gpu_vram_c: 95,
+  mem_on: false, mem_pct: 90, disk_on: true, disk_pct: 95, disk_mounts: ["/"],
+  sustain_s: 10, cooldown_min: 30,
+};
+const alertsRecent: AlertEvent[] = [
+  { ts_unix_ms: Date.now() - 3 * 3_600_000, kind: "cpu_temp", subject: "CPU", value: 93, threshold: 90, notified: true, held: "" },
+  { ts_unix_ms: Date.now() - 26 * 3_600_000, kind: "disk", subject: "/", value: 95.4, threshold: 95, notified: false, held: "dnd" },
+];
 
 export const mockApi = {
   preview: true as const,
@@ -591,6 +602,38 @@ export const mockApi = {
     update.previous = "";
     update.current = back;
     return `Back to ${back} (preview).`;
+  },
+  alertsState: async (): Promise<AlertsState> => ({
+    settings: { ...alertSettings, disk_mounts: [...alertSettings.disk_mounts] },
+    sensors: [
+      { kind: "cpu_temp", subject: "CPU", status: "ok", value: 91, above_s: alertSettings.cpu_temp_on ? 4 : 0 },
+      { kind: "gpu_temp", subject: "RTX 3050 Laptop", status: "asleep", value: null, above_s: 0 },
+      { kind: "gpu_hotspot", subject: "RTX 3050 Laptop", status: "unknown", value: null, above_s: 0 },
+      { kind: "gpu_vram", subject: "RTX 3050 Laptop", status: "unknown", value: null, above_s: 0 },
+      { kind: "memory", subject: "RAM", status: "ok", value: 58, above_s: 0 },
+      ...alertSettings.disk_mounts.map((m) => ({ kind: "disk" as const, subject: m, status: "ok" as const, value: m === "/" ? 71 : 43, above_s: 0 })),
+    ],
+    mounts: [
+      { path: "/", fs: "btrfs", used_pct: 71, size_bytes: 476e9 },
+      { path: "/boot", fs: "vfat", used_pct: 34, size_bytes: 1e9 },
+      { path: "/mnt/Games", fs: "ext4", used_pct: 43, size_bytes: 1e12 },
+    ],
+    recent: [...alertsRecent],
+    held: false,
+  }),
+  alertsSet: async (s: AlertSettings) => {
+    if (s.sustain_s < 3 || s.sustain_s > 30) throw `the sensitivity must be 3 to 30, not ${s.sustain_s}`;
+    alertSettings = { ...s, disk_mounts: [...s.disk_mounts] };
+  },
+  alertsTest: async (): Promise<AlertEvent> => {
+    const e: AlertEvent = { ts_unix_ms: Date.now(), kind: "test", subject: "", value: null, threshold: 0, notified: true, held: "" };
+    alertsRecent.unshift(e);
+    return e;
+  },
+  alertsClear: async () => {
+    const n = alertsRecent.length;
+    alertsRecent.length = 0;
+    return n;
   },
   settingsState: async (): Promise<SettingsState> => ({
     settings: { ...agentSettings },

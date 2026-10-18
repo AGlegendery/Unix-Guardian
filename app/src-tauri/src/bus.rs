@@ -630,7 +630,9 @@ pub async fn set_button_action(bus: State<'_, Bus>, which: String, action: Strin
     let p = PowerProxy::new(bus.daemon().await?)
         .await
         .map_err(daemon_err)?;
-    p.set_button_action(&which, &action).await.map_err(daemon_err)
+    p.set_button_action(&which, &action)
+        .await
+        .map_err(daemon_err)
 }
 
 #[tauri::command]
@@ -1252,6 +1254,38 @@ pub async fn settings_set(bus: State<'_, Bus>, settings: ug_proto::AgentSettings
         .await
         .map_err(agent_err)?;
     s.set(&settings).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn alerts_state(bus: State<'_, Bus>) -> Res<ug_proto::AlertsState> {
+    let a = ug_proto::agent::AlertsProxy::new(bus.agent().await?)
+        .await
+        .map_err(agent_err)?;
+    a.state().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn alerts_set(bus: State<'_, Bus>, settings: ug_proto::AlertSettings) -> Res<()> {
+    let a = ug_proto::agent::AlertsProxy::new(bus.agent().await?)
+        .await
+        .map_err(agent_err)?;
+    a.set(&settings).await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn alerts_test(bus: State<'_, Bus>) -> Res<ug_proto::AlertEvent> {
+    let a = ug_proto::agent::AlertsProxy::new(bus.agent().await?)
+        .await
+        .map_err(agent_err)?;
+    a.test().await.map_err(agent_err)
+}
+
+#[tauri::command]
+pub async fn alerts_clear(bus: State<'_, Bus>) -> Res<u32> {
+    let a = ug_proto::agent::AlertsProxy::new(bus.agent().await?)
+        .await
+        .map_err(agent_err)?;
+    a.clear().await.map_err(agent_err)
 }
 
 #[tauri::command]

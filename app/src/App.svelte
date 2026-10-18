@@ -48,6 +48,15 @@
   }
   const fromHash = location.hash.slice(1).split("/")[0] as Page;
   let page = $state<Page>(pages.some(([p]) => p === fromHash) ? fromHash : "dashboard");
+  // A link inside a page (`#monitoring/alerts`) opens that page.
+  $effect(() => {
+    const on = () => {
+      const p = location.hash.slice(1).split("/")[0] as Page;
+      if (pages.some(([x]) => x === p)) page = p;
+    };
+    addEventListener("hashchange", on);
+    return () => removeEventListener("hashchange", on);
+  });
   // One scroll area serves every page, so a new page would open at the
   // last page's scroll position, half way down and, in WebKitGTK, stuck
   // there until resized (2026-10-04). Each page opens at its top.

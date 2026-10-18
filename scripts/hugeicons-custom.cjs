@@ -317,6 +317,27 @@ module.exports = [
     },
   },
   {
+    // Disk fill (alerts): the drive settles and its two lights blink.
+    name: "hard-drive",
+    shape: "HardDriveIcon",
+    root: { origin: "50% 60%", n: { translateY: 0 }, a: { translateY: [0, -1.5, 0.4, 0], transition: { duration: 0.5, times: [0, 0.4, 0.75, 1], ease: "easeInOut" } } },
+    nodes: {
+      2: {
+        origin: "50% 50%",
+        box: "fill-box",
+        n: { opacity: 1 },
+        a: { opacity: [1, 0.15, 1, 0.15, 1], transition: { duration: 0.8, delay: 0.1, ease: "linear" } },
+      },
+    },
+  },
+  {
+    // Temperature (alerts): the mercury runs up from the bulb.
+    name: "temperature",
+    shape: "TemperatureIcon",
+    root: { origin: "50% 85%", n: { rotate: 0 }, a: { rotate: [0, -6, 4, 0], transition: { duration: 0.6, ease: "easeInOut" } } },
+    nodes: { 1: draw(0.05, 0.6) },
+  },
+  {
     // Save: the disk is pressed, its shutter slides, the label is written.
     name: "floppy-disk",
     shape: "FloppyDiskIcon",

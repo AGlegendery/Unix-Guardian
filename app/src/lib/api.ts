@@ -293,6 +293,48 @@ export interface SettingsState {
   /** Set by `ug-agent --scan-interval`; shown, not changeable. */
   scan_interval_fixed: boolean;
 }
+/** Threshold alerts (whole °C and %). */
+export interface AlertSettings {
+  cpu_temp_on: boolean; cpu_temp_c: number;
+  gpu_temp_on: boolean; gpu_temp_c: number;
+  gpu_hotspot_on: boolean; gpu_hotspot_c: number;
+  gpu_vram_on: boolean; gpu_vram_c: number;
+  mem_on: boolean; mem_pct: number;
+  disk_on: boolean; disk_pct: number;
+  disk_mounts: string[];
+  /** Seconds above the limit before an alert, 3 to 30. */
+  sustain_s: number;
+  /** 5, 15, 30, 60 or 120 minutes. */
+  cooldown_min: number;
+}
+export type AlertKind = "cpu_temp" | "gpu_temp" | "gpu_hotspot" | "gpu_vram" | "memory" | "disk";
+export interface AlertSensor {
+  kind: AlertKind;
+  subject: string;
+  status: "ok" | "unsupported" | "asleep" | "unknown" | "missing";
+  value: number | null;
+  above_s: number;
+}
+export interface AlertMount { path: string; fs: string; used_pct: number | null; size_bytes: number }
+export interface AlertEvent {
+  ts_unix_ms: number;
+  kind: AlertKind | "test";
+  subject: string;
+  value: number | null;
+  threshold: number;
+  notified: boolean;
+  /** Why it was not shown: "dnd", "off", "no-server"; "" when shown. */
+  held: "" | "dnd" | "off" | "no-server";
+}
+export interface AlertsState {
+  settings: AlertSettings;
+  sensors: AlertSensor[];
+  mounts: AlertMount[];
+  /** Newest first, at most 50. */
+  recent: AlertEvent[];
+  /** Game mode's do not disturb is holding notifications. */
+  held: boolean;
+}
 export interface RecorderSettings {
   quality: "small" | "balanced" | "high";
   fps: number;
@@ -663,6 +705,10 @@ const tauriApi = {
   driverRollback: (opId: string) => invoke<void>("driver_rollback", { opId }),
   driverKeep: (opId: string) => invoke<void>("driver_keep", { opId }),
   settingsState: () => invoke<SettingsState>("settings_state"),
+  alertsState: () => invoke<AlertsState>("alerts_state"),
+  alertsSet: (settings: AlertSettings) => invoke<void>("alerts_set", { settings }),
+  alertsTest: () => invoke<AlertEvent>("alerts_test"),
+  alertsClear: () => invoke<number>("alerts_clear"),
   settingsSet: (settings: AgentSettings) => invoke<void>("settings_set", { settings }),
   updateState: () => invoke<UpdateState>("update_state"),
   updateCheck: () => invoke<UpdateState>("update_check"),

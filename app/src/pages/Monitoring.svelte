@@ -11,11 +11,12 @@
   import TrafficPeriods from "../lib/TrafficPeriods.svelte";
   import TrafficTiles from "../lib/TrafficTiles.svelte";
   import Segmented from "../lib/ui/Segmented.svelte";
+  import AlertsPanel from "../lib/AlertsPanel.svelte";
 
-  type Tab = "fps" | "thermal" | "traffic" | "ping";
+  type Tab = "fps" | "thermal" | "traffic" | "ping" | "alerts";
   type Range = "live" | "hour" | "day" | "week";
   const hashTab = location.hash.split("/")[1] as Tab;
-  let tab = $state<Tab>(["fps", "thermal", "traffic", "ping"].includes(hashTab) ? hashTab : "thermal");
+  let tab = $state<Tab>(["fps", "thermal", "traffic", "ping", "alerts"].includes(hashTab) ? hashTab : "thermal");
   // Internet control (apps, rules) for the Traffic and Ping tabs, read
   // every 2 s while one of them is open.
   const ctl = new NetControl();
@@ -200,7 +201,7 @@
 </header>
 
 <div class="tabs" role="tablist">
-  {#each ["fps", "thermal", "traffic", "ping"] as const as id}
+  {#each ["fps", "thermal", "traffic", "ping", "alerts"] as const as id}
     <button role="tab" aria-selected={tab === id} class:active={tab === id} onclick={() => (tab = id)}>{t().mon.tabs[id]}</button>
   {/each}
 </div>
@@ -413,6 +414,8 @@
   {/if}
 {:else if tab === "ping"}
   <PingPanel {ctl} />
+{:else if tab === "alerts"}
+  <AlertsPanel />
 {:else}
   <section class="card">
     <h2>{t().mon.now}</h2>
