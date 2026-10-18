@@ -29,6 +29,9 @@ pub mod action {
     pub const POWER: &str = "org.unixguardian.power.control";
     /// How the computer sleeps, and what the lid and power button do.
     pub const POWER_SETTINGS: &str = "org.unixguardian.power.settings";
+    /// Sleep or shut down although another program holds it off (a block
+    /// inhibitor); like logind's own *-ignore-inhibit, password kept a while.
+    pub const POWER_IGNORE_INHIBIT: &str = "org.unixguardian.power.ignore-inhibit";
     /// Block an app's internet, or cap its upload or download.
     pub const NET: &str = "org.unixguardian.net.control";
     /// Change a GPU's power limit or clock offsets.
@@ -48,6 +51,7 @@ pub mod action {
         GAMEMODE,
         POWER,
         POWER_SETTINGS,
+        POWER_IGNORE_INHIBIT,
         NET,
         GPU_TUNE,
         COOLING,

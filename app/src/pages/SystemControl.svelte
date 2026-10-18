@@ -189,8 +189,51 @@
   const setAlarm = () => run(() => api.setWakeAlarm(nextClock(alarmClock)), `${t().sys.alarmNow} ${fmt(nextClock(alarmClock))}`);
   const sleepUntil = () => run(async () => {
     await api.setWakeAlarm(nextClock(alarmClock));
-    await api.powerNow("suspend");
+    await doNow("suspend", true);
   });
+
+  // Another program keeping the computer awake (a block inhibitor): who,
+  // in plain words, and whether to go ahead. `alarmFor`: a wake alarm set
+  // just for this sleep, removed again on Cancel.
+  type Blocked = { action: PowerAction; list: [string, string][]; alarmFor: boolean; notLocked: boolean };
+  let blocked = $state<Blocked | null>(null);
+  const isSleep = (a: PowerAction) => !["power-off", "reboot", "reboot-firmware"].includes(a);
+  function blockerText([who, why]: [string, string]): string {
+    const w = why.toLowerCase();
+    if (w.includes("caffeine")) return t().sys.blocked.caffeine(who);
+    if (w.includes("lock") && (w.includes("suspend") || w.includes("sleep"))) return t().sys.blocked.lockRoute(who);
+    return why ? `${who}: ${why}` : who;
+  }
+  async function doNow(action: PowerAction, alarmFor = false) {
+    const r = await api.powerNow(action);
+    if (r === "blocked") {
+      blocked = { action, list: await api.powerBlockers(action).catch(() => []), alarmFor, notLocked: false };
+      setTimeout(() => document.querySelector(".blocked")?.scrollIntoView({ block: "center" }));
+    }
+  }
+  async function goAnyway(lock: boolean) {
+    if (!blocked) return;
+    const b = blocked;
+    busy = true;
+    error = null;
+    try {
+      const r = await api.powerNowAnyway(b.action, lock);
+      blocked = r === "not-locked" ? { ...b, notLocked: true } : null;
+    } catch (e) {
+      error = errorText(e);
+    } finally {
+      busy = false;
+    }
+  }
+  async function cancelBlocked() {
+    const b = blocked;
+    blocked = null;
+    if (b?.alarmFor) {
+      await api.clearWakeAlarm().catch(() => {});
+      notice = t().sys.blocked.cancelled;
+      refresh();
+    }
+  }
   // net-idle threshold is entered in kB/s; the daemon takes bytes per second.
   const arm = () =>
     run(() =>
@@ -220,7 +263,7 @@
       return;
     }
     firmwareArmed = false;
-    run(() => api.powerNow("reboot-firmware"));
+    run(() => doNow("reboot-firmware"));
   }
   $effect(() => {
     api.powerCaps().then((c) => (caps = c)).catch((e) => (error = errorText(e)));
@@ -268,7 +311,7 @@
       armed = false;
       busy = true;
       try {
-        await api.powerNow(chosen);
+        await doNow(chosen);
       } catch (e) {
         error = errorText(e);
       } finally {
@@ -322,6 +365,27 @@
 
 {#if error}<Problem text={error} />{/if}
 {#if notice}<p class="notice" role="status">{notice}</p>{/if}
+{#if blocked}
+  <section class="card blocked" data-cat="danger" aria-live="assertive" aria-labelledby="blocked-title">
+    <h2 id="blocked-title">{t().sys.blocked.title}</h2>
+    <ul>
+      {#each blocked.list as b}<li>{blockerText(b)}</li>{/each}
+    </ul>
+    {#if blocked.notLocked}
+      <p class="warn-line">{t().sys.blocked.notLocked}</p>
+      <div class="blocked-actions">
+        <button class="go danger" disabled={busy} onclick={() => goAnyway(false)}>{t().sys.blocked.noLock}</button>
+        <button class="secondary" disabled={busy} onclick={cancelBlocked}>{t().sys.blocked.cancel}</button>
+      </div>
+    {:else}
+      <p class="small">{isSleep(blocked.action) ? t().sys.blocked.sleepNote : t().sys.blocked.shutdownNote}</p>
+      <div class="blocked-actions">
+        <button class="go" disabled={busy} onclick={() => goAnyway(true)}>{isSleep(blocked.action) ? t().sys.blocked.anyway : t().sys.blocked.anywayShutdown}</button>
+        <button class="secondary" disabled={busy} onclick={cancelBlocked}>{t().sys.blocked.cancel}</button>
+      </div>
+    {/if}
+  </section>
+{/if}
 
 {#if tab === "command"}
   <div class="cards" role="radiogroup" aria-label={t().sys.tabs.command}>
@@ -1070,4 +1134,9 @@
   .fan { display: grid; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .fan:last-of-type { border-bottom: 0; }
   .fan-top { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  .blocked { box-shadow: 0 0 0 1px color-mix(in oklab, var(--danger) 55%, transparent); margin-bottom: 16px; }
+  .blocked ul { margin: 6px 0 10px; padding-inline-start: 20px; display: grid; gap: 4px; }
+  .blocked-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .blocked-actions .go { width: auto; padding-inline: 22px; }
+  .warn-line { color: var(--warn); margin: 8px 0 0; font-size: 0.9rem; }
 </style>

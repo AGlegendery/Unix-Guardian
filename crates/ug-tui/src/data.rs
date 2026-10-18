@@ -952,6 +952,36 @@ impl Bus {
             .map_err(|e| msg(e, "service"))
     }
 
+    /// Like `power_now`, but a refusal for another program keeping the
+    /// computer awake comes back as `Ok(Some(blockers in plain words))`.
+    pub fn power_now_or_blockers(&self, action: &str) -> Result<Option<Vec<String>>, String> {
+        let c = self.daemon()?;
+        self.rt
+            .block_on(async {
+                let p = PowerProxy::new(c).await?;
+                match p.now(action).await {
+                    Ok(()) => Ok(None),
+                    Err(e) if ug_proto::power_blocked(&e) => {
+                        let list = p.blockers(action).await.unwrap_or_default();
+                        Ok(Some(
+                            list.iter()
+                                .map(|(w, y)| ug_core::sleepguard::describe(w, y))
+                                .collect(),
+                        ))
+                    }
+                    Err(e) => Err(e),
+                }
+            })
+            .map_err(|e| msg(e, "service"))
+    }
+
+    pub fn power_now_anyway(&self, action: &str) -> Result<(), String> {
+        let c = self.daemon()?;
+        self.rt
+            .block_on(async { PowerProxy::new(c).await?.now_anyway(action).await })
+            .map_err(|e| msg(e, "service"))
+    }
+
     pub fn power_schedule(
         &self,
         action: &str,

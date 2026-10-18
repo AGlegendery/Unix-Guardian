@@ -372,7 +372,12 @@ export const mockApi = {
       available: !action.includes("hibernate") && action !== "hybrid-sleep",
       reason: action.includes("hibernate") || action === "hybrid-sleep" ? "Hibernation is not set up on this system." : "",
     })),
-  powerNow: async () => {},
+  powerNow: async (): Promise<"" | "blocked"> => "blocked",
+  powerBlockers: async (): Promise<[string, string][]> => [
+    ["Ryoku", "Ryoku caffeine mode"],
+    ["ryoku-shell", "route suspend through a compositor-secure session lock"],
+  ],
+  powerNowAnyway: async (_a: string, lock: boolean): Promise<"" | "not-locked"> => (lock ? "not-locked" : ""),
   powerSchedule: async (action: PowerAction, at_unix_ms: number, repeat: string) => {
     const job: PowerJob = { id: jobs.length + 1, action, at_unix_ms, repeat: repeat as PowerJob["repeat"], note: "" };
     jobs.push(job);

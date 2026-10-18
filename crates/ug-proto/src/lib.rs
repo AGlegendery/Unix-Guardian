@@ -36,6 +36,14 @@ pub fn outdated_peer(error: &str) -> Option<&'static str> {
     )
 }
 
+/// The error `Power.Now` answers while a program holds a block inhibitor.
+pub const POWER_BLOCKED: &str = "org.unixguardian.Power.Blocked";
+
+/// True when a `Power.Now` error means "blocked by another program".
+pub fn power_blocked(e: &zbus::Error) -> bool {
+    matches!(e, zbus::Error::MethodError(n, ..) if n.as_str() == POWER_BLOCKED)
+}
+
 /// Well-known bus name of the privileged daemon (system bus).
 pub const DAEMON_BUS_NAME: &str = "org.unixguardian.Daemon1";
 /// Object path the daemon's interfaces hang off.
@@ -178,8 +186,17 @@ pub mod daemon {
         /// Every action with whether it is possible here and, if not, why.
         fn capabilities(&self) -> zbus::Result<Vec<PowerCapability>>;
 
-        /// Does it now.
+        /// Does it now. Refused with [`POWER_BLOCKED`] while a program holds
+        /// a block inhibitor on it (see `blockers`, `now_anyway`).
         fn now(&self, action: &str) -> zbus::Result<()>;
+
+        /// The programs holding a block on `action`, as (who, why).
+        fn blockers(&self, action: &str) -> zbus::Result<Vec<(String, String)>>;
+
+        /// Does it although programs hold a block on it (asks for the
+        /// password). For a sleep, lock the screen first
+        /// (`ug_core::sleepguard`); a wake alarm stays set.
+        fn now_anyway(&self, action: &str) -> zbus::Result<()>;
 
         /// Queues it for `at_unix_ms`, repeating `once`, `daily` or `weekly`.
         /// Survives daemon restarts; a one-off time missed while the daemon

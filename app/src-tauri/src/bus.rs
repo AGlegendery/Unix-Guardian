@@ -486,11 +486,46 @@ pub async fn power_caps(bus: State<'_, Bus>) -> Res<Vec<PowerCapability>> {
 }
 
 #[tauri::command]
-pub async fn power_now(bus: State<'_, Bus>, action: String) -> Res<()> {
+/// "" when done; "blocked" when another program keeps the computer awake
+/// (the page then lists them with `power_blockers` and offers to go ahead).
+pub async fn power_now(bus: State<'_, Bus>, action: String) -> Res<String> {
     let p = PowerProxy::new(bus.daemon().await?)
         .await
         .map_err(daemon_err)?;
-    p.now(&action).await.map_err(daemon_err)
+    match p.now(&action).await {
+        Ok(()) => Ok(String::new()),
+        Err(e) if ug_proto::power_blocked(&e) => Ok("blocked".into()),
+        Err(e) => Err(daemon_err(e)),
+    }
+}
+
+#[tauri::command]
+pub async fn power_blockers(bus: State<'_, Bus>, action: String) -> Res<Vec<(String, String)>> {
+    let p = PowerProxy::new(bus.daemon().await?)
+        .await
+        .map_err(daemon_err)?;
+    p.blockers(&action).await.map_err(daemon_err)
+}
+
+/// Goes ahead past the blockers. A sleep locks the screen first unless
+/// `lock` is false; "" when done, "not-locked" when the lock could not be
+/// confirmed (nothing was done: the page asks the user).
+#[tauri::command]
+pub async fn power_now_anyway(bus: State<'_, Bus>, action: String, lock: bool) -> Res<String> {
+    let sleep = !matches!(action.as_str(), "power-off" | "reboot" | "reboot-firmware");
+    if sleep && lock {
+        let locked = tauri::async_runtime::spawn_blocking(ug_core::sleepguard::lock_screen_now)
+            .await
+            .map_err(|e| e.to_string())?;
+        if let ug_core::sleepguard::Locked::No(_) = locked {
+            return Ok("not-locked".into());
+        }
+    }
+    let p = PowerProxy::new(bus.daemon().await?)
+        .await
+        .map_err(daemon_err)?;
+    p.now_anyway(&action).await.map_err(daemon_err)?;
+    Ok(String::new())
 }
 
 #[tauri::command]

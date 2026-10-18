@@ -6467,10 +6467,58 @@ pub fn activate(app: &mut App, i: usize) {
                 return;
             }
             let confirm = label.to_lowercase();
-            if app.armed.as_ref().is_some_and(|(a, _)| *a == confirm) {
+            let anyway = format!("{confirm} anyway");
+            let no_lock = format!("{confirm} without locking the screen");
+            let sleep = !matches!(id, "power-off" | "reboot" | "reboot-firmware");
+            let armed_for =
+                |app: &App, key: &str| app.armed.as_ref().is_some_and(|(a, _)| a.starts_with(key));
+            if armed_for(app, &no_lock) {
                 app.armed = None;
-                let r = app.bus.power_now(id);
-                report(app, r.map(|_| format!("{label}: requested.")));
+                let r = app.bus.power_now_anyway(id);
+                report(
+                    app,
+                    r.map(|_| format!("{label}: requested, without the screen lock.")),
+                );
+            } else if armed_for(app, &anyway) {
+                app.armed = None;
+                if sleep {
+                    if let ug_core::sleepguard::Locked::No(why) =
+                        ug_core::sleepguard::lock_screen_now()
+                    {
+                        // Never asleep unlocked without asking.
+                        app.armed = Some((
+                            format!("{no_lock} ({why} Anyone could use it when it wakes)"),
+                            std::time::Instant::now(),
+                        ));
+                        return;
+                    }
+                }
+                let r = app.bus.power_now_anyway(id);
+                report(
+                    app,
+                    r.map(|_| format!("{label}: requested, past the programs keeping it awake.")),
+                );
+            } else if app.armed.as_ref().is_some_and(|(a, _)| *a == confirm) {
+                app.armed = None;
+                match app.bus.power_now_or_blockers(id) {
+                    Ok(None) => app.say(format!("{label}: requested."), true),
+                    Ok(Some(list)) => {
+                        // Shown in the confirmation line: who, then how to go ahead.
+                        app.armed = Some((
+                            format!(
+                                "{anyway} (kept awake by: {}{}; asks for the password)",
+                                list.join("; "),
+                                if sleep {
+                                    "; the screen is locked first"
+                                } else {
+                                    ""
+                                }
+                            ),
+                            std::time::Instant::now(),
+                        ));
+                    }
+                    Err(e) => app.say(e, false),
+                }
             } else {
                 app.armed = Some((confirm, std::time::Instant::now()));
             }

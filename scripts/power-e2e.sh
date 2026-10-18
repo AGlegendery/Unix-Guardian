@@ -18,6 +18,9 @@ check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fai
 until_() { local d=$((SECONDS+$1)); shift; until eval "$@"; do (( SECONDS < d )) || return 1; sleep 0.2; done; }
 ug() { "$B/ug" --session "$@"; }
 simulated() { busctl --user get-property org.unixguardian.Daemon1 /org/unixguardian/Daemon1 org.unixguardian.Daemon1.Power Simulated 2>/dev/null; }
+# Made-up block inhibitors for the development daemon ("what|who|why").
+export UG_SIMULATED_INHIBITORS="$W/inhibitors"
+: >"$UG_SIMULATED_INHIBITORS"
 start_daemon() { "$B/ug-daemon" --session --state-dir "$W/state" --log warn 2>>"$W/daemon.log" & daemon=$!; until_ 20 "ug power list >/dev/null 2>&1"; }
 
 start_daemon || { echo "FAIL  daemon did not start"; exit 1; }
@@ -46,6 +49,16 @@ check "cancelling a missing number fails" "! ug power cancel 999 >/dev/null 2>&1
 check "a time in the past is refused" "! busctl --user call org.unixguardian.Daemon1 /org/unixguardian/Daemon1 org.unixguardian.Daemon1.Power Schedule stss reboot 1000 once x >/dev/null 2>&1"
 check "a wake alarm can be set and is listed" "ug power wake --in 8h >/dev/null && out=\$(ug power list) && grep -q 'Wake alarm' <<<\"\$out\""
 check "and cleared" "ug power wake --clear >/dev/null && out=\$(ug power list) && ! grep -q 'Wake alarm' <<<\"\$out\""
+printf 'sleep:idle|Ryoku|Ryoku caffeine mode\nsleep|ryoku-shell|route suspend through a compositor-secure session lock\nsleep|NetworkManager|delay ones are not listed\n' >"$UG_SIMULATED_INHIBITORS"
+sed -i '3d' "$UG_SIMULATED_INHIBITORS"
+ug power wake --in 5m >/dev/null
+check "a sleep blocked by another program is not done and says who, in plain words" "out=\$(ug power now suspend --yes 2>&1); ! simulated | grep -q '\"suspend\"' && grep -q 'Caffeine mode (keep awake) is on in Ryoku' <<<\"\$out\" && grep -q 'go through its lock screen' <<<\"\$out\" && grep -q -- '--anyway' <<<\"\$out\" && ! grep -q 'Operation denied' <<<\"\$out\""
+check "the blockers are listed over D-Bus" "busctl --user call org.unixguardian.Daemon1 /org/unixguardian/Daemon1 org.unixguardian.Daemon1.Power Blockers s suspend | grep -q 'a(ss) 2'"
+check "a shutdown is not blocked by sleep inhibitors" "busctl --user call org.unixguardian.Daemon1 /org/unixguardian/Daemon1 org.unixguardian.Daemon1.Power Blockers s power-off | grep -q 'a(ss) 0'"
+check "sleep anyway goes past them (no lock in this test)" "ug power now suspend --yes --anyway --no-lock >/dev/null && simulated | grep -q 'suspend (inhibitors skipped)'"
+check "and the wake alarm is still set" "out=\$(ug power list) && grep -q 'Wake alarm' <<<\"\$out\""
+ug power wake --clear >/dev/null
+: >"$UG_SIMULATED_INHIBITORS"
 check "a wake alarm in the past is refused" "! ug power wake --in 1s >/dev/null 2>&1"
 # Conditions. The fake program is named ugwatchme so no real process matches.
 ln -s "$(command -v sleep)" "$W/ugwatchme"

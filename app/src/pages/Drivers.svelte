@@ -40,7 +40,7 @@
     }
     restartArmed = false;
     try {
-      await api.powerNow("reboot");
+      if ((await api.powerNow("reboot")) === "blocked") throw t().sys.blocked.title;
     } catch (e) {
       error = errorText(e);
     }

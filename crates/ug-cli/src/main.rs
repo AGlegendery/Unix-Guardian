@@ -546,6 +546,13 @@ enum PowerCommand {
         /// Confirm: without it nothing happens.
         #[arg(long)]
         yes: bool,
+        /// Do it although another program is keeping the computer awake
+        /// (asks for the password). A sleep locks the screen first.
+        #[arg(long)]
+        anyway: bool,
+        /// With --anyway: sleep even if the screen lock cannot be confirmed.
+        #[arg(long, requires = "anyway")]
+        no_lock: bool,
     },
     /// Schedule it, e.g. `ug power at reboot --in 2h` or
     /// `ug power at power-off --at 01:00 --repeat daily`.
@@ -3309,14 +3316,51 @@ async fn power(conn: &zbus::Connection, command: PowerCommand, json: bool) -> Re
                 }
             }
         }
-        PowerCommand::Now { action, yes } => {
+        PowerCommand::Now {
+            action,
+            yes,
+            anyway,
+            no_lock,
+        } => {
             if !yes {
                 anyhow::bail!(
                     "this will {action} the computer now; run again with --yes to confirm"
                 );
             }
-            p.now(&action).await.map_err(daemon_error)?;
-            println!("{action}: requested.");
+            if anyway {
+                let sleep = !matches!(action.as_str(), "power-off" | "reboot" | "reboot-firmware");
+                if sleep && !no_lock {
+                    match tokio::task::spawn_blocking(ug_core::sleepguard::lock_screen_now).await? {
+                        ug_core::sleepguard::Locked::Yes(how) => {
+                            println!("Screen locked ({how}).")
+                        }
+                        ug_core::sleepguard::Locked::No(why) => anyhow::bail!(
+                            "{why} Not sleeping with the screen unlocked; add --no-lock to sleep anyway without the lock."
+                        ),
+                    }
+                }
+                p.now_anyway(&action).await.map_err(daemon_error)?;
+                println!("{action}: requested, past the programs keeping the computer awake.");
+                return Ok(());
+            }
+            match p.now(&action).await {
+                Ok(()) => println!("{action}: requested."),
+                Err(e) if ug_proto::power_blocked(&e) => {
+                    let list = p.blockers(&action).await.unwrap_or_default();
+                    eprintln!("Not done: other programs are keeping the computer awake:");
+                    for (who, why) in &list {
+                        eprintln!("  - {}", ug_core::sleepguard::describe(who, why));
+                    }
+                    let wake = p.wake_alarm().await.unwrap_or(0);
+                    if wake > 0 {
+                        eprintln!("The wake alarm stays set for {}.", local_time(wake));
+                    }
+                    anyhow::bail!(
+                        "to {action} anyway (the screen is locked first; asks for the password): ug power now {action} --yes --anyway"
+                    );
+                }
+                Err(e) => return Err(daemon_error(e)),
+            }
         }
         PowerCommand::At {
             action,

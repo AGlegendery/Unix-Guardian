@@ -145,6 +145,8 @@ fn main() {
             bus::playtime_forget_imported,
             bus::power_caps,
             bus::power_now,
+            bus::power_blockers,
+            bus::power_now_anyway,
             bus::power_schedule,
             bus::power_jobs,
             bus::power_cancel,

@@ -12,4 +12,5 @@ pub mod paths;
 pub mod playtime;
 pub mod profile;
 pub mod session_env;
+pub mod sleepguard;
 pub mod update;

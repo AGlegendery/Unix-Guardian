@@ -50,6 +50,18 @@
     </defaults>
   </action>
 
+  <action id="org.unixguardian.power.ignore-inhibit">
+    <description>Sleep or shut down although another program is keeping the computer awake</description>
+    <description xml:lang="fa">خواباندن یا خاموش کردن کامپیوتر با وجود برنامه‌ای که آن را بیدار نگه داشته است</description>
+    <message>Authentication is required to sleep or shut down while another program is keeping the computer awake.</message>
+    <message xml:lang="fa">برای خواباندن یا خاموش کردن، وقتی برنامهٔ دیگری کامپیوتر را بیدار نگه داشته، احراز هویت لازم است.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
   <action id="org.unixguardian.power.settings">
     <description>Change how the computer sleeps and what the lid and power button do</description>
     <description xml:lang="fa">تغییر نحوه‌ی خواب کامپیوتر و کاری که درِ لپ‌تاپ و دکمه‌ی پاور انجام می‌دهند</description>

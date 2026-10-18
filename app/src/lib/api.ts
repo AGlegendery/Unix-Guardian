@@ -625,7 +625,13 @@ const tauriApi = {
   createProfile: (profile: string, from: string) => invoke<void>("create_profile", { profile, from }),
   deleteProfile: (profile: string) => invoke<void>("delete_profile", { profile }),
   powerCaps: () => invoke<PowerCapability[]>("power_caps"),
-  powerNow: (action: PowerAction) => invoke<void>("power_now", { action }),
+  /** "" when done; "blocked" while another program keeps the computer awake. */
+  powerNow: (action: PowerAction) => invoke<"" | "blocked">("power_now", { action }),
+  /** The programs keeping it awake, as [who, why]. */
+  powerBlockers: (action: PowerAction) => invoke<[string, string][]>("power_blockers", { action }),
+  /** Past the blockers (asks for the password); a sleep locks the screen
+   *  first unless `lock` is false: "not-locked" when that failed. */
+  powerNowAnyway: (action: PowerAction, lock: boolean) => invoke<"" | "not-locked">("power_now_anyway", { action, lock }),
   powerSchedule: (action: PowerAction, atUnixMs: number, repeat: string) =>
     invoke<PowerJob>("power_schedule", { action, atUnixMs, repeat }),
   powerJobs: () => invoke<PowerJob[]>("power_jobs"),

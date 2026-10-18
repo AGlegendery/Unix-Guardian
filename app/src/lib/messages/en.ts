@@ -234,6 +234,19 @@ export const en = {
     saved: "Saved",
   },
   sys: {
+    blocked: {
+      title: "Not done: other programs are keeping the computer awake",
+      caffeine: (who: string) => `Caffeine mode (keep awake) is on in ${who}`,
+      lockRoute: (who: string) => `${who} wants sleep to go through its lock screen`,
+      sleepNote: "Sleep anyway locks the screen first, then sleeps. It asks for your password. The wake alarm stays set.",
+      shutdownNote: "Going ahead asks for your password.",
+      anyway: "Sleep anyway",
+      anywayShutdown: "Do it anyway",
+      cancel: "Cancel",
+      notLocked: "The screen could not be locked, so the computer did not sleep. Sleep without locking it? Anyone could use the computer when it wakes.",
+      noLock: "Sleep without locking",
+      cancelled: "Cancelled; the wake alarm was removed.",
+    },
     cool: {
       profile: "Power profile",
       profiles: { "power-saver": "Power saver", balanced: "Balanced", performance: "Performance" } as Record<string, string>,

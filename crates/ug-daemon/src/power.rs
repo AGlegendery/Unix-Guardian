@@ -37,6 +37,14 @@ trait Login1 {
     fn hibernate(&self, interactive: bool) -> zbus::Result<()>;
     fn hybrid_sleep(&self, interactive: bool) -> zbus::Result<()>;
     fn suspend_then_hibernate(&self, interactive: bool) -> zbus::Result<()>;
+    // The *WithFlags calls (systemd 246+) take SD_LOGIND_* flags; see
+    // `SKIP_INHIBITORS`.
+    fn power_off_with_flags(&self, flags: u64) -> zbus::Result<()>;
+    fn reboot_with_flags(&self, flags: u64) -> zbus::Result<()>;
+    fn suspend_with_flags(&self, flags: u64) -> zbus::Result<()>;
+    fn hibernate_with_flags(&self, flags: u64) -> zbus::Result<()>;
+    fn hybrid_sleep_with_flags(&self, flags: u64) -> zbus::Result<()>;
+    fn suspend_then_hibernate_with_flags(&self, flags: u64) -> zbus::Result<()>;
     /// (what, who, why, mode, uid, pid) of every inhibitor.
     fn list_inhibitors(&self) -> zbus::Result<Vec<(String, String, String, String, u32, u32)>>;
     #[zbus(property)]
@@ -47,6 +55,71 @@ trait Login1 {
     fn handle_lid_switch_docked(&self) -> zbus::Result<String>;
     #[zbus(property)]
     fn handle_power_key(&self) -> zbus::Result<String>;
+}
+
+/// SD_LOGIND_SKIP_INHIBITORS (systemd 256): do it although a program holds a
+/// block inhibitor. Since 256 logind refuses root too while one is held
+/// ("Operation denied due to active block inhibitor"), so "sleep anyway"
+/// needs it. Delay inhibitors still run (a shell that locks the screen
+/// before sleeping still gets to).
+const SKIP_INHIBITORS: u64 = 1 << 4;
+
+/// logind's error while a block inhibitor is held.
+const BLOCKED_BY_INHIBITOR: &str = "org.freedesktop.login1.BlockedByInhibitorLock";
+
+/// Errors of the Power interface. `Blocked` carries a plain sentence; the
+/// programs holding the block are listed by `Blockers`.
+#[derive(Debug, zbus::DBusError)]
+#[zbus(prefix = "org.unixguardian.Power")]
+pub enum PowerError {
+    #[zbus(error)]
+    ZBus(zbus::Error),
+    Blocked(String),
+}
+
+impl From<zbus::fdo::Error> for PowerError {
+    fn from(e: zbus::fdo::Error) -> Self {
+        PowerError::ZBus(e.into())
+    }
+}
+
+/// Why `perform` failed.
+#[derive(Debug, PartialEq)]
+pub enum Refused {
+    /// A program holds a block inhibitor on this action.
+    Blocked,
+    Other(String),
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Refused::Blocked => f.write_str("another program is holding it off (block inhibitor)"),
+            Refused::Other(m) => f.write_str(m),
+        }
+    }
+}
+
+/// The inhibitor `what` an action is blocked by.
+fn inhibit_what(a: Action) -> &'static str {
+    match a {
+        Action::PowerOff | Action::Reboot | Action::RebootFirmware => "shutdown",
+        _ => "sleep",
+    }
+}
+
+/// The block inhibitors that stop `what`, as (who, why), from logind's
+/// (what, who, why, mode, uid, pid) list. Delay inhibitors only postpone
+/// it for a moment and are left out. `what` lists are colon-separated
+/// ("idle:sleep").
+pub fn blocking(
+    list: &[(String, String, String, String, u32, u32)],
+    what: &str,
+) -> Vec<(String, String)> {
+    list.iter()
+        .filter(|i| i.3 == "block" && i.0.split(':').any(|w| w == what))
+        .map(|i| (i.1.clone(), i.2.clone()))
+        .collect()
 }
 
 /// Who carries power actions out.
@@ -98,21 +171,75 @@ impl Backend {
         }
     }
 
-    async fn perform(&self, a: Action) -> Result<(), String> {
+    /// The block inhibitors on `a` now, as (who, why). A development run
+    /// reads made-up ones from the file in UG_SIMULATED_INHIBITORS
+    /// ("what|who|why" per line), for the end-to-end check.
+    pub async fn blockers(&self, a: Action) -> Vec<(String, String)> {
+        let list = match self {
+            Backend::Simulated(_) => std::env::var_os("UG_SIMULATED_INHIBITORS")
+                .and_then(|f| std::fs::read_to_string(f).ok())
+                .unwrap_or_default()
+                .lines()
+                .filter_map(|l| {
+                    let mut p = l.splitn(3, '|');
+                    let (w, who, why) = (p.next()?, p.next()?, p.next()?);
+                    Some((w.into(), who.into(), why.into(), "block".into(), 0, 0))
+                })
+                .collect(),
+            Backend::Logind(conn) => match Login1Proxy::new(conn).await {
+                Ok(p) => p.list_inhibitors().await.unwrap_or_default(),
+                Err(_) => Vec::new(),
+            },
+        };
+        blocking(&list, inhibit_what(a))
+    }
+
+    /// Does it; `anyway` skips block inhibitors (the caller has been asked).
+    async fn perform(&self, a: Action, anyway: bool) -> Result<(), Refused> {
         let conn = match self {
             Backend::Simulated(log) => {
+                if !anyway && !self.blockers(a).await.is_empty() {
+                    return Err(Refused::Blocked);
+                }
                 tracing::warn!(
                     action = a.name(),
                     "development run: power action simulated, nothing happened"
                 );
-                log.lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .push(a.name().to_string());
+                let entry = if anyway {
+                    format!("{} (inhibitors skipped)", a.name())
+                } else {
+                    a.name().to_string()
+                };
+                log.lock().unwrap_or_else(|e| e.into_inner()).push(entry);
                 return Ok(());
             }
             Backend::Logind(c) => c,
         };
-        let p = Login1Proxy::new(conn).await.map_err(|e| e.to_string())?;
+        let p = Login1Proxy::new(conn)
+            .await
+            .map_err(|e| Refused::Other(e.to_string()))?;
+        if anyway {
+            let f = SKIP_INHIBITORS;
+            let r = match a {
+                Action::PowerOff => p.power_off_with_flags(f).await,
+                Action::Reboot => p.reboot_with_flags(f).await,
+                Action::Suspend => p.suspend_with_flags(f).await,
+                Action::Hibernate => p.hibernate_with_flags(f).await,
+                Action::HybridSleep => p.hybrid_sleep_with_flags(f).await,
+                Action::SuspendThenHibernate => p.suspend_then_hibernate_with_flags(f).await,
+                Action::RebootFirmware => match p.set_reboot_to_firmware_setup(true).await {
+                    Ok(()) => p.reboot_with_flags(f).await,
+                    Err(e) => Err(e),
+                },
+            };
+            match r {
+                // elogind and older logind have no *WithFlags; they also let
+                // root through a block inhibitor, so the plain call below
+                // does the same thing there.
+                Err(zbus::Error::MethodError(n, ..)) if n.as_str().ends_with("UnknownMethod") => {}
+                other => return other.map_err(refused),
+            }
+        }
         // Not interactive: the caller was already authorised by our polkit
         // action, and a scheduled job has nobody to answer a prompt.
         let r = match a {
@@ -129,10 +256,15 @@ impl Backend {
                 Err(e) => Err(e),
             },
         };
-        r.map_err(|e| match e {
-            zbus::Error::MethodError(_, Some(msg), _) => msg,
-            other => other.to_string(),
-        })
+        r.map_err(refused)
+    }
+}
+
+fn refused(e: zbus::Error) -> Refused {
+    match e {
+        zbus::Error::MethodError(n, ..) if n.as_str() == BLOCKED_BY_INHIBITOR => Refused::Blocked,
+        zbus::Error::MethodError(_, Some(msg), _) => Refused::Other(msg),
+        other => Refused::Other(other.to_string()),
     }
 }
 
@@ -346,18 +478,71 @@ impl PowerIface {
         &self,
         #[zbus(header)] hdr: zbus::message::Header<'_>,
         action: &str,
-    ) -> zbus::fdo::Result<()> {
+    ) -> Result<(), PowerError> {
         let a = Action::parse(action).map_err(invalid)?;
         self.gate.authorize(&hdr, action::POWER).await?;
         let (ok, why) = self.backend.capability(a).await;
         if !ok {
-            return Err(zbus::fdo::Error::NotSupported(why));
+            return Err(zbus::fdo::Error::NotSupported(why).into());
         }
         tracing::info!(action = a.name(), "power action requested now");
+        match self.backend.perform(a, false).await {
+            Ok(()) => Ok(()),
+            Err(Refused::Blocked) => {
+                let who: Vec<String> = self
+                    .backend
+                    .blockers(a)
+                    .await
+                    .into_iter()
+                    .map(|(who, why)| format!("{who} ({why})"))
+                    .collect();
+                Err(PowerError::Blocked(format!(
+                    "Other programs are holding the computer awake: {}.",
+                    if who.is_empty() {
+                        "unknown".into()
+                    } else {
+                        who.join(", ")
+                    }
+                )))
+            }
+            Err(Refused::Other(m)) => Err(zbus::fdo::Error::Failed(m).into()),
+        }
+    }
+
+    /// The programs holding a block on `action` now, as (who, why). Delay
+    /// inhibitors are not listed: they only postpone it a moment.
+    async fn blockers(&self, action: &str) -> zbus::fdo::Result<Vec<(String, String)>> {
+        let a = Action::parse(action).map_err(invalid)?;
+        Ok(self.backend.blockers(a).await)
+    }
+
+    /// Does it although programs hold a block on it: the user saw the list
+    /// (`Blockers`) and chose to go ahead. The client locks the screen first
+    /// for a sleep; a wake alarm already set stays set.
+    async fn now_anyway(
+        &self,
+        #[zbus(header)] hdr: zbus::message::Header<'_>,
+        action: &str,
+    ) -> Result<(), PowerError> {
+        let a = Action::parse(action).map_err(invalid)?;
+        self.gate.authorize(&hdr, action::POWER).await?;
+        self.gate
+            .authorize(&hdr, action::POWER_IGNORE_INHIBIT)
+            .await?;
+        let (ok, why) = self.backend.capability(a).await;
+        if !ok {
+            return Err(zbus::fdo::Error::NotSupported(why).into());
+        }
+        let blockers = self.backend.blockers(a).await;
+        tracing::warn!(
+            action = a.name(),
+            ?blockers,
+            "power action now, past block inhibitors"
+        );
         self.backend
-            .perform(a)
+            .perform(a, true)
             .await
-            .map_err(zbus::fdo::Error::Failed)
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()).into())
     }
 
     async fn schedule(
@@ -757,7 +942,7 @@ pub async fn run(
                 action = j.action.name(),
                 "running scheduled power action"
             );
-            if let Err(e) = backend.perform(j.action).await {
+            if let Err(e) = backend.perform(j.action, false).await {
                 tracing::error!(id = j.id, error = %e, "scheduled power action failed");
                 continue;
             }
@@ -801,7 +986,7 @@ pub async fn watch(
                 action = w.action.name(),
                 "condition met; running power action"
             );
-            if let Err(e) = backend.perform(w.action).await {
+            if let Err(e) = backend.perform(w.action, false).await {
                 tracing::error!(id = w.id, error = %e, "conditional power action failed");
             }
         }
@@ -897,5 +1082,77 @@ pub async fn keep_battery(battery: SharedBattery, system: Option<zbus::Connectio
             _ = resume => tracing::info!("resumed; applying battery protection again"),
         }
         reapply(&battery).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn inh(
+        what: &str,
+        who: &str,
+        why: &str,
+        mode: &str,
+    ) -> (String, String, String, String, u32, u32) {
+        (what.into(), who.into(), why.into(), mode.into(), 0, 0)
+    }
+
+    #[test]
+    fn only_block_inhibitors_on_that_action_are_blockers() {
+        // The list on the user's laptop when "sleep until" was refused.
+        let list = vec![
+            inh(
+                "sleep",
+                "NetworkManager",
+                "NetworkManager needs to turn off networks",
+                "delay",
+            ),
+            inh("sleep:idle", "Ryoku", "Ryoku caffeine mode", "block"),
+            inh(
+                "handle-lid-switch",
+                "ryoku-clamshell",
+                "route lid close",
+                "block",
+            ),
+            inh(
+                "sleep",
+                "ryoku-shell",
+                "finish securing the session lock before suspend",
+                "delay",
+            ),
+            inh(
+                "sleep",
+                "ryoku-shell",
+                "route suspend through a compositor-secure session lock",
+                "block",
+            ),
+        ];
+        assert_eq!(
+            blocking(&list, "sleep"),
+            [
+                ("Ryoku".to_string(), "Ryoku caffeine mode".to_string()),
+                (
+                    "ryoku-shell".to_string(),
+                    "route suspend through a compositor-secure session lock".to_string()
+                ),
+            ]
+        );
+        assert!(blocking(&list, "shutdown").is_empty());
+        assert_eq!(inhibit_what(Action::Suspend), "sleep");
+        assert_eq!(inhibit_what(Action::Reboot), "shutdown");
+    }
+
+    #[test]
+    fn logind_refusing_for_an_inhibitor_is_told_apart() {
+        let e = zbus::Error::MethodError(
+            zbus::names::OwnedErrorName::try_from(BLOCKED_BY_INHIBITOR).unwrap(),
+            Some("Operation denied due to active block inhibitor".into()),
+            zbus::message::Message::method_call("/", "X")
+                .unwrap()
+                .build(&())
+                .unwrap(),
+        );
+        assert_eq!(refused(e), Refused::Blocked);
     }
 }
