@@ -573,3 +573,27 @@ before the agent recorded is not shown); screen-on is DRM DPMS, so an
 external monitor that is on counts as screen on; Limine is supported only
 through /etc/kernel/cmdline (limine-entry-tool's KERNEL_CMDLINE is left to
 the user).
+
+## 2026-10-18: Threshold alerts (Phoenix Guardian parity item 1)
+
+Ideas only from Phoenix Guardian; no code, icons or text copied.
+- Agent: `alerts.rs` + `Agent1.Alerts` (State, Set, Test, Clear).
+  Settings in `alerts.json` (config), last 50 alerts in
+  `alerts-recent.json` (data). CPU temp 90 °C, GPU temp 85 °C, GPU
+  hotspot 100 / VRAM 95 °C (off; offered only once a card reported
+  them), memory 90 % (off), disk 95 % on `/`. Defaults on: CPU, GPU,
+  disk (picked by the coordinator for the user). Sensitivity 3–30 s
+  (default 10): the reading must stay above the limit the whole time;
+  a dip, missing reading or >8 s gap (suspend) restarts it. Cooldown
+  5/15/30/60/120 min (default 30) per kind + subject, carried over
+  restarts through the recent list. Read every 2 s only while an alert
+  is on; GPU from the daemon snapshot (a sleeping card is never woken:
+  `asleep`). DnD held by game mode / notifications off: recorded with
+  `held` = `dnd`/`off`, not shown. `UG_ALERTS_SYSROOT` only in a test run.
+- CLI `ug alert list|set|test|clear`; `scripts/alerts-e2e.sh` (CI).
+- Window: Monitoring → Alerts tab (`lib/AlertsPanel.svelte`), Dashboard
+  "Last alert" card; App follows `#page/tab` links. New drawn icons
+  `hard-drive`, `temperature` (`port-hugeicons.cjs --custom-only`).
+- TUI: Monitoring 4th tab "Alerts". Test lab: `alerts` step (read-only,
+  test notification is a manual item).
+- Not seen yet on the real desktop: a real alert firing, DnD holding one.

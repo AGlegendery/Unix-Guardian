@@ -6,7 +6,18 @@ in minutes. **Update this file after every finished item and commit it.**
 Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 `05-findings.md`, `07-conventions.md`, `03-architecture.md`.
 
-Last updated: 2026-10-17 (visual fixes, Settings regrouped; on `main`).
+Last updated: 2026-10-18 (threshold alerts; on `main`).
+
+## Now (2026-10-18): threshold alerts ✅
+
+Phoenix Guardian parity list, item 1 (see 04-status "Threshold alerts").
+Agent `alerts.rs` + Agent1.Alerts, `ug alert`, window Monitoring →
+Alerts + Dashboard card, TUI Monitoring tab 4, test-lab step,
+`scripts/alerts-e2e.sh` in CI. Release binaries and window rebuilt.
+**Waiting on the user:** `sudo ./scripts/dev-install.sh`, then "Send a
+test alert" and a real alert (e.g. `ug alert set cpu 50` with
+`ug alert set sensitivity 3`, then put it back with `ug alert set cpu 90`).
+Next parity items: ask the coordinator.
 
 ## Now (2026-10-17): visual fixes + Settings regrouped ✅
 
