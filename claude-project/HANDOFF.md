@@ -8,7 +8,21 @@ Details live in `04-status.md` (per-task truth), `02-decisions.md`,
 
 Last updated: 2026-10-18 (threshold alerts; on `main`).
 
-## Now (2026-10-18): threshold alerts ✅
+## Now (2026-10-18, later): the user's visual notes ✅
+
+User could not find the alerts (install was fine: they live in
+Monitoring → 5th tab; Settings → Notifications now links there) and
+the visual notes from their Phoenix analysis were not done. Done in
+`1ac4a2b`: darker 3-level surfaces + Pure black (OLED) option,
+category colours (cpu blue, gpu green, mem teal, net light violet,
+power yellow, danger red) via `data-cat` / `--cat`, coloured card
+hover in both motion styles, `ui/ModeSwitch.svelte` (big switch + On /
+Off / Waiting for a game badge) on game mode, replay buffer, overlay,
+background slowdown, one-shot rainbow border (2 sweeps, then still),
+brighter off switches, TUI tile colours + game-mode badge.
+**Waiting on the user:** reinstall, look at it, say what to change.
+
+## Before (2026-10-18): threshold alerts ✅
 
 Phoenix Guardian parity list, item 1 (see 04-status "Threshold alerts").
 Agent `alerts.rs` + Agent1.Alerts, `ug alert`, window Monitoring →
